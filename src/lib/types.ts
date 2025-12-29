@@ -1,0 +1,102 @@
+import { z } from "zod";
+
+// Status for our kanban board
+export type SessionStatus = "inbox" | "active" | "inactive" | "done";
+
+// Zod schemas for Claude Code JSONL format
+export const SummaryEntrySchema = z.object({
+  type: z.literal("summary"),
+  summary: z.string(),
+  leafUuid: z.string().optional(),
+});
+
+export const MessageContentSchema = z.object({
+  content: z.string(),
+  role: z.enum(["user", "assistant"]),
+});
+
+export const UserEntrySchema = z.object({
+  type: z.literal("user"),
+  timestamp: z.string(),
+  sessionId: z.string(),
+  gitBranch: z.string().optional(),
+  message: MessageContentSchema,
+  uuid: z.string().optional(),
+  cwd: z.string().optional(),
+});
+
+export const AssistantEntrySchema = z.object({
+  type: z.literal("assistant"),
+  timestamp: z.string(),
+  sessionId: z.string().optional(),
+  gitBranch: z.string().optional(),
+  message: z.any().optional(),
+  uuid: z.string().optional(),
+});
+
+// Union of all entry types we care about
+export const SessionEntrySchema = z.discriminatedUnion("type", [
+  SummaryEntrySchema,
+  UserEntrySchema,
+  AssistantEntrySchema,
+  // Catch-all for other types we don't need to parse fully
+  z.object({ type: z.literal("file-history-snapshot") }).passthrough(),
+]);
+
+// Session metadata extracted from JSONL files
+export interface SessionMetadata {
+  id: string;
+  title: string;
+  project: string;
+  projectPath: string;
+  lastActivity: Date;
+  messageCount: number;
+  gitBranch: string | null;
+  firstPrompt: string | null;
+  slug: string | null;  // Claude Code's internal session name (e.g., "dynamic-tickling-thunder")
+}
+
+// Isolation state for worktree-based sessions
+export interface SessionIsolation {
+  enabled: true;
+  workspacePath: string;      // ~/.claude-kanban/workspaces/<id>/workspace
+  sourcePath: string;         // Original project path
+  branchName: string;         // claude-kanban/<session-id-short>
+  baseBranch: string;         // Branch we forked from (usually main)
+  baseCommit: string;         // Commit SHA we forked from
+  createdAt: string;
+}
+
+// Session with status from our database
+export interface Session extends SessionMetadata {
+  status: SessionStatus;
+  sortOrder?: number;
+  // For new sessions started from inbox
+  isNew?: boolean;
+  initialPrompt?: string;
+  // Worktree isolation
+  isolation?: SessionIsolation;
+}
+
+// Inbox item (draft prompt)
+export interface InboxItem {
+  id: string;
+  prompt: string;
+  projectPath: string | null;
+  createdAt: Date;
+  sortOrder: number;
+}
+
+// API response types
+export interface SessionsResponse {
+  sessions: Session[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface StatusUpdateRequest {
+  sessionId: string;
+  status: SessionStatus;
+  sortOrder?: number;
+}

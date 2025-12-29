@@ -43,3 +43,9 @@ next-env.d.ts
 # Git worktrees (Crystal)
 /worktrees/
 /worktree-*/
+
+# User data
+/data/
+
+# Claude Code settings
+.claude/

@@ -1,0 +1,267 @@
+import * as fs from "fs";
+import * as path from "path";
+import * as readline from "readline";
+import { SessionMetadata, SummaryEntrySchema } from "./types";
+
+const CLAUDE_PROJECTS_DIR = path.join(
+  process.env.HOME || "~",
+  ".claude",
+  "projects"
+);
+
+/**
+ * Decode a Claude project folder name back to the original path
+ * e.g., "-Users-jruck-Bridge" -> "/Users/jruck/Bridge"
+ * Handles folder names with hyphens by checking filesystem
+ */
+function decodeProjectPath(folderName: string): string {
+  // Remove leading hyphen and split by hyphen, filtering empty parts
+  const parts = folderName.slice(1).split("-").filter(Boolean);
+
+  // Try to reconstruct the path by checking which combinations exist
+  let currentPath = "";
+  let i = 0;
+
+  while (i < parts.length) {
+    // Try progressively longer hyphenated names
+    let found = false;
+    for (let j = parts.length; j > i; j--) {
+      const segment = parts.slice(i, j).join("-");
+      const testPath = currentPath + "/" + segment;
+
+      if (fs.existsSync(testPath)) {
+        currentPath = testPath;
+        i = j;
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      // Single segment (might not exist yet, but continue)
+      currentPath = currentPath + "/" + parts[i];
+      i++;
+    }
+  }
+
+  return currentPath;
+}
+
+/**
+ * Extract a friendly project name from the path
+ * e.g., "/Users/jruck/Bridge" -> "Bridge"
+ */
+function getProjectName(projectPath: string): string {
+  const parts = projectPath.split("/").filter(Boolean);
+  return parts[parts.length - 1] || projectPath;
+}
+
+/**
+ * Parse a single JSONL session file and extract metadata
+ */
+async function parseSessionFile(
+  filePath: string,
+  projectPath: string
+): Promise<SessionMetadata | null> {
+  const sessionId = path.basename(filePath, ".jsonl");
+
+  // Skip agent files
+  if (sessionId.startsWith("agent-")) {
+    return null;
+  }
+
+  let summary: string | null = null;
+  let firstPrompt: string | null = null;
+  let lastTimestamp: Date | null = null;
+  let messageCount = 0;
+  let gitBranch: string | null = null;
+  let slug: string | null = null;
+
+  try {
+    const fileStream = fs.createReadStream(filePath);
+    const rl = readline.createInterface({
+      input: fileStream,
+      crlfDelay: Infinity,
+    });
+
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+
+      try {
+        const entry = JSON.parse(line);
+
+        // Get summary from first line
+        if (entry.type === "summary" && !summary) {
+          const parsed = SummaryEntrySchema.safeParse(entry);
+          if (parsed.success) {
+            summary = parsed.data.summary;
+          }
+        }
+
+        // Count user/assistant messages and track timestamps
+        if (entry.type === "user" || entry.type === "assistant") {
+          messageCount++;
+
+          if (entry.timestamp) {
+            const ts = new Date(entry.timestamp);
+            if (!lastTimestamp || ts > lastTimestamp) {
+              lastTimestamp = ts;
+            }
+          }
+
+          // Get git branch from first message that has it
+          if (entry.gitBranch && !gitBranch) {
+            gitBranch = entry.gitBranch;
+          }
+
+          // Get slug (Claude Code's internal session name)
+          if (entry.slug && !slug) {
+            slug = entry.slug;
+          }
+
+          // Get first user prompt
+          if (
+            entry.type === "user" &&
+            !firstPrompt &&
+            entry.message?.content
+          ) {
+            const content = entry.message.content;
+            firstPrompt =
+              typeof content === "string"
+                ? content.slice(0, 200)
+                : String(content).slice(0, 200);
+          }
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+
+    // Skip empty sessions
+    if (messageCount === 0) {
+      return null;
+    }
+
+    return {
+      id: sessionId,
+      title: summary || firstPrompt?.slice(0, 50) || "Untitled Session",
+      project: getProjectName(projectPath),
+      projectPath,
+      lastActivity: lastTimestamp || new Date(fs.statSync(filePath).mtime),
+      messageCount,
+      gitBranch,
+      firstPrompt,
+      slug,
+    };
+  } catch (error) {
+    console.error(`Error parsing session file ${filePath}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Get all sessions, optionally filtered by a base path prefix
+ */
+export async function getSessions(
+  basePath?: string
+): Promise<SessionMetadata[]> {
+  const sessions: SessionMetadata[] = [];
+
+  if (!fs.existsSync(CLAUDE_PROJECTS_DIR)) {
+    return sessions;
+  }
+
+  const projectFolders = fs.readdirSync(CLAUDE_PROJECTS_DIR);
+
+  for (const folder of projectFolders) {
+    // Skip hidden files
+    if (folder.startsWith(".")) continue;
+
+    const projectPath = decodeProjectPath(folder);
+
+    // Filter by base path if provided
+    if (basePath && !projectPath.startsWith(basePath)) {
+      continue;
+    }
+
+    const projectDir = path.join(CLAUDE_PROJECTS_DIR, folder);
+    const stat = fs.statSync(projectDir);
+
+    if (!stat.isDirectory()) continue;
+
+    const files = fs.readdirSync(projectDir);
+    const jsonlFiles = files.filter((f) => f.endsWith(".jsonl"));
+
+    for (const file of jsonlFiles) {
+      const filePath = path.join(projectDir, file);
+      const metadata = await parseSessionFile(filePath, projectPath);
+      if (metadata) {
+        sessions.push(metadata);
+      }
+    }
+  }
+
+  // Sort by last activity (most recent first)
+  sessions.sort((a, b) => b.lastActivity.getTime() - a.lastActivity.getTime());
+
+  return sessions;
+}
+
+/**
+ * Get a single session by ID
+ */
+export async function getSessionById(
+  sessionId: string
+): Promise<SessionMetadata | null> {
+  if (!fs.existsSync(CLAUDE_PROJECTS_DIR)) {
+    return null;
+  }
+
+  const projectFolders = fs.readdirSync(CLAUDE_PROJECTS_DIR);
+
+  for (const folder of projectFolders) {
+    if (folder.startsWith(".")) continue;
+
+    const projectDir = path.join(CLAUDE_PROJECTS_DIR, folder);
+    const filePath = path.join(projectDir, `${sessionId}.jsonl`);
+
+    if (fs.existsSync(filePath)) {
+      const projectPath = decodeProjectPath(folder);
+      return parseSessionFile(filePath, projectPath);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Watch for changes in the Claude projects directory
+ */
+export function watchSessions(
+  callback: () => void,
+  basePath?: string
+): () => void {
+  // Dynamic import chokidar since it's ESM
+  let watcher: any = null;
+
+  import("chokidar").then((chokidar) => {
+    const watchPath = path.join(CLAUDE_PROJECTS_DIR, "**/*.jsonl");
+    watcher = chokidar.watch(watchPath, {
+      ignoreInitial: true,
+      awaitWriteFinish: {
+        stabilityThreshold: 500,
+        pollInterval: 100,
+      },
+    });
+
+    watcher.on("add", callback);
+    watcher.on("change", callback);
+    watcher.on("unlink", callback);
+  });
+
+  return () => {
+    if (watcher) {
+      watcher.close();
+    }
+  };
+}

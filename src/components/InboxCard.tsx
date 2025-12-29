@@ -1,0 +1,201 @@
+"use client";
+
+import { useState, useRef, useEffect } from "react";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { Trash2, Play, FileText, Square, CheckSquare, Pencil, Check, X } from "lucide-react";
+
+interface InboxItem {
+  id: string;
+  prompt: string;
+  projectPath: string | null;
+  createdAt: string;
+  sortOrder: number;
+}
+
+interface InboxCardProps {
+  item: InboxItem;
+  onDelete?: () => void;
+  onStart?: () => void;
+  onUpdate?: (prompt: string) => void;
+  isSelected?: boolean;
+  onSelect?: (item: InboxItem, selected: boolean) => void;
+  isEditing?: boolean;
+  onEditingChange?: (editing: boolean) => void;
+}
+
+export function InboxCard({
+  item,
+  onDelete,
+  onStart,
+  onUpdate,
+  isSelected,
+  onSelect,
+  isEditing: externalIsEditing,
+  onEditingChange,
+}: InboxCardProps) {
+  const [isEditing, setIsEditing] = useState(externalIsEditing ?? false);
+  const [editValue, setEditValue] = useState(item.prompt);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: `inbox-${item.id}`, disabled: isEditing });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  // Sync with external editing state
+  useEffect(() => {
+    if (externalIsEditing !== undefined) {
+      setIsEditing(externalIsEditing);
+      if (externalIsEditing) {
+        setEditValue(item.prompt);
+      }
+    }
+  }, [externalIsEditing, item.prompt]);
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
+
+  const handleSave = () => {
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== item.prompt) {
+      onUpdate?.(trimmed);
+    }
+    setIsEditing(false);
+    onEditingChange?.(false);
+  };
+
+  const handleCancel = () => {
+    setEditValue(item.prompt);
+    setIsEditing(false);
+    onEditingChange?.(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === "Escape") {
+      handleCancel();
+    }
+  };
+
+  const startEditing = () => {
+    setEditValue(item.prompt);
+    setIsEditing(true);
+    onEditingChange?.(true);
+  };
+
+  if (isEditing) {
+    return (
+      <div
+        ref={setNodeRef}
+        style={style}
+        className="relative bg-blue-950/30 border border-blue-500 rounded-lg p-3 shadow-sm"
+      >
+        <div className="flex items-center gap-1 text-xs text-blue-400 mb-1">
+          <FileText className="w-3 h-3" />
+          <span>Draft prompt</span>
+        </div>
+        <textarea
+          ref={inputRef}
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={handleSave}
+          placeholder="Enter your prompt..."
+          className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500 resize-none"
+          rows={2}
+        />
+        <div className="flex justify-end gap-1 mt-2">
+          <button
+            onClick={handleCancel}
+            className="p-1 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 rounded transition-colors"
+            title="Cancel"
+          >
+            <X className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleSave}
+            className="p-1 text-green-500 hover:text-green-400 hover:bg-zinc-700 rounded transition-colors"
+            title="Save"
+          >
+            <Check className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={`
+        group relative bg-blue-950/30 border rounded-lg p-3
+        hover:border-blue-700/50 transition-colors cursor-grab
+        ${isDragging ? "shadow-xl ring-2 ring-blue-500" : "shadow-sm"}
+        ${isSelected ? "border-blue-500 bg-blue-500/10" : "border-blue-800/50"}
+      `}
+    >
+      {/* Hover actions - checkbox, edit, play, trash */}
+      <div className={`
+        absolute top-2 right-2 flex items-center gap-1
+        ${isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"}
+        transition-opacity
+      `}>
+        <button
+          onClick={(e) => { e.stopPropagation(); onSelect?.(item, !isSelected); }}
+          className="p-1 text-zinc-500 hover:text-blue-400 hover:bg-zinc-700 rounded transition-colors"
+          title={isSelected ? "Deselect" : "Select"}
+        >
+          {isSelected ? <CheckSquare className="w-4 h-4 text-blue-400" /> : <Square className="w-4 h-4" />}
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); startEditing(); }}
+          className="p-1 text-zinc-500 hover:text-yellow-400 hover:bg-zinc-700 rounded transition-colors"
+          title="Edit prompt"
+        >
+          <Pencil className="w-4 h-4" />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onStart?.(); }}
+          className="p-1 text-zinc-500 hover:text-green-400 hover:bg-zinc-700 rounded transition-colors"
+          title="Start session with this prompt"
+        >
+          <Play className="w-4 h-4" />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
+          className="p-1 text-zinc-500 hover:text-red-400 hover:bg-zinc-700 rounded transition-colors"
+          title="Delete draft"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="flex items-center gap-1 text-xs text-blue-400 mb-1">
+        <FileText className="w-3 h-3" />
+        <span>Draft prompt</span>
+      </div>
+      <p className="text-sm text-zinc-300 line-clamp-3 pr-20">{item.prompt}</p>
+    </div>
+  );
+}

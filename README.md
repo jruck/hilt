@@ -2,8 +2,6 @@
 
 A Kanban-style board for managing Claude Code sessions. Visualize, organize, and run your Claude Code sessions from a clean, drag-and-drop interface.
 
-![Claude Kanban](build/icon.svg)
-
 ## Features
 
 - **Native macOS App** - Standalone app with custom icon and proper window controls

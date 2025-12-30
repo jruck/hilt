@@ -76,11 +76,12 @@ export function TerminalDrawer({
   return (
     <div
       className={`
-        fixed right-0 top-0 h-full bg-zinc-900 border-l border-zinc-800
+        fixed right-0 top-14 h-[calc(100%-56px)] bg-zinc-900 border-l border-zinc-800
         transition-all duration-300 ease-in-out z-50
         ${isOpen ? "w-[700px]" : "w-0"}
         flex flex-col
       `}
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
     >
       {/* Header */}
       <div className="flex items-center justify-between p-2 border-b border-zinc-800 bg-zinc-950">

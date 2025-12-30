@@ -10,9 +10,10 @@ import {
   Folder,
   Lock,
   Play,
-  Trash2,
+  CheckCircle,
   Square,
   CheckSquare,
+  Trash2,
 } from "lucide-react";
 
 interface SessionCardProps {

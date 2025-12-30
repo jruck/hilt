@@ -333,11 +333,16 @@ export function Board() {
 
   return (
     <div className="flex flex-col h-screen bg-zinc-950">
-      {/* Status Bar */}
-      <div className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border-b border-zinc-800">
+      {/* Status Bar - draggable for window movement, with padding for macOS traffic lights */}
+      <div
+        className="flex items-center gap-2 pl-20 pr-4 py-2 bg-zinc-900 border-b border-zinc-800"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      >
         <span className="text-xs text-zinc-500">Scope:</span>
         {scopePath && (
-          <FolderPicker value={scopePath} onChange={handleScopeChange} />
+          <div style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+            <FolderPicker value={scopePath} onChange={handleScopeChange} />
+          </div>
         )}
       </div>
 

@@ -49,3 +49,7 @@ next-env.d.ts
 
 # Claude Code settings
 .claude/
+
+# Electron
+/dist-electron/
+/release/

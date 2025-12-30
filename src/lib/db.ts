@@ -2,7 +2,8 @@ import * as fs from "fs";
 import * as path from "path";
 import { SessionStatus } from "./types";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+// Use DATA_DIR env var if set (for Electron app), otherwise use local ./data
+const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
 const STATUS_FILE = path.join(DATA_DIR, "session-status.json");
 const INBOX_FILE = path.join(DATA_DIR, "inbox.json");
 

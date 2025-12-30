@@ -1,0 +1,64 @@
+{
+  "appId": "com.claudekanban.app",
+  "productName": "Claude Kanban",
+  "directories": {
+    "output": "release",
+    "buildResources": "build"
+  },
+  "npmRebuild": false,
+  "asar": false,
+  "extraResources": [
+    {
+      "from": ".next",
+      "to": "app/.next"
+    },
+    {
+      "from": "server",
+      "to": "app/server"
+    },
+    {
+      "from": "src/lib",
+      "to": "app/src/lib"
+    },
+    {
+      "from": "node_modules",
+      "to": "app/node_modules"
+    },
+    {
+      "from": "package.json",
+      "to": "app/package.json"
+    },
+    {
+      "from": "build/icon.icns",
+      "to": "icon.icns"
+    }
+  ],
+  "mac": {
+    "category": "public.app-category.developer-tools",
+    "icon": "build/icon.icns",
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "build/entitlements.mac.plist",
+    "entitlementsInherit": "build/entitlements.mac.plist",
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["arm64"]
+      }
+    ]
+  },
+  "dmg": {
+    "contents": [
+      {
+        "x": 130,
+        "y": 220
+      },
+      {
+        "x": 410,
+        "y": 220,
+        "type": "link",
+        "path": "/Applications"
+      }
+    ]
+  }
+}

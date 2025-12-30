@@ -13,7 +13,6 @@ import {
   CheckCircle,
   Square,
   CheckSquare,
-  Trash2,
 } from "lucide-react";
 
 interface SessionCardProps {
@@ -91,10 +90,10 @@ export function SessionCard({ session, onOpen, onDelete, status, isSelected, onS
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onDelete?.(session); }}
-          className="p-1 text-zinc-500 hover:text-red-400 hover:bg-zinc-700 rounded transition-colors"
-          title="Delete session"
+          className="p-1 text-zinc-500 hover:text-emerald-400 hover:bg-zinc-700 rounded transition-colors"
+          title="Mark as done"
         >
-          <Trash2 className="w-4 h-4" />
+          <CheckCircle className="w-4 h-4" />
         </button>
       </div>
 

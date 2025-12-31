@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 :root {
   --background: #0a0a0a;
@@ -49,4 +50,223 @@ body {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* MDXEditor Dark Theme */
+.dark-theme.dark-editor {
+  --accentBase: #18181b;
+  --accentBgSubtle: #27272a;
+  --accentBg: #3f3f46;
+  --accentBgHover: #52525b;
+  --accentBgActive: #71717a;
+  --accentLine: #52525b;
+  --accentBorder: #71717a;
+  --accentBorderHover: #a1a1aa;
+  --accentSolid: #3b82f6;
+  --accentSolidHover: #60a5fa;
+  --accentText: #d4d4d8;
+  --accentTextContrast: #fafafa;
+
+  --baseBase: #09090b;
+  --baseBgSubtle: #18181b;
+  --baseBg: #27272a;
+  --baseBgHover: #3f3f46;
+  --baseBgActive: #52525b;
+  --baseLine: #3f3f46;
+  --baseBorder: #52525b;
+  --baseBorderHover: #71717a;
+  --baseSolid: #71717a;
+  --baseSolidHover: #a1a1aa;
+  --baseText: #a1a1aa;
+  --baseTextContrast: #fafafa;
+
+  --admonitionTipBg: rgba(34, 197, 94, 0.1);
+  --admonitionTipBorder: #22c55e;
+  --admonitionInfoBg: rgba(59, 130, 246, 0.1);
+  --admonitionInfoBorder: #3b82f6;
+  --admonitionCautionBg: rgba(234, 179, 8, 0.1);
+  --admonitionCautionBorder: #eab308;
+  --admonitionDangerBg: rgba(239, 68, 68, 0.1);
+  --admonitionDangerBorder: #ef4444;
+  --admonitionNoteBg: rgba(113, 113, 122, 0.1);
+  --admonitionNoteBorder: #71717a;
+
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  background-color: #0a0a0a;
+  color: #fafafa;
+}
+
+.dark-theme .mdxeditor-toolbar {
+  background-color: #18181b;
+  border-bottom: 1px solid #27272a;
+}
+
+/* Fix MDXEditor dropdown menus in dark mode */
+.dark-theme [role="listbox"],
+.dark-theme [data-radix-popper-content-wrapper] {
+  background-color: #27272a !important;
+  color: #fafafa !important;
+  border: 1px solid #3f3f46 !important;
+  border-radius: 6px !important;
+}
+
+.dark-theme [role="option"] {
+  color: #e4e4e7 !important;
+  background-color: transparent !important;
+}
+
+.dark-theme [role="option"]:hover,
+.dark-theme [role="option"][data-highlighted] {
+  background-color: #3f3f46 !important;
+  color: #fafafa !important;
+}
+
+.dark-theme [role="option"][aria-selected="true"],
+.dark-theme [role="option"][data-state="checked"] {
+  background-color: #3b82f6 !important;
+  color: #fafafa !important;
+}
+
+/* MDXEditor dropdowns are portaled to body - need global selector */
+/* CRITICAL: z-index must be higher than drawer (z-50) */
+body [data-radix-popper-content-wrapper],
+body .mdxeditor-popup-container {
+  background-color: #27272a !important;
+  color: #fafafa !important;
+  z-index: 100 !important;
+}
+
+/* Also target popups inside the editor */
+.mdxeditor-popup-container [data-radix-popper-content-wrapper] {
+  z-index: 100 !important;
+}
+
+body [data-radix-popper-content-wrapper] [role="listbox"] {
+  background-color: #27272a !important;
+  border: 1px solid #3f3f46 !important;
+  border-radius: 6px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+}
+
+body [data-radix-popper-content-wrapper] [role="option"] {
+  color: #e4e4e7 !important;
+  padding: 6px 12px !important;
+}
+
+body [data-radix-popper-content-wrapper] [role="option"]:hover,
+body [data-radix-popper-content-wrapper] [role="option"][data-highlighted="true"] {
+  background-color: #3f3f46 !important;
+}
+
+body [data-radix-popper-content-wrapper] [role="option"][aria-selected="true"] {
+  background-color: #3b82f6 !important;
+  color: #fafafa !important;
+}
+
+/* Fix MDXEditor select trigger (combobox button) in dark mode */
+.dark-theme [role="combobox"],
+.dark-theme button[class*="selectTrigger"] {
+  background-color: #27272a !important;
+  color: #e4e4e7 !important;
+  border: 1px solid #3f3f46 !important;
+}
+
+.dark-theme [role="combobox"]:hover,
+.dark-theme button[class*="selectTrigger"]:hover {
+  background-color: #3f3f46 !important;
+  border-color: #52525b !important;
+}
+
+.dark-theme [role="combobox"] span,
+.dark-theme button[class*="selectTrigger"] span {
+  color: #e4e4e7 !important;
+}
+
+.dark-theme [role="combobox"] svg,
+.dark-theme button[class*="selectTrigger"] svg {
+  color: #a1a1aa !important;
+  fill: #a1a1aa !important;
+}
+
+.dark-theme .mdxeditor-root-contenteditable {
+  background-color: #0a0a0a;
+}
+
+/* Fix contenteditable text color in dark mode */
+.dark-theme [contenteditable] {
+  color: #e4e4e7;
+}
+
+.dark-theme [contenteditable] p {
+  color: #d4d4d8;
+}
+
+/* MDXEditor scroll fix - force all nested containers to fill and scroll */
+.plan-editor-wrapper {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.plan-editor-wrapper .mdxeditor {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  overflow: hidden !important;
+}
+
+/* Only target the content wrapper, not the toolbar */
+.plan-editor-wrapper .mdxeditor > div:not(.mdxeditor-toolbar) {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Ensure toolbar stays horizontal */
+.plan-editor-wrapper .mdxeditor-toolbar {
+  flex-direction: row !important;
+  flex-wrap: wrap !important;
+  flex-shrink: 0 !important;
+}
+
+.plan-editor-wrapper .mdxeditor .mdxeditor-root-contenteditable {
+  flex: 1 !important;
+  overflow: auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  height: auto !important;
+}
+
+/* Target the Lexical editor container */
+.plan-editor-wrapper [data-lexical-editor="true"] {
+  height: 100% !important;
+  overflow-y: auto !important;
+}
+
+/* Ensure the rich text wrapper also scrolls */
+.plan-editor-wrapper .mdxeditor-rich-text-editor {
+  flex: 1 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  min-height: 0 !important;
+}
+
+.plan-editor-wrapper .mdxeditor-rich-text-editor > div {
+  flex: 1 !important;
+  overflow-y: auto !important;
+  min-height: 0 !important;
+}
+
+/* The actual content area needs to scroll */
+.plan-editor-wrapper [contenteditable="true"] {
+  overflow-y: auto !important;
+  max-height: 100% !important;
 }

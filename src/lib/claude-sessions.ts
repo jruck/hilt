@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
-import { SessionMetadata, SummaryEntrySchema } from "./types";
+import { SessionMetadata, SummaryEntry, SummaryEntrySchema } from "./types";
 
 const CLAUDE_PROJECTS_DIR = path.join(
   process.env.HOME || "~",
@@ -72,10 +72,12 @@ async function parseSessionFile(
 
   let summary: string | null = null;
   let firstPrompt: string | null = null;
+  let lastPrompt: string | null = null;
   let lastTimestamp: Date | null = null;
   let messageCount = 0;
   let gitBranch: string | null = null;
   let slug: string | null = null;
+  const slugs = new Set<string>();  // Collect all unique slugs (can change mid-session)
 
   try {
     const fileStream = fs.createReadStream(filePath);
@@ -115,21 +117,37 @@ async function parseSessionFile(
           }
 
           // Get slug (Claude Code's internal session name)
-          if (entry.slug && !slug) {
-            slug = entry.slug;
+          // Collect ALL slugs - they can change mid-session (e.g., when entering plan mode)
+          if (entry.slug) {
+            slugs.add(entry.slug);
+            if (!slug) {
+              slug = entry.slug;  // Keep first slug as primary
+            }
           }
 
-          // Get first user prompt
-          if (
-            entry.type === "user" &&
-            !firstPrompt &&
-            entry.message?.content
-          ) {
+          // Get user prompts (first and last)
+          if (entry.type === "user" && entry.message?.content) {
             const content = entry.message.content;
-            firstPrompt =
-              typeof content === "string"
-                ? content.slice(0, 200)
-                : String(content).slice(0, 200);
+            let promptText: string | null = null;
+
+            if (typeof content === "string") {
+              promptText = content.slice(0, 200);
+            } else if (Array.isArray(content)) {
+              // Content can be an array of blocks - find the first text block
+              const textBlock = content.find(
+                (block: { type?: string; text?: string }) => block.type === "text" && block.text
+              );
+              if (textBlock?.text) {
+                promptText = textBlock.text.slice(0, 200);
+              }
+            }
+
+            if (promptText) {
+              if (!firstPrompt) {
+                firstPrompt = promptText;
+              }
+              lastPrompt = promptText;  // Always update to get the most recent
+            }
           }
         }
       } catch {
@@ -151,7 +169,9 @@ async function parseSessionFile(
       messageCount,
       gitBranch,
       firstPrompt,
+      lastPrompt,
       slug,
+      slugs: Array.from(slugs),
     };
   } catch (error) {
     console.error(`Error parsing session file ${filePath}:`, error);
@@ -232,6 +252,72 @@ export async function getSessionById(
   }
 
   return null;
+}
+
+/**
+ * Get all summaries for a specific session
+ */
+export async function getSummariesForSession(
+  sessionId: string
+): Promise<SummaryEntry[]> {
+  if (!fs.existsSync(CLAUDE_PROJECTS_DIR)) {
+    return [];
+  }
+
+  const projectFolders = fs.readdirSync(CLAUDE_PROJECTS_DIR);
+
+  for (const folder of projectFolders) {
+    if (folder.startsWith(".")) continue;
+
+    const projectDir = path.join(CLAUDE_PROJECTS_DIR, folder);
+    const filePath = path.join(projectDir, `${sessionId}.jsonl`);
+
+    if (fs.existsSync(filePath)) {
+      const summaries: SummaryEntry[] = [];
+      let messageCount = 0;
+
+      try {
+        const fileStream = fs.createReadStream(filePath);
+        const rl = readline.createInterface({
+          input: fileStream,
+          crlfDelay: Infinity,
+        });
+
+        for await (const line of rl) {
+          if (!line.trim()) continue;
+
+          try {
+            const entry = JSON.parse(line);
+
+            // Count user/assistant messages
+            if (entry.type === "user" || entry.type === "assistant") {
+              messageCount++;
+            }
+
+            // Capture summaries with their position
+            if (entry.type === "summary") {
+              const parsed = SummaryEntrySchema.safeParse(entry);
+              if (parsed.success) {
+                summaries.push({
+                  summary: parsed.data.summary,
+                  messageIndex: messageCount,
+                });
+              }
+            }
+          } catch {
+            // Skip malformed lines
+          }
+        }
+
+        return summaries;
+      } catch (error) {
+        console.error(`Error parsing session file ${filePath}:`, error);
+        return [];
+      }
+    }
+  }
+
+  return [];
 }
 
 /**

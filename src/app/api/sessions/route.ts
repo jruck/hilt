@@ -26,8 +26,9 @@ export async function GET(request: NextRequest) {
       const statusData = statuses.get(session.id);
       return {
         ...session,
-        status: statusData?.status || "inactive",
+        status: statusData?.status || "recent",
         sortOrder: statusData?.sortOrder || 0,
+        starred: statusData?.starred || false,
       };
     });
 
@@ -35,8 +36,7 @@ export async function GET(request: NextRequest) {
     const statusOrder: Record<SessionStatus, number> = {
       active: 0,
       inbox: 1,
-      inactive: 2,
-      done: 3,
+      recent: 2,
     };
 
     sessions.sort((a, b) => {
@@ -49,6 +49,13 @@ export async function GET(request: NextRequest) {
       return b.lastActivity.getTime() - a.lastActivity.getTime();
     });
 
+    // Count by status before pagination
+    const counts = {
+      inbox: sessions.filter(s => s.status === "inbox").length,
+      active: sessions.filter(s => s.status === "active").length,
+      recent: sessions.filter(s => s.status === "recent").length,
+    };
+
     // Paginate
     const total = sessions.length;
     const startIndex = (page - 1) * pageSize;
@@ -59,6 +66,7 @@ export async function GET(request: NextRequest) {
       total,
       page,
       pageSize,
+      counts,
     });
   } catch (error) {
     console.error("Error fetching sessions:", error);
@@ -72,26 +80,21 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
-    const { sessionId, status, sortOrder } = body;
+    const { sessionId, status, sortOrder, starred } = body;
 
-    if (!sessionId || !status) {
+    if (!sessionId) {
       return NextResponse.json(
-        { error: "sessionId and status are required" },
+        { error: "sessionId is required" },
         { status: 400 }
       );
     }
 
-    const validStatuses: SessionStatus[] = [
-      "inbox",
-      "active",
-      "inactive",
-      "done",
-    ];
-    if (!validStatuses.includes(status)) {
+    const validStatuses: SessionStatus[] = ["inbox", "active", "recent"];
+    if (status !== undefined && !validStatuses.includes(status)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
 
-    await setSessionStatus(sessionId, status, sortOrder);
+    await setSessionStatus(sessionId, status, sortOrder, starred);
 
     return NextResponse.json({ success: true });
   } catch (error) {

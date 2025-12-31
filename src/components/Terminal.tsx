@@ -5,6 +5,13 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 
+interface PlanEvent {
+  event: "created" | "updated";
+  slug: string;
+  path: string;
+  content: string;
+}
+
 interface TerminalProps {
   terminalId: string;
   sessionId: string;
@@ -12,12 +19,15 @@ interface TerminalProps {
   wsUrl: string;
   isNew?: boolean;
   initialPrompt?: string;
-  isActive?: boolean;  // Whether this terminal is currently visible
+  isActive?: boolean;  // Whether this terminal tab is currently selected
+  isDrawerOpen?: boolean;  // Whether the drawer containing this terminal is open
   onExit?: (exitCode: number) => void;
   onTitleChange?: (sessionId: string, title: string) => void;
+  onContextProgress?: (sessionId: string, progress: number) => void;
+  onPlanEvent?: (plan: PlanEvent) => void;
 }
 
-export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, initialPrompt, isActive = true, onExit, onTitleChange }: TerminalProps) {
+export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, initialPrompt, isActive = true, isDrawerOpen = true, onExit, onTitleChange, onContextProgress, onPlanEvent }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -25,11 +35,17 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
   const spawnedRef = useRef(false);
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
+  const isDrawerOpenRef = useRef(isDrawerOpen);
+  isDrawerOpenRef.current = isDrawerOpen;
   // Use refs for callbacks to avoid re-running effect when they change
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
   const onTitleChangeRef = useRef(onTitleChange);
   onTitleChangeRef.current = onTitleChange;
+  const onContextProgressRef = useRef(onContextProgress);
+  onContextProgressRef.current = onContextProgress;
+  const onPlanEventRef = useRef(onPlanEvent);
+  onPlanEventRef.current = onPlanEvent;
 
   const sendMessage = useCallback((msg: object) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -136,6 +152,17 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
           case "title":
             onTitleChangeRef.current?.(sessionId, msg.title);
             break;
+          case "context":
+            onContextProgressRef.current?.(sessionId, msg.progress);
+            break;
+          case "plan":
+            onPlanEventRef.current?.({
+              event: msg.event,
+              slug: msg.slug,
+              path: msg.path,
+              content: msg.content,
+            });
+            break;
         }
       } catch (err) {
         console.error("Error parsing WS message:", err);
@@ -158,8 +185,8 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
 
     // Handle resize - skip when terminal is hidden to prevent scroll jumps
     const handleResize = () => {
-      // Don't fit if terminal is not active (hidden via CSS)
-      if (!isActiveRef.current) return;
+      // Don't fit if terminal is not active or drawer is closed
+      if (!isActiveRef.current || !isDrawerOpenRef.current) return;
 
       try {
         fitAddon.fit();
@@ -187,15 +214,24 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
   // Note: onExit intentionally excluded - using ref to avoid effect re-runs
   }, [terminalId, sessionId, projectPath, wsUrl, isNew, initialPrompt, sendMessage]);
 
-  // Auto-focus terminal when it becomes active
+  // Auto-focus terminal and scroll to bottom when it becomes visible
   useEffect(() => {
-    if (isActive && terminalRef.current) {
+    if (isActive && isDrawerOpen && terminalRef.current && fitAddonRef.current) {
       // Small delay to ensure DOM is ready after visibility change
       setTimeout(() => {
-        terminalRef.current?.focus();
+        try {
+          // Re-fit the terminal to its container
+          fitAddonRef.current?.fit();
+          // Scroll to the bottom
+          terminalRef.current?.scrollToBottom();
+          // Focus the terminal
+          terminalRef.current?.focus();
+        } catch {
+          // Ignore errors during reactivation
+        }
       }, 50);
     }
-  }, [isActive]);
+  }, [isActive, isDrawerOpen]);
 
   return (
     <div

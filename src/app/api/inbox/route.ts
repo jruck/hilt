@@ -1,20 +1,65 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  createInboxItem,
-  getInboxItems,
-  updateInboxItem,
-  deleteInboxItem,
-} from "@/lib/db";
-import { v4 as uuidv4 } from "uuid";
+  parseTodoFile,
+  addTodoItem,
+  updateTodoItem,
+  deleteTodoItem,
+  getTodoFileModTime,
+  reorderSections,
+} from "@/lib/todo-md";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const items = await getInboxItems();
-    return NextResponse.json({ items });
+    const searchParams = request.nextUrl.searchParams;
+    const lastModTime = searchParams.get("lastModTime");
+    const scopePath = searchParams.get("scope") || undefined;
+
+    const currentModTime = getTodoFileModTime(scopePath);
+    const data = parseTodoFile(scopePath);
+
+    // Flatten all items with section information
+    const items = [];
+
+    // Add orphan items (no section)
+    items.push(
+      ...data.orphanItems.map((item) => ({
+        id: item.id,
+        prompt: item.text,
+        completed: item.completed,
+        section: null,
+        projectPath: null,
+        createdAt: new Date().toISOString(),
+        sortOrder: 0,
+      }))
+    );
+
+    // Add items from each section
+    for (const section of data.sections) {
+      items.push(
+        ...section.items.map((item) => ({
+          id: item.id,
+          prompt: item.text,
+          completed: item.completed,
+          section: section.heading,
+          projectPath: null,
+          createdAt: new Date().toISOString(),
+          sortOrder: 0,
+        }))
+      );
+    }
+
+    return NextResponse.json({
+      items,
+      sections: data.sections.map((s) => ({
+        heading: s.heading,
+        level: s.level,
+      })),
+      lastModTime: currentModTime?.getTime() || null,
+    });
   } catch (error) {
-    console.error("Error fetching inbox items:", error);
+    console.error("Error fetching todo items:", error);
     return NextResponse.json(
-      { error: "Failed to fetch inbox items" },
+      { error: "Failed to fetch todo items" },
       { status: 500 }
     );
   }
@@ -23,7 +68,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { prompt, projectPath, sortOrder } = body;
+    const { prompt, section, scope } = body;
 
     if (!prompt) {
       return NextResponse.json(
@@ -32,14 +77,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const id = uuidv4();
-    await createInboxItem(id, prompt, projectPath, sortOrder);
+    const item = addTodoItem(prompt, section || null, scope || undefined);
 
-    return NextResponse.json({ id, success: true });
+    return NextResponse.json({ id: item.id, success: true });
   } catch (error) {
-    console.error("Error creating inbox item:", error);
+    console.error("Error creating todo item:", error);
     return NextResponse.json(
-      { error: "Failed to create inbox item" },
+      { error: "Failed to create todo item" },
       { status: 500 }
     );
   }
@@ -48,19 +92,24 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, prompt, sortOrder } = body;
+    const { id, prompt, completed, section, scope } = body;
 
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
 
-    await updateInboxItem(id, prompt, sortOrder);
+    const updates: { text?: string; completed?: boolean; section?: string | null } = {};
+    if (prompt !== undefined) updates.text = prompt;
+    if (completed !== undefined) updates.completed = completed;
+    if (section !== undefined) updates.section = section;
+
+    updateTodoItem(id, updates, scope || undefined);
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error updating inbox item:", error);
+    console.error("Error updating todo item:", error);
     return NextResponse.json(
-      { error: "Failed to update inbox item" },
+      { error: "Failed to update todo item" },
       { status: 500 }
     );
   }
@@ -70,18 +119,43 @@ export async function DELETE(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const id = searchParams.get("id");
+    const scopePath = searchParams.get("scope") || undefined;
 
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
 
-    await deleteInboxItem(id);
+    deleteTodoItem(id, scopePath);
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting inbox item:", error);
+    console.error("Error deleting todo item:", error);
     return NextResponse.json(
-      { error: "Failed to delete inbox item" },
+      { error: "Failed to delete todo item" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { sectionOrder, scope } = body;
+
+    if (!sectionOrder || !Array.isArray(sectionOrder)) {
+      return NextResponse.json(
+        { error: "sectionOrder array is required" },
+        { status: 400 }
+      );
+    }
+
+    reorderSections(sectionOrder, scope || undefined);
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error reordering sections:", error);
+    return NextResponse.json(
+      { error: "Failed to reorder sections" },
       { status: 500 }
     );
   }

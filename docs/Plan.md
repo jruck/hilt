@@ -62,7 +62,7 @@ At startup, the app reads `process.cwd()` and filters sessions to those whose de
 ## Statuses
 
 | Status | Source | Behavior |
-|--------|--------|----------|
+| --- | --- | --- |
 | **Inbox** | Your DB only | Draft prompts not yet started |
 | **Active** | Your DB + process detection | Terminal open in drawer |
 | **Inactive** | Claude JSONL + Your DB | Session exists but not running |
@@ -140,15 +140,15 @@ claude-kanban/
 ### Phase 2: Claude Session Reader
 1. Define Zod schemas for JSONL message types (summary, user, assistant, etc.)
 2. Implement `claude-sessions.ts` to:
-   - Scan `~/.claude/projects/` directories
-   - Parse JSONL files with Zod validation
-   - Extract: summary (first line), message count, timestamps, git branch
-   - Return session metadata (id, title, project, lastActivity, messageCount, branch)
+  - Scan `~/.claude/projects/` directories
+  - Parse JSONL files with Zod validation
+  - Extract: summary (first line), message count, timestamps, git branch
+  - Return session metadata (id, title, project, lastActivity, messageCount, branch)
 3. Create `/api/sessions` GET endpoint with pagination support
 
 ### Phase 3: Status Tracking Layer
 1. SQLite schema:
-   ```sql
+```sql
    CREATE TABLE session_status (
      session_id TEXT PRIMARY KEY,
      status TEXT CHECK(status IN ('inbox','active','inactive','done')),
@@ -163,7 +163,7 @@ claude-kanban/
      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
      sort_order INTEGER
    );
-   ```
+```
 2. Merge Claude sessions with status data
 3. PATCH endpoint to update status
 

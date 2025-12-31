@@ -1,8 +1,11 @@
 import { WebSocketServer, WebSocket } from "ws";
+import * as path from "path";
+import * as fs from "fs";
 import { ptyManager } from "../src/lib/pty-manager";
 import { getSessionById } from "../src/lib/claude-sessions";
 
 const PORT = parseInt(process.env.WS_PORT || "3001", 10);
+const PLANS_DIR = path.join(process.env.HOME || "~", ".claude", "plans");
 
 interface WSMessage {
   type: "spawn" | "data" | "resize" | "kill";
@@ -23,6 +26,8 @@ const wsToTerminal = new Map<WebSocket, string>();
 const terminalToWs = new Map<string, Set<WebSocket>>();
 // Track last known title per terminal
 const terminalTitles = new Map<string, string>();
+// Track last known context progress per terminal (0-100)
+const terminalContextProgress = new Map<string, number>();
 
 /**
  * Parse OSC sequences to extract terminal title changes
@@ -58,6 +63,30 @@ function isClaudeStatusTitle(title: string): boolean {
   if (title.includes(" ") && title.length < 100) return true;
   if (title.length < 30 && /^[a-z][a-z\s]+$/i.test(title)) return true;
   return false;
+}
+
+/**
+ * Extract context percentage from terminal output
+ * Claude Code shows context usage like "85% context" or similar patterns
+ */
+function extractContextProgress(data: string): number | null {
+  // Match patterns like "85% context", "85.5% context", "Context: 85%", etc.
+  const patterns = [
+    /(\d+(?:\.\d+)?)\s*%\s*context/i,
+    /context[:\s]+(\d+(?:\.\d+)?)\s*%/i,
+    /(\d+(?:\.\d+)?)\s*%\s*used/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = data.match(pattern);
+    if (match) {
+      const value = parseFloat(match[1]);
+      if (value >= 0 && value <= 100) {
+        return Math.round(value);
+      }
+    }
+  }
+  return null;
 }
 
 console.log(`WebSocket server running on ws://localhost:${PORT}`);
@@ -155,6 +184,18 @@ ptyManager.on("data", (terminalId: string, data: string) => {
     });
   }
 
+  // Check for context progress changes and forward to clients
+  const newProgress = extractContextProgress(data);
+  if (newProgress !== null && newProgress !== terminalContextProgress.get(terminalId)) {
+    terminalContextProgress.set(terminalId, newProgress);
+    const progressMsg = JSON.stringify({ type: "context", terminalId, progress: newProgress });
+    wsSet.forEach((ws) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(progressMsg);
+      }
+    });
+  }
+
   // Forward the data
   const msg = JSON.stringify({ type: "data", terminalId, data });
   wsSet.forEach((ws) => {
@@ -177,15 +218,99 @@ ptyManager.on("exit", (terminalId: string, exitCode: number) => {
   }
   terminalToWs.delete(terminalId);
   terminalTitles.delete(terminalId);
+  terminalContextProgress.delete(terminalId);
 });
 
 // Handle graceful shutdown
-process.on("SIGINT", () => {
+let plansWatcher: { close: () => Promise<void> } | null = null;
+
+process.on("SIGINT", async () => {
   console.log("\nShutting down WebSocket server...");
   ptyManager.getAll().forEach((session) => {
     ptyManager.kill(session.id);
   });
+  if (plansWatcher) {
+    await plansWatcher.close();
+  }
   wss.close(() => {
     process.exit(0);
   });
 });
+
+// Watch for new plan files and broadcast to all clients
+async function watchPlans() {
+  try {
+    const chokidar = await import("chokidar");
+
+    // Ensure plans directory exists
+    if (!fs.existsSync(PLANS_DIR)) {
+      console.log(`Plans directory doesn't exist yet: ${PLANS_DIR}`);
+      return;
+    }
+
+    plansWatcher = chokidar.watch(path.join(PLANS_DIR, "*.md"), {
+      ignoreInitial: true,
+      awaitWriteFinish: {
+        stabilityThreshold: 300,
+        pollInterval: 100,
+      },
+    });
+
+    plansWatcher.on("add", (filePath: string) => {
+      const slug = path.basename(filePath, ".md");
+      console.log(`New plan detected: ${slug}`);
+
+      // Read the plan content
+      try {
+        const content = fs.readFileSync(filePath, "utf-8");
+        const msg = JSON.stringify({
+          type: "plan",
+          event: "created",
+          slug,
+          path: filePath,
+          content,
+        });
+
+        // Broadcast to all connected clients
+        wss.clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(msg);
+          }
+        });
+      } catch (err) {
+        console.error(`Error reading new plan ${filePath}:`, err);
+      }
+    });
+
+    plansWatcher.on("change", (filePath: string) => {
+      const slug = path.basename(filePath, ".md");
+      console.log(`Plan updated: ${slug}`);
+
+      try {
+        const content = fs.readFileSync(filePath, "utf-8");
+        const msg = JSON.stringify({
+          type: "plan",
+          event: "updated",
+          slug,
+          path: filePath,
+          content,
+        });
+
+        wss.clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(msg);
+          }
+        });
+      } catch (err) {
+        console.error(`Error reading updated plan ${filePath}:`, err);
+      }
+    });
+
+    console.log(`Watching for plans in: ${PLANS_DIR}`);
+  } catch (err) {
+    console.error("Error setting up plans watcher:", err);
+  }
+}
+
+// Start watching plans
+watchPlans();

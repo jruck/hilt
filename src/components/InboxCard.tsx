@@ -3,11 +3,13 @@
 import { useState, useRef, useEffect } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Trash2, Play, FileText, Square, CheckSquare, Pencil, Check, X } from "lucide-react";
+import { Trash2, Play, Square, CheckSquare, Pencil, Check, X } from "lucide-react";
 
 interface InboxItem {
   id: string;
   prompt: string;
+  completed: boolean;
+  section: string | null;
   projectPath: string | null;
   createdAt: string;
   sortOrder: number;
@@ -108,10 +110,6 @@ export function InboxCard({
         style={style}
         className="relative bg-blue-950/30 border border-blue-500 rounded-lg p-3 shadow-sm"
       >
-        <div className="flex items-center gap-1 text-xs text-blue-400 mb-1">
-          <FileText className="w-3 h-3" />
-          <span>Draft prompt</span>
-        </div>
         <textarea
           ref={inputRef}
           value={editValue}
@@ -191,11 +189,7 @@ export function InboxCard({
         </button>
       </div>
 
-      <div className="flex items-center gap-1 text-xs text-blue-400 mb-1">
-        <FileText className="w-3 h-3" />
-        <span>Draft prompt</span>
-      </div>
-      <p className="text-sm text-zinc-300 line-clamp-3 pr-20">{item.prompt}</p>
+      <p className="text-sm text-zinc-300 line-clamp-3">{item.prompt}</p>
     </div>
   );
 }

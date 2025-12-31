@@ -3,9 +3,9 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Session } from "@/lib/types";
+import { useState } from "react";
 import {
   MessageSquare,
-  GitBranch,
   Clock,
   Folder,
   Lock,
@@ -13,12 +13,16 @@ import {
   CheckCircle,
   Square,
   CheckSquare,
+  Star,
+  Hash,
+  Check,
 } from "lucide-react";
 
 interface SessionCardProps {
   session: Session;
   onOpen?: (session: Session) => void;
   onDelete?: (session: Session) => void;
+  onToggleStarred?: (sessionId: string) => void;
   status?: string;  // Dynamic terminal status from Claude Code
   isSelected?: boolean;
   onSelect?: (session: Session, selected: boolean) => void;
@@ -38,7 +42,8 @@ function formatRelativeTime(date: Date): string {
   return date.toLocaleDateString();
 }
 
-export function SessionCard({ session, onOpen, onDelete, status, isSelected, onSelect }: SessionCardProps) {
+export function SessionCard({ session, onOpen, onDelete, onToggleStarred, status, isSelected, onSelect }: SessionCardProps) {
+  const [copiedResume, setCopiedResume] = useState(false);
   const {
     attributes,
     listeners,
@@ -54,6 +59,13 @@ export function SessionCard({ session, onOpen, onDelete, status, isSelected, onS
     opacity: isDragging ? 0.5 : 1,
   };
 
+  const handleCopyResume = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(`claude --resume ${session.id}`);
+    setCopiedResume(true);
+    setTimeout(() => setCopiedResume(false), 1500);
+  };
+
   return (
     <div
       ref={setNodeRef}
@@ -62,16 +74,23 @@ export function SessionCard({ session, onOpen, onDelete, status, isSelected, onS
       {...listeners}
       onClick={() => onOpen?.(session)}
       className={`
-        group relative bg-zinc-800 border rounded-lg p-3
-        hover:border-zinc-600 transition-colors cursor-pointer
+        group relative border rounded-lg p-3
+        transition-colors cursor-pointer
         ${isDragging ? "shadow-xl ring-2 ring-blue-500" : "shadow-sm"}
-        ${isSelected ? "border-blue-500 bg-blue-500/10" : "border-zinc-700"}
+        ${isSelected
+          ? "border-blue-500 bg-blue-500/10 hover:border-blue-400"
+          : session.starred
+            ? "border-yellow-500/30 bg-yellow-500/5 hover:border-yellow-500/50"
+            : session.status === "active"
+              ? "border-green-500/20 bg-green-500/5 hover:border-green-500/40"
+              : "border-zinc-700 bg-zinc-800 hover:border-zinc-600"
+        }
       `}
     >
-      {/* Hover actions - checkbox, play, trash */}
+      {/* Hover actions - checkbox, star (recent only), play, done (not recent) */}
       <div className={`
         absolute top-2 right-2 flex items-center gap-1
-        ${isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"}
+        ${isSelected || session.starred ? "opacity-100" : "opacity-0 group-hover:opacity-100"}
         transition-opacity
       `}>
         <button
@@ -81,6 +100,17 @@ export function SessionCard({ session, onOpen, onDelete, status, isSelected, onS
         >
           {isSelected ? <CheckSquare className="w-4 h-4 text-blue-400" /> : <Square className="w-4 h-4" />}
         </button>
+        {session.status === "recent" && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleStarred?.(session.id); }}
+            className={`p-1 hover:bg-zinc-700 rounded transition-colors ${
+              session.starred ? "text-yellow-400" : "text-zinc-500 hover:text-yellow-400"
+            }`}
+            title={session.starred ? "Unstar" : "Star"}
+          >
+            <Star className={`w-4 h-4 ${session.starred ? "fill-current" : ""}`} />
+          </button>
+        )}
         <button
           onClick={(e) => { e.stopPropagation(); onOpen?.(session); }}
           className="p-1 text-zinc-500 hover:text-green-400 hover:bg-zinc-700 rounded transition-colors"
@@ -88,13 +118,15 @@ export function SessionCard({ session, onOpen, onDelete, status, isSelected, onS
         >
           <Play className="w-4 h-4" />
         </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete?.(session); }}
-          className="p-1 text-zinc-500 hover:text-emerald-400 hover:bg-zinc-700 rounded transition-colors"
-          title="Mark as done"
-        >
-          <CheckCircle className="w-4 h-4" />
-        </button>
+        {session.status !== "recent" && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete?.(session); }}
+            className="p-1 text-zinc-500 hover:text-white hover:bg-zinc-700 rounded transition-colors"
+            title="Mark as done"
+          >
+            <CheckCircle className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {/* Title */}
@@ -119,18 +151,39 @@ export function SessionCard({ session, onOpen, onDelete, status, isSelected, onS
         <p className="text-xs text-green-400 font-medium truncate mt-1">{status}</p>
       )}
 
-      {/* Prompt */}
-      {session.firstPrompt && session.firstPrompt !== session.title && (
+      {/* Last Prompt */}
+      {session.lastPrompt && session.lastPrompt !== session.title && (
         <p className="text-xs text-zinc-400 mt-1 line-clamp-2">
-          {session.firstPrompt}
+          {session.lastPrompt}
         </p>
       )}
 
-      <div className="flex items-center gap-3 mt-2 text-xs text-zinc-500">
-        <span className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs text-zinc-500">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            fetch('/api/reveal', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path: session.projectPath })
+            }).catch(console.error);
+          }}
+          className="flex items-center gap-1 hover:text-zinc-300 transition-colors"
+          title="Open in Finder"
+        >
           <Folder className="w-3 h-3" />
           {session.project}
-        </span>
+        </button>
+
+        <button
+          onClick={handleCopyResume}
+          className="flex items-center gap-1 hover:text-zinc-300 transition-colors"
+          title="Copy resume command"
+        >
+          <Hash className="w-3 h-3" />
+          <span className="font-mono text-[11px]">{session.id.slice(0, 8)}</span>
+          {copiedResume && <Check className="w-3 h-3 text-green-400" />}
+        </button>
 
         <span className="flex items-center gap-1">
           <MessageSquare className="w-3 h-3" />
@@ -142,13 +195,6 @@ export function SessionCard({ session, onOpen, onDelete, status, isSelected, onS
           {formatRelativeTime(new Date(session.lastActivity))}
         </span>
       </div>
-
-      {session.gitBranch && (
-        <div className="flex items-center gap-1 mt-1 text-xs text-zinc-500">
-          <GitBranch className="w-3 h-3" />
-          <span className="truncate">{session.gitBranch}</span>
-        </div>
-      )}
     </div>
   );
 }

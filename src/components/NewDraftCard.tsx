@@ -29,6 +29,21 @@ export function NewDraftCard({ onSave, onCancel, onSaveAndRun }: NewDraftCardPro
     }
   };
 
+  const handleBlur = (e: React.FocusEvent) => {
+    // Don't save on blur if focus is moving to another form element
+    // (like the section dropdown above this component)
+    const relatedTarget = e.relatedTarget as HTMLElement | null;
+    if (relatedTarget?.closest('select, button, input, textarea')) {
+      return;
+    }
+    // Small delay to allow click events to fire first
+    setTimeout(() => {
+      if (document.activeElement !== inputRef.current) {
+        handleSave();
+      }
+    }, 100);
+  };
+
   const handleSaveAndRun = () => {
     const trimmed = value.trim();
     if (trimmed && onSaveAndRun) {
@@ -54,16 +69,12 @@ export function NewDraftCard({ onSave, onCancel, onSaveAndRun }: NewDraftCardPro
 
   return (
     <div className="relative bg-blue-950/30 border border-blue-500 rounded-lg p-3 shadow-sm">
-      <div className="flex items-center gap-1 text-xs text-blue-400 mb-1">
-        <FileText className="w-3 h-3" />
-        <span>New draft prompt</span>
-      </div>
       <textarea
         ref={inputRef}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
-        onBlur={handleSave}
+        onBlur={handleBlur}
         placeholder="Enter your prompt..."
         className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500 resize-none"
         rows={2}

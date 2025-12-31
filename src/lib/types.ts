@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // Status for our kanban board
-export type SessionStatus = "inbox" | "active" | "inactive" | "done";
+export type SessionStatus = "inbox" | "active" | "recent";
 
 // Zod schemas for Claude Code JSONL format
 export const SummaryEntrySchema = z.object({
@@ -53,7 +53,9 @@ export interface SessionMetadata {
   messageCount: number;
   gitBranch: string | null;
   firstPrompt: string | null;
+  lastPrompt: string | null;  // Most recent user prompt
   slug: string | null;  // Claude Code's internal session name (e.g., "dynamic-tickling-thunder")
+  slugs: string[];      // All slugs used during session (slug can change mid-session, e.g., when entering plan mode)
 }
 
 // Isolation state for worktree-based sessions
@@ -71,6 +73,7 @@ export interface SessionIsolation {
 export interface Session extends SessionMetadata {
   status: SessionStatus;
   sortOrder?: number;
+  starred?: boolean;
   // For new sessions started from inbox
   isNew?: boolean;
   initialPrompt?: string;
@@ -87,16 +90,28 @@ export interface InboxItem {
   sortOrder: number;
 }
 
+// Summary entry for timeline display
+export interface SummaryEntry {
+  summary: string;
+  messageIndex: number;  // Position in conversation (messages before this summary)
+}
+
 // API response types
 export interface SessionsResponse {
   sessions: Session[];
   total: number;
   page: number;
   pageSize: number;
+  counts: {
+    inbox: number;
+    active: number;
+    recent: number;
+  };
 }
 
 export interface StatusUpdateRequest {
   sessionId: string;
-  status: SessionStatus;
+  status?: SessionStatus;
   sortOrder?: number;
+  starred?: boolean;
 }

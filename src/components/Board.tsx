@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   DndContext,
   DragEndEvent,
@@ -17,20 +18,21 @@ import { Column } from "./Column";
 import { SessionCard } from "./SessionCard";
 import { TerminalDrawer } from "./TerminalDrawer";
 import { FolderPicker } from "./FolderPicker";
-import { Loader2, X, Inbox, Loader2 as InProgressIcon, Bookmark, CheckCircle } from "lucide-react";
+import { Loader2, X, Inbox, Loader2 as InProgressIcon, Clock, Search, Terminal as TerminalIcon } from "lucide-react";
 
-const COLUMNS: SessionStatus[] = ["inbox", "active", "inactive", "done"];
+const COLUMNS: SessionStatus[] = ["inbox", "active", "recent"];
 
 const COLUMN_CONFIG: Record<SessionStatus, { label: string; icon: React.ReactNode }> = {
   inbox: { label: "To Do", icon: <Inbox className="w-4 h-4" /> },
   active: { label: "In Progress", icon: <InProgressIcon className="w-4 h-4" /> },
-  inactive: { label: "Saved", icon: <Bookmark className="w-4 h-4" /> },
-  done: { label: "Done", icon: <CheckCircle className="w-4 h-4" /> },
+  recent: { label: "Recent", icon: <Clock className="w-4 h-4" /> },
 };
 
 interface InboxItem {
   id: string;
   prompt: string;
+  completed: boolean;
+  section: string | null;
   projectPath: string | null;
   createdAt: string;
   sortOrder: number;
@@ -45,9 +47,20 @@ function cleanPath(path: string): string {
 }
 
 export function Board() {
-  // Scope path for filtering sessions - initialized from localStorage
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  // Scope path for filtering sessions - initialized from URL param or localStorage
   const [scopePath, setScopePath] = useState<string>(() => {
     if (typeof window !== "undefined") {
+      // Check URL param first (e.g., ?scope=/Users/jruck/project)
+      const urlScope = new URLSearchParams(window.location.search).get("scope");
+      if (urlScope) {
+        const cleaned = cleanPath(urlScope);
+        localStorage.setItem(SCOPE_STORAGE_KEY, cleaned);
+        return cleaned;
+      }
+
       const stored = localStorage.getItem(SCOPE_STORAGE_KEY) || "";
       // Clean up any malformed paths from previous bugs
       const cleaned = cleanPath(stored);
@@ -59,6 +72,17 @@ export function Board() {
     return "";
   });
   const [homeDir, setHomeDir] = useState<string>("");
+
+  // Sync URL with scope on mount (if scope exists but URL doesn't have it)
+  useEffect(() => {
+    if (scopePath && typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (!url.searchParams.has("scope")) {
+        // Keep slashes readable in URL
+        router.replace(`?scope=${scopePath}`, { scroll: false });
+      }
+    }
+  }, [scopePath, router]);
 
   // Fetch home directory on mount and validate/set scope
   useEffect(() => {
@@ -84,16 +108,18 @@ export function Board() {
       .catch(console.error);
   }, []);
 
-  // Persist scope to localStorage
+  // Persist scope to localStorage and update URL
   const handleScopeChange = useCallback((path: string) => {
     setScopePath(path);
     if (typeof window !== "undefined") {
       localStorage.setItem(SCOPE_STORAGE_KEY, path);
+      // Update URL with new scope (keep slashes readable)
+      router.replace(`?scope=${path}`, { scroll: false });
     }
-  }, []);
+  }, [router]);
 
-  const { sessions, isLoading, updateStatus } = useSessions(scopePath || undefined);
-  const { items: inboxItems, createItem, updateItem, deleteItem } = useInboxItems();
+  const { sessions, counts, isLoading, updateStatus, toggleStarred } = useSessions(scopePath || undefined);
+  const { items: inboxItems, sections: todoSections, createItem, updateItem, deleteItem, reorderSections } = useInboxItems(scopePath || undefined);
 
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [draggingSession, setDraggingSession] = useState<Session | null>(null);
@@ -103,6 +129,8 @@ export function Board() {
   const [sessionStatuses, setSessionStatuses] = useState<Record<string, string>>({});
   // Multi-select state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Search state
+  const [searchQuery, setSearchQuery] = useState<string>("");
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -127,21 +155,47 @@ export function Board() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isDrawerOpen, selectedIds.size]);
 
+  // Filter function for search
+  const matchesSearch = useCallback((text: string | null | undefined) => {
+    if (!searchQuery.trim()) return true;
+    if (!text) return false;
+    return text.toLowerCase().includes(searchQuery.toLowerCase());
+  }, [searchQuery]);
+
   const getSessionsByStatus = useCallback(
     (status: SessionStatus) => {
-      const realSessions = sessions.filter((s) => s.status === status);
+      let realSessions = sessions.filter((s) => s.status === status);
+
+      // Apply search filter
+      if (searchQuery.trim()) {
+        realSessions = realSessions.filter((s) =>
+          matchesSearch(s.title) ||
+          matchesSearch(s.firstPrompt) ||
+          matchesSearch(s.slug) ||
+          matchesSearch(s.project) ||
+          matchesSearch(s.gitBranch)
+        );
+      }
 
       // Include pending "new" sessions in Active column
       if (status === "active") {
-        const newSessions = openSessions.filter(
+        let newSessions = openSessions.filter(
           (s) => s.isNew && !sessions.find((rs) => rs.id === s.id)
         );
+        // Apply search filter to new sessions too
+        if (searchQuery.trim()) {
+          newSessions = newSessions.filter((s) =>
+            matchesSearch(s.title) ||
+            matchesSearch(s.firstPrompt) ||
+            matchesSearch(s.slug)
+          );
+        }
         return [...newSessions, ...realSessions];
       }
 
       return realSessions;
     },
-    [sessions, openSessions]
+    [sessions, openSessions, searchQuery, matchesSearch]
   );
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -192,6 +246,13 @@ export function Board() {
   const handleCloseSession = (sessionId: string) => {
     setOpenSessions((prev) => prev.filter((s) => s.id !== sessionId));
 
+    // Clear the terminal status for this session
+    setSessionStatuses((prev) => {
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+
     // If closing the active session, switch to another or close drawer
     if (activeSession?.id === sessionId) {
       const remaining = openSessions.filter((s) => s.id !== sessionId);
@@ -203,17 +264,38 @@ export function Board() {
       }
     }
 
-    // Mark as saved
-    updateStatus(sessionId, "inactive");
+    // Mark as recent
+    updateStatus(sessionId, "recent");
   };
 
   const handleDeleteSession = (session: Session) => {
-    // For now, just move to done - could add actual deletion later
-    updateStatus(session.id, "done");
+    // Close the terminal window for this session
+    setOpenSessions((prev) => prev.filter((s) => s.id !== session.id));
+
+    // Clear the terminal status for this session
+    setSessionStatuses((prev) => {
+      const next = { ...prev };
+      delete next[session.id];
+      return next;
+    });
+
+    // If this was the active session, switch to another or close drawer
+    if (activeSession?.id === session.id) {
+      const remaining = openSessions.filter((s) => s.id !== session.id);
+      if (remaining.length > 0) {
+        setActiveSession(remaining[remaining.length - 1]);
+      } else {
+        setActiveSession(null);
+        setIsDrawerOpen(false);
+      }
+    }
+
+    // Move to recent
+    updateStatus(session.id, "recent");
   };
 
-  const handleCreateInboxItem = async (prompt: string) => {
-    await createItem(prompt);
+  const handleCreateInboxItem = async (prompt: string, section?: string | null) => {
+    await createItem(prompt, section);
   };
 
   const handleCreateAndRunInboxItem = async (prompt: string) => {
@@ -224,6 +306,7 @@ export function Board() {
       id: tempId,
       title: prompt.slice(0, 50) + (prompt.length > 50 ? "..." : ""),
       firstPrompt: prompt,
+      lastPrompt: prompt,
       project: projectName,
       projectPath: scopePath || "/",
       messageCount: 0,
@@ -232,6 +315,7 @@ export function Board() {
       isNew: true,
       initialPrompt: prompt,
       slug: null,
+      slugs: [],
       gitBranch: null,
     };
 
@@ -262,6 +346,7 @@ export function Board() {
       id: tempId,
       title: item.prompt.slice(0, 50) + (item.prompt.length > 50 ? "..." : ""),
       firstPrompt: item.prompt,
+      lastPrompt: item.prompt,
       project: projectName,
       projectPath: scopePath || "/",
       messageCount: 0,
@@ -270,6 +355,7 @@ export function Board() {
       isNew: true,
       initialPrompt: item.prompt,
       slug: null,
+      slugs: [],
       gitBranch: null,
     };
 
@@ -323,6 +409,11 @@ export function Board() {
     setSelectedIds(new Set());
   }, [selectedIds, updateStatus]);
 
+  // Filter inbox items by search query
+  const filteredInboxItems = searchQuery.trim()
+    ? inboxItems.filter((item) => matchesSearch(item.prompt))
+    : inboxItems;
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-zinc-950">
@@ -333,17 +424,61 @@ export function Board() {
 
   return (
     <div className="flex flex-col h-screen bg-zinc-950">
-      {/* Status Bar - draggable for window movement, with padding for macOS traffic lights */}
+      {/* Status Bar */}
       <div
-        className="flex items-center gap-2 pl-20 pr-4 py-2 bg-zinc-900 border-b border-zinc-800"
+        className="flex items-center gap-4 px-4 py-2 bg-zinc-900 border-b border-zinc-800"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
-        <span className="text-xs text-zinc-500">Scope:</span>
-        {scopePath && (
-          <div style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-            <FolderPicker value={scopePath} onChange={handleScopeChange} />
+        {/* Left side: Scope and Search */}
+        <div className="flex items-center gap-4" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-zinc-500">Scope:</span>
+            {scopePath && (
+              <FolderPicker value={scopePath} onChange={handleScopeChange} />
+            )}
           </div>
-        )}
+
+          {/* Search Box */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-zinc-500">Search:</span>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
+              <input
+                type="text"
+                placeholder="Filter cards..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-48 pl-8 pr-7 py-1.5 text-sm bg-zinc-800 border border-zinc-700 rounded text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-600"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right side: Terminal indicator */}
+        <div className="ml-auto" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          {openSessions.length > 0 && (
+            <button
+              onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded text-sm transition-colors ${
+                isDrawerOpen
+                  ? 'bg-zinc-700 text-zinc-100'
+                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+              }`}
+              title={isDrawerOpen ? 'Hide terminal drawer' : 'Show terminal drawer'}
+            >
+              <TerminalIcon className="w-3.5 h-3.5 text-green-400" />
+              <span>{openSessions.length}</span>
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
@@ -354,15 +489,28 @@ export function Board() {
           onDragEnd={handleDragEnd}
         >
           {/* Board */}
-          <div className="flex-1 flex gap-4 p-4 overflow-x-auto">
+          <div
+            className={`flex-1 flex gap-4 p-4 overflow-x-auto transition-[padding] duration-300 ${isDrawerOpen ? 'pr-[716px]' : ''}`}
+            onClick={(e) => {
+              // Close drawer when clicking on board background (not on cards/columns)
+              if (e.target === e.currentTarget && isDrawerOpen) {
+                setIsDrawerOpen(false);
+              }
+            }}
+          >
             {COLUMNS.map((status) => (
               <Column
                 key={status}
                 status={status}
                 sessions={getSessionsByStatus(status)}
-                inboxItems={status === "inbox" ? inboxItems : undefined}
+                totalCount={counts[status]}
+                inboxItems={status === "inbox" ? filteredInboxItems : undefined}
+                todoSections={status === "inbox" ? todoSections : undefined}
+                scopePath={status === "inbox" ? scopePath : undefined}
+                onReorderSections={status === "inbox" ? reorderSections : undefined}
                 onOpenSession={handleOpenSession}
                 onDeleteSession={handleDeleteSession}
+                onToggleStarred={toggleStarred}
                 onCreateInboxItem={status === "inbox" ? handleCreateInboxItem : undefined}
                 onCreateAndRunInboxItem={status === "inbox" ? handleCreateAndRunInboxItem : undefined}
                 onUpdateInboxItem={handleUpdateInboxItem}
@@ -372,6 +520,7 @@ export function Board() {
                 selectedIds={selectedIds}
                 onSelectSession={handleSelectSession}
                 onSelectInboxItem={handleSelectInboxItem}
+                onBackgroundClick={() => isDrawerOpen && setIsDrawerOpen(false)}
               />
             ))}
           </div>
@@ -392,6 +541,7 @@ export function Board() {
           sessions={openSessions}
           activeSession={activeSession}
           onClose={() => setIsDrawerOpen(false)}
+          onOpen={() => setIsDrawerOpen(true)}
           onSelectSession={setActiveSession}
           onCloseSession={handleCloseSession}
           onStatusUpdate={handleStatusUpdate}

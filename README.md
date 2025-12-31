@@ -4,31 +4,35 @@ A Kanban-style board for managing Claude Code sessions. Visualize, organize, and
 
 ## Features
 
-- **Native macOS App** - Standalone app with custom icon and proper window controls
-- **Kanban Board** - Organize sessions across four columns: To Do, In Progress, Saved, and Done
+- **Kanban Board** - Organize sessions across four columns: Inbox, In Progress, Saved, and Done
 - **Draft Prompts** - Queue up prompts in the inbox before starting sessions
 - **Live Terminal** - Run Claude Code sessions directly in the app with real-time terminal output
 - **Session Discovery** - Automatically reads existing sessions from `~/.claude/projects/`
 - **Project Scoping** - Filter sessions by project folder
 - **Drag & Drop** - Reorder and move sessions between columns
 - **Multi-Select** - Batch move multiple sessions at once
-- **Session Metadata** - View git branch, message count, and last activity at a glance
+- **Session Metadata** - View git branch, message count, session name, and last activity
+
+## Claude Code Integration
+
+This project includes custom slash commands for use with Claude Code:
+
+| Command | Description |
+|---------|-------------|
+| `/kanban` | Open the Kanban UI from the CLI |
+| `/track [type] [desc]` | Track bugs, tasks, ideas, or decisions |
+| `/plan [description]` | Create a feature plan document |
+
+These commands are defined in `.claude/commands/` and work in any Claude Code session within this project.
 
 ## Tech Stack
 
-**Desktop**
-- Electron 39 for native macOS app
-- electron-builder for packaging and distribution
-
-**Frontend**
 - Next.js 16 with React 19
 - TypeScript 5
 - Tailwind CSS 4
 - dnd-kit for drag-and-drop
 - xterm.js for terminal emulation
 - SWR for data fetching
-
-**Backend**
 - WebSocket server for real-time terminal I/O
 - node-pty for pseudo-terminal management
 - chokidar for file system watching
@@ -50,35 +54,11 @@ npm install
 
 ### Running the App
 
-**Native App (Recommended)**
-
-Run as a native macOS application with Electron:
-
-```bash
-npm run electron:dev
-```
-
-This starts Next.js, the WebSocket server, and opens the Electron window automatically.
-
-**Browser Mode**
-
-Alternatively, run in the browser:
-
 ```bash
 npm run dev:all
 ```
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-### Building for Distribution
-
-Create a distributable `.dmg` file:
-
-```bash
-npm run electron:build
-```
-
-The output will be in the `release/` directory.
 
 ## How It Works
 
@@ -86,35 +66,25 @@ The output will be in the `release/` directory.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Electron Main Process                     │
+│  Browser (localhost:3000)                                   │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │  App Lifecycle • Window Management • Server Spawning  │  │
+│  │  Next.js React App                                     │  │
+│  │  Board • Columns • SessionCards • Terminal             │  │
 │  └───────────────────────────────────────────────────────┘  │
-│                              │                               │
-│         ┌────────────────────┼────────────────────┐         │
-│         ▼                    ▼                    ▼         │
-│  ┌────────────┐    ┌──────────────┐    ┌──────────────┐    │
-│  │  Renderer  │    │   Next.js    │    │  WebSocket   │    │
-│  │  (Window)  │◄──►│  port 3000   │    │  port 3001   │    │
-│  └────────────┘    └──────────────┘    └──────────────┘    │
-│                           │                    │            │
-│                           ▼                    ▼            │
-│                    ┌─────────────────────────────────┐     │
-│                    │         PTY Manager             │     │
-│                    │    Spawns Claude Code shells    │     │
-│                    └─────────────────────────────────┘     │
 └─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Storage                                                     │
-│  - data/session-status.json (UI state)                      │
-│  - data/inbox.json (draft prompts)                          │
-│  - ~/.claude/projects/*.jsonl (Claude Code sessions)        │
-└─────────────────────────────────────────────────────────────┘
+                    │                           │
+                    ▼                           ▼
+         ┌──────────────────┐        ┌──────────────────┐
+         │   Next.js API    │        │  WebSocket Server │
+         │   port 3000      │        │   port 3001       │
+         └──────────────────┘        └──────────────────┘
+                    │                           │
+                    ▼                           ▼
+         ┌──────────────────┐        ┌──────────────────┐
+         │  Session Data    │        │   PTY Manager    │
+         │  ~/.claude/      │        │  Claude Code     │
+         └──────────────────┘        └──────────────────┘
 ```
-
-The Electron main process manages the app lifecycle and spawns both the Next.js server and WebSocket server as child processes. When the app window closes, all servers are gracefully shut down.
 
 ### Session Discovery
 
@@ -132,17 +102,6 @@ When you open a session, the app:
 
 ```
 claude-kanban/
-├── electron/
-│   ├── main.ts              # Electron main process
-│   ├── preload.ts           # IPC bridge for renderer
-│   └── tsconfig.json        # TypeScript config for Electron
-├── build/
-│   ├── icon.svg             # App icon source
-│   ├── icon.icns            # macOS app icon
-│   └── entitlements.mac.plist
-├── scripts/
-│   ├── generate-icons.mjs   # SVG → PNG → ICNS converter
-│   └── patch-electron.mjs   # Dev mode branding patch
 ├── src/
 │   ├── app/
 │   │   ├── page.tsx           # Main board page
@@ -168,8 +127,9 @@ claude-kanban/
 │       └── claude-sessions.ts # JSONL parsing
 ├── server/
 │   └── ws-server.ts           # WebSocket + PTY server
+├── scripts/
+│   └── on-session-end.mjs     # Hook: update status on session end
 ├── data/                      # Persistent storage
-├── electron-builder.json      # Build configuration
 ├── package.json
 └── tsconfig.json
 ```
@@ -178,12 +138,10 @@ claude-kanban/
 
 | Command | Description |
 |---------|-------------|
-| `npm run electron:dev` | Run native app in development mode |
-| `npm run electron:build` | Build distributable DMG |
+| `npm run dev:all` | Start Next.js and WebSocket servers |
 | `npm run dev` | Start Next.js dev server only |
 | `npm run ws-server` | Start WebSocket server only |
-| `npm run dev:all` | Start both servers (browser mode) |
-| `npm run build` | Production build (Next.js) |
+| `npm run build` | Production build |
 | `npm run lint` | Run ESLint |
 
 ## License

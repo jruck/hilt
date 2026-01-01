@@ -17,7 +17,8 @@ import { useSessions, useInboxItems } from "@/hooks/useSessions";
 import { Column } from "./Column";
 import { SessionCard } from "./SessionCard";
 import { TerminalDrawer } from "./TerminalDrawer";
-import { FolderPicker } from "./FolderPicker";
+import { ScopeBreadcrumbs, BrowseButton, RecentScopesButton } from "./scope";
+import { recordScopeVisit } from "@/lib/recent-scopes";
 import { Loader2, X, Inbox, Loader2 as InProgressIcon, Clock, Search } from "lucide-react";
 
 const COLUMNS: SessionStatus[] = ["inbox", "active", "recent"];
@@ -115,6 +116,8 @@ export function Board() {
       localStorage.setItem(SCOPE_STORAGE_KEY, path);
       // Update URL with new scope (keep slashes readable)
       router.replace(`?scope=${path}`, { scroll: false });
+      // Track in recent scopes
+      recordScopeVisit(path);
     }
   }, [router]);
 
@@ -475,16 +478,24 @@ export function Board() {
         className="flex items-center gap-4 px-4 h-11 bg-zinc-900 border-b border-zinc-800"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
-        {/* Left side: Scope */}
+        {/* Left side: Scope breadcrumbs */}
         <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <span className="text-xs text-zinc-500">Scope:</span>
           {scopePath && (
-            <FolderPicker value={scopePath} onChange={handleScopeChange} />
+            <ScopeBreadcrumbs value={scopePath} onChange={handleScopeChange} />
           )}
         </div>
 
-        {/* Right side: Search */}
-        <div className="ml-auto flex items-center gap-3" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        {/* Right side: Recent, Browse, Search */}
+        <div className="ml-auto flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          {homeDir && scopePath && (
+            <RecentScopesButton
+              currentPath={scopePath}
+              homeDir={homeDir}
+              onSelect={handleScopeChange}
+            />
+          )}
+          <BrowseButton onSelect={handleScopeChange} />
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
             <input

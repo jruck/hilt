@@ -13,6 +13,7 @@ export function useSessions(scopePath?: string, page = 1, pageSize = 100) {
     {
       refreshInterval: 5000, // Refresh every 5 seconds
       revalidateOnFocus: true,
+      keepPreviousData: true, // Prevent loading flash on scope change
     }
   );
 
@@ -94,6 +95,7 @@ export function useInboxItems(scopePath?: string) {
     lastModTime: number | null;
   }>(`/api/inbox${scopeParam}`, fetcher, {
     refreshInterval: 2000, // Poll every 2 seconds to detect external file changes
+    keepPreviousData: true, // Prevent loading flash on scope change
   });
 
   const createItem = async (prompt: string, section?: string | null) => {

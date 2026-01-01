@@ -88,7 +88,7 @@ export function RecentScopesButton({
       {isOpen && (
         <div
           ref={dropdownRef}
-          className="absolute top-full right-0 mt-1 w-[300px] bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-50 overflow-hidden"
+          className="absolute top-full left-0 mt-1 w-[300px] bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-50 overflow-hidden"
         >
           <div className="px-3 py-2 border-b border-zinc-800">
             <span className="text-xs text-zinc-500 uppercase tracking-wide">

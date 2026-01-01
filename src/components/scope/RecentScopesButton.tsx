@@ -54,10 +54,13 @@ export function RecentScopesButton({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isOpen]);
 
+  // Get home folder name (e.g., "jruck" from "/Users/jruck")
+  const homeFolderName = homeDir ? homeDir.split("/").filter(Boolean).pop() || "" : "";
+
   const displayPath = (path: string) => {
-    if (!path) return "All Projects";
+    if (!path) return "/";  // Root = all projects
     if (!homeDir) return path;
-    if (path === homeDir) return "All Projects";
+    if (path === homeDir) return `~/${homeFolderName}`;  // Home dir shows as ~/username
     if (path.startsWith(homeDir)) return "~" + path.slice(homeDir.length);
     return path;
   };

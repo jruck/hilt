@@ -28,11 +28,10 @@ export function BrowseButton({ onSelect }: BrowseButtonProps) {
   return (
     <button
       onClick={handleBrowse}
-      className="flex items-center gap-1.5 px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded text-sm text-zinc-300 transition-colors"
+      className="p-1.5 rounded transition-colors text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
       title="Browse folders in Finder"
     >
       <FolderOpen className="w-4 h-4" />
-      <span>Browse</span>
     </button>
   );
 }

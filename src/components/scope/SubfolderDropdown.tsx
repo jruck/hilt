@@ -19,12 +19,13 @@ export function SubfolderDropdown({
   const [folders, setFolders] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch subfolders (or top-level folders if at "All Projects")
+  // Fetch subfolders (or top-level folders if at root)
   useEffect(() => {
     setIsLoading(true);
-    // If currentPath is empty (All Projects), fetch top-level folders from home
-    const scopeToFetch = currentPath || homeDir;
-    const url = `/api/folders?scope=${encodeURIComponent(scopeToFetch)}`;
+    // If currentPath is empty (root), don't pass a scope to get all top-level folders
+    const url = currentPath
+      ? `/api/folders?scope=${encodeURIComponent(currentPath)}`
+      : `/api/folders`;
     fetch(url)
       .then((res) => res.json())
       .then((data) => {
@@ -35,7 +36,7 @@ export function SubfolderDropdown({
         setFolders([]);
         setIsLoading(false);
       });
-  }, [currentPath, homeDir]);
+  }, [currentPath]);
 
   // Handle keyboard navigation
   useEffect(() => {
@@ -48,27 +49,21 @@ export function SubfolderDropdown({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  const displayPath = (path: string) => {
-    if (path === homeDir) return "~ (All Projects)";
-    if (path.startsWith(homeDir)) return "~" + path.slice(homeDir.length);
-    return path;
-  };
-
   // Get just the folder name from a full path
   const getFolderName = (path: string) => {
     const parts = path.split("/");
     return parts[parts.length - 1];
   };
 
-  // Check if we're at "All Projects" (empty path or home dir)
-  const isAllProjects = !currentPath || currentPath === homeDir;
+  // Check if we're at root (all projects)
+  const isAtRoot = !currentPath;
 
   return (
     <div className="w-[300px] bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl overflow-hidden">
       {/* Subfolders/Projects section */}
       <div className="px-2 py-1.5">
         <span className="text-xs text-zinc-500 uppercase tracking-wide">
-          {isAllProjects ? "Projects" : "Subfolders"}
+          {isAtRoot ? "Projects" : "Subfolders"}
         </span>
       </div>
 
@@ -77,7 +72,7 @@ export function SubfolderDropdown({
           <p className="px-3 py-2 text-sm text-zinc-500">Loading...</p>
         ) : folders.length === 0 ? (
           <p className="px-3 py-2 text-sm text-zinc-500">
-            {isAllProjects ? "No projects with sessions" : "No subfolders with sessions"}
+            {isAtRoot ? "No projects with sessions" : "No subfolders with sessions"}
           </p>
         ) : (
           folders.map((folder) => (

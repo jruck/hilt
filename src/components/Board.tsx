@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   DndContext,
   DragEndEvent,
@@ -41,49 +41,23 @@ interface InboxItem {
 
 const SCOPE_STORAGE_KEY = "claude-kanban-scope";
 
-// Validate and clean a path (remove multiple consecutive slashes, etc.)
-function cleanPath(path: string): string {
-  // Replace multiple slashes with single slash
-  return path.replace(/\/+/g, '/');
+interface BoardProps {
+  initialScope?: string;
 }
 
-export function Board() {
-  const searchParams = useSearchParams();
+export function Board({ initialScope = "" }: BoardProps) {
   const router = useRouter();
 
-  // Scope path for filtering sessions - initialized from URL param or localStorage
-  const [scopePath, setScopePath] = useState<string>(() => {
-    if (typeof window !== "undefined") {
-      // Check URL param first (e.g., ?scope=/Users/jruck/project)
-      const urlScope = new URLSearchParams(window.location.search).get("scope");
-      if (urlScope) {
-        const cleaned = cleanPath(urlScope);
-        localStorage.setItem(SCOPE_STORAGE_KEY, cleaned);
-        return cleaned;
-      }
-
-      const stored = localStorage.getItem(SCOPE_STORAGE_KEY) || "";
-      // Clean up any malformed paths from previous bugs
-      const cleaned = cleanPath(stored);
-      if (cleaned !== stored && cleaned) {
-        localStorage.setItem(SCOPE_STORAGE_KEY, cleaned);
-      }
-      return cleaned;
-    }
-    return "";
-  });
+  // Scope path for filtering sessions - initialized from URL path
+  const [scopePath, setScopePath] = useState<string>(initialScope);
   const [homeDir, setHomeDir] = useState<string>("");
 
-  // Sync URL with scope on mount (if scope exists but URL doesn't have it)
+  // Persist scope to localStorage when it changes
   useEffect(() => {
-    if (scopePath && typeof window !== "undefined") {
-      const url = new URL(window.location.href);
-      if (!url.searchParams.has("scope")) {
-        // Keep slashes readable in URL
-        router.replace(`?scope=${scopePath}`, { scroll: false });
-      }
+    if (typeof window !== "undefined" && scopePath !== undefined) {
+      localStorage.setItem(SCOPE_STORAGE_KEY, scopePath);
     }
-  }, [scopePath, router]);
+  }, [scopePath]);
 
   // Fetch home directory on mount and validate/set scope
   useEffect(() => {
@@ -114,8 +88,8 @@ export function Board() {
     setScopePath(path);
     if (typeof window !== "undefined") {
       localStorage.setItem(SCOPE_STORAGE_KEY, path);
-      // Update URL with new scope (keep slashes readable)
-      router.replace(`?scope=${path}`, { scroll: false });
+      // Update URL with path-based routing (e.g., /Users/jruck/Work)
+      router.push(path || "/", { scroll: false });
       // Track in recent scopes
       recordScopeVisit(path);
     }
@@ -146,48 +120,10 @@ export function Board() {
     })
   );
 
-  // Restore session from URL on mount (once sessions are loaded)
+  // Mark session restoration as complete on mount
   useEffect(() => {
-    if (hasRestoredSession || isLoading || sessions.length === 0) return;
-
-    const urlSession = searchParams.get("session");
-    if (urlSession) {
-      const session = sessions.find((s) => s.id === urlSession);
-      if (session) {
-        // Open this session
-        setOpenSessions((prev) => {
-          if (prev.find((s) => s.id === session.id)) return prev;
-          return [...prev, session];
-        });
-        setActiveSession(session);
-        setIsDrawerOpen(true);
-      }
-    }
     setHasRestoredSession(true);
-  }, [sessions, isLoading, hasRestoredSession, searchParams]);
-
-  // Update URL when active session changes
-  useEffect(() => {
-    if (!hasRestoredSession) return; // Don't update URL during initial restore
-
-    const url = new URL(window.location.href);
-    const currentSessionParam = url.searchParams.get("session");
-
-    if (isDrawerOpen && activeSession) {
-      // Add or update session param
-      if (currentSessionParam !== activeSession.id) {
-        // Build URL manually to keep slashes readable
-        const params = [`scope=${scopePath}`];
-        params.push(`session=${activeSession.id}`);
-        router.replace(`?${params.join('&')}`, { scroll: false });
-      }
-    } else {
-      // Remove session param when drawer is closed
-      if (currentSessionParam) {
-        router.replace(`?scope=${scopePath}`, { scroll: false });
-      }
-    }
-  }, [activeSession, isDrawerOpen, hasRestoredSession, router, scopePath]);
+  }, []);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -479,8 +415,7 @@ export function Board() {
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
         {/* Left side: Scope controls (breadcrumbs, recent, browse) */}
-        <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <span className="text-xs text-zinc-500">Scope:</span>
+        <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <ScopeBreadcrumbs value={scopePath} onChange={handleScopeChange} />
           {homeDir && (
             <RecentScopesButton
@@ -493,25 +428,37 @@ export function Board() {
         </div>
 
         {/* Right side: Search */}
-        <div className="ml-auto flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
-            <input
-              type="text"
-              placeholder="Filter..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-40 pl-8 pr-7 py-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-200 placeholder-zinc-500 focus:outline-none"
-            />
-            {searchQuery && (
+        <div className="ml-auto flex items-center" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          {searchQuery ? (
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
+              <input
+                type="text"
+                placeholder="Filter..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onBlur={(e) => {
+                  if (!e.target.value) setSearchQuery("");
+                }}
+                autoFocus
+                className="w-40 pl-8 pr-7 py-1.5 text-sm bg-zinc-800 rounded text-zinc-200 placeholder-zinc-500 focus:outline-none"
+              />
               <button
                 onClick={() => setSearchQuery("")}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
-            )}
-          </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setSearchQuery(" ")}
+              className="p-1.5 rounded transition-colors text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+              title="Search"
+            >
+              <Search className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 

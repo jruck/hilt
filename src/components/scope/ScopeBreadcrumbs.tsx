@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ChevronDown, Layers } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { SubfolderDropdown } from "./SubfolderDropdown";
 
 interface ScopeBreadcrumbsProps {
@@ -44,35 +44,22 @@ export function ScopeBreadcrumbs({ value, onChange }: ScopeBreadcrumbsProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Check if we're at "All Projects" (home dir or no scope)
-  const isAllProjects = !value || value === homeDir;
+  // Check if we're at root (all projects)
+  const isAtRoot = !value;
 
-  // Parse path into segments (only when we have a specific scope beyond home)
+  // Get home folder name (e.g., "jruck" from "/Users/jruck")
+  const homeFolderName = homeDir ? homeDir.split("/").filter(Boolean).pop() || "" : "";
+
+  // Parse path into segments starting from root
   const parseSegments = (): Segment[] => {
-    if (!homeDir || !value || value === homeDir) return [];
+    if (!value) return [];
 
     const segments: Segment[] = [];
-
-    // Get the relative path from home (or use absolute if not under home)
-    let pathToProcess = value;
-    let startPath = "";
-
-    if (value.startsWith(homeDir)) {
-      // Path is under home, start from home
-      pathToProcess = value.slice(homeDir.length);
-      startPath = homeDir;
-    } else {
-      // Path is not under home (rare), show full path
-      pathToProcess = value;
-      startPath = "";
-    }
-
-    // Split into parts and build segments
-    const parts = pathToProcess.split("/").filter(Boolean);
-    let currentPath = startPath;
+    const parts = value.split("/").filter(Boolean);
+    let currentPath = "";
 
     for (const part of parts) {
-      currentPath = currentPath ? `${currentPath}/${part}` : `/${part}`;
+      currentPath = `${currentPath}/${part}`;
       segments.push({
         name: part,
         fullPath: currentPath,
@@ -84,13 +71,13 @@ export function ScopeBreadcrumbs({ value, onChange }: ScopeBreadcrumbsProps) {
 
   const segments = parseSegments();
 
-  const handleAllClick = () => {
-    if (isAllProjects) {
-      // Already at all projects, toggle dropdown to show top-level folders
+  const handleRootClick = () => {
+    if (isAtRoot) {
+      // Already at root, toggle dropdown
       setIsDropdownOpen(!isDropdownOpen);
     } else {
-      // Navigate to all projects (set to home dir)
-      onChange(homeDir);
+      // Navigate to root (empty scope = all projects)
+      onChange("");
       setIsDropdownOpen(false);
     }
   };
@@ -111,6 +98,14 @@ export function ScopeBreadcrumbs({ value, onChange }: ScopeBreadcrumbsProps) {
     setIsDropdownOpen(false);
   };
 
+  // Get display name for a segment (use home folder name like "jruck" for home path)
+  const getDisplayName = (segment: Segment): string => {
+    if (segment.fullPath === homeDir) {
+      return homeFolderName;
+    }
+    return segment.name;
+  };
+
   if (!homeDir) {
     return (
       <div className="flex items-center gap-1 text-sm text-zinc-500">
@@ -119,24 +114,26 @@ export function ScopeBreadcrumbs({ value, onChange }: ScopeBreadcrumbsProps) {
     );
   }
 
+  const isLastSegment = (index: number) => index === segments.length - 1;
+  const lastSegmentPath = segments.length > 0 ? segments[segments.length - 1].fullPath : "";
+
   return (
     <div className="relative flex items-center gap-0.5">
-      {/* "All" button - always shown */}
+      {/* Root "/" button - always shown */}
       <button
-        ref={isAllProjects ? lastSegmentRef : undefined}
-        onClick={handleAllClick}
+        ref={isAtRoot ? lastSegmentRef : undefined}
+        onClick={handleRootClick}
         className={`
-          flex items-center gap-1 px-2 py-1 rounded text-sm transition-colors
-          ${isAllProjects
+          flex items-center gap-1 px-2 py-1 rounded text-sm transition-colors font-mono
+          ${isAtRoot
             ? "bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
             : "hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200"
           }
         `}
-        title="All Projects"
+        title="All Projects (root)"
       >
-        <Layers className="w-3.5 h-3.5" />
-        <span>All</span>
-        {isAllProjects && (
+        <span>/</span>
+        {isAtRoot && (
           <ChevronDown
             className={`w-3.5 h-3.5 text-zinc-500 transition-transform ${
               isDropdownOpen ? "rotate-180" : ""
@@ -145,14 +142,15 @@ export function ScopeBreadcrumbs({ value, onChange }: ScopeBreadcrumbsProps) {
         )}
       </button>
 
-      {/* Path segments (only shown when scoped) */}
+      {/* Path segments */}
       {segments.map((segment, index) => {
-        const isLast = index === segments.length - 1;
+        const isLast = isLastSegment(index);
+        const displayName = getDisplayName(segment);
 
         return (
           <div key={segment.fullPath} className="flex items-center">
             {/* Separator */}
-            <span className="text-zinc-500 px-1">/</span>
+            <span className="text-zinc-600 px-0.5">/</span>
 
             {/* Segment button */}
             <button
@@ -166,7 +164,7 @@ export function ScopeBreadcrumbs({ value, onChange }: ScopeBreadcrumbsProps) {
                 }
               `}
             >
-              <span className="font-mono">{segment.name}</span>
+              <span className="font-mono">{displayName}</span>
               {isLast && (
                 <ChevronDown
                   className={`w-3.5 h-3.5 text-zinc-500 transition-transform ${

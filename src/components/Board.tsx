@@ -48,9 +48,14 @@ interface BoardProps {
 export function Board({ initialScope = "" }: BoardProps) {
   const router = useRouter();
 
-  // Scope path for filtering sessions - initialized from URL path
+  // Scope path for filtering sessions - controlled by URL via initialScope
   const [scopePath, setScopePath] = useState<string>(initialScope);
   const [homeDir, setHomeDir] = useState<string>("");
+
+  // Sync scopePath with URL changes (initialScope prop)
+  useEffect(() => {
+    setScopePath(initialScope);
+  }, [initialScope]);
 
   // Persist scope to localStorage when it changes
   useEffect(() => {
@@ -81,16 +86,14 @@ export function Board({ initialScope = "" }: BoardProps) {
       .catch(console.error);
   }, []);
 
-  // Persist scope to localStorage and update URL
+  // Navigate to a new scope - URL is the source of truth
   const handleScopeChange = useCallback((path: string) => {
-    setScopePath(path);
     if (typeof window !== "undefined") {
       localStorage.setItem(SCOPE_STORAGE_KEY, path);
-      // Update URL with path-based routing (e.g., /Users/jruck/Work)
-      router.push(path || "/", { scroll: false });
-      // Track in recent scopes
       recordScopeVisit(path);
     }
+    // Navigate via URL - the initialScope prop will sync scopePath state
+    router.push(path || "/", { scroll: false });
   }, [router]);
 
   const { sessions, counts, isLoading, updateStatus, toggleStarred } = useSessions(scopePath || undefined);
@@ -414,13 +417,15 @@ export function Board({ initialScope = "" }: BoardProps) {
       >
         {/* Left side: Scope controls (breadcrumbs, recent, browse) */}
         <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <ScopeBreadcrumbs value={scopePath} onChange={handleScopeChange} />
           {homeDir && (
-            <RecentScopesButton
-              currentPath={scopePath}
-              homeDir={homeDir}
-              onSelect={handleScopeChange}
-            />
+            <>
+              <ScopeBreadcrumbs value={scopePath} homeDir={homeDir} onChange={handleScopeChange} />
+              <RecentScopesButton
+                currentPath={scopePath}
+                homeDir={homeDir}
+                onSelect={handleScopeChange}
+              />
+            </>
           )}
           <BrowseButton onSelect={handleScopeChange} />
         </div>

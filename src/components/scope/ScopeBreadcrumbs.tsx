@@ -6,6 +6,7 @@ import { SubfolderDropdown } from "./SubfolderDropdown";
 
 interface ScopeBreadcrumbsProps {
   value: string;
+  homeDir: string;
   onChange: (path: string) => void;
 }
 
@@ -14,19 +15,10 @@ interface Segment {
   fullPath: string;  // Full path up to this segment (e.g., "/Users/jruck/Work")
 }
 
-export function ScopeBreadcrumbs({ value, onChange }: ScopeBreadcrumbsProps) {
-  const [homeDir, setHomeDir] = useState<string>("");
+export function ScopeBreadcrumbs({ value, homeDir, onChange }: ScopeBreadcrumbsProps) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const lastSegmentRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // Fetch home directory
-  useEffect(() => {
-    fetch("/api/folders")
-      .then((res) => res.json())
-      .then((data) => setHomeDir(data.homeDir))
-      .catch(console.error);
-  }, []);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -105,14 +97,6 @@ export function ScopeBreadcrumbs({ value, onChange }: ScopeBreadcrumbsProps) {
     }
     return segment.name;
   };
-
-  if (!homeDir) {
-    return (
-      <div className="flex items-center gap-1 text-sm text-zinc-500">
-        Loading...
-      </div>
-    );
-  }
 
   const isLastSegment = (index: number) => index === segments.length - 1;
   const lastSegmentPath = segments.length > 0 ? segments[segments.length - 1].fullPath : "";

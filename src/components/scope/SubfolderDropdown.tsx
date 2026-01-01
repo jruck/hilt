@@ -63,7 +63,7 @@ export function SubfolderDropdown({
       {/* Subfolders/Projects section */}
       <div className="px-2 py-1.5">
         <span className="text-xs text-zinc-500 uppercase tracking-wide">
-          {isAtRoot ? "Projects" : "Subfolders"}
+          {isAtRoot ? "Projects" : "Subfolders with sessions"}
         </span>
       </div>
 

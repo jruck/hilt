@@ -1,18 +1,17 @@
 import * as fs from "fs";
 import * as path from "path";
 
-// Default fallback for when no scope is provided
-const DEFAULT_TODO_FILE = path.join(process.cwd(), "docs/Todo.md");
-
 /**
  * Get the Todo.md file path for a given scope
  * Uses docs/Todo.md in the scoped folder (standard Claude Code convention)
+ * Returns null if no scope is provided (All Projects view shows empty state)
  */
-function getTodoFilePath(scopePath?: string): string {
+function getTodoFilePath(scopePath?: string): string | null {
   if (scopePath) {
     return path.join(scopePath, "docs", "Todo.md");
   }
-  return DEFAULT_TODO_FILE;
+  // No scope = All Projects view, which has no Todo.md file
+  return null;
 }
 
 export interface TodoItem {
@@ -42,8 +41,8 @@ export interface TodoData {
 export function parseTodoFile(scopePath?: string): TodoData {
   const todoFile = getTodoFilePath(scopePath);
 
-  // If file doesn't exist, return empty data (don't create it)
-  if (!fs.existsSync(todoFile)) {
+  // No scope (All Projects view) or file doesn't exist = empty data
+  if (!todoFile || !fs.existsSync(todoFile)) {
     return {
       preamble: [],
       sections: [],
@@ -133,6 +132,12 @@ export function parseTodoFile(scopePath?: string): TodoData {
  */
 export function writeTodoFile(data: TodoData, scopePath?: string): void {
   const todoFile = getTodoFilePath(scopePath);
+
+  // Cannot write todos without a scope (All Projects view)
+  if (!todoFile) {
+    throw new Error("Cannot write todos without a scope. Navigate to a project folder first.");
+  }
+
   const lines: string[] = [];
 
   // Write preamble
@@ -326,7 +331,7 @@ export function getAllTodoItems(scopePath?: string): TodoItem[] {
  */
 export function getTodoFileModTime(scopePath?: string): Date | null {
   const todoFile = getTodoFilePath(scopePath);
-  if (!fs.existsSync(todoFile)) {
+  if (!todoFile || !fs.existsSync(todoFile)) {
     return null;
   }
   const stats = fs.statSync(todoFile);

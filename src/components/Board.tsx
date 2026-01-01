@@ -40,9 +40,16 @@ interface InboxItem {
 }
 
 const SCOPE_STORAGE_KEY = "claude-kanban-scope";
+const HOME_DIR_STORAGE_KEY = "claude-kanban-home-dir";
 
 interface BoardProps {
   initialScope?: string;
+}
+
+// Get cached homeDir synchronously to prevent breadcrumb flash
+function getCachedHomeDir(): string {
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem(HOME_DIR_STORAGE_KEY) || "";
 }
 
 export function Board({ initialScope = "" }: BoardProps) {
@@ -50,7 +57,8 @@ export function Board({ initialScope = "" }: BoardProps) {
 
   // Scope path for filtering sessions - controlled by URL via initialScope
   const [scopePath, setScopePath] = useState<string>(initialScope);
-  const [homeDir, setHomeDir] = useState<string>("");
+  // Initialize homeDir from cache to prevent breadcrumb disappearing on navigation
+  const [homeDir, setHomeDir] = useState<string>(getCachedHomeDir);
 
   // Sync scopePath with URL changes (initialScope prop)
   useEffect(() => {
@@ -70,6 +78,8 @@ export function Board({ initialScope = "" }: BoardProps) {
       .then((res) => res.json())
       .then(async (data) => {
         setHomeDir(data.homeDir);
+        // Cache for future navigations to prevent breadcrumb flash
+        localStorage.setItem(HOME_DIR_STORAGE_KEY, data.homeDir);
 
         // Validate current scope path (if one is set)
         // Empty scope is valid - it means "all projects" (root view)

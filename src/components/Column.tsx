@@ -271,7 +271,7 @@ export function Column({
       `}
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-3 border-b border-zinc-800">
+      <div className="flex items-center justify-between h-11 px-3 border-b border-zinc-800">
         <div className="flex items-center gap-2">
           <span className={config.color}>{config.icon}</span>
           {status === "inbox" && scopePath ? (

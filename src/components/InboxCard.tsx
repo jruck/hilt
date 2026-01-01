@@ -189,7 +189,7 @@ export function InboxCard({
         </button>
       </div>
 
-      <p className="text-sm text-zinc-300 line-clamp-3">{item.prompt}</p>
+      <p className="text-sm text-zinc-300 line-clamp-3" title={item.prompt}>{item.prompt}</p>
     </div>
   );
 }

@@ -317,79 +317,21 @@ export function TerminalDrawer({
       {/* Main drawer - always rendered when sessions exist to keep terminals alive */}
       <div
         className={`
-          fixed right-0 top-14 h-[calc(100%-56px)] bg-zinc-900 border-l border-zinc-800
+          fixed right-0 top-[45px] h-[calc(100%-45px)] bg-zinc-900
           transition-transform duration-300 ease-in-out z-50
-          flex flex-col
+          flex flex-col shadow-2xl shadow-black/50
           ${isOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'}
         `}
         style={{ width: drawerWidth, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
-        {/* Resize handle */}
+        {/* Resize handle - border lightens on hover */}
         <div
-          className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500/50 active:bg-blue-500/70 transition-colors z-10"
+          className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-10 border-l border-zinc-700 hover:border-zinc-500 active:border-zinc-400 transition-colors"
           onMouseDown={handleResizeMouseDown}
         />
-      {/* Header */}
-      <div className="flex items-center justify-between p-2 border-b border-zinc-800 bg-zinc-950">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-zinc-400">
-            {viewMode === "terminal" ? "Terminal" : viewMode === "plan" ? "Implementation Plan" : "Session Details"}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* View mode toggle */}
-          <div className="flex bg-zinc-800 rounded p-0.5">
-            <button
-              onClick={() => setViewMode("terminal")}
-              className={`px-2 py-1 text-xs rounded transition-colors ${
-                viewMode === "terminal"
-                  ? "bg-zinc-700 text-zinc-100"
-                  : "text-zinc-400 hover:text-zinc-200"
-              }`}
-              title="Terminal"
-            >
-              <TerminalIcon className="w-3 h-3" />
-            </button>
-            <button
-              onClick={() => setViewMode("info")}
-              className={`px-2 py-1 text-xs rounded transition-colors ${
-                viewMode === "info"
-                  ? "bg-zinc-700 text-zinc-100"
-                  : "text-zinc-400 hover:text-zinc-200"
-              }`}
-              title="Session Details"
-            >
-              <Info className="w-3 h-3" />
-            </button>
-            {hasPlan && (
-              <button
-                onClick={() => setViewMode("plan")}
-                className={`px-2 py-1 text-xs rounded transition-colors ${
-                  viewMode === "plan"
-                    ? "bg-zinc-700 text-zinc-100"
-                    : "text-zinc-400 hover:text-zinc-200"
-                }`}
-                title="Implementation Plan"
-              >
-                <FileText className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-          <div className="text-xs text-zinc-600">
-            {sessions.length} session{sessions.length !== 1 ? "s" : ""} open
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      {sessions.length > 0 && (
-        <div className="flex border-b border-zinc-800 bg-zinc-950 overflow-x-auto">
+      {/* Session Tabs Row */}
+      <div className="flex border-b border-zinc-800 bg-zinc-950">
+        <div className="flex flex-1 overflow-x-auto">
           {sessions.map((session) => {
             const progress = contextProgress.get(session.id) ?? 0;
             // Color based on progress: green → yellow → orange → red
@@ -415,7 +357,7 @@ export function TerminalDrawer({
                 `}
                 onClick={() => onSelectSession(session)}
               >
-                <span className="truncate flex-1">{session.title}</span>
+                <span className="truncate flex-1" title={session.title}>{session.title}</span>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -437,89 +379,140 @@ export function TerminalDrawer({
             );
           })}
         </div>
-      )}
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          className="px-3 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors border-l border-zinc-800"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
 
-      {/* Session Status Bar - shown in terminal mode */}
-      {activeSession && viewMode === "terminal" && (
-        <div className="bg-zinc-950 border-b border-zinc-800 px-3 py-2 space-y-1.5">
-          {/* Row 1: Title and Status */}
-          <div className="flex items-center gap-4 text-xs">
-            <div className="flex items-center gap-1.5 min-w-0 flex-1">
-              <span className="text-zinc-600 shrink-0">Title:</span>
-              <span className="text-zinc-300 font-medium truncate">{activeSession.title}</span>
-            </div>
-            {terminalTitle && (
-              <div className="flex items-center gap-1.5 shrink-0">
-                <span className="text-zinc-600">Status:</span>
-                <span className="text-green-400 font-medium">{terminalTitle}</span>
+
+      {/* Main content area with sidebar */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Mode Sidebar */}
+        <div className="flex flex-col items-center py-2 px-1 bg-zinc-950 border-r border-zinc-800 gap-1">
+          <button
+            onClick={() => setViewMode("terminal")}
+            title="Terminal"
+            className={`p-2 rounded transition-colors ${
+              viewMode === "terminal"
+                ? "bg-zinc-700 text-zinc-100"
+                : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+            }`}
+          >
+            <TerminalIcon className="w-4 h-4" />
+          </button>
+          {hasPlan && (
+            <button
+              onClick={() => setViewMode("plan")}
+              title="Plan"
+              className={`p-2 rounded transition-colors ${
+                viewMode === "plan"
+                  ? "bg-zinc-700 text-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+            </button>
+          )}
+          <button
+            onClick={() => setViewMode("info")}
+            title="Info"
+            className={`p-2 rounded transition-colors ${
+              viewMode === "info"
+                ? "bg-zinc-700 text-zinc-100"
+                : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+            }`}
+          >
+            <Info className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 flex flex-col bg-[#0a0a0a] overflow-hidden">
+          {/* Session Status Bar - shown in terminal mode */}
+          {activeSession && viewMode === "terminal" && (
+            <div className="bg-zinc-950 border-b border-zinc-800 px-3 py-2 space-y-1.5 shrink-0">
+              {/* Row 1: Title and Status */}
+              <div className="flex items-center gap-4 text-xs">
+                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                  <span className="text-zinc-600 shrink-0">Title:</span>
+                  <span className="text-zinc-300 font-medium truncate">{activeSession.title}</span>
+                </div>
+                {terminalTitle && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-zinc-600">Status:</span>
+                    <span className="text-green-400 font-medium">{terminalTitle}</span>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          {/* Row 2: Prompt (if different from title) */}
-          {activeSession.firstPrompt && activeSession.firstPrompt !== activeSession.title && (
-            <div className="flex items-start gap-1.5 text-xs">
-              <span className="text-zinc-600 shrink-0">Prompt:</span>
-              <span className="text-zinc-400 line-clamp-1">{activeSession.firstPrompt}</span>
+              {/* Row 2: Prompt (if different from title) */}
+              {activeSession.firstPrompt && activeSession.firstPrompt !== activeSession.title && (
+                <div className="flex items-start gap-1.5 text-xs">
+                  <span className="text-zinc-600 shrink-0">Prompt:</span>
+                  <span className="text-zinc-400 line-clamp-1">{activeSession.firstPrompt}</span>
+                </div>
+              )}
+
+              {/* Row 3: Metadata (folder, branch, slug, messages, time) */}
+              <div className="flex items-center gap-4 text-xs text-zinc-500">
+                <button
+                  onClick={() => {
+                    fetch('/api/reveal', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ path: activeSession.projectPath })
+                    }).catch(console.error);
+                  }}
+                  className="flex items-center gap-1 hover:text-zinc-300 transition-colors"
+                  title="Open in Finder"
+                >
+                  <Folder className="w-3 h-3" />
+                  <span className="truncate max-w-[120px]">{activeSession.project}</span>
+                </button>
+                {activeSession.gitBranch && (
+                  <span className="flex items-center gap-1">
+                    <GitBranch className="w-3 h-3" />
+                    <span className="truncate max-w-[100px]">{activeSession.gitBranch}</span>
+                  </span>
+                )}
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(`claude --resume ${activeSession.id}`);
+                    setCopiedSlug(true);
+                    setTimeout(() => setCopiedSlug(false), 1500);
+                  }}
+                  className="flex items-center gap-1 hover:text-zinc-300 transition-colors"
+                  title="Click to copy resume command"
+                >
+                  {copiedSlug ? <Check className="w-3 h-3 text-green-400" /> : <Hash className="w-3 h-3" />}
+                  <span className={`truncate max-w-[180px] font-mono ${copiedSlug ? "text-green-400" : ""}`}>{activeSession.id.slice(0, 8)}</span>
+                </button>
+                <span className="flex items-center gap-1">
+                  <MessageSquare className="w-3 h-3" />
+                  {activeSession.messageCount}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  {new Date(activeSession.lastActivity).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
             </div>
           )}
 
-          {/* Row 3: Metadata (folder, branch, slug, messages, time) */}
-          <div className="flex items-center gap-4 text-xs text-zinc-500">
-            <button
-              onClick={() => {
-                fetch('/api/reveal', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ path: activeSession.projectPath })
-                }).catch(console.error);
-              }}
-              className="flex items-center gap-1 hover:text-zinc-300 transition-colors"
-              title="Open in Finder"
-            >
-              <Folder className="w-3 h-3" />
-              <span className="truncate max-w-[120px]">{activeSession.project}</span>
-            </button>
-            {activeSession.gitBranch && (
-              <span className="flex items-center gap-1">
-                <GitBranch className="w-3 h-3" />
-                <span className="truncate max-w-[100px]">{activeSession.gitBranch}</span>
-              </span>
-            )}
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(`claude --resume ${activeSession.id}`);
-                setCopiedSlug(true);
-                setTimeout(() => setCopiedSlug(false), 1500);
-              }}
-              className="flex items-center gap-1 hover:text-zinc-300 transition-colors"
-              title="Click to copy resume command"
-            >
-              {copiedSlug ? <Check className="w-3 h-3 text-green-400" /> : <Hash className="w-3 h-3" />}
-              <span className={`truncate max-w-[180px] font-mono ${copiedSlug ? "text-green-400" : ""}`}>{activeSession.id.slice(0, 8)}</span>
-            </button>
-            <span className="flex items-center gap-1">
-              <MessageSquare className="w-3 h-3" />
-              {activeSession.messageCount}
-            </span>
-            <span className="flex items-center gap-1">
-              <Clock className="w-3 h-3" />
-              {new Date(activeSession.lastActivity).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Content */}
-      <div className="flex-1 bg-[#0a0a0a] overflow-hidden relative">
-        {/* Render all terminals - use visibility instead of display to preserve dimensions */}
-        {sessions.map((session) => {
-          const isVisible = viewMode === "terminal" && session.id === activeSession?.id;
-          return (
-          <div
-            key={session.id}
-            className={`absolute inset-0 ${isVisible ? 'visible' : 'invisible pointer-events-none'}`}
-          >
+          {/* Terminal/Info/Plan content area */}
+          <div className="flex-1 overflow-hidden relative">
+            {/* Render all terminals - use visibility instead of display to preserve dimensions */}
+            {sessions.map((session) => {
+              const isVisible = viewMode === "terminal" && session.id === activeSession?.id;
+              return (
+              <div
+                key={session.id}
+                className={`absolute inset-0 p-3 ${isVisible ? 'visible' : 'invisible pointer-events-none'}`}
+              >
             <Terminal
               terminalId={session.id}
               sessionId={session.id}
@@ -703,7 +696,7 @@ export function TerminalDrawer({
             </div>
 
             {/* Plan Editor */}
-            <div className="flex-1 overflow-hidden min-h-0">
+            <div className="flex-1 overflow-hidden min-h-0 p-3">
               <PlanEditor
                 markdown={activePlan!.content!}
                 onChange={handlePlanChange}
@@ -718,6 +711,8 @@ export function TerminalDrawer({
             Select a session to view details
           </div>
         )}
+          </div>
+        </div>
       </div>
     </div>
     </>

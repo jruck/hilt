@@ -125,6 +125,9 @@ export function Board() {
   const [draggingSession, setDraggingSession] = useState<Session | null>(null);
   const [openSessions, setOpenSessions] = useState<Session[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  // Track if we've restored session from URL (to avoid double-triggering)
+  const [hasRestoredSession, setHasRestoredSession] = useState(false);
   // Track terminal status per session (from Claude Code's dynamic title)
   const [sessionStatuses, setSessionStatuses] = useState<Record<string, string>>({});
   // Multi-select state
@@ -139,6 +142,49 @@ export function Board() {
       },
     })
   );
+
+  // Restore session from URL on mount (once sessions are loaded)
+  useEffect(() => {
+    if (hasRestoredSession || isLoading || sessions.length === 0) return;
+
+    const urlSession = searchParams.get("session");
+    if (urlSession) {
+      const session = sessions.find((s) => s.id === urlSession);
+      if (session) {
+        // Open this session
+        setOpenSessions((prev) => {
+          if (prev.find((s) => s.id === session.id)) return prev;
+          return [...prev, session];
+        });
+        setActiveSession(session);
+        setIsDrawerOpen(true);
+      }
+    }
+    setHasRestoredSession(true);
+  }, [sessions, isLoading, hasRestoredSession, searchParams]);
+
+  // Update URL when active session changes
+  useEffect(() => {
+    if (!hasRestoredSession) return; // Don't update URL during initial restore
+
+    const url = new URL(window.location.href);
+    const currentSessionParam = url.searchParams.get("session");
+
+    if (isDrawerOpen && activeSession) {
+      // Add or update session param
+      if (currentSessionParam !== activeSession.id) {
+        // Build URL manually to keep slashes readable
+        const params = [`scope=${scopePath}`];
+        params.push(`session=${activeSession.id}`);
+        router.replace(`?${params.join('&')}`, { scroll: false });
+      }
+    } else {
+      // Remove session param when drawer is closed
+      if (currentSessionParam) {
+        router.replace(`?scope=${scopePath}`, { scroll: false });
+      }
+    }
+  }, [activeSession, isDrawerOpen, hasRestoredSession, router, scopePath]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -424,9 +470,9 @@ export function Board() {
 
   return (
     <div className="flex flex-col h-screen bg-zinc-950">
-      {/* Status Bar */}
+      {/* Status Bar - fixed height for drawer alignment */}
       <div
-        className="flex items-center gap-4 px-4 py-2 bg-zinc-900 border-b border-zinc-800"
+        className="flex items-center gap-4 px-4 h-11 bg-zinc-900 border-b border-zinc-800"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
         {/* Left side: Scope and Search */}

@@ -270,3 +270,315 @@ body [data-radix-popper-content-wrapper] [role="option"][aria-selected="true"] {
   overflow-y: auto !important;
   max-height: 100% !important;
 }
+
+/* MDXEditor Table Styling - Minimal Dark Theme */
+.dark-theme table {
+  border-collapse: collapse !important;
+  border-spacing: 0 !important;
+  margin: 0.5rem 0 !important;
+}
+
+/* Base reset - all cells transparent with no borders */
+.dark-theme table th,
+.dark-theme table td {
+  background-color: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+}
+
+/* Content cells - only internal borders, no outer edges */
+.dark-theme table th[class*="AlignedCell"],
+.dark-theme table td[class*="AlignedCell"] {
+  padding: 0.25rem 0.5rem !important;
+  border: none !important;
+  border-bottom: 1px solid #3f3f46 !important;
+  background-color: transparent !important;
+  color: #d4d4d8 !important;
+  vertical-align: middle !important;
+}
+
+/* Add left border only between content columns (not on first content cell) */
+.dark-theme table th[class*="AlignedCell"] ~ th[class*="AlignedCell"],
+.dark-theme table td[class*="AlignedCell"] ~ td[class*="AlignedCell"] {
+  border-left: 1px solid #3f3f46 !important;
+}
+
+/* Header row - add top border */
+.dark-theme table tr:nth-child(2) th[class*="AlignedCell"] {
+  border-top: 1px solid #3f3f46 !important;
+}
+
+/* Header cells - slightly brighter text */
+.dark-theme table th[class*="AlignedCell"] {
+  font-weight: 600 !important;
+  color: #fafafa !important;
+}
+
+/* All table buttons - transparent */
+.dark-theme table button {
+  background-color: transparent !important;
+  border: none !important;
+  padding: 0.125rem !important;
+  min-height: auto !important;
+  height: auto !important;
+}
+
+/* Button hover states */
+.dark-theme table button:hover {
+  background-color: #3f3f46 !important;
+  border-radius: 4px !important;
+}
+
+/* Hide scrollbars inside table cells */
+.dark-theme table [contenteditable] {
+  overflow: hidden !important;
+  scrollbar-width: none !important;
+}
+
+.dark-theme table [contenteditable]::-webkit-scrollbar {
+  display: none !important;
+}
+
+/* MDXEditor Dialog/Tooltip Menus - Dark Theme Fix */
+/* Target Radix dialogs used by MDXEditor */
+.dark-theme [role="dialog"],
+body [data-radix-popper-content-wrapper] [role="dialog"] {
+  background-color: #27272a !important;
+  border: 1px solid #3f3f46 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6) !important;
+}
+
+/* Toolbar inside dialogs */
+.dark-theme [role="dialog"] [role="toolbar"],
+body [data-radix-popper-content-wrapper] [role="toolbar"] {
+  background-color: #27272a !important;
+  gap: 2px !important;
+}
+
+/* Radio buttons in dialogs (alignment options etc.) */
+.dark-theme [role="dialog"] [role="radio"],
+body [data-radix-popper-content-wrapper] [role="radio"] {
+  background-color: #3f3f46 !important;
+  border: 1px solid #52525b !important;
+  color: #d4d4d8 !important;
+}
+
+.dark-theme [role="dialog"] [role="radio"]:hover,
+body [data-radix-popper-content-wrapper] [role="radio"]:hover {
+  background-color: #52525b !important;
+  border-color: #71717a !important;
+}
+
+.dark-theme [role="dialog"] [role="radio"][aria-checked="true"],
+body [data-radix-popper-content-wrapper] [role="radio"][aria-checked="true"] {
+  background-color: #3b82f6 !important;
+  border-color: #60a5fa !important;
+  color: #fafafa !important;
+}
+
+/* Buttons in dialogs */
+.dark-theme [role="dialog"] button,
+body [data-radix-popper-content-wrapper] [role="dialog"] button {
+  background-color: #3f3f46 !important;
+  border: 1px solid #52525b !important;
+  color: #d4d4d8 !important;
+}
+
+.dark-theme [role="dialog"] button:hover,
+body [data-radix-popper-content-wrapper] [role="dialog"] button:hover {
+  background-color: #52525b !important;
+  border-color: #71717a !important;
+  color: #fafafa !important;
+}
+
+/* SVG icons inside dialog buttons - ensure proper color */
+.dark-theme [role="dialog"] button svg,
+.dark-theme [role="dialog"] [role="radio"] svg,
+body [data-radix-popper-content-wrapper] button svg,
+body [data-radix-popper-content-wrapper] [role="radio"] svg {
+  color: #d4d4d8 !important;
+  fill: none !important;
+  stroke: currentColor !important;
+}
+
+.dark-theme [role="dialog"] button:hover svg,
+.dark-theme [role="dialog"] [role="radio"]:hover svg,
+body [data-radix-popper-content-wrapper] button:hover svg,
+body [data-radix-popper-content-wrapper] [role="radio"]:hover svg {
+  color: #fafafa !important;
+}
+
+.dark-theme [role="dialog"] [role="radio"][aria-checked="true"] svg,
+body [data-radix-popper-content-wrapper] [role="radio"][aria-checked="true"] svg {
+  color: #fafafa !important;
+}
+
+/* Fix the tooltip arrow/caret to match dialog background */
+body [data-radix-popper-content-wrapper] [data-popper-arrow],
+body [data-radix-popper-content-wrapper] [data-radix-popper-arrow],
+.dark-theme [role="dialog"] [data-popper-arrow],
+.dark-theme [role="dialog"] [data-radix-popper-arrow] {
+  fill: #27272a !important;
+  color: #27272a !important;
+}
+
+/* Target arrow SVG and polygon elements */
+body [data-radix-popper-content-wrapper] svg[class*="arrow"],
+body [data-radix-popper-content-wrapper] [class*="Arrow"] svg,
+body [data-radix-popper-content-wrapper] [class*="arrow"] {
+  fill: #27272a !important;
+  color: #27272a !important;
+}
+
+body [data-radix-popper-content-wrapper] svg[class*="arrow"] polygon,
+body [data-radix-popper-content-wrapper] svg[class*="arrow"] path {
+  fill: #27272a !important;
+}
+
+/* MDXEditor specific popup arrow styling */
+.mdxeditor-popup-container [data-popper-arrow],
+.mdxeditor [data-popper-arrow],
+[data-radix-popper-content-wrapper] > div > svg {
+  fill: #27272a !important;
+  color: #27272a !important;
+}
+
+/* Target MDXEditor's CSS module popover arrow class */
+[data-radix-popper-content-wrapper] svg[class*="popoverArrow"],
+[data-radix-popper-content-wrapper] svg[class*="popoverArrow"] polygon {
+  fill: #27272a !important;
+}
+
+/* Generic arrow pseudo-element fix */
+body [data-radix-popper-content-wrapper]::before,
+body [data-radix-popper-content-wrapper]::after {
+  border-color: #27272a transparent transparent transparent !important;
+}
+
+/* CodeMirror Dark Theme for MDXEditor Code Blocks */
+.dark-theme .cm-editor {
+  background-color: #18181b !important;
+  color: #e4e4e7 !important;
+  border-radius: 8px !important;
+}
+
+.dark-theme .cm-editor .cm-scroller {
+  background-color: #18181b !important;
+}
+
+.dark-theme .cm-editor .cm-content {
+  color: #e4e4e7 !important;
+}
+
+.dark-theme .cm-editor .cm-gutters {
+  background-color: #18181b !important;
+  color: #71717a !important;
+  border-right: 1px solid #27272a !important;
+}
+
+.dark-theme .cm-editor .cm-gutter-lint {
+  background-color: #18181b !important;
+}
+
+.dark-theme .cm-editor .cm-activeLineGutter {
+  background-color: #27272a !important;
+}
+
+.dark-theme .cm-editor .cm-activeLine {
+  background-color: rgba(63, 63, 70, 0.3) !important;
+}
+
+.dark-theme .cm-editor .cm-selectionBackground {
+  background-color: rgba(59, 130, 246, 0.3) !important;
+}
+
+.dark-theme .cm-editor .cm-cursor {
+  border-left-color: #fafafa !important;
+}
+
+/* CodeMirror Syntax Highlighting - Dark Theme */
+.dark-theme .cm-editor .cm-line {
+  color: #e4e4e7 !important;
+}
+
+/* Keywords (function, const, let, return, etc.) */
+.dark-theme .cm-editor .tok-keyword {
+  color: #c084fc !important;
+}
+
+/* Strings */
+.dark-theme .cm-editor .tok-string,
+.dark-theme .cm-editor .tok-string2 {
+  color: #86efac !important;
+}
+
+/* Numbers */
+.dark-theme .cm-editor .tok-number {
+  color: #fcd34d !important;
+}
+
+/* Comments */
+.dark-theme .cm-editor .tok-comment {
+  color: #71717a !important;
+  font-style: italic;
+}
+
+/* Function/method names */
+.dark-theme .cm-editor .tok-function,
+.dark-theme .cm-editor .tok-definition {
+  color: #60a5fa !important;
+}
+
+/* Variables and identifiers */
+.dark-theme .cm-editor .tok-variableName {
+  color: #e4e4e7 !important;
+}
+
+/* Properties */
+.dark-theme .cm-editor .tok-propertyName {
+  color: #f472b6 !important;
+}
+
+/* Types */
+.dark-theme .cm-editor .tok-typeName {
+  color: #fbbf24 !important;
+}
+
+/* Operators */
+.dark-theme .cm-editor .tok-operator {
+  color: #94a3b8 !important;
+}
+
+/* Punctuation */
+.dark-theme .cm-editor .tok-punctuation {
+  color: #a1a1aa !important;
+}
+
+/* Brackets */
+.dark-theme .cm-editor .tok-bracket {
+  color: #a1a1aa !important;
+}
+
+/* RegExp */
+.dark-theme .cm-editor .tok-regexp {
+  color: #fb923c !important;
+}
+
+/* Tags (HTML/JSX) */
+.dark-theme .cm-editor .tok-tagName {
+  color: #f87171 !important;
+}
+
+/* Attributes */
+.dark-theme .cm-editor .tok-attributeName {
+  color: #a78bfa !important;
+}
+
+/* Code block container styling */
+.dark-theme [data-lexical-decorator="true"] {
+  background-color: #18181b !important;
+  border: 1px solid #27272a !important;
+  border-radius: 8px !important;
+  margin: 0.5rem 0 !important;
+}

@@ -31,6 +31,8 @@ import {
   ChevronDown,
   ChevronRight,
   GripVertical,
+  Terminal,
+  FolderOpen,
 } from "lucide-react";
 
 interface InboxItem {
@@ -69,6 +71,10 @@ interface ColumnProps {
   onSelectSession?: (session: Session, selected: boolean) => void;
   onSelectInboxItem?: (item: InboxItem, selected: boolean) => void;
   onBackgroundClick?: () => void;
+  // Drawer toggle for active column
+  openSessionCount?: number;
+  isDrawerOpen?: boolean;
+  onToggleDrawer?: () => void;
 }
 
 const columnConfig: Record<
@@ -172,6 +178,9 @@ export function Column({
   onSelectSession,
   onSelectInboxItem,
   onBackgroundClick,
+  openSessionCount = 0,
+  isDrawerOpen = false,
+  onToggleDrawer,
 }: ColumnProps) {
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   // Default to "New" section for new items
@@ -274,24 +283,7 @@ export function Column({
       <div className="flex items-center justify-between h-11 px-3 border-b border-zinc-800">
         <div className="flex items-center gap-2">
           <span className={config.color}>{config.icon}</span>
-          {status === "inbox" && scopePath ? (
-            <button
-              onClick={() => {
-                const todoPath = `${scopePath}/docs/Todo.md`;
-                fetch('/api/reveal', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ path: todoPath })
-                }).catch(console.error);
-              }}
-              className="font-semibold text-zinc-100 hover:text-blue-400 transition-colors"
-              title="Open Todo.md in Finder"
-            >
-              {config.title}
-            </button>
-          ) : (
-            <h2 className="font-semibold text-zinc-100">{config.title}</h2>
-          )}
+          <h2 className="font-semibold text-zinc-100">{config.title}</h2>
           <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded-full">
             {status === "inbox"
               ? inboxItems.length + (totalCount ?? sessions.length)
@@ -299,15 +291,54 @@ export function Column({
           </span>
         </div>
 
-        {status === "inbox" && onCreateInboxItem && (
-          <button
-            onClick={handleAddClick}
-            className="p-1 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition-colors"
-            title="Add draft prompt"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-        )}
+        <div className="flex items-center gap-1">
+          {/* Inbox: Add button and open todo.md button */}
+          {status === "inbox" && (
+            <>
+              {onCreateInboxItem && (
+                <button
+                  onClick={handleAddClick}
+                  className="p-1 text-blue-400 hover:text-blue-300 hover:bg-zinc-800 rounded transition-colors"
+                  title="Add draft prompt"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              )}
+              {scopePath && (
+                <button
+                  onClick={() => {
+                    const todoPath = `${scopePath}/docs/Todo.md`;
+                    fetch('/api/reveal', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ path: todoPath })
+                    }).catch(console.error);
+                  }}
+                  className="p-1 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition-colors"
+                  title="Open Todo.md in Finder"
+                >
+                  <FolderOpen className="w-4 h-4" />
+                </button>
+              )}
+            </>
+          )}
+
+          {/* Active: Drawer toggle */}
+          {status === "active" && openSessionCount > 0 && onToggleDrawer && (
+            <button
+              onClick={onToggleDrawer}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded text-sm transition-colors ${
+                isDrawerOpen
+                  ? 'bg-zinc-700 text-zinc-100'
+                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
+              }`}
+              title={isDrawerOpen ? 'Hide terminal drawer' : 'Show terminal drawer'}
+            >
+              <Terminal className="w-3.5 h-3.5 text-green-400" />
+              <span className="text-xs">{openSessionCount}</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Cards */}

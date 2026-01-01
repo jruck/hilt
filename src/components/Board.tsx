@@ -18,7 +18,7 @@ import { Column } from "./Column";
 import { SessionCard } from "./SessionCard";
 import { TerminalDrawer } from "./TerminalDrawer";
 import { FolderPicker } from "./FolderPicker";
-import { Loader2, X, Inbox, Loader2 as InProgressIcon, Clock, Search, Terminal as TerminalIcon } from "lucide-react";
+import { Loader2, X, Inbox, Loader2 as InProgressIcon, Clock, Search } from "lucide-react";
 
 const COLUMNS: SessionStatus[] = ["inbox", "active", "recent"];
 
@@ -475,55 +475,34 @@ export function Board() {
         className="flex items-center gap-4 px-4 h-11 bg-zinc-900 border-b border-zinc-800"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
-        {/* Left side: Scope and Search */}
-        <div className="flex items-center gap-4" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-zinc-500">Scope:</span>
-            {scopePath && (
-              <FolderPicker value={scopePath} onChange={handleScopeChange} />
-            )}
-          </div>
-
-          {/* Search Box */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-zinc-500">Search:</span>
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
-              <input
-                type="text"
-                placeholder="Filter cards..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-48 pl-8 pr-7 py-1.5 text-sm bg-zinc-800 border border-zinc-700 rounded text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-600"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
+        {/* Left side: Scope */}
+        <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <span className="text-xs text-zinc-500">Scope:</span>
+          {scopePath && (
+            <FolderPicker value={scopePath} onChange={handleScopeChange} />
+          )}
         </div>
 
-        {/* Right side: Terminal indicator */}
-        <div className="ml-auto" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          {openSessions.length > 0 && (
-            <button
-              onClick={() => setIsDrawerOpen(!isDrawerOpen)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded text-sm transition-colors ${
-                isDrawerOpen
-                  ? 'bg-zinc-700 text-zinc-100'
-                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
-              }`}
-              title={isDrawerOpen ? 'Hide terminal drawer' : 'Show terminal drawer'}
-            >
-              <TerminalIcon className="w-3.5 h-3.5 text-green-400" />
-              <span>{openSessions.length}</span>
-            </button>
-          )}
+        {/* Right side: Search */}
+        <div className="ml-auto flex items-center gap-3" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
+            <input
+              type="text"
+              placeholder="Filter..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-40 pl-8 pr-7 py-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-200 placeholder-zinc-500 focus:outline-none"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -567,6 +546,9 @@ export function Board() {
                 onSelectSession={handleSelectSession}
                 onSelectInboxItem={handleSelectInboxItem}
                 onBackgroundClick={() => isDrawerOpen && setIsDrawerOpen(false)}
+                openSessionCount={status === "active" ? openSessions.length : undefined}
+                isDrawerOpen={status === "active" ? isDrawerOpen : undefined}
+                onToggleDrawer={status === "active" ? () => setIsDrawerOpen(!isDrawerOpen) : undefined}
               />
             ))}
           </div>

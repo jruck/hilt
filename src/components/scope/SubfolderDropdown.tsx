@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Folder, Home, Check } from "lucide-react";
+import { Folder, Check } from "lucide-react";
 
 interface SubfolderDropdownProps {
   currentPath: string;
@@ -19,10 +19,12 @@ export function SubfolderDropdown({
   const [folders, setFolders] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch subfolders
+  // Fetch subfolders (or top-level folders if at "All Projects")
   useEffect(() => {
     setIsLoading(true);
-    const url = `/api/folders?scope=${encodeURIComponent(currentPath)}`;
+    // If currentPath is empty (All Projects), fetch top-level folders from home
+    const scopeToFetch = currentPath || homeDir;
+    const url = `/api/folders?scope=${encodeURIComponent(scopeToFetch)}`;
     fetch(url)
       .then((res) => res.json())
       .then((data) => {
@@ -33,7 +35,7 @@ export function SubfolderDropdown({
         setFolders([]);
         setIsLoading(false);
       });
-  }, [currentPath]);
+  }, [currentPath, homeDir]);
 
   // Handle keyboard navigation
   useEffect(() => {
@@ -58,26 +60,15 @@ export function SubfolderDropdown({
     return parts[parts.length - 1];
   };
 
+  // Check if we're at "All Projects" (empty path)
+  const isAllProjects = !currentPath;
+
   return (
     <div className="w-[300px] bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl overflow-hidden">
-      {/* Home option (navigate up to all projects) */}
-      {currentPath !== homeDir && (
-        <>
-          <button
-            onClick={() => onSelect(homeDir)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-zinc-800 transition-colors text-zinc-300"
-          >
-            <Home className="w-4 h-4 text-zinc-500" />
-            <span>~ (All Projects)</span>
-          </button>
-          <div className="border-t border-zinc-800" />
-        </>
-      )}
-
-      {/* Subfolders section */}
+      {/* Subfolders/Projects section */}
       <div className="px-2 py-1.5">
         <span className="text-xs text-zinc-500 uppercase tracking-wide">
-          Subfolders
+          {isAllProjects ? "Projects" : "Subfolders"}
         </span>
       </div>
 
@@ -85,7 +76,9 @@ export function SubfolderDropdown({
         {isLoading ? (
           <p className="px-3 py-2 text-sm text-zinc-500">Loading...</p>
         ) : folders.length === 0 ? (
-          <p className="px-3 py-2 text-sm text-zinc-500">No subfolders with sessions</p>
+          <p className="px-3 py-2 text-sm text-zinc-500">
+            {isAllProjects ? "No projects with sessions" : "No subfolders with sessions"}
+          </p>
         ) : (
           folders.map((folder) => (
             <button

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ChevronDown, Home } from "lucide-react";
+import { ChevronDown, Layers } from "lucide-react";
 import { SubfolderDropdown } from "./SubfolderDropdown";
 
 interface ScopeBreadcrumbsProps {
@@ -12,7 +12,6 @@ interface ScopeBreadcrumbsProps {
 interface Segment {
   name: string;      // Display name (e.g., "Work")
   fullPath: string;  // Full path up to this segment (e.g., "/Users/jruck/Work")
-  isHome: boolean;   // Whether this is the home directory
 }
 
 export function ScopeBreadcrumbs({ value, onChange }: ScopeBreadcrumbsProps) {
@@ -45,38 +44,38 @@ export function ScopeBreadcrumbs({ value, onChange }: ScopeBreadcrumbsProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Parse path into segments
+  // Check if we're at "All Projects" (no scope)
+  const isAllProjects = !value;
+
+  // Parse path into segments (only when we have a specific scope)
   const parseSegments = (): Segment[] => {
     if (!homeDir || !value) return [];
 
     const segments: Segment[] = [];
 
-    // Add home as first segment
-    segments.push({
-      name: "~",
-      fullPath: homeDir,
-      isHome: true,
-    });
+    // Get the relative path from home (or use absolute if not under home)
+    let pathToProcess = value;
+    let startPath = "";
 
-    // If we're at home, that's the only segment
-    if (value === homeDir) return segments;
-
-    // Get the relative path from home
-    let relativePath = value;
     if (value.startsWith(homeDir)) {
-      relativePath = value.slice(homeDir.length);
+      // Path is under home, start from home
+      pathToProcess = value.slice(homeDir.length);
+      startPath = homeDir;
+    } else {
+      // Path is not under home (rare), show full path
+      pathToProcess = value;
+      startPath = "";
     }
 
     // Split into parts and build segments
-    const parts = relativePath.split("/").filter(Boolean);
-    let currentPath = homeDir;
+    const parts = pathToProcess.split("/").filter(Boolean);
+    let currentPath = startPath;
 
     for (const part of parts) {
-      currentPath = `${currentPath}/${part}`;
+      currentPath = currentPath ? `${currentPath}/${part}` : `/${part}`;
       segments.push({
         name: part,
         fullPath: currentPath,
-        isHome: false,
       });
     }
 
@@ -84,6 +83,17 @@ export function ScopeBreadcrumbs({ value, onChange }: ScopeBreadcrumbsProps) {
   };
 
   const segments = parseSegments();
+
+  const handleAllClick = () => {
+    if (isAllProjects) {
+      // Already at all projects, toggle dropdown to show top-level folders
+      setIsDropdownOpen(!isDropdownOpen);
+    } else {
+      // Navigate to all projects (clear scope)
+      onChange("");
+      setIsDropdownOpen(false);
+    }
+  };
 
   const handleSegmentClick = (segment: Segment) => {
     // If clicking the last segment, toggle dropdown
@@ -111,15 +121,38 @@ export function ScopeBreadcrumbs({ value, onChange }: ScopeBreadcrumbsProps) {
 
   return (
     <div className="relative flex items-center gap-0.5">
+      {/* "All" button - always shown */}
+      <button
+        ref={isAllProjects ? lastSegmentRef : undefined}
+        onClick={handleAllClick}
+        className={`
+          flex items-center gap-1 px-2 py-1 rounded text-sm transition-colors
+          ${isAllProjects
+            ? "bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
+            : "hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+          }
+        `}
+        title="All Projects"
+      >
+        <Layers className="w-3.5 h-3.5" />
+        <span>All</span>
+        {isAllProjects && (
+          <ChevronDown
+            className={`w-3.5 h-3.5 text-zinc-500 transition-transform ${
+              isDropdownOpen ? "rotate-180" : ""
+            }`}
+          />
+        )}
+      </button>
+
+      {/* Path segments (only shown when scoped) */}
       {segments.map((segment, index) => {
         const isLast = index === segments.length - 1;
 
         return (
           <div key={segment.fullPath} className="flex items-center">
             {/* Separator */}
-            {index > 0 && (
-              <span className="text-zinc-500 px-1">/</span>
-            )}
+            <span className="text-zinc-500 px-1">/</span>
 
             {/* Segment button */}
             <button
@@ -133,11 +166,7 @@ export function ScopeBreadcrumbs({ value, onChange }: ScopeBreadcrumbsProps) {
                 }
               `}
             >
-              {segment.isHome ? (
-                <Home className="w-3.5 h-3.5" />
-              ) : (
-                <span className="font-mono">{segment.name}</span>
-              )}
+              <span className="font-mono">{segment.name}</span>
               {isLast && (
                 <ChevronDown
                   className={`w-3.5 h-3.5 text-zinc-500 transition-transform ${

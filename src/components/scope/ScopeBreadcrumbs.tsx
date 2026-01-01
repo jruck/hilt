@@ -44,12 +44,12 @@ export function ScopeBreadcrumbs({ value, onChange }: ScopeBreadcrumbsProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Check if we're at "All Projects" (no scope)
-  const isAllProjects = !value;
+  // Check if we're at "All Projects" (home dir or no scope)
+  const isAllProjects = !value || value === homeDir;
 
-  // Parse path into segments (only when we have a specific scope)
+  // Parse path into segments (only when we have a specific scope beyond home)
   const parseSegments = (): Segment[] => {
-    if (!homeDir || !value) return [];
+    if (!homeDir || !value || value === homeDir) return [];
 
     const segments: Segment[] = [];
 
@@ -89,8 +89,8 @@ export function ScopeBreadcrumbs({ value, onChange }: ScopeBreadcrumbsProps) {
       // Already at all projects, toggle dropdown to show top-level folders
       setIsDropdownOpen(!isDropdownOpen);
     } else {
-      // Navigate to all projects (clear scope)
-      onChange("");
+      // Navigate to all projects (set to home dir)
+      onChange(homeDir);
       setIsDropdownOpen(false);
     }
   };

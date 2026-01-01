@@ -60,8 +60,8 @@ export function SubfolderDropdown({
     return parts[parts.length - 1];
   };
 
-  // Check if we're at "All Projects" (empty path)
-  const isAllProjects = !currentPath;
+  // Check if we're at "All Projects" (empty path or home dir)
+  const isAllProjects = !currentPath || currentPath === homeDir;
 
   return (
     <div className="w-[300px] bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl overflow-hidden">

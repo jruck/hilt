@@ -57,7 +57,7 @@ export function RecentScopesButton({
   const displayPath = (path: string) => {
     if (!path) return "All Projects";
     if (!homeDir) return path;
-    if (path === homeDir) return "~ (Home)";
+    if (path === homeDir) return "All Projects";
     if (path.startsWith(homeDir)) return "~" + path.slice(homeDir.length);
     return path;
   };

@@ -59,25 +59,23 @@ export function Board({ initialScope = "" }: BoardProps) {
     }
   }, [scopePath]);
 
-  // Fetch home directory on mount and validate/set scope
+  // Fetch home directory on mount and validate scope if set
   useEffect(() => {
     fetch("/api/folders")
       .then((res) => res.json())
       .then(async (data) => {
         setHomeDir(data.homeDir);
 
-        // Validate current scope path
+        // Validate current scope path (if one is set)
+        // Empty scope is valid - it means "all projects" (root view)
         if (scopePath && scopePath !== data.homeDir) {
           const validateRes = await fetch(`/api/folders?validate=${encodeURIComponent(scopePath)}`);
           const validateData = await validateRes.json();
           if (!validateData.valid) {
-            // Invalid path stored, reset to home directory
-            setScopePath(data.homeDir);
-            localStorage.setItem(SCOPE_STORAGE_KEY, data.homeDir);
+            // Invalid path, reset to root (all projects)
+            setScopePath("");
+            localStorage.setItem(SCOPE_STORAGE_KEY, "");
           }
-        } else if (!scopePath) {
-          // No scope set, default to home directory
-          setScopePath(data.homeDir);
         }
       })
       .catch(console.error);

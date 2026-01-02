@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -122,6 +122,9 @@ export function Board({ initialScope = "" }: BoardProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   // Search state
   const [searchQuery, setSearchQuery] = useState<string>("");
+  // Track when sessions were first seen (for "new" effect)
+  const [firstSeenAt, setFirstSeenAt] = useState<Record<string, number>>({});
+  const knownSessionIds = useRef<Set<string>>(new Set());
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -150,6 +153,31 @@ export function Board({ initialScope = "" }: BoardProps) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isDrawerOpen, selectedIds.size]);
+
+  // Track when new sessions first appear (for "new" highlight effect)
+  useEffect(() => {
+    if (sessions.length === 0) return;
+
+    const now = Date.now();
+    const newFirstSeen: Record<string, number> = {};
+    let hasNew = false;
+
+    for (const session of sessions) {
+      if (!knownSessionIds.current.has(session.id)) {
+        // New session detected
+        knownSessionIds.current.add(session.id);
+        // Only mark as "new" if this isn't the initial load
+        if (knownSessionIds.current.size > sessions.length - 10) {
+          newFirstSeen[session.id] = now;
+          hasNew = true;
+        }
+      }
+    }
+
+    if (hasNew) {
+      setFirstSeenAt(prev => ({ ...prev, ...newFirstSeen }));
+    }
+  }, [sessions]);
 
   // Filter function for search
   const matchesSearch = useCallback((text: string | null | undefined) => {
@@ -511,6 +539,7 @@ export function Board({ initialScope = "" }: BoardProps) {
                 onDeleteInboxItem={handleDeleteInboxItem}
                 onStartInboxItem={handleStartInboxItem}
                 sessionStatuses={sessionStatuses}
+                firstSeenAt={firstSeenAt}
                 selectedIds={selectedIds}
                 onSelectSession={handleSelectSession}
                 onSelectInboxItem={handleSelectInboxItem}

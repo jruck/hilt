@@ -3,7 +3,7 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Session } from "@/lib/types";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   MessageSquare,
   Clock,
@@ -24,9 +24,13 @@ interface SessionCardProps {
   onDelete?: (session: Session) => void;
   onToggleStarred?: (sessionId: string) => void;
   status?: string;  // Dynamic terminal status from Claude Code
+  firstSeenAt?: number;  // Timestamp when this session first appeared on the board
   isSelected?: boolean;
   onSelect?: (session: Session, selected: boolean) => void;
 }
+
+// Duration for the "new" effect to fade (60 seconds)
+const NEW_EFFECT_DURATION_MS = 60_000;
 
 function formatRelativeTime(date: Date): string {
   const now = new Date();
@@ -42,8 +46,27 @@ function formatRelativeTime(date: Date): string {
   return date.toLocaleDateString();
 }
 
-export function SessionCard({ session, onOpen, onDelete, onToggleStarred, status, isSelected, onSelect }: SessionCardProps) {
+export function SessionCard({ session, onOpen, onDelete, onToggleStarred, status, firstSeenAt, isSelected, onSelect }: SessionCardProps) {
   const [copiedResume, setCopiedResume] = useState(false);
+  const [, forceUpdate] = useState(0);
+
+  // Calculate "newness" - how recently this session appeared (0 = not new, 1 = just appeared)
+  const getNewness = () => {
+    if (!firstSeenAt) return 0;
+    const elapsed = Date.now() - firstSeenAt;
+    if (elapsed >= NEW_EFFECT_DURATION_MS) return 0;
+    return 1 - (elapsed / NEW_EFFECT_DURATION_MS);
+  };
+
+  const newness = getNewness();
+  const isNewlyAdded = newness > 0;
+
+  // Force re-render periodically while the effect is fading
+  useEffect(() => {
+    if (!isNewlyAdded) return;
+    const interval = setInterval(() => forceUpdate(n => n + 1), 1000);
+    return () => clearInterval(interval);
+  }, [isNewlyAdded]);
   const {
     attributes,
     listeners,
@@ -66,24 +89,31 @@ export function SessionCard({ session, onOpen, onDelete, onToggleStarred, status
     setTimeout(() => setCopiedResume(false), 1500);
   };
 
+  // Compute glow effect style for newly added cards
+  const glowStyle = isNewlyAdded ? {
+    boxShadow: `0 0 ${12 * newness}px ${4 * newness}px rgba(34, 197, 94, ${0.4 * newness})`,
+  } : {};
+
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      style={{ ...style, ...glowStyle }}
       {...attributes}
       {...listeners}
       onClick={() => onOpen?.(session)}
       className={`
         group relative border rounded-lg p-3
-        transition-colors cursor-pointer
+        transition-all duration-300 cursor-pointer
         ${isDragging ? "shadow-xl ring-2 ring-blue-500" : "shadow-sm"}
-        ${isSelected
-          ? "border-blue-500 bg-blue-500/10 hover:border-blue-400"
-          : session.starred
-            ? "border-yellow-500/30 bg-yellow-500/5 hover:border-yellow-500/50"
-            : session.status === "active"
-              ? "border-green-500/20 bg-green-500/5 hover:border-green-500/40"
-              : "border-zinc-700 bg-zinc-800 hover:border-zinc-600"
+        ${isNewlyAdded
+          ? "border-green-500/60 bg-green-500/10"
+          : isSelected
+            ? "border-blue-500 bg-blue-500/10 hover:border-blue-400"
+            : session.starred
+              ? "border-yellow-500/30 bg-yellow-500/5 hover:border-yellow-500/50"
+              : session.status === "active"
+                ? "border-green-500/20 bg-green-500/5 hover:border-green-500/40"
+                : "border-zinc-700 bg-zinc-800 hover:border-zinc-600"
         }
       `}
     >
@@ -197,9 +227,9 @@ export function SessionCard({ session, onOpen, onDelete, onToggleStarred, status
           {session.messageCount}
         </span>
 
-        <span className="flex items-center gap-1">
-          <Clock className="w-3 h-3" />
-          {formatRelativeTime(new Date(session.lastActivity))}
+        <span className={`flex items-center gap-1 ${isNewlyAdded ? "text-green-400 font-medium" : ""}`}>
+          <Clock className={`w-3 h-3 ${isNewlyAdded ? "text-green-400" : ""}`} />
+          {isNewlyAdded ? "NEW" : formatRelativeTime(new Date(session.lastActivity))}
         </span>
       </div>
     </div>

@@ -67,6 +67,7 @@ interface ColumnProps {
   onStartInboxItem?: (item: { id: string; prompt: string }) => void;
   onReorderSections?: (sectionOrder: string[]) => void;
   sessionStatuses?: Record<string, string>;
+  firstSeenAt?: Record<string, number>;  // Track when sessions first appeared (for "new" effect)
   selectedIds?: Set<string>;
   onSelectSession?: (session: Session, selected: boolean) => void;
   onSelectInboxItem?: (item: InboxItem, selected: boolean) => void;
@@ -174,6 +175,7 @@ export function Column({
   onStartInboxItem,
   onReorderSections,
   sessionStatuses = {},
+  firstSeenAt = {},
   selectedIds = new Set(),
   onSelectSession,
   onSelectInboxItem,
@@ -458,6 +460,7 @@ export function Column({
               onDelete={onDeleteSession}
               onToggleStarred={onToggleStarred}
               status={sessionStatuses[session.id]}
+              firstSeenAt={firstSeenAt[session.id]}
               isSelected={selectedIds.has(session.id)}
               onSelect={onSelectSession}
             />

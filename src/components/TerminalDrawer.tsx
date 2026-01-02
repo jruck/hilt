@@ -79,6 +79,8 @@ export function TerminalDrawer({
   const [editedPlanContent, setEditedPlanContent] = useState<string | null>(null);
   const [isSavingPlan, setIsSavingPlan] = useState(false);
   const [planSaveError, setPlanSaveError] = useState<string | null>(null);
+  // Track the initial content MDXEditor outputs after parsing (used as baseline for change detection)
+  const editorBaselineRef = useRef<{ slug: string; content: string } | null>(null);
 
   // Drawer resize state
   const MIN_WIDTH = 400;
@@ -146,20 +148,28 @@ export function TerminalDrawer({
     };
   }, [drawerWidth, onWidthChange]);
 
-  // Get plan data for active session (computed early for use in callbacks)
-  // Check ALL slugs since the plan may have been created with a different slug
-  const activePlan = (() => {
-    if (!activeSession) return null;
+  // Track which plan is currently selected (by slug)
+  const [selectedPlanSlug, setSelectedPlanSlug] = useState<string | null>(null);
+
+  // Get ALL plans for the active session
+  const sessionPlans = (() => {
+    if (!activeSession) return [];
     const slugs = activeSession.slugs || (activeSession.slug ? [activeSession.slug] : []);
+    const plans: PlanData[] = [];
     for (const slug of slugs) {
       const plan = planCache.get(slug);
       if (plan?.exists && plan.content) {
-        return plan;
+        plans.push(plan);
       }
     }
-    return null;
+    return plans;
   })();
-  const hasPlan = activePlan?.exists && activePlan.content;
+
+  // The currently active/selected plan
+  const activePlan = selectedPlanSlug
+    ? sessionPlans.find(p => p.slug === selectedPlanSlug) || sessionPlans[0]
+    : sessionPlans[0];
+  const hasPlan = sessionPlans.length > 0;
 
   const copyCommand = useCallback(async () => {
     if (!activeSession) return;
@@ -188,9 +198,24 @@ export function TerminalDrawer({
 
   // Handle plan content changes from editor
   const handlePlanChange = useCallback((content: string) => {
-    setEditedPlanContent(content);
+    const currentSlug = activePlan?.slug;
+    if (!currentSlug) return;
+
+    // MDXEditor fires onChange on mount with parsed/normalized content.
+    // Use that first onChange as our baseline for detecting actual user changes.
+    if (!editorBaselineRef.current || editorBaselineRef.current.slug !== currentSlug) {
+      // First onChange for this plan - store as baseline, not an edit
+      editorBaselineRef.current = { slug: currentSlug, content };
+      setEditedPlanContent(null);
+    } else if (content === editorBaselineRef.current.content) {
+      // Content matches baseline - no changes
+      setEditedPlanContent(null);
+    } else {
+      // Content differs from baseline - user made changes
+      setEditedPlanContent(content);
+    }
     setPlanSaveError(null);
-  }, []);
+  }, [activePlan?.slug]);
 
   // Check if plan has unsaved changes
   const hasPlanChanges = editedPlanContent !== null && editedPlanContent !== activePlan?.content;
@@ -223,7 +248,8 @@ export function TerminalDrawer({
         return next;
       });
 
-      // Clear edited content since it's now saved
+      // Update baseline to saved content and clear edited state
+      editorBaselineRef.current = { slug: activePlan.slug, content: editedPlanContent };
       setEditedPlanContent(null);
     } catch (error) {
       console.error('Error saving plan:', error);
@@ -233,10 +259,12 @@ export function TerminalDrawer({
     }
   }, [activePlan?.slug, editedPlanContent, activePlan]);
 
-  // Reset edited content when switching sessions
+  // Reset edited content, baseline, and selected plan when switching sessions
   useEffect(() => {
     setEditedPlanContent(null);
     setPlanSaveError(null);
+    setSelectedPlanSlug(null);
+    editorBaselineRef.current = null;
   }, [activeSession?.id]);
 
   // Stable callback for terminal exit - use sessionId to avoid recreating on every render
@@ -696,59 +724,74 @@ export function TerminalDrawer({
         {/* Plan View */}
         {activeSession && viewMode === "plan" && hasPlan && (
           <div className="flex flex-col h-full">
-            {/* Plan Details Bar */}
-            <div className="bg-zinc-950 border-b border-zinc-800 px-3 py-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <FileText className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-                  <span className="text-xs text-zinc-400 font-mono truncate">
-                    {activePlan!.path}
-                  </span>
-                  {hasPlanChanges && (
-                    <span className="text-xs text-amber-500 shrink-0">(unsaved)</span>
-                  )}
-                  {planSaveError && (
-                    <span className="text-xs text-red-500 shrink-0">{planSaveError}</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  {/* Save button */}
-                  <button
-                    onClick={savePlan}
-                    disabled={!hasPlanChanges || isSavingPlan}
-                    className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
-                      hasPlanChanges
-                        ? 'text-green-400 hover:text-green-300 hover:bg-green-900/30'
-                        : 'text-zinc-600 cursor-not-allowed'
-                    }`}
-                    title={hasPlanChanges ? "Save changes (Cmd+S)" : "No changes to save"}
+            {/* Plan Details Bar(s) - one row per plan */}
+            <div className="bg-zinc-950 border-b border-zinc-800">
+              {sessionPlans.map((plan) => {
+                const isActive = plan.slug === activePlan?.slug;
+                return (
+                  <div
+                    key={plan.slug}
+                    onClick={!isActive ? () => {
+                      setSelectedPlanSlug(plan.slug);
+                      setEditedPlanContent(null);
+                    } : undefined}
+                    className={`flex items-center justify-between gap-2 px-3 py-2 ${
+                      !isActive ? 'opacity-50 hover:opacity-80 cursor-pointer' : ''
+                    } ${sessionPlans.length > 1 && !isActive ? 'border-b border-zinc-800/50' : ''} transition-opacity`}
                   >
-                    {isSavingPlan ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <Save className="w-3 h-3" />
-                    )}
-                  </button>
-                  <button
-                    onClick={openPlanInFinder}
-                    className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition-colors"
-                    title="Reveal in Finder"
-                  >
-                    <FolderOpen className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={copyPlanPath}
-                    className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition-colors"
-                    title="Copy path"
-                  >
-                    {copiedPlanPath ? (
-                      <Check className="w-3 h-3 text-green-500" />
-                    ) : (
-                      <Copy className="w-3 h-3" />
-                    )}
-                  </button>
-                </div>
-              </div>
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <FileText className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-zinc-500' : 'text-zinc-600'}`} />
+                      <span className={`text-xs font-mono truncate ${isActive ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                        {plan.path}
+                      </span>
+                      {isActive && hasPlanChanges && (
+                        <span className="text-xs text-amber-500 shrink-0">(unsaved)</span>
+                      )}
+                      {isActive && planSaveError && (
+                        <span className="text-xs text-red-500 shrink-0">{planSaveError}</span>
+                      )}
+                    </div>
+                    {/* Action buttons - always rendered but invisible on inactive rows to prevent layout shift */}
+                    <div className={`flex items-center gap-1 shrink-0 ${!isActive ? 'invisible' : ''}`}>
+                      {/* Save button */}
+                      <button
+                        onClick={savePlan}
+                        disabled={!hasPlanChanges || isSavingPlan}
+                        className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
+                          hasPlanChanges
+                            ? 'text-green-400 hover:text-green-300 hover:bg-green-900/30'
+                            : 'text-zinc-600 cursor-not-allowed'
+                        }`}
+                        title={hasPlanChanges ? "Save changes (Cmd+S)" : "No changes to save"}
+                      >
+                        {isSavingPlan ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Save className="w-3 h-3" />
+                        )}
+                      </button>
+                      <button
+                        onClick={openPlanInFinder}
+                        className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition-colors"
+                        title="Reveal in Finder"
+                      >
+                        <FolderOpen className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={copyPlanPath}
+                        className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition-colors"
+                        title="Copy path"
+                      >
+                        {copiedPlanPath ? (
+                          <Check className="w-3 h-3 text-green-500" />
+                        ) : (
+                          <Copy className="w-3 h-3" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             {/* Plan Editor */}

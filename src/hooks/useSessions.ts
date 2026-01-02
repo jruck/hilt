@@ -146,6 +146,74 @@ export function useInboxItems(scopePath?: string) {
     mutate();
   };
 
+  const reorderItem = async (
+    itemId: string,
+    targetSection: string | null,
+    targetIndex: number
+  ) => {
+    // Optimistic update
+    if (data) {
+      const items = [...data.items];
+      const itemIndex = items.findIndex((i) => i.id === itemId);
+      if (itemIndex !== -1) {
+        const [item] = items.splice(itemIndex, 1);
+        item.section = targetSection;
+
+        // Find items in target section to compute insertion point
+        const targetItems = items.filter((i) => i.section === targetSection);
+
+        // Find where to insert in the flat array
+        if (targetItems.length === 0) {
+          // No items in target section, find first item of next section or append
+          const sectionOrder = data.sections.map((s) => s.heading);
+          const targetIdx = targetSection ? sectionOrder.indexOf(targetSection) : -1;
+
+          if (targetSection === null) {
+            // Insert at beginning (orphan items come first)
+            items.unshift(item);
+          } else if (targetIdx === -1 || targetIdx === sectionOrder.length - 1) {
+            items.push(item);
+          } else {
+            // Find first item of next section
+            const nextSection = sectionOrder[targetIdx + 1];
+            const nextIdx = items.findIndex((i) => i.section === nextSection);
+            if (nextIdx !== -1) {
+              items.splice(nextIdx, 0, item);
+            } else {
+              items.push(item);
+            }
+          }
+        } else {
+          // Insert relative to existing items in section
+          const clampedIndex = Math.min(targetIndex, targetItems.length);
+          if (clampedIndex >= targetItems.length) {
+            // Insert after last item in section
+            const lastItemInSection = targetItems[targetItems.length - 1];
+            const lastIdx = items.findIndex((i) => i.id === lastItemInSection.id);
+            items.splice(lastIdx + 1, 0, item);
+          } else {
+            // Insert before the item at targetIndex
+            const targetItem = targetItems[clampedIndex];
+            const insertIdx = items.findIndex((i) => i.id === targetItem.id);
+            items.splice(insertIdx, 0, item);
+          }
+        }
+
+        mutate({ ...data, items }, false);
+      }
+    }
+
+    await fetch("/api/inbox", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        itemReorder: { itemId, targetSection, targetIndex },
+        scope: scopePath,
+      }),
+    });
+    mutate();
+  };
+
   return {
     items: data?.items ?? [],
     sections: data?.sections ?? [],
@@ -157,5 +225,6 @@ export function useInboxItems(scopePath?: string) {
     updateItem,
     deleteItem,
     reorderSections,
+    reorderItem,
   };
 }

@@ -50,7 +50,7 @@ export function InboxCard({
   } = useSortable({ id: `inbox-${item.id}`, disabled: isEditing });
 
   const style = {
-    transform: CSS.Transform.toString(transform),
+    transform: CSS.Translate.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
   };

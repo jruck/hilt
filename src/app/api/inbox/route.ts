@@ -6,6 +6,7 @@ import {
   deleteTodoItem,
   getTodoFileModTime,
   reorderSections,
+  reorderItems,
 } from "@/lib/todo-md";
 
 export async function GET(request: NextRequest) {
@@ -140,22 +141,35 @@ export async function DELETE(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { sectionOrder, scope } = body;
+    const { sectionOrder, itemReorder, scope } = body;
 
-    if (!sectionOrder || !Array.isArray(sectionOrder)) {
-      return NextResponse.json(
-        { error: "sectionOrder array is required" },
-        { status: 400 }
-      );
+    // Handle section reordering
+    if (sectionOrder && Array.isArray(sectionOrder)) {
+      reorderSections(sectionOrder, scope || undefined);
+      return NextResponse.json({ success: true });
     }
 
-    reorderSections(sectionOrder, scope || undefined);
+    // Handle item reordering
+    if (itemReorder) {
+      const { itemId, targetSection, targetIndex } = itemReorder;
+      if (!itemId || targetIndex === undefined) {
+        return NextResponse.json(
+          { error: "itemReorder requires itemId and targetIndex" },
+          { status: 400 }
+        );
+      }
+      reorderItems(itemId, targetSection ?? null, targetIndex, scope || undefined);
+      return NextResponse.json({ success: true });
+    }
 
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Error reordering sections:", error);
     return NextResponse.json(
-      { error: "Failed to reorder sections" },
+      { error: "sectionOrder or itemReorder is required" },
+      { status: 400 }
+    );
+  } catch (error) {
+    console.error("Error reordering:", error);
+    return NextResponse.json(
+      { error: "Failed to reorder" },
       { status: 500 }
     );
   }

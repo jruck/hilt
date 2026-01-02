@@ -368,3 +368,64 @@ export function reorderSections(orderedHeadings: string[], scopePath?: string): 
   data.sections = reorderedSections;
   writeTodoFile(data, scopePath);
 }
+
+/**
+ * Reorder an item within its section or move it to a different section at a specific position
+ */
+export function reorderItems(
+  itemId: string,
+  targetSection: string | null,
+  targetIndex: number,
+  scopePath?: string
+): void {
+  const data = parseTodoFile(scopePath);
+
+  // Find and remove the item from its current location
+  let item: TodoItem | null = null;
+
+  // Check orphan items
+  const orphanIndex = data.orphanItems.findIndex((i) => i.id === itemId);
+  if (orphanIndex !== -1) {
+    item = data.orphanItems.splice(orphanIndex, 1)[0];
+  }
+
+  // Check sections
+  if (!item) {
+    for (const section of data.sections) {
+      const itemIndex = section.items.findIndex((i) => i.id === itemId);
+      if (itemIndex !== -1) {
+        item = section.items.splice(itemIndex, 1)[0];
+        break;
+      }
+    }
+  }
+
+  if (!item) {
+    return; // Item not found
+  }
+
+  // Update the item's section
+  item.section = targetSection;
+
+  // Insert at target location
+  if (targetSection === null) {
+    // Insert into orphan items
+    const clampedIndex = Math.max(0, Math.min(targetIndex, data.orphanItems.length));
+    data.orphanItems.splice(clampedIndex, 0, item);
+  } else {
+    // Find or create target section
+    let section = data.sections.find((s) => s.heading === targetSection);
+    if (!section) {
+      section = {
+        heading: targetSection,
+        level: 2,
+        items: [],
+      };
+      data.sections.push(section);
+    }
+    const clampedIndex = Math.max(0, Math.min(targetIndex, section.items.length));
+    section.items.splice(clampedIndex, 0, item);
+  }
+
+  writeTodoFile(data, scopePath);
+}

@@ -19,7 +19,7 @@ import { SessionCard } from "./SessionCard";
 import { TerminalDrawer } from "./TerminalDrawer";
 import { ScopeBreadcrumbs, BrowseButton, RecentScopesButton } from "./scope";
 import { recordScopeVisit } from "@/lib/recent-scopes";
-import { Loader2, X, Inbox, Loader2 as InProgressIcon, Clock, Search } from "lucide-react";
+import { Loader2, X, Inbox, Loader2 as InProgressIcon, Clock, Search, Filter, FileText, Check } from "lucide-react";
 
 const COLUMNS: SessionStatus[] = ["inbox", "active", "recent"];
 
@@ -123,6 +123,8 @@ export function Board({ initialScope = "" }: BoardProps) {
   const [openSessions, setOpenSessions] = useState<Session[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [drawerWidth, setDrawerWidth] = useState(700); // Default, will be updated by TerminalDrawer
+  // Plan-only view: session shown for plan viewing without starting terminal
+  const [planViewSession, setPlanViewSession] = useState<Session | null>(null);
 
   // Track if we've restored session from URL (to avoid double-triggering)
   const [hasRestoredSession, setHasRestoredSession] = useState(false);
@@ -132,6 +134,10 @@ export function Board({ initialScope = "" }: BoardProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   // Search state
   const [searchQuery, setSearchQuery] = useState<string>("");
+  // Filter state
+  const [filters, setFilters] = useState<{ hasPlan: boolean }>({ hasPlan: false });
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const filterRef = useRef<HTMLDivElement>(null);
   // Track when sessions were first seen (for "new" effect)
   const [firstSeenAt, setFirstSeenAt] = useState<Record<string, number>>({});
   const knownSessionIds = useRef<Set<string>>(new Set());
@@ -153,7 +159,9 @@ export function Board({ initialScope = "" }: BoardProps) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (selectedIds.size > 0) {
+        if (isFilterOpen) {
+          setIsFilterOpen(false);
+        } else if (selectedIds.size > 0) {
           setSelectedIds(new Set());
         } else if (isDrawerOpen) {
           setIsDrawerOpen(false);
@@ -162,7 +170,20 @@ export function Board({ initialScope = "" }: BoardProps) {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isDrawerOpen, selectedIds.size]);
+  }, [isDrawerOpen, selectedIds.size, isFilterOpen]);
+
+  // Click outside to close filter dropdown
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
+        setIsFilterOpen(false);
+      }
+    };
+    if (isFilterOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [isFilterOpen]);
 
   // Reset known sessions and "new" effect when scope changes
   useEffect(() => {
@@ -206,6 +227,9 @@ export function Board({ initialScope = "" }: BoardProps) {
     return text.toLowerCase().includes(searchQuery.toLowerCase());
   }, [searchQuery]);
 
+  // Check if any filters are active
+  const hasActiveFilters = filters.hasPlan;
+
   const getSessionsByStatus = useCallback(
     (status: SessionStatus) => {
       let realSessions = sessions.filter((s) => s.status === status);
@@ -219,6 +243,11 @@ export function Board({ initialScope = "" }: BoardProps) {
           matchesSearch(s.project) ||
           matchesSearch(s.gitBranch)
         );
+      }
+
+      // Apply filters
+      if (filters.hasPlan) {
+        realSessions = realSessions.filter((s) => s.hasPlan);
       }
 
       // Include pending "new" sessions in Active column
@@ -239,7 +268,7 @@ export function Board({ initialScope = "" }: BoardProps) {
 
       return realSessions;
     },
-    [sessions, openSessions, searchQuery, matchesSearch]
+    [sessions, openSessions, searchQuery, matchesSearch, filters]
   );
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -280,6 +309,33 @@ export function Board({ initialScope = "" }: BoardProps) {
     }
     setActiveSession(session);
     setIsDrawerOpen(true);
+
+    // Mark as in progress
+    if (session.status !== "active") {
+      updateStatus(session.id, "active");
+    }
+  };
+
+  const handleOpenPlan = (session: Session) => {
+    // Open in plan-only view mode - don't start terminal or change status
+    // This is just for inspecting the plan without engaging the session
+    const sessionWithPlanMode = { ...session, planMode: true };
+    setPlanViewSession(sessionWithPlanMode);
+    setActiveSession(sessionWithPlanMode);
+    setIsDrawerOpen(true);
+    // Note: We don't add to openSessions or update status - terminal won't start
+  };
+
+  // Called when user switches from plan-only view to terminal mode
+  const handleEngageSession = (session: Session) => {
+    // Clear plan-only view since we're now engaging the terminal
+    setPlanViewSession(null);
+
+    // Add to open sessions if not already open
+    if (!openSessions.find((s) => s.id === session.id)) {
+      setOpenSessions((prev) => [...prev, session]);
+    }
+    setActiveSession(session);
 
     // Mark as in progress
     if (session.status !== "active") {
@@ -492,14 +548,44 @@ export function Board({ initialScope = "" }: BoardProps) {
           <BrowseButton onSelect={handleScopeChange} />
         </div>
 
-        {/* Right side: Search */}
-        <div className="ml-auto flex items-center" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        {/* Right side: Filter & Search */}
+        <div className="ml-auto flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          {/* Filter dropdown */}
+          <div className="relative" ref={filterRef}>
+            <button
+              onClick={() => setIsFilterOpen(!isFilterOpen)}
+              className={`p-1.5 rounded transition-colors ${
+                hasActiveFilters
+                  ? "text-blue-400 bg-blue-900/30 hover:bg-blue-900/50"
+                  : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+              }`}
+              title="Filters"
+            >
+              <Filter className="w-4 h-4" />
+            </button>
+            {isFilterOpen && (
+              <div className="absolute right-0 top-full mt-1 w-48 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl z-50 py-1">
+                <button
+                  onClick={() => {
+                    setFilters(prev => ({ ...prev, hasPlan: !prev.hasPlan }));
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-zinc-700 transition-colors"
+                >
+                  <FileText className="w-4 h-4 text-zinc-400" />
+                  <span className="flex-1">Plan</span>
+                  {filters.hasPlan && <Check className="w-4 h-4 text-blue-400" />}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Search */}
           {searchQuery ? (
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
               <input
                 type="text"
-                placeholder="Filter..."
+                placeholder="Search..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onBlur={(e) => {
@@ -545,18 +631,23 @@ export function Board({ initialScope = "" }: BoardProps) {
               }
             }}
           >
-            {COLUMNS.map((status) => (
+            {COLUMNS.map((status) => {
+              const filteredSessions = getSessionsByStatus(status);
+              // Use filtered count when filters are active, otherwise use API count
+              const displayCount = hasActiveFilters ? filteredSessions.length : counts[status];
+              return (
               <Column
                 key={status}
                 status={status}
-                sessions={getSessionsByStatus(status)}
-                totalCount={counts[status]}
+                sessions={filteredSessions}
+                totalCount={displayCount}
                 inboxItems={status === "inbox" ? filteredInboxItems : undefined}
                 todoSections={status === "inbox" ? todoSections : undefined}
                 scopePath={status === "inbox" ? scopePath : undefined}
                 onReorderSections={status === "inbox" ? reorderSections : undefined}
                 onReorderItem={status === "inbox" ? reorderItem : undefined}
                 onOpenSession={handleOpenSession}
+                onOpenPlan={handleOpenPlan}
                 onDeleteSession={handleDeleteSession}
                 onToggleStarred={toggleStarred}
                 onCreateInboxItem={status === "inbox" ? handleCreateInboxItem : undefined}
@@ -575,7 +666,8 @@ export function Board({ initialScope = "" }: BoardProps) {
                 onToggleDrawer={status === "active" ? () => setIsDrawerOpen(!isDrawerOpen) : undefined}
                 continuableSessionId={continuableSessionId}
               />
-            ))}
+              );
+            })}
           </div>
 
           {/* Drag overlay */}
@@ -593,10 +685,15 @@ export function Board({ initialScope = "" }: BoardProps) {
           isOpen={isDrawerOpen}
           sessions={openSessions}
           activeSession={activeSession}
-          onClose={() => setIsDrawerOpen(false)}
+          planViewSession={planViewSession}
+          onClose={() => {
+            setIsDrawerOpen(false);
+            setPlanViewSession(null);
+          }}
           onOpen={() => setIsDrawerOpen(true)}
           onSelectSession={setActiveSession}
           onCloseSession={handleCloseSession}
+          onEngageSession={handleEngageSession}
           onStatusUpdate={handleStatusUpdate}
           onWidthChange={setDrawerWidth}
         />

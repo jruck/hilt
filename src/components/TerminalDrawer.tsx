@@ -32,10 +32,12 @@ interface TerminalDrawerProps {
   isOpen: boolean;
   sessions: Session[];
   activeSession: Session | null;
+  planViewSession?: Session | null;  // Session being viewed in plan-only mode (no terminal)
   onClose: () => void;
   onOpen: () => void;
   onSelectSession: (session: Session) => void;
   onCloseSession: (sessionId: string) => void;
+  onEngageSession?: (session: Session) => void;  // Called when switching from plan-only to terminal
   onStatusUpdate?: (sessionId: string, status: string) => void;
   onWidthChange?: (width: number) => void;
 }
@@ -53,13 +55,17 @@ export function TerminalDrawer({
   isOpen,
   sessions,
   activeSession,
+  planViewSession,
   onClose,
   onOpen,
   onSelectSession,
   onCloseSession,
+  onEngageSession,
   onStatusUpdate,
   onWidthChange,
 }: TerminalDrawerProps) {
+  // Check if we're in plan-only view mode (viewing plan without terminal)
+  const isPlanOnlyView = planViewSession && activeSession?.id === planViewSession.id;
   const [copied, setCopied] = useState(false);
   const [copiedSlug, setCopiedSlug] = useState(false);
   const [copiedPlanPath, setCopiedPlanPath] = useState(false);
@@ -279,6 +285,13 @@ export function TerminalDrawer({
     setTerminalTitle(null);
   }, [activeSession?.id]);
 
+  // Switch to plan view when session is opened with planMode
+  useEffect(() => {
+    if (activeSession?.planMode) {
+      setViewMode("plan");
+    }
+  }, [activeSession?.id, activeSession?.planMode]);
+
   // Fetch plans for active session - check ALL slugs since they can change mid-session
   // Poll periodically to detect newly created plans
   useEffect(() => {
@@ -316,15 +329,15 @@ export function TerminalDrawer({
     return () => clearInterval(interval);
   }, [activeSession?.slug, activeSession?.slugs]);
 
-  // If no sessions, don't render anything
-  if (sessions.length === 0 && !isOpen) return null;
+  // If no sessions and no plan-only view, don't render anything
+  if (sessions.length === 0 && !planViewSession && !isOpen) return null;
 
   return (
     <>
       {/* Main drawer - always rendered when sessions exist to keep terminals alive */}
       <div
         className={`
-          fixed right-0 top-[45px] h-[calc(100%-45px)] bg-zinc-900
+          fixed right-0 top-11 h-[calc(100%-44px)] bg-zinc-900
           transition-transform duration-300 ease-in-out z-50
           flex flex-col shadow-2xl shadow-black/50
           ${isOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'}
@@ -337,31 +350,52 @@ export function TerminalDrawer({
           onMouseDown={handleResizeMouseDown}
         />
       {/* Session Tabs Row */}
-      <div className="flex border-b border-zinc-800 bg-zinc-950">
-        <div className="flex flex-1 overflow-x-auto">
+      <div className="relative flex items-end h-11 px-4 gap-2 bg-zinc-950">
+        {/* Bottom border line - goes under inactive tabs, active tab covers it */}
+        <div className="absolute bottom-0 left-0 right-0 h-px bg-zinc-800" />
+        <div className="flex flex-1 items-end gap-2 overflow-x-auto overflow-y-hidden">
+          {/* Plan-only session tab (not yet engaged) */}
+          {planViewSession && !sessions.find(s => s.id === planViewSession.id) && (
+            <div
+              className={`
+                flex items-center gap-2 pl-3 pr-2 py-1.5 text-sm cursor-pointer
+                rounded-t-lg min-w-0 max-w-[200px] border-t border-x transition-colors flex-shrink-0
+                bg-[#0a0a0a] border-zinc-700 text-zinc-100 z-10
+              `}
+              style={{ marginBottom: '-1px', paddingBottom: 'calc(0.375rem + 1px)' }}
+            >
+              <FileText className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+              <span className="truncate flex-1" title={planViewSession.title}>{planViewSession.title}</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClose();
+                }}
+                className="p-0.5 text-zinc-500 hover:text-zinc-300 rounded flex-shrink-0 transition-colors"
+                title="Close"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Regular engaged session tabs */}
           {sessions.map((session) => {
-            const progress = contextProgress.get(session.id) ?? 0;
-            // Color based on progress: green → yellow → orange → red
-            const progressColor = progress < 50
-              ? 'bg-emerald-500'
-              : progress < 75
-                ? 'bg-yellow-500'
-                : progress < 90
-                  ? 'bg-orange-500'
-                  : 'bg-red-500';
+            const isActive = activeSession?.id === session.id && !isPlanOnlyView;
 
             return (
               <div
                 key={session.id}
                 className={`
-                  relative flex items-center gap-2 px-3 py-2 text-sm cursor-pointer
-                  border-r border-zinc-800 min-w-0 max-w-[200px]
+                  flex items-center gap-2 pl-3 pr-2 py-1.5 text-sm cursor-pointer
+                  rounded-t-lg min-w-0 max-w-[200px] border-t border-x transition-colors flex-shrink-0
                   ${
-                    activeSession?.id === session.id
-                      ? "bg-zinc-900 text-zinc-100"
-                      : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50"
+                    isActive
+                      ? "bg-[#0a0a0a] border-zinc-700 text-zinc-100 z-10"
+                      : "bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-zinc-200"
                   }
                 `}
+                style={isActive ? { marginBottom: '-1px', paddingBottom: 'calc(0.375rem + 1px)' } : undefined}
                 onClick={() => onSelectSession(session)}
               >
                 <span className="truncate flex-1" title={session.title}>{session.title}</span>
@@ -373,23 +407,17 @@ export function TerminalDrawer({
                   className="p-0.5 text-zinc-500 hover:text-emerald-400 rounded flex-shrink-0 transition-colors"
                   title="Mark as done"
                 >
-                  <CheckCircle className="w-3 h-3" />
+                  <CheckCircle className="w-3.5 h-3.5" />
                 </button>
-                {/* Context progress bar underline */}
-                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-zinc-800">
-                  <div
-                    className={`h-full ${progressColor} transition-all duration-300`}
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
               </div>
             );
           })}
         </div>
-        {/* Close button */}
+        {/* Close drawer button */}
         <button
           onClick={onClose}
-          className="px-3 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors border-l border-zinc-800"
+          className="p-1.5 self-center text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition-colors relative z-10"
+          title="Close drawer"
         >
           <X className="w-4 h-4" />
         </button>
@@ -399,11 +427,17 @@ export function TerminalDrawer({
       {/* Main content area with sidebar */}
       <div className="flex-1 flex overflow-hidden">
         {/* Mode Sidebar */}
-        <div className="flex flex-col items-center py-2 px-1 bg-zinc-950 border-r border-zinc-800 gap-1">
+        <div className="flex flex-col items-center w-11 py-2 bg-zinc-950 border-r border-zinc-800 gap-1">
           <button
-            onClick={() => setViewMode("terminal")}
-            title="Terminal"
-            className={`p-2 rounded transition-colors ${
+            onClick={() => {
+              if (isPlanOnlyView && activeSession) {
+                // Switching from plan-only to terminal - engage the session
+                onEngageSession?.(activeSession);
+              }
+              setViewMode("terminal");
+            }}
+            title={isPlanOnlyView ? "Start session" : "Terminal"}
+            className={`p-1.5 rounded transition-colors ${
               viewMode === "terminal"
                 ? "bg-zinc-700 text-zinc-100"
                 : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
@@ -415,7 +449,7 @@ export function TerminalDrawer({
             <button
               onClick={() => setViewMode("plan")}
               title="Plan"
-              className={`p-2 rounded transition-colors ${
+              className={`p-1.5 rounded transition-colors ${
                 viewMode === "plan"
                   ? "bg-zinc-700 text-zinc-100"
                   : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
@@ -427,7 +461,7 @@ export function TerminalDrawer({
           <button
             onClick={() => setViewMode("info")}
             title="Info"
-            className={`p-2 rounded transition-colors ${
+            className={`p-1.5 rounded transition-colors ${
               viewMode === "info"
                 ? "bg-zinc-700 text-zinc-100"
                 : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
@@ -439,8 +473,8 @@ export function TerminalDrawer({
 
         {/* Content */}
         <div className="flex-1 flex flex-col bg-[#0a0a0a] overflow-hidden">
-          {/* Session Status Bar - shown in terminal mode */}
-          {activeSession && viewMode === "terminal" && (
+          {/* Session Status Bar - shown in terminal mode (not plan-only) */}
+          {activeSession && viewMode === "terminal" && !isPlanOnlyView && (
             <div className="bg-zinc-950 border-b border-zinc-800 px-3 py-2 space-y-1.5 shrink-0">
               {/* Row 1: Title and Status */}
               <div className="flex items-center gap-4 text-xs">
@@ -512,9 +546,24 @@ export function TerminalDrawer({
 
           {/* Terminal/Info/Plan content area */}
           <div className="flex-1 overflow-hidden relative">
+            {/* Plan-only mode: show "Start Session" prompt instead of terminal */}
+            {isPlanOnlyView && viewMode === "terminal" && activeSession && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-zinc-500">
+                <TerminalIcon className="w-12 h-12 text-zinc-600" />
+                <p className="text-sm">Session not started</p>
+                <button
+                  onClick={() => onEngageSession?.(activeSession)}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors flex items-center gap-2"
+                >
+                  <TerminalIcon className="w-4 h-4" />
+                  Start Session
+                </button>
+              </div>
+            )}
+
             {/* Render all terminals - use visibility instead of display to preserve dimensions */}
             {sessions.map((session) => {
-              const isVisible = viewMode === "terminal" && session.id === activeSession?.id;
+              const isVisible = viewMode === "terminal" && session.id === activeSession?.id && !isPlanOnlyView;
               return (
               <div
                 key={session.id}

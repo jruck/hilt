@@ -16,11 +16,13 @@ import {
   Star,
   Hash,
   Check,
+  FileText,
 } from "lucide-react";
 
 interface SessionCardProps {
   session: Session;
   onOpen?: (session: Session) => void;
+  onOpenPlan?: (session: Session) => void;  // Open session in plan mode
   onDelete?: (session: Session) => void;
   onToggleStarred?: (sessionId: string) => void;
   status?: string;  // Dynamic terminal status from Claude Code
@@ -28,6 +30,7 @@ interface SessionCardProps {
   isSelected?: boolean;
   onSelect?: (session: Session, selected: boolean) => void;
   isContinuable?: boolean;  // This session would be resumed by `claude --continue`
+  disableDrag?: boolean;  // Disable drag for time-ordered columns like Recent
 }
 
 // Duration for the "new" effect to fade (60 seconds)
@@ -47,7 +50,7 @@ function formatRelativeTime(date: Date): string {
   return date.toLocaleDateString();
 }
 
-export function SessionCard({ session, onOpen, onDelete, onToggleStarred, status, firstSeenAt, isSelected, onSelect, isContinuable }: SessionCardProps) {
+export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleStarred, status, firstSeenAt, isSelected, onSelect, isContinuable, disableDrag }: SessionCardProps) {
   const [copiedResume, setCopiedResume] = useState(false);
   const [, forceUpdate] = useState(0);
 
@@ -75,7 +78,7 @@ export function SessionCard({ session, onOpen, onDelete, onToggleStarred, status
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: session.id });
+  } = useSortable({ id: session.id, disabled: disableDrag });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -240,6 +243,16 @@ export function SessionCard({ session, onOpen, onDelete, onToggleStarred, status
           <span className="font-mono text-[11px]">{session.id.slice(0, 8)}</span>
           {copiedResume && <Check className="w-3 h-3 text-green-400" />}
         </button>
+
+        {session.hasPlan && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenPlan?.(session); }}
+            className="flex items-center hover:text-zinc-300 transition-colors"
+            title="Open in plan mode"
+          >
+            <FileText className="w-3 h-3" />
+          </button>
+        )}
 
         <span className="flex items-center gap-1">
           <MessageSquare className="w-3 h-3" />

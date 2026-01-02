@@ -151,6 +151,17 @@ async function parseSessionFile(
               }
             }
 
+            // Skip system-injected messages (not actual user prompts)
+            // These include context/caveat messages and local command outputs
+            if (promptText && (
+              promptText.startsWith("Caveat: ") ||
+              promptText.startsWith("<command-name>") ||
+              promptText.startsWith("<local-command-stdout>") ||
+              promptText.startsWith("<system-reminder>")
+            )) {
+              continue;
+            }
+
             if (promptText) {
               if (!firstPrompt) {
                 firstPrompt = promptText;

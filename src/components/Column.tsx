@@ -99,14 +99,17 @@ interface ColumnProps {
   todoSections?: TodoSection[];
   scopePath?: string;  // For opening todo file
   onOpenSession?: (session: Session) => void;
+  onOpenPlan?: (session: Session) => void;  // Open session in plan mode
   onDeleteSession?: (session: Session) => void;
   onToggleStarred?: (sessionId: string) => void;
   onCreateInboxItem?: (prompt: string, section?: string | null) => void;
   onCreateAndRunInboxItem?: (prompt: string) => void;
   onUpdateInboxItem?: (id: string, prompt: string) => void;
+  onMoveItemToSection?: (id: string, section: string | null) => void;
   onDeleteInboxItem?: (id: string) => void;
   onStartInboxItem?: (item: { id: string; prompt: string }) => void;
   onReorderSections?: (sectionOrder: string[]) => void;
+  onReorderItem?: (itemId: string, targetSection: string | null, targetIndex: number) => void;
   sessionStatuses?: Record<string, string>;
   firstSeenAt?: Record<string, number>;  // Track when sessions first appeared (for "new" effect)
   selectedIds?: Set<string>;
@@ -200,7 +203,7 @@ function SortableSectionHeader({
   } = useSortable({ id: `section-${section.heading}` });
 
   const style = {
-    transform: CSS.Transform.toString(transform),
+    transform: CSS.Translate.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
   };
@@ -245,6 +248,7 @@ export function Column({
   todoSections = [],
   scopePath,
   onOpenSession,
+  onOpenPlan,
   onDeleteSession,
   onToggleStarred,
   onCreateInboxItem,
@@ -253,6 +257,7 @@ export function Column({
   onDeleteInboxItem,
   onStartInboxItem,
   onReorderSections,
+  onReorderItem,
   sessionStatuses = {},
   firstSeenAt = {},
   selectedIds = new Set(),
@@ -284,23 +289,70 @@ export function Column({
     })
   );
 
-  const handleSectionDragEnd = (event: DragEndEvent) => {
+  const handleInboxDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
-    const activeId = String(active.id).replace('section-', '');
-    const overId = String(over.id).replace('section-', '');
+    const activeId = String(active.id);
+    const overId = String(over.id);
 
-    const oldIndex = todoSections.findIndex(s => s.heading === activeId);
-    const newIndex = todoSections.findIndex(s => s.heading === overId);
+    // Section header reordering (section-* to section-*)
+    if (activeId.startsWith('section-') && overId.startsWith('section-')) {
+      const activeHeading = activeId.replace('section-', '');
+      const overHeading = overId.replace('section-', '');
 
-    if (oldIndex !== -1 && newIndex !== -1) {
-      const newOrder = arrayMove(
-        todoSections.map(s => s.heading),
-        oldIndex,
-        newIndex
-      );
-      onReorderSections?.(newOrder);
+      const oldIndex = todoSections.findIndex(s => s.heading === activeHeading);
+      const newIndex = todoSections.findIndex(s => s.heading === overHeading);
+
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const newOrder = arrayMove(
+          todoSections.map(s => s.heading),
+          oldIndex,
+          newIndex
+        );
+        onReorderSections?.(newOrder);
+      }
+      return;
+    }
+
+    // Item reordering (inbox-* dragged)
+    if (activeId.startsWith('inbox-')) {
+      const itemId = activeId.replace('inbox-', '');
+
+      let targetSection: string | null = null;
+      let targetIndex = 0;
+
+      if (overId.startsWith('section-')) {
+        // Dropped on a section header - insert at top of that section
+        targetSection = overId.replace('section-', '');
+        targetIndex = 0;
+      } else if (overId.startsWith('inbox-')) {
+        // Dropped on another item - insert relative to that item
+        const overItemId = overId.replace('inbox-', '');
+        const overItem = inboxItems.find(i => i.id === overItemId);
+        targetSection = overItem?.section ?? null;
+
+        // Calculate index within section
+        const sectionItems = inboxItems.filter(i => i.section === targetSection);
+        const overIndex = sectionItems.findIndex(i => i.id === overItemId);
+
+        // Determine if we're moving down or up
+        const activeItem = inboxItems.find(i => i.id === itemId);
+        const activeInSameSection = activeItem?.section === targetSection;
+        const activeIndex = activeInSameSection
+          ? sectionItems.findIndex(i => i.id === itemId)
+          : -1;
+
+        if (activeInSameSection && activeIndex < overIndex) {
+          // Moving down within same section
+          targetIndex = overIndex;
+        } else {
+          // Moving up or from different section
+          targetIndex = overIndex;
+        }
+      }
+
+      onReorderItem?.(itemId, targetSection, targetIndex);
     }
   };
 
@@ -308,6 +360,20 @@ export function Column({
     ...inboxItems.map((item) => `inbox-${item.id}`),
     ...sessions.map((s) => s.id),
   ];
+
+  // Build combined sortable IDs for inbox (items + sections interleaved)
+  const inboxSortableIds: string[] = [];
+  // Orphan items first
+  const orphanItems = inboxItems.filter(item => item.section === null);
+  inboxSortableIds.push(...orphanItems.map(item => `inbox-${item.id}`));
+  // Then sections with their items
+  for (const section of todoSections) {
+    const sectionItems = inboxItems.filter(item => item.section === section.heading);
+    if (sectionItems.length > 0) {
+      inboxSortableIds.push(`section-${section.heading}`);
+      inboxSortableIds.push(...sectionItems.map(item => `inbox-${item.id}`));
+    }
+  }
 
   // Group items by section
   const itemsBySection = new Map<string | null, InboxItem[]>();
@@ -460,10 +526,17 @@ export function Column({
           </div>
         )}
 
-        <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-          {/* Inbox items organized by section */}
-          {status === "inbox" && (
-            <>
+        {/* Inbox items with unified drag-and-drop for sections and items */}
+        {status === "inbox" && (
+          <DndContext
+            sensors={sectionSensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleInboxDragEnd}
+          >
+            <SortableContext
+              items={inboxSortableIds}
+              strategy={verticalListSortingStrategy}
+            >
               {/* Orphan items (no section) */}
               {itemsBySection.get(null)?.map((item) => (
                 <InboxCard
@@ -477,60 +550,52 @@ export function Column({
                 />
               ))}
 
-              {/* Sections with their items - wrapped in DndContext for section reordering */}
-              <DndContext
-                sensors={sectionSensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleSectionDragEnd}
-              >
-                <SortableContext
-                  items={todoSections.filter(s => (itemsBySection.get(s.heading) || []).length > 0).map(s => `section-${s.heading}`)}
-                  strategy={verticalListSortingStrategy}
-                >
-                  {todoSections.map((section, index) => {
-                    const sectionItems = itemsBySection.get(section.heading) || [];
-                    if (sectionItems.length === 0) return null;
-                    const isCollapsed = collapsedSections.has(section.heading);
+              {/* Sections with their items */}
+              {todoSections.map((section, index) => {
+                const sectionItems = itemsBySection.get(section.heading) || [];
+                if (sectionItems.length === 0) return null;
+                const isCollapsed = collapsedSections.has(section.heading);
 
-                    return (
-                      <div key={section.heading} className={`space-y-2 ${index > 0 ? 'mt-4' : ''}`}>
-                        {/* Section header */}
-                        <SortableSectionHeader
-                          section={section}
-                          itemCount={sectionItems.length}
-                          isCollapsed={isCollapsed}
-                          onToggleCollapse={() => {
-                            setCollapsedSections(prev => {
-                              const next = new Set(prev);
-                              if (next.has(section.heading)) {
-                                next.delete(section.heading);
-                              } else {
-                                next.add(section.heading);
-                              }
-                              return next;
-                            });
-                          }}
-                        />
+                return (
+                  <div key={section.heading} className={`space-y-2 ${index > 0 ? 'mt-4' : ''}`}>
+                    {/* Section header */}
+                    <SortableSectionHeader
+                      section={section}
+                      itemCount={sectionItems.length}
+                      isCollapsed={isCollapsed}
+                      onToggleCollapse={() => {
+                        setCollapsedSections(prev => {
+                          const next = new Set(prev);
+                          if (next.has(section.heading)) {
+                            next.delete(section.heading);
+                          } else {
+                            next.add(section.heading);
+                          }
+                          return next;
+                        });
+                      }}
+                    />
 
-                        {/* Items in this section */}
-                        {!isCollapsed && sectionItems.map((item) => (
-                          <InboxCard
-                            key={item.id}
-                            item={item}
-                            onDelete={() => onDeleteInboxItem?.(item.id)}
-                            onStart={() => onStartInboxItem?.(item)}
-                            onUpdate={(prompt) => onUpdateInboxItem?.(item.id, prompt)}
-                            isSelected={selectedIds.has(`inbox-${item.id}`)}
-                            onSelect={onSelectInboxItem}
-                          />
-                        ))}
-                      </div>
-                    );
-                  })}
-                </SortableContext>
-              </DndContext>
-            </>
-          )}
+                    {/* Items in this section */}
+                    {!isCollapsed && sectionItems.map((item) => (
+                      <InboxCard
+                        key={item.id}
+                        item={item}
+                        onDelete={() => onDeleteInboxItem?.(item.id)}
+                        onStart={() => onStartInboxItem?.(item)}
+                        onUpdate={(prompt) => onUpdateInboxItem?.(item.id, prompt)}
+                        isSelected={selectedIds.has(`inbox-${item.id}`)}
+                        onSelect={onSelectInboxItem}
+                      />
+                    ))}
+                  </div>
+                );
+              })}
+            </SortableContext>
+          </DndContext>
+        )}
+
+        <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
 
           {/* Sessions */}
           {status === "recent" ? (
@@ -589,6 +654,7 @@ export function Column({
                           key={session.id}
                           session={session}
                           onOpen={onOpenSession}
+                          onOpenPlan={onOpenPlan}
                           onDelete={onDeleteSession}
                           onToggleStarred={onToggleStarred}
                           status={sessionStatuses[session.id]}
@@ -596,6 +662,7 @@ export function Column({
                           isSelected={selectedIds.has(session.id)}
                           onSelect={onSelectSession}
                           isContinuable={session.id === continuableSessionId}
+                          disableDrag
                         />
                       ))}
                     </div>
@@ -618,6 +685,7 @@ export function Column({
                             key={session.id}
                             session={session}
                             onOpen={onOpenSession}
+                            onOpenPlan={onOpenPlan}
                             onDelete={onDeleteSession}
                             onToggleStarred={onToggleStarred}
                             status={sessionStatuses[session.id]}
@@ -625,6 +693,7 @@ export function Column({
                             isSelected={selectedIds.has(session.id)}
                             onSelect={onSelectSession}
                             isContinuable={session.id === continuableSessionId}
+                            disableDrag
                           />
                         ))}
                       </div>
@@ -640,6 +709,7 @@ export function Column({
                 key={session.id}
                 session={session}
                 onOpen={onOpenSession}
+                onOpenPlan={onOpenPlan}
                 onDelete={onDeleteSession}
                 onToggleStarred={onToggleStarred}
                 status={sessionStatuses[session.id]}

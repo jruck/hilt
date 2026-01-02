@@ -2,6 +2,29 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessions, getRunningSessionIds, getSessionMtime } from "@/lib/claude-sessions";
 import { getAllSessionStatuses, setSessionStatus } from "@/lib/db";
 import { Session, SessionStatus } from "@/lib/types";
+import fs from "fs";
+import path from "path";
+import os from "os";
+
+const PLANS_DIR = path.join(os.homedir(), ".claude", "plans");
+
+// Get set of slugs that have plan files
+function getPlannedSlugs(): Set<string> {
+  const slugs = new Set<string>();
+  try {
+    if (fs.existsSync(PLANS_DIR)) {
+      const files = fs.readdirSync(PLANS_DIR);
+      for (const file of files) {
+        if (file.endsWith(".md")) {
+          slugs.add(file.slice(0, -3)); // Remove .md extension
+        }
+      }
+    }
+  } catch {
+    // Ignore errors reading plans directory
+  }
+  return slugs;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,9 +41,10 @@ export async function GET(request: NextRequest) {
       ? claudeSessions.filter(s => s.projectPath?.startsWith(scopePath))
       : claudeSessions;
 
-    // Get our status data and running session IDs (Map of sessionId -> mtime)
+    // Get our status data, running session IDs, and planned slugs
     const statuses = await getAllSessionStatuses();
     const runningIds = getRunningSessionIds();
+    const plannedSlugs = getPlannedSlugs();
 
     // Auto-update running sessions to "active" status, but ONLY if there's new activity
     // since the user marked it as "recent" (done). This prevents the bounce-back issue
@@ -43,7 +67,7 @@ export async function GET(request: NextRequest) {
       Promise.all(statusUpdates).catch(console.error);
     }
 
-    // Merge sessions with status data and running indicator
+    // Merge sessions with status data, running indicator, and plan status
     const sessions: Session[] = filteredSessions.map((session) => {
       const statusData = statuses.get(session.id);
       const currentMtime = runningIds.get(session.id);
@@ -56,12 +80,16 @@ export async function GET(request: NextRequest) {
       const hasNewActivity = !lastKnownMtime || (currentMtime !== undefined && currentMtime > lastKnownMtime);
       const shouldShowAsActive = isRunning && hasNewActivity;
 
+      // Check if any of the session's slugs have a plan file
+      const hasPlan = session.slugs?.some(slug => plannedSlugs.has(slug)) || false;
+
       return {
         ...session,
         status: shouldShowAsActive ? "active" : (statusData?.status || "recent"),
         sortOrder: statusData?.sortOrder || 0,
         starred: statusData?.starred || false,
         isRunning,
+        hasPlan,
       };
     });
 

@@ -74,6 +74,7 @@ async function parseSessionFile(
   }
 
   let summary: string | null = null;
+  let customTitle: string | null = null;  // From /rename command
   let firstPrompt: string | null = null;
   let lastPrompt: string | null = null;
   let lastTimestamp: Date | null = null;
@@ -94,6 +95,11 @@ async function parseSessionFile(
 
       try {
         const entry = JSON.parse(line);
+
+        // Get custom title from /rename command (takes precedence over summary)
+        if (entry.type === "custom-title" && entry.customTitle) {
+          customTitle = entry.customTitle;
+        }
 
         // Get summary - use the most recent one (last in file)
         if (entry.type === "summary") {
@@ -165,7 +171,7 @@ async function parseSessionFile(
 
     return {
       id: sessionId,
-      title: summary || firstPrompt?.slice(0, 50) || "Untitled Session",
+      title: customTitle || summary || firstPrompt?.slice(0, 50) || "Untitled Session",
       project: getProjectName(projectPath),
       projectPath,
       lastActivity: lastTimestamp || new Date(fs.statSync(filePath).mtime),

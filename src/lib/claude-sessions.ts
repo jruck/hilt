@@ -95,8 +95,8 @@ async function parseSessionFile(
       try {
         const entry = JSON.parse(line);
 
-        // Get summary from first line
-        if (entry.type === "summary" && !summary) {
+        // Get summary - use the most recent one (last in file)
+        if (entry.type === "summary") {
           const parsed = SummaryEntrySchema.safeParse(entry);
           if (parsed.success) {
             summary = parsed.data.summary;

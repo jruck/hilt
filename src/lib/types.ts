@@ -81,8 +81,8 @@ export interface Session extends SessionMetadata {
   isolation?: SessionIsolation;
   // Live running indicator (based on file modification time)
   isRunning?: boolean;
-  // Whether session has an associated plan file
-  hasPlan?: boolean;
+  // Slugs that have associated plan files
+  planSlugs?: string[];
   // Open in plan mode (resume with plan editing)
   planMode?: boolean;
 }

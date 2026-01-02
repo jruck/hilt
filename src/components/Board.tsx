@@ -247,7 +247,7 @@ export function Board({ initialScope = "" }: BoardProps) {
 
       // Apply filters
       if (filters.hasPlan) {
-        realSessions = realSessions.filter((s) => s.hasPlan);
+        realSessions = realSessions.filter((s) => s.planSlugs && s.planSlugs.length > 0);
       }
 
       // Include pending "new" sessions in Active column

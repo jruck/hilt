@@ -80,8 +80,8 @@ export async function GET(request: NextRequest) {
       const hasNewActivity = !lastKnownMtime || (currentMtime !== undefined && currentMtime > lastKnownMtime);
       const shouldShowAsActive = isRunning && hasNewActivity;
 
-      // Check if any of the session's slugs have a plan file
-      const hasPlan = session.slugs?.some(slug => plannedSlugs.has(slug)) || false;
+      // Find which of the session's slugs have plan files
+      const planSlugs = session.slugs?.filter(slug => plannedSlugs.has(slug)) || [];
 
       return {
         ...session,
@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
         sortOrder: statusData?.sortOrder || 0,
         starred: statusData?.starred || false,
         isRunning,
-        hasPlan,
+        planSlugs,
       };
     });
 

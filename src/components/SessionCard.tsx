@@ -244,13 +244,16 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
           {copiedResume && <Check className="w-3 h-3 text-green-400" />}
         </button>
 
-        {session.hasPlan && (
+        {session.planSlugs && session.planSlugs.length > 0 && (
           <button
             onClick={(e) => { e.stopPropagation(); onOpenPlan?.(session); }}
-            className="flex items-center hover:text-zinc-300 transition-colors"
+            className="flex items-center gap-0.5 hover:text-zinc-300 transition-colors"
             title="Open in plan mode"
           >
             <FileText className="w-3 h-3" />
+            {session.planSlugs.length > 1 && (
+              <span className="text-[10px]">{session.planSlugs.length}</span>
+            )}
           </button>
         )}
 

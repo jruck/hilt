@@ -27,6 +27,7 @@ interface SessionCardProps {
   firstSeenAt?: number;  // Timestamp when this session first appeared on the board
   isSelected?: boolean;
   onSelect?: (session: Session, selected: boolean) => void;
+  isContinuable?: boolean;  // This session would be resumed by `claude --continue`
 }
 
 // Duration for the "new" effect to fade (60 seconds)
@@ -46,7 +47,7 @@ function formatRelativeTime(date: Date): string {
   return date.toLocaleDateString();
 }
 
-export function SessionCard({ session, onOpen, onDelete, onToggleStarred, status, firstSeenAt, isSelected, onSelect }: SessionCardProps) {
+export function SessionCard({ session, onOpen, onDelete, onToggleStarred, status, firstSeenAt, isSelected, onSelect, isContinuable }: SessionCardProps) {
   const [copiedResume, setCopiedResume] = useState(false);
   const [, forceUpdate] = useState(0);
 
@@ -94,6 +95,14 @@ export function SessionCard({ session, onOpen, onDelete, onToggleStarred, status
     boxShadow: `0 0 ${12 * newness}px ${4 * newness}px rgba(34, 197, 94, ${0.4 * newness})`,
   } : {};
 
+  // Corner fold color - matches card's border stroke exactly
+  const getFoldColor = () => {
+    if (isSelected) return "rgb(59, 130, 246)"; // blue-500 (border-blue-500)
+    if (session.starred) return "rgba(234, 179, 8, 0.3)"; // yellow-500/30 (border-yellow-500/30)
+    if (session.status === "active") return "rgba(34, 197, 94, 0.2)"; // green-500/20 (border-green-500/20)
+    return "rgb(63, 63, 70)"; // zinc-700 (border-zinc-700)
+  };
+
   return (
     <div
       ref={setNodeRef}
@@ -101,8 +110,9 @@ export function SessionCard({ session, onOpen, onDelete, onToggleStarred, status
       {...attributes}
       {...listeners}
       onClick={() => onOpen?.(session)}
+      title={isContinuable && !isNewlyAdded ? "Most recent - will be resumed by 'claude --continue'" : undefined}
       className={`
-        group relative border rounded-lg p-3
+        group relative border rounded-lg p-3 overflow-hidden
         transition-all duration-300 cursor-pointer
         ${isDragging ? "shadow-xl ring-2 ring-blue-500" : "shadow-sm"}
         ${isNewlyAdded
@@ -117,6 +127,15 @@ export function SessionCard({ session, onOpen, onDelete, onToggleStarred, status
         }
       `}
     >
+      {/* Corner fold for continuable session */}
+      {isContinuable && !isNewlyAdded && (
+        <div
+          className="absolute bottom-0 right-0 w-3 h-3"
+          style={{
+            background: `linear-gradient(135deg, transparent 50%, ${getFoldColor()} 50%)`,
+          }}
+        />
+      )}
       {/* Hover actions - checkbox, star (recent only), play, done (not recent) */}
       <div className={`
         absolute top-2 right-2 flex items-center gap-1

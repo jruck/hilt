@@ -117,6 +117,8 @@ interface ColumnProps {
   openSessionCount?: number;
   isDrawerOpen?: boolean;
   onToggleDrawer?: () => void;
+  // ID of session that would be resumed by `claude --continue`
+  continuableSessionId?: string;
 }
 
 const columnConfig: Record<
@@ -260,6 +262,7 @@ export function Column({
   openSessionCount = 0,
   isDrawerOpen = false,
   onToggleDrawer,
+  continuableSessionId,
 }: ColumnProps) {
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   // Default to "New" section for new items
@@ -592,6 +595,7 @@ export function Column({
                           firstSeenAt={firstSeenAt[session.id]}
                           isSelected={selectedIds.has(session.id)}
                           onSelect={onSelectSession}
+                          isContinuable={session.id === continuableSessionId}
                         />
                       ))}
                     </div>
@@ -620,6 +624,7 @@ export function Column({
                             firstSeenAt={firstSeenAt[session.id]}
                             isSelected={selectedIds.has(session.id)}
                             onSelect={onSelectSession}
+                            isContinuable={session.id === continuableSessionId}
                           />
                         ))}
                       </div>
@@ -641,6 +646,7 @@ export function Column({
                 firstSeenAt={firstSeenAt[session.id]}
                 isSelected={selectedIds.has(session.id)}
                 onSelect={onSelectSession}
+                isContinuable={session.id === continuableSessionId}
               />
             ))
           )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -108,6 +108,15 @@ export function Board({ initialScope = "" }: BoardProps) {
 
   const { sessions, counts, isLoading, updateStatus, toggleStarred } = useSessions(scopePath || undefined);
   const { items: inboxItems, sections: todoSections, createItem, updateItem, deleteItem, reorderSections } = useInboxItems(scopePath || undefined);
+
+  // The most recent session would be resumed by `claude --continue`
+  const continuableSessionId = useMemo(() => {
+    if (sessions.length === 0) return undefined;
+    const mostRecent = sessions.reduce((latest, session) =>
+      new Date(session.lastActivity) > new Date(latest.lastActivity) ? session : latest
+    );
+    return mostRecent.id;
+  }, [sessions]);
 
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [draggingSession, setDraggingSession] = useState<Session | null>(null);
@@ -549,6 +558,7 @@ export function Board({ initialScope = "" }: BoardProps) {
                 openSessionCount={status === "active" ? openSessions.length : undefined}
                 isDrawerOpen={status === "active" ? isDrawerOpen : undefined}
                 onToggleDrawer={status === "active" ? () => setIsDrawerOpen(!isDrawerOpen) : undefined}
+                continuableSessionId={continuableSessionId}
               />
             ))}
           </div>

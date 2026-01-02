@@ -134,7 +134,7 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange }: ScopeBreadcrumbsP
         return (
           <div key={segment.fullPath} className="flex items-center">
             {/* Separator */}
-            <span className="text-zinc-600 px-0.5">/</span>
+            <span className="text-zinc-600 px-0.5">→</span>
 
             {/* Segment button */}
             <button

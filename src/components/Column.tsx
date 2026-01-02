@@ -140,6 +140,42 @@ const columnConfig: Record<
   },
 };
 
+// Time group header for Recent column (collapsible, not draggable)
+function TimeGroupHeader({
+  label,
+  icon,
+  itemCount,
+  isCollapsed,
+  onToggleCollapse,
+}: {
+  label: string;
+  icon?: React.ReactNode;
+  itemCount: number;
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 px-2 py-1 w-full hover:bg-zinc-800/50 rounded transition-colors">
+      <button
+        onClick={onToggleCollapse}
+        className="flex items-center gap-2 flex-1 text-left"
+      >
+        {isCollapsed ? (
+          <ChevronRight className="w-3 h-3 text-zinc-500" />
+        ) : (
+          <ChevronDown className="w-3 h-3 text-zinc-500" />
+        )}
+        {icon}
+        <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+          {label}
+        </h3>
+        <div className="flex-1 h-px bg-zinc-700"></div>
+        <span className="text-xs text-zinc-500">{itemCount}</span>
+      </button>
+    </div>
+  );
+}
+
 // Sortable section header component
 function SortableSectionHeader({
   section,
@@ -229,6 +265,7 @@ export function Column({
   // Default to "New" section for new items
   const [selectedSection, setSelectedSection] = useState<string | null>("New");
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [collapsedTimeGroups, setCollapsedTimeGroups] = useState<Set<string>>(new Set());
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const config = columnConfig[status];
 
@@ -520,20 +557,31 @@ export function Column({
                 groups.push({ group: currentGroup, sessions: currentSessions });
               }
 
+              const toggleTimeGroup = (groupKey: string) => {
+                setCollapsedTimeGroups(prev => {
+                  const next = new Set(prev);
+                  if (next.has(groupKey)) {
+                    next.delete(groupKey);
+                  } else {
+                    next.add(groupKey);
+                  }
+                  return next;
+                });
+              };
+
               return (
                 <>
                   {/* Starred sessions first (no time grouping) */}
                   {starredSessions.length > 0 && (
                     <>
-                      <div className="flex items-center gap-2 px-2 py-1">
-                        <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
-                        <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
-                          Starred
-                        </h3>
-                        <div className="flex-1 h-px bg-zinc-700"></div>
-                        <span className="text-xs text-zinc-500">{starredSessions.length}</span>
-                      </div>
-                      {starredSessions.map((session) => (
+                      <TimeGroupHeader
+                        label="Starred"
+                        icon={<Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />}
+                        itemCount={starredSessions.length}
+                        isCollapsed={collapsedTimeGroups.has("starred")}
+                        onToggleCollapse={() => toggleTimeGroup("starred")}
+                      />
+                      {!collapsedTimeGroups.has("starred") && starredSessions.map((session) => (
                         <SessionCard
                           key={session.id}
                           session={session}
@@ -550,30 +598,32 @@ export function Column({
                   )}
 
                   {/* Time-grouped sessions */}
-                  {groups.map(({ group, sessions: groupSessions }, groupIndex) => (
-                    <div key={group} className={groupIndex > 0 || starredSessions.length > 0 ? "mt-4" : ""}>
-                      <div className="flex items-center gap-2 px-2 py-1">
-                        <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
-                          {TIME_GROUP_LABELS[group]}
-                        </h3>
-                        <div className="flex-1 h-px bg-zinc-700"></div>
-                        <span className="text-xs text-zinc-500">{groupSessions.length}</span>
-                      </div>
-                      {groupSessions.map((session) => (
-                        <SessionCard
-                          key={session.id}
-                          session={session}
-                          onOpen={onOpenSession}
-                          onDelete={onDeleteSession}
-                          onToggleStarred={onToggleStarred}
-                          status={sessionStatuses[session.id]}
-                          firstSeenAt={firstSeenAt[session.id]}
-                          isSelected={selectedIds.has(session.id)}
-                          onSelect={onSelectSession}
+                  {groups.map(({ group, sessions: groupSessions }) => {
+                    const isCollapsed = collapsedTimeGroups.has(group);
+                    return (
+                      <div key={group}>
+                        <TimeGroupHeader
+                          label={TIME_GROUP_LABELS[group]}
+                          itemCount={groupSessions.length}
+                          isCollapsed={isCollapsed}
+                          onToggleCollapse={() => toggleTimeGroup(group)}
                         />
-                      ))}
-                    </div>
-                  ))}
+                        {!isCollapsed && groupSessions.map((session) => (
+                          <SessionCard
+                            key={session.id}
+                            session={session}
+                            onOpen={onOpenSession}
+                            onDelete={onDeleteSession}
+                            onToggleStarred={onToggleStarred}
+                            status={sessionStatuses[session.id]}
+                            firstSeenAt={firstSeenAt[session.id]}
+                            isSelected={selectedIds.has(session.id)}
+                            onSelect={onSelectSession}
+                          />
+                        ))}
+                      </div>
+                    );
+                  })}
                 </>
               );
             })()

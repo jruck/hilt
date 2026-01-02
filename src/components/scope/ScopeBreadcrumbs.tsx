@@ -17,6 +17,8 @@ interface Segment {
 
 export function ScopeBreadcrumbs({ value, homeDir, onChange }: ScopeBreadcrumbsProps) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [dropdownLeft, setDropdownLeft] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
   const lastSegmentRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -63,9 +65,19 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange }: ScopeBreadcrumbsP
 
   const segments = parseSegments();
 
-  const handleRootClick = () => {
+  // Calculate dropdown position relative to trigger button
+  const updateDropdownPosition = (button: HTMLButtonElement) => {
+    if (containerRef.current) {
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const buttonRect = button.getBoundingClientRect();
+      setDropdownLeft(buttonRect.left - containerRect.left);
+    }
+  };
+
+  const handleRootClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     if (isAtRoot) {
       // Already at root, toggle dropdown
+      updateDropdownPosition(e.currentTarget);
       setIsDropdownOpen(!isDropdownOpen);
     } else {
       // Navigate to root (empty scope = all projects)
@@ -74,9 +86,10 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange }: ScopeBreadcrumbsP
     }
   };
 
-  const handleSegmentClick = (segment: Segment) => {
+  const handleSegmentClick = (segment: Segment, e: React.MouseEvent<HTMLButtonElement>) => {
     // If clicking the last segment, toggle dropdown
     if (segment.fullPath === value) {
+      updateDropdownPosition(e.currentTarget);
       setIsDropdownOpen(!isDropdownOpen);
       return;
     }
@@ -102,7 +115,7 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange }: ScopeBreadcrumbsP
   const lastSegmentPath = segments.length > 0 ? segments[segments.length - 1].fullPath : "";
 
   return (
-    <div className="relative flex items-center gap-0.5">
+    <div ref={containerRef} className="relative flex items-center gap-0.5">
       {/* Root "/" button - always shown */}
       <button
         ref={isAtRoot ? lastSegmentRef : undefined}
@@ -139,7 +152,7 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange }: ScopeBreadcrumbsP
             {/* Segment button */}
             <button
               ref={isLast ? lastSegmentRef : undefined}
-              onClick={() => handleSegmentClick(segment)}
+              onClick={(e) => handleSegmentClick(segment, e)}
               className={`
                 flex items-center gap-1 px-2 py-1 rounded text-sm transition-colors
                 ${isLast
@@ -165,7 +178,8 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange }: ScopeBreadcrumbsP
       {isDropdownOpen && (
         <div
           ref={dropdownRef}
-          className="absolute top-full left-0 mt-1 z-50"
+          className="absolute top-full mt-1 z-50"
+          style={{ left: dropdownLeft }}
         >
           <SubfolderDropdown
             currentPath={value}

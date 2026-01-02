@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessions } from "@/lib/claude-sessions";
+import { getSessions, getRunningSessionIds } from "@/lib/claude-sessions";
 import { getAllSessionStatuses, setSessionStatus } from "@/lib/db";
 import { Session, SessionStatus } from "@/lib/types";
 
@@ -18,17 +18,34 @@ export async function GET(request: NextRequest) {
       ? claudeSessions.filter(s => s.projectPath?.startsWith(scopePath))
       : claudeSessions;
 
-    // Get our status data
+    // Get our status data and running session IDs
     const statuses = await getAllSessionStatuses();
+    const runningIds = getRunningSessionIds();
 
-    // Merge sessions with status data
+    // Auto-update running sessions to "active" status (permanent)
+    const statusUpdates: Promise<void>[] = [];
+    for (const sessionId of runningIds) {
+      const currentStatus = statuses.get(sessionId);
+      if (!currentStatus || currentStatus.status !== "active") {
+        statusUpdates.push(setSessionStatus(sessionId, "active"));
+      }
+    }
+    // Fire and forget - don't block response
+    if (statusUpdates.length > 0) {
+      Promise.all(statusUpdates).catch(console.error);
+    }
+
+    // Merge sessions with status data and running indicator
     const sessions: Session[] = filteredSessions.map((session) => {
       const statusData = statuses.get(session.id);
+      const isRunning = runningIds.has(session.id);
       return {
         ...session,
-        status: statusData?.status || "recent",
+        // Running sessions are always shown as active
+        status: isRunning ? "active" : (statusData?.status || "recent"),
         sortOrder: statusData?.sortOrder || 0,
         starred: statusData?.starred || false,
+        isRunning,
       };
     });
 

@@ -9,6 +9,9 @@ const CLAUDE_PROJECTS_DIR = path.join(
   "projects"
 );
 
+// Threshold for considering a session "running" based on file modification time
+const RUNNING_THRESHOLD_MS = 30_000; // 30 seconds
+
 /**
  * Decode a Claude project folder name back to the original path
  * e.g., "-Users-jruck-Bridge" -> "/Users/jruck/Bridge"
@@ -318,6 +321,77 @@ export async function getSummariesForSession(
   }
 
   return [];
+}
+
+/**
+ * Check if a session is currently running based on file modification time
+ * A session is considered running if its JSONL file was modified within the last 30 seconds
+ */
+export function isSessionRunning(sessionId: string): boolean {
+  if (!fs.existsSync(CLAUDE_PROJECTS_DIR)) {
+    return false;
+  }
+
+  const projectFolders = fs.readdirSync(CLAUDE_PROJECTS_DIR);
+
+  for (const folder of projectFolders) {
+    if (folder.startsWith(".")) continue;
+
+    const projectDir = path.join(CLAUDE_PROJECTS_DIR, folder);
+    const filePath = path.join(projectDir, `${sessionId}.jsonl`);
+
+    if (fs.existsSync(filePath)) {
+      const stats = fs.statSync(filePath);
+      const mtime = stats.mtime.getTime();
+      const now = Date.now();
+      return (now - mtime) < RUNNING_THRESHOLD_MS;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Get running status for multiple sessions at once (more efficient than checking individually)
+ */
+export function getRunningSessionIds(): Set<string> {
+  const runningIds = new Set<string>();
+
+  if (!fs.existsSync(CLAUDE_PROJECTS_DIR)) {
+    return runningIds;
+  }
+
+  const now = Date.now();
+  const projectFolders = fs.readdirSync(CLAUDE_PROJECTS_DIR);
+
+  for (const folder of projectFolders) {
+    if (folder.startsWith(".")) continue;
+
+    const projectDir = path.join(CLAUDE_PROJECTS_DIR, folder);
+
+    try {
+      const stat = fs.statSync(projectDir);
+      if (!stat.isDirectory()) continue;
+
+      const files = fs.readdirSync(projectDir);
+      const jsonlFiles = files.filter((f) => f.endsWith(".jsonl") && !f.startsWith("agent-"));
+
+      for (const file of jsonlFiles) {
+        const filePath = path.join(projectDir, file);
+        const stats = fs.statSync(filePath);
+        const mtime = stats.mtime.getTime();
+
+        if ((now - mtime) < RUNNING_THRESHOLD_MS) {
+          const sessionId = path.basename(file, ".jsonl");
+          runningIds.add(sessionId);
+        }
+      }
+    } catch {
+      // Skip folders we can't read
+    }
+  }
+
+  return runningIds;
 }
 
 /**

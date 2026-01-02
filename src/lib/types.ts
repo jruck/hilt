@@ -79,6 +79,8 @@ export interface Session extends SessionMetadata {
   initialPrompt?: string;
   // Worktree isolation
   isolation?: SessionIsolation;
+  // Live running indicator (based on file modification time)
+  isRunning?: boolean;
 }
 
 // Inbox item (draft prompt)

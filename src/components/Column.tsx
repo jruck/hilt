@@ -573,7 +573,7 @@ export function Column({
                 <>
                   {/* Starred sessions first (no time grouping) */}
                   {starredSessions.length > 0 && (
-                    <>
+                    <div className="space-y-2">
                       <TimeGroupHeader
                         label="Starred"
                         icon={<Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />}
@@ -594,14 +594,15 @@ export function Column({
                           onSelect={onSelectSession}
                         />
                       ))}
-                    </>
+                    </div>
                   )}
 
                   {/* Time-grouped sessions */}
-                  {groups.map(({ group, sessions: groupSessions }) => {
+                  {groups.map(({ group, sessions: groupSessions }, index) => {
                     const isCollapsed = collapsedTimeGroups.has(group);
+                    const needsTopMargin = index > 0 || starredSessions.length > 0;
                     return (
-                      <div key={group}>
+                      <div key={group} className={`space-y-2 ${needsTopMargin ? 'mt-4' : ''}`}>
                         <TimeGroupHeader
                           label={TIME_GROUP_LABELS[group]}
                           itemCount={groupSessions.length}

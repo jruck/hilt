@@ -113,6 +113,7 @@ export function Board({ initialScope = "" }: BoardProps) {
   const [draggingSession, setDraggingSession] = useState<Session | null>(null);
   const [openSessions, setOpenSessions] = useState<Session[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [drawerWidth, setDrawerWidth] = useState(700); // Default, will be updated by TerminalDrawer
 
   // Track if we've restored session from URL (to avoid double-triggering)
   const [hasRestoredSession, setHasRestoredSession] = useState(false);
@@ -512,7 +513,8 @@ export function Board({ initialScope = "" }: BoardProps) {
         >
           {/* Board */}
           <div
-            className={`flex-1 flex gap-4 p-4 overflow-x-auto transition-[padding] duration-300 ${isDrawerOpen ? 'pr-[716px]' : ''}`}
+            className="flex-1 flex gap-4 p-4 overflow-x-auto transition-[padding] duration-300"
+            style={{ paddingRight: isDrawerOpen ? `${drawerWidth + 16}px` : undefined }}
             onClick={(e) => {
               // Close drawer when clicking on board background (not on cards/columns)
               if (e.target === e.currentTarget && isDrawerOpen) {
@@ -571,6 +573,7 @@ export function Board({ initialScope = "" }: BoardProps) {
           onSelectSession={setActiveSession}
           onCloseSession={handleCloseSession}
           onStatusUpdate={handleStatusUpdate}
+          onWidthChange={setDrawerWidth}
         />
       </div>
 

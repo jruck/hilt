@@ -37,6 +37,7 @@ interface TerminalDrawerProps {
   onSelectSession: (session: Session) => void;
   onCloseSession: (sessionId: string) => void;
   onStatusUpdate?: (sessionId: string, status: string) => void;
+  onWidthChange?: (width: number) => void;
 }
 
 type ViewMode = "terminal" | "info" | "plan";
@@ -57,6 +58,7 @@ export function TerminalDrawer({
   onSelectSession,
   onCloseSession,
   onStatusUpdate,
+  onWidthChange,
 }: TerminalDrawerProps) {
   const [copied, setCopied] = useState(false);
   const [copiedSlug, setCopiedSlug] = useState(false);
@@ -90,7 +92,11 @@ export function TerminalDrawer({
       const width = parseInt(stored, 10);
       if (!isNaN(width) && width >= MIN_WIDTH && width <= MAX_WIDTH) {
         setDrawerWidth(width);
+        onWidthChange?.(width);
       }
+    } else {
+      // Notify with default width
+      onWidthChange?.(DEFAULT_WIDTH);
     }
   }, []);
 
@@ -112,6 +118,7 @@ export function TerminalDrawer({
       const delta = resizeStartX.current - e.clientX;
       const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, resizeStartWidth.current + delta));
       setDrawerWidth(newWidth);
+      onWidthChange?.(newWidth);
     };
 
     const handleMouseUp = () => {
@@ -131,7 +138,7 @@ export function TerminalDrawer({
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [drawerWidth]);
+  }, [drawerWidth, onWidthChange]);
 
   // Get plan data for active session (computed early for use in callbacks)
   // Check ALL slugs since the plan may have been created with a different slug

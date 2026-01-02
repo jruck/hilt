@@ -33,6 +33,7 @@ import {
   GripVertical,
   Terminal,
   FolderOpen,
+  Star,
 } from "lucide-react";
 
 interface InboxItem {
@@ -43,6 +44,46 @@ interface InboxItem {
   projectPath: string | null;
   createdAt: string;
   sortOrder: number;
+}
+
+// Time groups for Recent column dividers
+type TimeGroup = "today" | "yesterday" | "thisWeek" | "lastWeek" | "thisMonth" | "older";
+
+const TIME_GROUP_LABELS: Record<TimeGroup, string> = {
+  today: "Today",
+  yesterday: "Yesterday",
+  thisWeek: "This Week",
+  lastWeek: "Last Week",
+  thisMonth: "This Month",
+  older: "Older",
+};
+
+function getTimeGroup(date: Date): TimeGroup {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  // Start of this week (Sunday)
+  const thisWeekStart = new Date(today);
+  thisWeekStart.setDate(thisWeekStart.getDate() - thisWeekStart.getDay());
+
+  // Start of last week
+  const lastWeekStart = new Date(thisWeekStart);
+  lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+
+  // Start of this month
+  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const activityDate = new Date(date);
+  const activityDay = new Date(activityDate.getFullYear(), activityDate.getMonth(), activityDate.getDate());
+
+  if (activityDay >= today) return "today";
+  if (activityDay >= yesterday) return "yesterday";
+  if (activityDay >= thisWeekStart) return "thisWeek";
+  if (activityDay >= lastWeekStart) return "lastWeek";
+  if (activityDay >= thisMonthStart) return "thisMonth";
+  return "older";
 }
 
 interface TodoSection {
@@ -452,19 +493,106 @@ export function Column({
           )}
 
           {/* Sessions */}
-          {sortedSessions.map((session) => (
-            <SessionCard
-              key={session.id}
-              session={session}
-              onOpen={onOpenSession}
-              onDelete={onDeleteSession}
-              onToggleStarred={onToggleStarred}
-              status={sessionStatuses[session.id]}
-              firstSeenAt={firstSeenAt[session.id]}
-              isSelected={selectedIds.has(session.id)}
-              onSelect={onSelectSession}
-            />
-          ))}
+          {status === "recent" ? (
+            // Group sessions by time for Recent column
+            (() => {
+              const groups: { group: TimeGroup; sessions: typeof sortedSessions }[] = [];
+              let currentGroup: TimeGroup | null = null;
+              let currentSessions: typeof sortedSessions = [];
+
+              // First render starred sessions without time grouping
+              const starredSessions = sortedSessions.filter(s => s.starred);
+              const unstarredSessions = sortedSessions.filter(s => !s.starred);
+
+              for (const session of unstarredSessions) {
+                const group = getTimeGroup(new Date(session.lastActivity));
+                if (group !== currentGroup) {
+                  if (currentGroup !== null && currentSessions.length > 0) {
+                    groups.push({ group: currentGroup, sessions: currentSessions });
+                  }
+                  currentGroup = group;
+                  currentSessions = [session];
+                } else {
+                  currentSessions.push(session);
+                }
+              }
+              if (currentGroup !== null && currentSessions.length > 0) {
+                groups.push({ group: currentGroup, sessions: currentSessions });
+              }
+
+              return (
+                <>
+                  {/* Starred sessions first (no time grouping) */}
+                  {starredSessions.length > 0 && (
+                    <>
+                      <div className="flex items-center gap-2 px-2 py-1">
+                        <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
+                        <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+                          Starred
+                        </h3>
+                        <div className="flex-1 h-px bg-zinc-700"></div>
+                        <span className="text-xs text-zinc-500">{starredSessions.length}</span>
+                      </div>
+                      {starredSessions.map((session) => (
+                        <SessionCard
+                          key={session.id}
+                          session={session}
+                          onOpen={onOpenSession}
+                          onDelete={onDeleteSession}
+                          onToggleStarred={onToggleStarred}
+                          status={sessionStatuses[session.id]}
+                          firstSeenAt={firstSeenAt[session.id]}
+                          isSelected={selectedIds.has(session.id)}
+                          onSelect={onSelectSession}
+                        />
+                      ))}
+                    </>
+                  )}
+
+                  {/* Time-grouped sessions */}
+                  {groups.map(({ group, sessions: groupSessions }, groupIndex) => (
+                    <div key={group} className={groupIndex > 0 || starredSessions.length > 0 ? "mt-4" : ""}>
+                      <div className="flex items-center gap-2 px-2 py-1">
+                        <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+                          {TIME_GROUP_LABELS[group]}
+                        </h3>
+                        <div className="flex-1 h-px bg-zinc-700"></div>
+                        <span className="text-xs text-zinc-500">{groupSessions.length}</span>
+                      </div>
+                      {groupSessions.map((session) => (
+                        <SessionCard
+                          key={session.id}
+                          session={session}
+                          onOpen={onOpenSession}
+                          onDelete={onDeleteSession}
+                          onToggleStarred={onToggleStarred}
+                          status={sessionStatuses[session.id]}
+                          firstSeenAt={firstSeenAt[session.id]}
+                          isSelected={selectedIds.has(session.id)}
+                          onSelect={onSelectSession}
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </>
+              );
+            })()
+          ) : (
+            // Regular rendering for non-recent columns
+            sortedSessions.map((session) => (
+              <SessionCard
+                key={session.id}
+                session={session}
+                onOpen={onOpenSession}
+                onDelete={onDeleteSession}
+                onToggleStarred={onToggleStarred}
+                status={sessionStatuses[session.id]}
+                firstSeenAt={firstSeenAt[session.id]}
+                isSelected={selectedIds.has(session.id)}
+                onSelect={onSelectSession}
+              />
+            ))
+          )}
         </SortableContext>
 
         {sessions.length === 0 && inboxItems.length === 0 && !isCreatingNew && (

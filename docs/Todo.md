@@ -5,10 +5,10 @@
 
 ## Claude Integration
 
-- [ ] CLAUDE.md Editor — Panel to view/edit the project's CLAUDE.md without leaving the app
 - [ ] Commands Gallery — Show available project-level (`.claude/commands/`) and user-level (`~/.claude/commands/`) commands with click to copy/insert
 - [ ] File Changes Per Session — Display files modified in each session from `trackedFileBackups` in JSONL, with diff viewing
 - [ ] Permissions Viewer — Display auto-approved tools from `.claude/settings.local.json`, potentially allow management
+- [ ] CLAUDE.md Editor — Panel to view/edit the project's CLAUDE.md without leaving the app
 
 ## Notifications
 
@@ -18,6 +18,55 @@
 
 - [ ] Real-time log viewing — Show live session output as it streams (like `tail -f`)
 - [ ] Tool output visualization — Format git diffs, terminal output, web search results nicely
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

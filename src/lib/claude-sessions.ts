@@ -359,9 +359,10 @@ export function isSessionRunning(sessionId: string): boolean {
 
 /**
  * Get running status for multiple sessions at once (more efficient than checking individually)
+ * Returns a Map of sessionId -> mtime for sessions modified within RUNNING_THRESHOLD_MS
  */
-export function getRunningSessionIds(): Set<string> {
-  const runningIds = new Set<string>();
+export function getRunningSessionIds(): Map<string, number> {
+  const runningIds = new Map<string, number>();
 
   if (!fs.existsSync(CLAUDE_PROJECTS_DIR)) {
     return runningIds;
@@ -389,7 +390,7 @@ export function getRunningSessionIds(): Set<string> {
 
         if ((now - mtime) < RUNNING_THRESHOLD_MS) {
           const sessionId = path.basename(file, ".jsonl");
-          runningIds.add(sessionId);
+          runningIds.set(sessionId, mtime);
         }
       }
     } catch {
@@ -398,6 +399,31 @@ export function getRunningSessionIds(): Set<string> {
   }
 
   return runningIds;
+}
+
+/**
+ * Get the mtime for a specific session's JSONL file
+ */
+export function getSessionMtime(sessionId: string): number | null {
+  if (!fs.existsSync(CLAUDE_PROJECTS_DIR)) {
+    return null;
+  }
+
+  const projectFolders = fs.readdirSync(CLAUDE_PROJECTS_DIR);
+
+  for (const folder of projectFolders) {
+    if (folder.startsWith(".")) continue;
+
+    const projectDir = path.join(CLAUDE_PROJECTS_DIR, folder);
+    const filePath = path.join(projectDir, `${sessionId}.jsonl`);
+
+    if (fs.existsSync(filePath)) {
+      const stats = fs.statSync(filePath);
+      return stats.mtime.getTime();
+    }
+  }
+
+  return null;
 }
 
 /**

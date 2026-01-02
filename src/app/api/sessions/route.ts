@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessions, getRunningSessionIds } from "@/lib/claude-sessions";
+import { getSessions, getRunningSessionIds, getSessionMtime } from "@/lib/claude-sessions";
 import { getAllSessionStatuses, setSessionStatus } from "@/lib/db";
 import { Session, SessionStatus } from "@/lib/types";
 
@@ -18,15 +18,23 @@ export async function GET(request: NextRequest) {
       ? claudeSessions.filter(s => s.projectPath?.startsWith(scopePath))
       : claudeSessions;
 
-    // Get our status data and running session IDs
+    // Get our status data and running session IDs (Map of sessionId -> mtime)
     const statuses = await getAllSessionStatuses();
     const runningIds = getRunningSessionIds();
 
-    // Auto-update running sessions to "active" status (permanent)
+    // Auto-update running sessions to "active" status, but ONLY if there's new activity
+    // since the user marked it as "recent" (done). This prevents the bounce-back issue
+    // where marking done on a running session would immediately revert.
     const statusUpdates: Promise<void>[] = [];
-    for (const sessionId of runningIds) {
+    for (const [sessionId, currentMtime] of runningIds) {
       const currentStatus = statuses.get(sessionId);
-      if (!currentStatus || currentStatus.status !== "active") {
+      const lastKnownMtime = currentStatus?.lastKnownMtime;
+
+      // Only promote to active if:
+      // 1. No status set yet, OR
+      // 2. Status is not active AND there's new activity (mtime > lastKnownMtime)
+      const hasNewActivity = !lastKnownMtime || currentMtime > lastKnownMtime;
+      if ((!currentStatus || currentStatus.status !== "active") && hasNewActivity) {
         statusUpdates.push(setSessionStatus(sessionId, "active"));
       }
     }
@@ -38,11 +46,19 @@ export async function GET(request: NextRequest) {
     // Merge sessions with status data and running indicator
     const sessions: Session[] = filteredSessions.map((session) => {
       const statusData = statuses.get(session.id);
-      const isRunning = runningIds.has(session.id);
+      const currentMtime = runningIds.get(session.id);
+      const isRunning = currentMtime !== undefined;
+
+      // Determine if we should show as active:
+      // - If running AND there's new activity since last status change
+      // - OR if stored status is already active
+      const lastKnownMtime = statusData?.lastKnownMtime;
+      const hasNewActivity = !lastKnownMtime || (currentMtime !== undefined && currentMtime > lastKnownMtime);
+      const shouldShowAsActive = isRunning && hasNewActivity;
+
       return {
         ...session,
-        // Running sessions are always shown as active
-        status: isRunning ? "active" : (statusData?.status || "recent"),
+        status: shouldShowAsActive ? "active" : (statusData?.status || "recent"),
         sortOrder: statusData?.sortOrder || 0,
         starred: statusData?.starred || false,
         isRunning,
@@ -111,7 +127,14 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
 
-    await setSessionStatus(sessionId, status, sortOrder, starred);
+    // When marking as "recent" (done), store the current JSONL mtime
+    // This allows us to detect NEW activity after marking done
+    let lastKnownMtime: number | undefined;
+    if (status === "recent") {
+      lastKnownMtime = getSessionMtime(sessionId) ?? undefined;
+    }
+
+    await setSessionStatus(sessionId, status, sortOrder, starred, lastKnownMtime);
 
     return NextResponse.json({ success: true });
   } catch (error) {

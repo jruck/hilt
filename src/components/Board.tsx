@@ -107,7 +107,7 @@ export function Board({ initialScope = "" }: BoardProps) {
   }, [router]);
 
   const { sessions, counts, isLoading, updateStatus, toggleStarred } = useSessions(scopePath || undefined);
-  const { items: inboxItems, sections: todoSections, createItem, updateItem, deleteItem, reorderSections } = useInboxItems(scopePath || undefined);
+  const { items: inboxItems, sections: todoSections, createItem, updateItem, deleteItem, reorderSections, reorderItem } = useInboxItems(scopePath || undefined);
 
   // The most recent session would be resumed by `claude --continue`
   const continuableSessionId = useMemo(() => {
@@ -164,6 +164,12 @@ export function Board({ initialScope = "" }: BoardProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isDrawerOpen, selectedIds.size]);
 
+  // Reset known sessions and "new" effect when scope changes
+  useEffect(() => {
+    knownSessionIds.current.clear();
+    setFirstSeenAt({});
+  }, [scopePath]);
+
   // Track when new sessions first appear (for "new" highlight effect)
   useEffect(() => {
     if (sessions.length === 0) return;
@@ -172,12 +178,16 @@ export function Board({ initialScope = "" }: BoardProps) {
     const newFirstSeen: Record<string, number> = {};
     let hasNew = false;
 
+    // Count how many sessions we already knew about
+    const previouslyKnownCount = knownSessionIds.current.size;
+
     for (const session of sessions) {
       if (!knownSessionIds.current.has(session.id)) {
         // New session detected
         knownSessionIds.current.add(session.id);
         // Only mark as "new" if this isn't the initial load
-        if (knownSessionIds.current.size > sessions.length - 10) {
+        // (i.e., we already knew about some sessions before this one appeared)
+        if (previouslyKnownCount > 0) {
           newFirstSeen[session.id] = now;
           hasNew = true;
         }
@@ -362,6 +372,10 @@ export function Board({ initialScope = "" }: BoardProps) {
     await updateItem(id, prompt);
   };
 
+  const handleMoveItemToSection = async (id: string, section: string | null) => {
+    await updateItem(id, undefined, undefined, section);
+  };
+
   const handleDeleteInboxItem = async (id: string) => {
     await deleteItem(id);
   };
@@ -541,6 +555,7 @@ export function Board({ initialScope = "" }: BoardProps) {
                 todoSections={status === "inbox" ? todoSections : undefined}
                 scopePath={status === "inbox" ? scopePath : undefined}
                 onReorderSections={status === "inbox" ? reorderSections : undefined}
+                onReorderItem={status === "inbox" ? reorderItem : undefined}
                 onOpenSession={handleOpenSession}
                 onDeleteSession={handleDeleteSession}
                 onToggleStarred={toggleStarred}

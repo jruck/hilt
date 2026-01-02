@@ -20,6 +20,9 @@ interface StatusRecord {
   sortOrder: number;
   starred?: boolean;
   updatedAt: string;
+  // When set to "recent", store the JSONL mtime so we only auto-promote
+  // back to "active" if there's NEW activity after marking done
+  lastKnownMtime?: number;
 }
 
 interface StatusData {
@@ -82,7 +85,8 @@ export async function setSessionStatus(
   sessionId: string,
   status?: SessionStatus,
   sortOrder?: number,
-  starred?: boolean
+  starred?: boolean,
+  lastKnownMtime?: number
 ): Promise<void> {
   const data = readStatusFile();
   const existing = data[sessionId];
@@ -92,19 +96,26 @@ export async function setSessionStatus(
     sortOrder: sortOrder ?? existing?.sortOrder ?? 0,
     starred: starred !== undefined ? starred : existing?.starred,
     updatedAt: new Date().toISOString(),
+    // Store mtime when marking as recent so we can detect new activity
+    lastKnownMtime: lastKnownMtime ?? existing?.lastKnownMtime,
   };
 
   writeStatusFile(data);
 }
 
 export async function getAllSessionStatuses(): Promise<
-  Map<string, { status: SessionStatus; sortOrder: number; starred?: boolean }>
+  Map<string, { status: SessionStatus; sortOrder: number; starred?: boolean; lastKnownMtime?: number }>
 > {
   const data = readStatusFile();
-  const map = new Map<string, { status: SessionStatus; sortOrder: number; starred?: boolean }>();
+  const map = new Map<string, { status: SessionStatus; sortOrder: number; starred?: boolean; lastKnownMtime?: number }>();
 
   for (const [sessionId, record] of Object.entries(data)) {
-    map.set(sessionId, { status: record.status, sortOrder: record.sortOrder, starred: record.starred });
+    map.set(sessionId, {
+      status: record.status,
+      sortOrder: record.sortOrder,
+      starred: record.starred,
+      lastKnownMtime: record.lastKnownMtime,
+    });
   }
 
   return map;

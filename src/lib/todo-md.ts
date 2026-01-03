@@ -2,6 +2,40 @@ import * as fs from "fs";
 import * as path from "path";
 
 /**
+ * Shift markdown headings down by 2 levels to prevent them from being
+ * interpreted as Todo.md section headers.
+ *
+ * Example: "## My Heading" becomes "#### My Heading"
+ *
+ * Headings at level 5-6 will overflow beyond markdown's 6-level limit
+ * and become plain text (acceptable edge case).
+ */
+function shiftHeadingsInContent(text: string): string {
+  return text.replace(/^(#{1,6})\s+/gm, (match, hashes) => {
+    return "#".repeat(hashes.length + 2) + " ";
+  });
+}
+
+/**
+ * Format a todo item's text for writing to markdown.
+ * Multi-line content is indented so it stays part of the list item.
+ */
+function formatTodoText(text: string, checkbox: string): string[] {
+  const textLines = text.split("\n");
+  const result: string[] = [];
+
+  // First line gets the checkbox
+  result.push(`- ${checkbox} ${textLines[0]}`);
+
+  // Continuation lines get 2-space indent to stay part of the list item
+  for (let i = 1; i < textLines.length; i++) {
+    result.push(`  ${textLines[i]}`);
+  }
+
+  return result;
+}
+
+/**
  * Get the Todo.md file path for a given scope
  * Uses docs/Todo.md in the scoped folder (standard Claude Code convention)
  * Returns null if no scope is provided (All Projects view shows empty state)
@@ -90,7 +124,26 @@ export function parseTodoFile(scopePath?: string): TodoData {
       lastTaskLine = i;
 
       const completed = taskMatch[2] === "x";
-      const text = taskMatch[3].trim();
+      let text = taskMatch[3].trim();
+
+      // Collect indented continuation lines (2+ spaces at start)
+      while (i + 1 < lines.length) {
+        const nextLine = lines[i + 1];
+        // Check if next line is indented continuation (2 spaces)
+        if (nextLine.match(/^  [^ ]/) || nextLine === "  ") {
+          // Remove the 2-space indent and append
+          text += "\n" + nextLine.slice(2);
+          i++;
+          lastTaskLine = i;
+        } else if (nextLine.match(/^  $/)) {
+          // Empty continuation line (just 2 spaces)
+          text += "\n";
+          i++;
+          lastTaskLine = i;
+        } else {
+          break;
+        }
+      }
 
       // Remove bold markdown if present (e.g., "**Real-time log viewing**")
       const cleanText = text.replace(/\*\*(.+?)\*\*/g, "$1");
@@ -146,7 +199,7 @@ export function writeTodoFile(data: TodoData, scopePath?: string): void {
   // Write orphan items (tasks before any section)
   for (const item of data.orphanItems) {
     const checkbox = item.completed ? "[x]" : "[ ]";
-    lines.push(`- ${checkbox} ${item.text}`);
+    lines.push(...formatTodoText(item.text, checkbox));
   }
 
   // Write sections with their items
@@ -157,7 +210,7 @@ export function writeTodoFile(data: TodoData, scopePath?: string): void {
 
     for (const item of section.items) {
       const checkbox = item.completed ? "[x]" : "[ ]";
-      lines.push(`- ${checkbox} ${item.text}`);
+      lines.push(...formatTodoText(item.text, checkbox));
     }
 
     lines.push(""); // Empty line after section
@@ -185,9 +238,12 @@ export function addTodoItem(text: string, section: string | null = null, scopePa
   data.sections.forEach(s => taskCounter += s.items.length);
   taskCounter += data.orphanItems.length;
 
+  // Shift any headings in the content to prevent them from being parsed as sections
+  const safeText = shiftHeadingsInContent(text);
+
   const newItem: TodoItem = {
     id: `task-${taskCounter}-${Date.now()}`,
-    text,
+    text: safeText,
     completed: false,
     section,
     lineNumber: -1,
@@ -227,7 +283,7 @@ export function updateTodoItem(id: string, updates: { text?: string; completed?:
     found = true;
     const item = data.orphanItems[orphanIndex];
 
-    if (updates.text !== undefined) item.text = updates.text;
+    if (updates.text !== undefined) item.text = shiftHeadingsInContent(updates.text);
     if (updates.completed !== undefined) item.completed = updates.completed;
 
     // Move to different section if requested
@@ -260,7 +316,7 @@ export function updateTodoItem(id: string, updates: { text?: string; completed?:
         found = true;
         const item = section.items[itemIndex];
 
-        if (updates.text !== undefined) item.text = updates.text;
+        if (updates.text !== undefined) item.text = shiftHeadingsInContent(updates.text);
         if (updates.completed !== undefined) item.completed = updates.completed;
 
         // Move to different section if requested

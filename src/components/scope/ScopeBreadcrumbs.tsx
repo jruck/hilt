@@ -120,13 +120,7 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange }: ScopeBreadcrumbsP
       <button
         ref={isAtRoot ? lastSegmentRef : undefined}
         onClick={handleRootClick}
-        className={`
-          flex items-center gap-1 px-2 py-1 rounded text-sm transition-colors font-mono
-          ${isAtRoot
-            ? "bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
-            : "hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200"
-          }
-        `}
+        className="flex items-center gap-1 px-2 py-1 rounded text-sm transition-colors font-mono hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200"
         title="All Projects (root)"
       >
         <span>/</span>
@@ -153,13 +147,7 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange }: ScopeBreadcrumbsP
             <button
               ref={isLast ? lastSegmentRef : undefined}
               onClick={(e) => handleSegmentClick(segment, e)}
-              className={`
-                flex items-center gap-1 px-2 py-1 rounded text-sm transition-colors
-                ${isLast
-                  ? "bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
-                  : "hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200"
-                }
-              `}
+              className="flex items-center gap-1 px-2 py-1 rounded text-sm transition-colors hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200"
             >
               <span className="font-mono">{displayName}</span>
               {isLast && (

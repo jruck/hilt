@@ -222,7 +222,8 @@ ptyManager.on("exit", (terminalId: string, exitCode: number) => {
 });
 
 // Handle graceful shutdown
-let plansWatcher: { close: () => Promise<void> } | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let plansWatcher: any = null;
 
 process.on("SIGINT", async () => {
   console.log("\nShutting down WebSocket server...");

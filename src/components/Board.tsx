@@ -141,6 +141,8 @@ export function Board({ initialScope = "" }: BoardProps) {
   // Track when sessions were first seen (for "new" effect)
   const [firstSeenAt, setFirstSeenAt] = useState<Record<string, number>>({});
   const knownSessionIds = useRef<Set<string>>(new Set());
+  // Track temp session creation times and project paths for matching with real sessions
+  const tempSessionInfo = useRef<Record<string, { createdAt: number; projectPath: string }>>({});
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -219,6 +221,69 @@ export function Board({ initialScope = "" }: BoardProps) {
       setFirstSeenAt(prev => ({ ...prev, ...newFirstSeen }));
     }
   }, [sessions]);
+
+  // Match real sessions to temp sessions when they appear
+  // This handles the case where a temp session (new-xxx) needs to be replaced
+  // with the real session UUID once Claude Code creates the JSONL file
+  useEffect(() => {
+    // Get all temp sessions that need matching
+    const tempSessions = openSessions.filter(s => s.id.startsWith("new-") && s.isNew);
+    if (tempSessions.length === 0) return;
+
+    let hasUpdates = false;
+    const updates: Record<string, string> = {}; // tempId -> realId
+
+    for (const tempSession of tempSessions) {
+      const info = tempSessionInfo.current[tempSession.id];
+      if (!info) continue;
+
+      // Find a real session that matches:
+      // - Same project path
+      // - Activity timestamp within 60 seconds of temp session creation
+      // - Not already an open session
+      const match = sessions.find(s => {
+        // Must be same project
+        if (s.projectPath !== info.projectPath) return false;
+
+        // Must have activity within 60 seconds of temp session creation
+        const realActivityTime = new Date(s.lastActivity).getTime();
+        const timeDiff = realActivityTime - info.createdAt;
+        if (timeDiff < -5000 || timeDiff > 60000) return false;
+
+        // Must not already be in openSessions (except as this temp session)
+        if (openSessions.some(os => os.id === s.id && os.id !== tempSession.id)) return false;
+
+        return true;
+      });
+
+      if (match) {
+        updates[tempSession.id] = match.id;
+        hasUpdates = true;
+      }
+    }
+
+    if (hasUpdates) {
+      // Update openSessions to replace temp IDs with real IDs
+      setOpenSessions(prev => prev.map(session => {
+        const realId = updates[session.id];
+        if (realId) {
+          // Clean up temp session tracking
+          delete tempSessionInfo.current[session.id];
+          // Replace ID, keep other session data (preserve terminal connection)
+          return { ...session, id: realId, isNew: false };
+        }
+        return session;
+      }));
+
+      // Update activeSession if it was a temp session
+      setActiveSession(prev => {
+        if (prev && updates[prev.id]) {
+          return { ...prev, id: updates[prev.id], isNew: false };
+        }
+        return prev;
+      });
+    }
+  }, [sessions, openSessions]);
 
   // Filter function for search
   const matchesSearch = useCallback((text: string | null | undefined) => {
@@ -400,15 +465,17 @@ export function Board({ initialScope = "" }: BoardProps) {
 
   const handleCreateAndRunInboxItem = async (prompt: string) => {
     // Create a temporary session directly without saving to inbox
-    const tempId = `new-${Date.now()}`;
+    const now = Date.now();
+    const tempId = `new-${now}`;
     const projectName = scopePath ? scopePath.split("/").pop() || "New Session" : "New Session";
+    const projectPath = scopePath || "/";
     const newSession: Session = {
       id: tempId,
       title: prompt.slice(0, 50) + (prompt.length > 50 ? "..." : ""),
       firstPrompt: prompt,
       lastPrompt: prompt,
       project: projectName,
-      projectPath: scopePath || "/",
+      projectPath,
       messageCount: 0,
       lastActivity: new Date(),
       status: "active",
@@ -418,6 +485,9 @@ export function Board({ initialScope = "" }: BoardProps) {
       slugs: [],
       gitBranch: null,
     };
+
+    // Track temp session for matching with real session later
+    tempSessionInfo.current[tempId] = { createdAt: now, projectPath };
 
     setOpenSessions((prev) => [...prev, newSession]);
     setActiveSession(newSession);
@@ -443,16 +513,18 @@ export function Board({ initialScope = "" }: BoardProps) {
 
   const handleStartInboxItem = async (item: { id: string; prompt: string }) => {
     // Create a temporary session for the new Claude Code instance
-    const tempId = `new-${Date.now()}`;
+    const now = Date.now();
+    const tempId = `new-${now}`;
     // Use scopePath for new sessions, derive project name from folder
     const projectName = scopePath ? scopePath.split("/").pop() || "New Session" : "New Session";
+    const projectPath = scopePath || "/";
     const newSession: Session = {
       id: tempId,
       title: item.prompt.slice(0, 50) + (item.prompt.length > 50 ? "..." : ""),
       firstPrompt: item.prompt,
       lastPrompt: item.prompt,
       project: projectName,
-      projectPath: scopePath || "/",
+      projectPath,
       messageCount: 0,
       lastActivity: new Date(),
       status: "active",
@@ -462,6 +534,9 @@ export function Board({ initialScope = "" }: BoardProps) {
       slugs: [],
       gitBranch: null,
     };
+
+    // Track temp session for matching with real session later
+    tempSessionInfo.current[tempId] = { createdAt: now, projectPath };
 
     // Add to open sessions and open the drawer
     setOpenSessions((prev) => [...prev, newSession]);
@@ -572,7 +647,7 @@ export function Board({ initialScope = "" }: BoardProps) {
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-zinc-700 transition-colors"
                 >
                   <FileText className="w-4 h-4 text-zinc-400" />
-                  <span className="flex-1">Plan</span>
+                  <span className="flex-1">Plans</span>
                   {filters.hasPlan && <Check className="w-4 h-4 text-blue-400" />}
                 </button>
               </div>

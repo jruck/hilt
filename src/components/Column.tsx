@@ -512,8 +512,8 @@ export function Column({
               <option value="">No section</option>
               {todoSections
                 .filter((s) => s.heading !== "New")
-                .map((section) => (
-                  <option key={section.heading} value={section.heading}>
+                .map((section, index) => (
+                  <option key={`option-${index}-${section.heading}`} value={section.heading}>
                     {section.heading}
                   </option>
                 ))}
@@ -557,7 +557,7 @@ export function Column({
                 const isCollapsed = collapsedSections.has(section.heading);
 
                 return (
-                  <div key={section.heading} className={`space-y-2 ${index > 0 ? 'mt-4' : ''}`}>
+                  <div key={`section-${index}-${section.heading}`} className={`space-y-2 ${index > 0 ? 'mt-4' : ''}`}>
                     {/* Section header */}
                     <SortableSectionHeader
                       section={section}

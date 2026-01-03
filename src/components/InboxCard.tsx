@@ -1,9 +1,43 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Trash2, Play, Square, CheckSquare, Pencil, Check, X } from "lucide-react";
+
+/**
+ * Extract a display title from todo content.
+ * Returns the first/highest-level heading found, or the first line if no heading.
+ */
+function extractDisplayTitle(text: string): { title: string; hasStructure: boolean } {
+  const lines = text.split("\n");
+
+  // Find the first heading (highest level = fewest #)
+  let bestHeading: { level: number; text: string } | null = null;
+
+  for (const line of lines) {
+    const match = line.match(/^(#{1,6})\s+(.+)$/);
+    if (match) {
+      const level = match[1].length;
+      const headingText = match[2].trim();
+      if (!bestHeading || level < bestHeading.level) {
+        bestHeading = { level, text: headingText };
+      }
+      // Stop at H1-H3, good enough
+      if (level <= 3) break;
+    }
+  }
+
+  if (bestHeading) {
+    return { title: bestHeading.text, hasStructure: true };
+  }
+
+  // No heading found, use first non-empty line
+  const firstLine = lines.find(l => l.trim().length > 0) || text;
+  const isMultiLine = lines.filter(l => l.trim().length > 0).length > 1;
+
+  return { title: firstLine.trim(), hasStructure: isMultiLine };
+}
 
 interface InboxItem {
   id: string;
@@ -40,6 +74,18 @@ export function InboxCard({
   const [editValue, setEditValue] = useState(item.prompt);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Extract display title from structured content
+  const { title: displayTitle, hasStructure } = useMemo(
+    () => extractDisplayTitle(item.prompt),
+    [item.prompt]
+  );
+
+  // Calculate rows for textarea based on content
+  const editRows = useMemo(() => {
+    const lineCount = editValue.split("\n").length;
+    return Math.max(4, Math.min(20, lineCount + 2));
+  }, [editValue]);
+
   const {
     attributes,
     listeners,
@@ -69,7 +115,6 @@ export function InboxCard({
   useEffect(() => {
     if (isEditing && inputRef.current) {
       inputRef.current.focus();
-      inputRef.current.select();
     }
   }, [isEditing]);
 
@@ -117,8 +162,8 @@ export function InboxCard({
           onKeyDown={handleKeyDown}
           onBlur={handleSave}
           placeholder="Enter your prompt..."
-          className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500 resize-none"
-          rows={2}
+          className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500 resize-none font-mono"
+          rows={editRows}
         />
         <div className="flex justify-end gap-1 mt-2">
           <button
@@ -189,7 +234,14 @@ export function InboxCard({
         </button>
       </div>
 
-      <p className="text-sm text-zinc-300 line-clamp-3" title={item.prompt}>{item.prompt}</p>
+      <p className="text-sm text-zinc-300 line-clamp-2" title={hasStructure ? item.prompt : displayTitle}>
+        {displayTitle}
+      </p>
+      {hasStructure && (
+        <p className="text-xs text-zinc-500 mt-1 truncate">
+          {item.prompt.split("\n").length} lines
+        </p>
+      )}
     </div>
   );
 }

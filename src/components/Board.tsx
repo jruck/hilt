@@ -547,6 +547,54 @@ export function Board({ initialScope = "" }: BoardProps) {
     await deleteItem(item.id);
   };
 
+  const handleRefineInboxItem = (item: { id: string; prompt: string }) => {
+    // Wrap the prompt with refinement instructions
+    const refinementPrompt = `I have a rough idea that needs refinement before implementation:
+
+---
+${item.prompt}
+---
+
+Please help me refine this by:
+1. Understanding what I'm trying to accomplish
+2. Identifying any ambiguities or missing context
+3. Suggesting 2-3 possible directions we could take
+4. Asking clarifying questions to help narrow down the approach
+
+IMPORTANT: Do NOT begin implementing or writing code yet. This is a refinement phase - wait for my direction before any implementation.`;
+
+    // Create a temporary session for refinement
+    const now = Date.now();
+    const tempId = `new-${now}`;
+    const projectName = scopePath ? scopePath.split("/").pop() || "New Session" : "New Session";
+    const projectPath = scopePath || "/";
+    const newSession: Session = {
+      id: tempId,
+      title: `Refining: ${item.prompt.slice(0, 40)}${item.prompt.length > 40 ? "..." : ""}`,
+      firstPrompt: refinementPrompt,
+      lastPrompt: refinementPrompt,
+      project: projectName,
+      projectPath,
+      messageCount: 0,
+      lastActivity: new Date(),
+      status: "active",
+      isNew: true,
+      initialPrompt: refinementPrompt,
+      slug: null,
+      slugs: [],
+      gitBranch: null,
+    };
+
+    // Track temp session for matching with real session later
+    tempSessionInfo.current[tempId] = { createdAt: now, projectPath };
+
+    // Add to open sessions and open the drawer
+    // NOTE: We don't delete the inbox item - user can run it after refining
+    setOpenSessions((prev) => [...prev, newSession]);
+    setActiveSession(newSession);
+    setIsDrawerOpen(true);
+  };
+
   // Selection handlers
   const handleSelectSession = useCallback((session: Session, selected: boolean) => {
     setSelectedIds((prev) => {
@@ -730,6 +778,7 @@ export function Board({ initialScope = "" }: BoardProps) {
                 onUpdateInboxItem={handleUpdateInboxItem}
                 onDeleteInboxItem={handleDeleteInboxItem}
                 onStartInboxItem={handleStartInboxItem}
+                onRefineInboxItem={handleRefineInboxItem}
                 sessionStatuses={sessionStatuses}
                 firstSeenAt={firstSeenAt}
                 selectedIds={selectedIds}

@@ -108,6 +108,7 @@ interface ColumnProps {
   onMoveItemToSection?: (id: string, section: string | null) => void;
   onDeleteInboxItem?: (id: string) => void;
   onStartInboxItem?: (item: { id: string; prompt: string }) => void;
+  onRefineInboxItem?: (item: { id: string; prompt: string }) => void;
   onReorderSections?: (sectionOrder: string[]) => void;
   onReorderItem?: (itemId: string, targetSection: string | null, targetIndex: number) => void;
   sessionStatuses?: Record<string, string>;
@@ -256,6 +257,7 @@ export function Column({
   onUpdateInboxItem,
   onDeleteInboxItem,
   onStartInboxItem,
+  onRefineInboxItem,
   onReorderSections,
   onReorderItem,
   sessionStatuses = {},
@@ -544,6 +546,7 @@ export function Column({
                   item={item}
                   onDelete={() => onDeleteInboxItem?.(item.id)}
                   onStart={() => onStartInboxItem?.(item)}
+                  onRefine={() => onRefineInboxItem?.(item)}
                   onUpdate={(prompt) => onUpdateInboxItem?.(item.id, prompt)}
                   isSelected={selectedIds.has(`inbox-${item.id}`)}
                   onSelect={onSelectInboxItem}
@@ -583,6 +586,7 @@ export function Column({
                         item={item}
                         onDelete={() => onDeleteInboxItem?.(item.id)}
                         onStart={() => onStartInboxItem?.(item)}
+                        onRefine={() => onRefineInboxItem?.(item)}
                         onUpdate={(prompt) => onUpdateInboxItem?.(item.id, prompt)}
                         isSelected={selectedIds.has(`inbox-${item.id}`)}
                         onSelect={onSelectInboxItem}

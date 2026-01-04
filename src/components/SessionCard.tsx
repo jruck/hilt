@@ -141,7 +141,8 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
       )}
       {/* Hover actions - checkbox, star (recent only), play, done (not recent) */}
       <div className={`
-        absolute top-2 right-2 flex items-center gap-1
+        absolute top-0 right-0 flex items-center gap-1 pl-8 pr-2 pt-2 pb-1
+        bg-gradient-to-l from-zinc-800/95 via-zinc-800/80 to-transparent rounded-tr-lg
         ${isSelected || session.starred ? "opacity-100" : "opacity-0 group-hover:opacity-100"}
         transition-opacity
       `}>

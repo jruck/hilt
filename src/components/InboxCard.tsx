@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Trash2, Play, Square, CheckSquare, Pencil, Check, X } from "lucide-react";
+import { Trash2, Play, Square, CheckSquare, Pencil, Check, X, Brain } from "lucide-react";
 
 /**
  * Extract a display title from todo content.
@@ -53,6 +53,7 @@ interface InboxCardProps {
   item: InboxItem;
   onDelete?: () => void;
   onStart?: () => void;
+  onRefine?: () => void;
   onUpdate?: (prompt: string) => void;
   isSelected?: boolean;
   onSelect?: (item: InboxItem, selected: boolean) => void;
@@ -64,6 +65,7 @@ export function InboxCard({
   item,
   onDelete,
   onStart,
+  onRefine,
   onUpdate,
   isSelected,
   onSelect,
@@ -217,6 +219,13 @@ export function InboxCard({
           title="Edit prompt"
         >
           <Pencil className="w-4 h-4" />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onRefine?.(); }}
+          className="p-1 text-zinc-500 hover:text-purple-400 hover:bg-zinc-700 rounded transition-colors"
+          title="Refine this idea before implementing"
+        >
+          <Brain className="w-4 h-4" />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onStart?.(); }}

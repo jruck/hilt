@@ -748,8 +748,6 @@ IMPORTANT: Do NOT begin implementing or writing code yet. This is a refinement p
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar */}
         <Sidebar
-          sessions={sessions}
-          inboxItems={inboxItems}
           currentScope={scopePath}
           onScopeChange={handleScopeChange}
           pinnedFolders={pinnedFolders}

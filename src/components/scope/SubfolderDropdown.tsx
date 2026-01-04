@@ -1,13 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Folder, Check } from "lucide-react";
+import { Folder, Check, Pin } from "lucide-react";
 
 interface SubfolderDropdownProps {
   currentPath: string;
   homeDir: string;
   onSelect: (path: string) => void;
   onClose: () => void;
+  isPinned?: boolean;
+  onTogglePin?: () => void;
 }
 
 export function SubfolderDropdown({
@@ -15,6 +17,8 @@ export function SubfolderDropdown({
   homeDir,
   onSelect,
   onClose,
+  isPinned,
+  onTogglePin,
 }: SubfolderDropdownProps) {
   const [folders, setFolders] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -90,6 +94,27 @@ export function SubfolderDropdown({
           ))
         )}
       </div>
+
+      {/* Action buttons row */}
+      {currentPath && onTogglePin && (
+        <div className="border-t border-zinc-700 px-2 py-2 flex items-center gap-1">
+          <button
+            onClick={() => {
+              onTogglePin();
+              onClose();
+            }}
+            className={`flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors ${
+              isPinned
+                ? "text-blue-400 bg-blue-900/30 hover:bg-blue-900/50"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+            }`}
+            title={isPinned ? "Unpin folder" : "Pin folder"}
+          >
+            <Pin className={`w-3.5 h-3.5 ${isPinned ? "fill-current" : ""}`} />
+            <span>{isPinned ? "Unpin" : "Pin"}</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

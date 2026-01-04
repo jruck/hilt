@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from "react";
 import { ChevronDown } from "lucide-react";
 import { SubfolderDropdown } from "./SubfolderDropdown";
-import { PinButton } from "./PinButton";
 
 interface ScopeBreadcrumbsProps {
   value: string;
@@ -178,13 +177,12 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange, isPinned, onToggleP
               homeDir={homeDir}
               onSelect={handleSubfolderSelect}
               onClose={() => setIsDropdownOpen(false)}
+              isPinned={isPinned}
+              onTogglePin={onTogglePin}
             />
           </div>
         )}
       </div>
-
-      {/* Pin button */}
-      <PinButton scope={value} isPinned={isPinned} onToggle={onTogglePin} />
     </div>
   );
 }

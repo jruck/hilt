@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import useSWR from "swr";
 import { Pin } from "lucide-react";
 import {
   DndContext,
@@ -15,11 +16,13 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useSidebarState } from "@/hooks/useSidebarState";
-import { Session } from "@/lib/types";
+import { SessionsResponse } from "@/lib/types";
 import { PinnedFolder } from "@/lib/pinned-folders";
 import { SidebarToggle } from "./SidebarToggle";
 import { SidebarSection } from "./SidebarSection";
 import { SortablePinnedFolderItem } from "./SortablePinnedFolderItem";
+
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
 interface PinnedFoldersHook {
   folders: PinnedFolder[];
@@ -28,19 +31,7 @@ interface PinnedFoldersHook {
   isHydrated: boolean;
 }
 
-interface InboxItem {
-  id: string;
-  prompt: string;
-  completed: boolean;
-  section: string | null;
-  projectPath: string | null;
-  createdAt: string;
-  sortOrder: number;
-}
-
 interface SidebarProps {
-  sessions: Session[];
-  inboxItems: InboxItem[];  // Inbox items for current scope
   currentScope: string;
   onScopeChange: (path: string) => void;
   pinnedFolders: PinnedFoldersHook;
@@ -48,10 +39,28 @@ interface SidebarProps {
 
 /**
  * Main collapsible sidebar with pinned folders
+ * Fetches its own session data (unscoped) to compute counts across all pinned folders
  */
-export function Sidebar({ sessions, inboxItems, currentScope, onScopeChange, pinnedFolders }: SidebarProps) {
+export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarProps) {
   const { isCollapsed, toggle, isHydrated: sidebarHydrated } = useSidebarState();
   const { folders, unpinFolder, reorderFolders, isHydrated: foldersHydrated } = pinnedFolders;
+
+  // Fetch ALL sessions (no scope filter) so we can count across all pinned folders
+  const { data: sessionsData } = useSWR<SessionsResponse>(
+    '/api/sessions?page=1&pageSize=500',
+    fetcher,
+    { refreshInterval: 5000 }
+  );
+  const allSessions = sessionsData?.sessions ?? [];
+
+  // Fetch inbox counts for all pinned folders
+  const folderPaths = folders.map(f => f.path).join(',');
+  const { data: inboxCountsData } = useSWR<{ counts: Record<string, number> }>(
+    folderPaths ? `/api/inbox-counts?paths=${encodeURIComponent(folderPaths)}` : null,
+    fetcher,
+    { refreshInterval: 5000 }
+  );
+  const inboxCounts = inboxCountsData?.counts ?? {};
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -61,30 +70,19 @@ export function Sidebar({ sessions, inboxItems, currentScope, onScopeChange, pin
     })
   );
 
-  // Compute counts per pinned folder
-  // - inboxCount: from inbox items (To Do) - only available for current scope
-  // - activeCount: from sessions with status "active" (In Progress)
+  // Compute counts per pinned folder from ALL sessions + inbox counts
+  // - inboxCount: from batch API for each folder's Todo.md
+  // - activeCount: sessions with status "active" (In Progress)
+  // - hasRunning: any running sessions in this folder
   const folderStats = useMemo(() => {
     const stats: Record<string, { inboxCount: number; activeCount: number; hasRunning: boolean }> = {};
 
     for (const folder of folders) {
-      let inboxCount = 0;
       let activeCount = 0;
       let hasRunning = false;
 
-      // Count inbox items - only for the folder matching current scope
-      // (we only have inbox data for the currently viewed scope)
-      if (folder.path === currentScope || currentScope.startsWith(folder.path + "/")) {
-        // If viewing this folder or a subfolder, count all inbox items
-        if (folder.path === currentScope) {
-          inboxCount = inboxItems.length;
-        }
-        // If viewing a subfolder of this pinned folder, we can't show accurate count
-        // (would need to fetch that folder's Todo.md separately)
-      }
-
-      // Count active sessions under this folder
-      for (const session of sessions) {
+      // Count active sessions under this folder (including subfolders)
+      for (const session of allSessions) {
         if (session.projectPath?.startsWith(folder.path) && session.status === "active") {
           activeCount++;
           if (session.isRunning) {
@@ -93,11 +91,14 @@ export function Sidebar({ sessions, inboxItems, currentScope, onScopeChange, pin
         }
       }
 
+      // Get inbox count from batch API response
+      const inboxCount = inboxCounts[folder.path] ?? 0;
+
       stats[folder.id] = { inboxCount, activeCount, hasRunning };
     }
 
     return stats;
-  }, [folders, sessions, inboxItems, currentScope]);
+  }, [folders, allSessions, inboxCounts]);
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -118,20 +119,11 @@ export function Sidebar({ sessions, inboxItems, currentScope, onScopeChange, pin
 
   return (
     <div
-      className="flex-shrink-0 bg-zinc-900 border-r border-zinc-700 transition-all duration-300 flex flex-col"
+      className="flex-shrink-0 bg-zinc-900 border-r border-zinc-700 transition-all duration-300 flex flex-col overflow-hidden"
       style={{ width: isCollapsed ? 48 : 256 }}
     >
-      {/* Header with toggle */}
-      <div
-        className={`flex items-center h-11 border-b border-zinc-800 ${
-          isCollapsed ? "justify-center px-0" : "justify-end px-2"
-        }`}
-      >
-        <SidebarToggle isCollapsed={isCollapsed} onToggle={toggle} />
-      </div>
-
       {/* Pinned Folders Section */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden pt-3">
         <SidebarSection
           title="Pinned"
           icon={Pin}
@@ -171,6 +163,15 @@ export function Sidebar({ sessions, inboxItems, currentScope, onScopeChange, pin
             </DndContext>
           )}
         </SidebarSection>
+      </div>
+
+      {/* Footer with toggle */}
+      <div
+        className={`flex items-center h-11 border-t border-zinc-800 ${
+          isCollapsed ? "justify-center px-0" : "justify-end px-2"
+        }`}
+      >
+        <SidebarToggle isCollapsed={isCollapsed} onToggle={toggle} />
       </div>
     </div>
   );

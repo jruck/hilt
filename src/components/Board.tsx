@@ -17,8 +17,10 @@ import { useSessions, useInboxItems } from "@/hooks/useSessions";
 import { Column } from "./Column";
 import { SessionCard } from "./SessionCard";
 import { TerminalDrawer } from "./TerminalDrawer";
+import { Sidebar } from "./sidebar";
 import { ScopeBreadcrumbs, BrowseButton, RecentScopesButton } from "./scope";
 import { recordScopeVisit } from "@/lib/recent-scopes";
+import { usePinnedFolders } from "@/hooks/usePinnedFolders";
 import { Loader2, X, Inbox, Loader2 as InProgressIcon, Clock, Search, Filter, FileText, Check } from "lucide-react";
 
 const COLUMNS: SessionStatus[] = ["inbox", "active", "recent"];
@@ -108,6 +110,7 @@ export function Board({ initialScope = "" }: BoardProps) {
 
   const { sessions, counts, isLoading, updateStatus, toggleStarred } = useSessions(scopePath || undefined);
   const { items: inboxItems, sections: todoSections, createItem, updateItem, deleteItem, reorderSections, reorderItem } = useInboxItems(scopePath || undefined);
+  const pinnedFolders = usePinnedFolders();
 
   // The most recent session would be resumed by `claude --continue`
   const continuableSessionId = useMemo(() => {
@@ -612,7 +615,13 @@ export function Board({ initialScope = "" }: BoardProps) {
         <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           {homeDir && (
             <>
-              <ScopeBreadcrumbs value={scopePath} homeDir={homeDir} onChange={handleScopeChange} />
+              <ScopeBreadcrumbs
+                  value={scopePath}
+                  homeDir={homeDir}
+                  onChange={handleScopeChange}
+                  isPinned={pinnedFolders.isPinned(scopePath)}
+                  onTogglePin={() => pinnedFolders.togglePin(scopePath)}
+                />
               <RecentScopesButton
                 currentPath={scopePath}
                 homeDir={homeDir}
@@ -689,6 +698,15 @@ export function Board({ initialScope = "" }: BoardProps) {
       </div>
 
       <div className="flex flex-1 overflow-hidden">
+        {/* Left Sidebar */}
+        <Sidebar
+          sessions={sessions}
+          inboxItems={inboxItems}
+          currentScope={scopePath}
+          onScopeChange={handleScopeChange}
+          pinnedFolders={pinnedFolders}
+        />
+
         <DndContext
           sensors={sensors}
           onDragStart={handleDragStart}

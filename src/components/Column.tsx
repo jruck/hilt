@@ -137,7 +137,7 @@ const columnConfig: Record<
   active: {
     title: "In Progress",
     icon: <Loader2 className="w-4 h-4" />,
-    color: "text-green-400",
+    color: "text-emerald-400",
   },
   recent: {
     title: "Recent",
@@ -485,7 +485,7 @@ export function Column({
               }`}
               title={isDrawerOpen ? 'Hide terminal drawer' : 'Show terminal drawer'}
             >
-              <Terminal className="w-3.5 h-3.5 text-green-400" />
+              <Terminal className="w-3.5 h-3.5 text-emerald-400" />
               <span className="text-xs">{openSessionCount}</span>
             </button>
           )}

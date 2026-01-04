@@ -89,7 +89,7 @@ export function NewDraftCard({ onSave, onCancel, onSaveAndRun }: NewDraftCardPro
         </button>
         <button
           onClick={handleSave}
-          className="p-1 text-green-500 hover:text-green-400 hover:bg-zinc-700 rounded transition-colors"
+          className="p-1 text-emerald-500 hover:text-emerald-400 hover:bg-zinc-700 rounded transition-colors"
           title="Save (Enter)"
         >
           <Check className="w-4 h-4" />

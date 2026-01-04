@@ -102,7 +102,7 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
   const getFoldColor = () => {
     if (isSelected) return "rgb(59, 130, 246)"; // blue-500 (border-blue-500)
     if (session.starred) return "rgba(234, 179, 8, 0.3)"; // yellow-500/30 (border-yellow-500/30)
-    if (session.status === "active") return "rgba(34, 197, 94, 0.2)"; // green-500/20 (border-green-500/20)
+    if (session.status === "active") return "rgba(34, 197, 94, 0.2)"; // emerald-500/20 (border-emerald-500/20)
     return "rgb(63, 63, 70)"; // zinc-700 (border-zinc-700)
   };
 
@@ -119,13 +119,13 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
         transition-all duration-300 cursor-pointer
         ${isDragging ? "shadow-xl ring-2 ring-blue-500" : "shadow-sm"}
         ${isNewlyAdded
-          ? "border-green-500/60 bg-green-500/10"
+          ? "border-emerald-500/60 bg-emerald-500/10"
           : isSelected
             ? "border-blue-500 bg-blue-500/10 hover:border-blue-400"
             : session.starred
               ? "border-yellow-500/30 bg-yellow-500/5 hover:border-yellow-500/50"
               : session.status === "active"
-                ? "border-green-500/20 bg-green-500/5 hover:border-green-500/40"
+                ? "border-emerald-500/20 bg-emerald-500/5 hover:border-emerald-500/40"
                 : "border-zinc-700 bg-zinc-800 hover:border-zinc-600"
         }
       `}
@@ -139,64 +139,75 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
           }}
         />
       )}
-      {/* Hover actions - checkbox, star (recent only), play, done (not recent) */}
-      <div className={`
-        absolute top-0 right-0 flex items-center gap-1 pl-12 pr-2 pt-2 pb-1 rounded-tr-lg
-        bg-gradient-to-l to-transparent
-        ${isNewlyAdded
-          ? "from-green-950 via-green-950/70"
+      {/* Hover actions - floating toolbar */}
+      {(() => {
+        const hoverBg = isNewlyAdded || session.status === "active"
+          ? "hover:bg-emerald-800"
           : isSelected
-            ? "from-blue-950 via-blue-950/70"
-            : session.status === "active"
-              ? "from-green-950 via-green-950/70"
-              : "from-zinc-800 via-zinc-800/70"
-        }
-        ${isSelected || session.starred ? "opacity-100" : "opacity-0 group-hover:opacity-100"}
-        transition-opacity
-      `}>
-        <button
-          onClick={(e) => { e.stopPropagation(); onSelect?.(session, !isSelected); }}
-          className="p-1 text-zinc-500 hover:text-blue-400 hover:bg-zinc-700 rounded transition-colors"
-          title={isSelected ? "Deselect" : "Select"}
-        >
-          {isSelected ? <CheckSquare className="w-4 h-4 text-blue-400" /> : <Square className="w-4 h-4" />}
-        </button>
-        {session.status === "recent" && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onToggleStarred?.(session.id); }}
-            className={`p-1 hover:bg-zinc-700 rounded transition-colors ${
-              session.starred ? "text-yellow-400" : "text-zinc-500 hover:text-yellow-400"
-            }`}
-            title={session.starred ? "Unstar" : "Star"}
+            ? "hover:bg-blue-800"
+            : "hover:bg-zinc-600";
+        return (
+          <div
+            className={`
+              absolute top-1.5 right-1.5 flex items-center gap-0.5 px-1 py-0.5
+              rounded-md shadow-lg
+              ${isNewlyAdded
+                ? "bg-emerald-900 border border-emerald-800"
+                : isSelected
+                  ? "bg-blue-900 border border-blue-800"
+                  : session.status === "active"
+                    ? "bg-emerald-900/80 border border-emerald-800/80"
+                    : "bg-zinc-700 border border-zinc-600"
+              }
+              ${isSelected || session.starred ? "opacity-100" : "opacity-0 group-hover:opacity-100"}
+              transition-opacity
+            `}
           >
-            <Star className={`w-4 h-4 ${session.starred ? "fill-current" : ""}`} />
-          </button>
-        )}
-        <button
-          onClick={(e) => { e.stopPropagation(); onOpen?.(session); }}
-          className="p-1 text-zinc-500 hover:text-green-400 hover:bg-zinc-700 rounded transition-colors"
-          title="Open session"
-        >
-          <Play className="w-4 h-4" />
-        </button>
-        {session.status !== "recent" && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete?.(session); }}
-            className="p-1 text-zinc-500 hover:text-white hover:bg-zinc-700 rounded transition-colors"
-            title="Mark as done"
-          >
-            <CheckCircle className="w-4 h-4" />
-          </button>
-        )}
-      </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); onSelect?.(session, !isSelected); }}
+              className={`p-1 text-zinc-400 hover:text-zinc-200 ${hoverBg} rounded transition-colors`}
+              title={isSelected ? "Deselect" : "Select"}
+            >
+              {isSelected ? <CheckSquare className="w-4 h-4 text-blue-400" /> : <Square className="w-4 h-4" />}
+            </button>
+            {session.status === "recent" && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onToggleStarred?.(session.id); }}
+                className={`p-1 ${hoverBg} rounded transition-colors ${
+                  session.starred ? "text-yellow-400" : "text-zinc-400 hover:text-zinc-200"
+                }`}
+                title={session.starred ? "Unstar" : "Star"}
+              >
+                <Star className={`w-4 h-4 ${session.starred ? "fill-current" : ""}`} />
+              </button>
+            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); onOpen?.(session); }}
+              className={`p-1 text-zinc-400 hover:text-zinc-200 ${hoverBg} rounded transition-colors`}
+              title="Open session"
+            >
+              <Play className="w-4 h-4" />
+            </button>
+            {session.status !== "recent" && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete?.(session); }}
+                className={`p-1 text-zinc-400 hover:text-zinc-200 ${hoverBg} rounded transition-colors`}
+                title="Mark as done"
+              >
+                <CheckCircle className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Title */}
       <div className="flex items-center gap-1.5 pr-20">
         {/* Live indicator - pulsing dot for running sessions */}
         {session.isRunning && (
           <span className="relative flex h-2 w-2 flex-shrink-0" title="Session is running">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
           </span>
         )}
         <h3 className="text-sm font-medium text-zinc-100 truncate flex-1" title={session.title}>
@@ -208,7 +219,7 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
           </span>
         )}
         {session.isNew && (
-          <span className="text-[10px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded flex-shrink-0">
+          <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded flex-shrink-0">
             NEW
           </span>
         )}
@@ -216,7 +227,7 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
 
       {/* Status - dynamic terminal title from Claude */}
       {status && (
-        <p className="text-xs text-green-400 font-medium truncate mt-1">{status}</p>
+        <p className="text-xs text-emerald-400 font-medium truncate mt-1">{status}</p>
       )}
 
       {/* Last Prompt */}
@@ -250,7 +261,7 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
         >
           <Hash className="w-3 h-3" />
           <span className="font-mono text-[11px]">{session.id.slice(0, 8)}</span>
-          {copiedResume && <Check className="w-3 h-3 text-green-400" />}
+          {copiedResume && <Check className="w-3 h-3 text-emerald-400" />}
         </button>
 
         {session.planSlugs && session.planSlugs.length > 0 && (
@@ -271,8 +282,8 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
           {session.messageCount}
         </span>
 
-        <span className={`flex items-center gap-1 ${isNewlyAdded ? "text-green-400 font-medium" : ""}`}>
-          <Clock className={`w-3 h-3 ${isNewlyAdded ? "text-green-400" : ""}`} />
+        <span className={`flex items-center gap-1 ${isNewlyAdded ? "text-emerald-400 font-medium" : ""}`}>
+          <Clock className={`w-3 h-3 ${isNewlyAdded ? "text-emerald-400" : ""}`} />
           {isNewlyAdded ? "NEW" : formatRelativeTime(new Date(session.lastActivity))}
         </span>
       </div>

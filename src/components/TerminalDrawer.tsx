@@ -513,7 +513,7 @@ export function TerminalDrawer({
                 {terminalTitle && (
                   <div className="flex items-center gap-1.5 shrink-0">
                     <span className="text-zinc-600">Status:</span>
-                    <span className="text-green-400 font-medium">{terminalTitle}</span>
+                    <span className="text-emerald-400 font-medium">{terminalTitle}</span>
                   </div>
                 )}
               </div>
@@ -557,8 +557,8 @@ export function TerminalDrawer({
                   className="flex items-center gap-1 hover:text-zinc-300 transition-colors"
                   title="Click to copy resume command"
                 >
-                  {copiedSlug ? <Check className="w-3 h-3 text-green-400" /> : <Hash className="w-3 h-3" />}
-                  <span className={`truncate max-w-[180px] font-mono ${copiedSlug ? "text-green-400" : ""}`}>{activeSession.id.slice(0, 8)}</span>
+                  {copiedSlug ? <Check className="w-3 h-3 text-emerald-400" /> : <Hash className="w-3 h-3" />}
+                  <span className={`truncate max-w-[180px] font-mono ${copiedSlug ? "text-emerald-400" : ""}`}>{activeSession.id.slice(0, 8)}</span>
                 </button>
                 <span className="flex items-center gap-1">
                   <MessageSquare className="w-3 h-3" />
@@ -581,7 +581,7 @@ export function TerminalDrawer({
                 <p className="text-sm">Session not started</p>
                 <button
                   onClick={() => onEngageSession?.(activeSession)}
-                  className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors flex items-center gap-2"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors flex items-center gap-2"
                 >
                   <TerminalIcon className="w-4 h-4" />
                   Start Session
@@ -681,8 +681,8 @@ export function TerminalDrawer({
                   >
                     {copied ? (
                       <>
-                        <Check className="w-3 h-3 text-green-500" />
-                        <span className="text-green-500">Copied!</span>
+                        <Check className="w-3 h-3 text-emerald-500" />
+                        <span className="text-emerald-500">Copied!</span>
                       </>
                     ) : (
                       <>
@@ -692,7 +692,7 @@ export function TerminalDrawer({
                     )}
                   </button>
                 </div>
-                <code className="block font-mono text-sm text-green-400 bg-zinc-950 px-3 py-2 rounded">
+                <code className="block font-mono text-sm text-emerald-400 bg-zinc-950 px-3 py-2 rounded">
                   claude --resume {activeSession.id}
                 </code>
               </div>
@@ -759,7 +759,7 @@ export function TerminalDrawer({
                         disabled={!hasPlanChanges || isSavingPlan}
                         className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
                           hasPlanChanges
-                            ? 'text-green-400 hover:text-green-300 hover:bg-green-900/30'
+                            ? 'text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/30'
                             : 'text-zinc-600 cursor-not-allowed'
                         }`}
                         title={hasPlanChanges ? "Save changes (Cmd+S)" : "No changes to save"}
@@ -783,7 +783,7 @@ export function TerminalDrawer({
                         title="Copy path"
                       >
                         {copiedPlanPath ? (
-                          <Check className="w-3 h-3 text-green-500" />
+                          <Check className="w-3 h-3 text-emerald-500" />
                         ) : (
                           <Copy className="w-3 h-3" />
                         )}

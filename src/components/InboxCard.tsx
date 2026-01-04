@@ -177,7 +177,7 @@ export function InboxCard({
           </button>
           <button
             onClick={handleSave}
-            className="p-1 text-green-500 hover:text-green-400 hover:bg-zinc-700 rounded transition-colors"
+            className="p-1 text-emerald-500 hover:text-emerald-400 hover:bg-zinc-700 rounded transition-colors"
             title="Save"
           >
             <Check className="w-4 h-4" />
@@ -200,44 +200,44 @@ export function InboxCard({
         ${isSelected ? "border-blue-500 bg-blue-500/10" : "border-blue-800/50"}
       `}
     >
-      {/* Hover actions - checkbox, edit, play, trash */}
+      {/* Hover actions - floating toolbar */}
       <div className={`
-        absolute top-0 right-0 flex items-center gap-1 pl-16 pr-2 pt-2 pb-1
-        bg-gradient-to-l from-blue-950 via-blue-950/70 to-transparent rounded-tr-lg
+        absolute top-1.5 right-1.5 flex items-center gap-0.5 px-1 py-0.5
+        bg-blue-900 border border-blue-800 rounded-md shadow-lg
         ${isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"}
         transition-opacity
       `}>
         <button
           onClick={(e) => { e.stopPropagation(); onSelect?.(item, !isSelected); }}
-          className="p-1 text-zinc-500 hover:text-blue-400 hover:bg-zinc-700 rounded transition-colors"
+          className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-blue-800 rounded transition-colors"
           title={isSelected ? "Deselect" : "Select"}
         >
           {isSelected ? <CheckSquare className="w-4 h-4 text-blue-400" /> : <Square className="w-4 h-4" />}
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); startEditing(); }}
-          className="p-1 text-zinc-500 hover:text-yellow-400 hover:bg-zinc-700 rounded transition-colors"
+          className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-blue-800 rounded transition-colors"
           title="Edit prompt"
         >
           <Pencil className="w-4 h-4" />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onRefine?.(); }}
-          className="p-1 text-zinc-500 hover:text-purple-400 hover:bg-zinc-700 rounded transition-colors"
+          className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-blue-800 rounded transition-colors"
           title="Refine this idea before implementing"
         >
           <Brain className="w-4 h-4" />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onStart?.(); }}
-          className="p-1 text-zinc-500 hover:text-green-400 hover:bg-zinc-700 rounded transition-colors"
+          className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-blue-800 rounded transition-colors"
           title="Start session with this prompt"
         >
           <Play className="w-4 h-4" />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
-          className="p-1 text-zinc-500 hover:text-red-400 hover:bg-zinc-700 rounded transition-colors"
+          className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-blue-800 rounded transition-colors"
           title="Delete draft"
         >
           <Trash2 className="w-4 h-4" />

@@ -97,7 +97,7 @@ export function SortablePinnedFolderItem({
         {/* Active (In Progress) count - green (matches column header) */}
         {activeCount > 0 && (
           <span
-            className="text-xs text-green-400 bg-green-500/20 px-1.5 py-0.5 rounded"
+            className="text-xs text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded"
             title={`${activeCount} in progress`}
           >
             {activeCount}

@@ -141,8 +141,16 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
       )}
       {/* Hover actions - checkbox, star (recent only), play, done (not recent) */}
       <div className={`
-        absolute top-0 right-0 flex items-center gap-1 pl-8 pr-2 pt-2 pb-1
-        bg-gradient-to-l from-zinc-800/95 via-zinc-800/80 to-transparent rounded-tr-lg
+        absolute top-0 right-0 flex items-center gap-1 pl-12 pr-2 pt-2 pb-1 rounded-tr-lg
+        bg-gradient-to-l to-transparent
+        ${isNewlyAdded
+          ? "from-green-950 via-green-950/70"
+          : isSelected
+            ? "from-blue-950 via-blue-950/70"
+            : session.status === "active"
+              ? "from-green-950 via-green-950/70"
+              : "from-zinc-800 via-zinc-800/70"
+        }
         ${isSelected || session.starred ? "opacity-100" : "opacity-0 group-hover:opacity-100"}
         transition-opacity
       `}>

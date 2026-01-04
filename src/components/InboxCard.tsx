@@ -202,8 +202,8 @@ export function InboxCard({
     >
       {/* Hover actions - checkbox, edit, play, trash */}
       <div className={`
-        absolute top-0 right-0 flex items-center gap-1 pl-8 pr-2 pt-2 pb-1
-        bg-gradient-to-l from-blue-950/90 via-blue-950/80 to-transparent rounded-tr-lg
+        absolute top-0 right-0 flex items-center gap-1 pl-16 pr-2 pt-2 pb-1
+        bg-gradient-to-l from-blue-950 via-blue-950/70 to-transparent rounded-tr-lg
         ${isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"}
         transition-opacity
       `}>

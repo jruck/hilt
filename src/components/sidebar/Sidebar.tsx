@@ -81,9 +81,9 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarP
       let activeCount = 0;
       let hasRunning = false;
 
-      // Count active sessions under this folder (including subfolders)
+      // Count active sessions in this exact folder (not subfolders)
       for (const session of allSessions) {
-        if (session.projectPath?.startsWith(folder.path) && session.status === "active") {
+        if (session.projectPath === folder.path && session.status === "active") {
           activeCount++;
           if (session.isRunning) {
             hasRunning = true;

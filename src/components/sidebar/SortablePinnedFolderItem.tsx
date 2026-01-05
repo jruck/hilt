@@ -42,8 +42,27 @@ export function SortablePinnedFolderItem({
     transition,
   };
 
-  // Get truncated path for display (remove home directory prefix)
-  const displayPath = folder.path.replace(/^\/Users\/[^/]+/, "~");
+  // Get concise path showing just 2 levels up from folder (parent/grandparent)
+  // Uses "..." when levels are skipped to avoid misleading display
+  // e.g., /Users/jruck/Bridge/Libraries/Personal/Process -> ~/.../Libraries/Personal
+  // e.g., /Users/jruck/Bridge/Tools -> ~/Bridge
+  const getShortPath = (fullPath: string): string => {
+    // Remove home directory prefix first
+    const homePath = fullPath.replace(/^\/Users\/[^/]+\/?/, "");
+    if (!homePath) return "~";
+
+    const parts = homePath.split("/").filter(Boolean);
+    if (parts.length <= 1) return "~"; // Folder is directly in home
+
+    // Take up to 2 levels above the folder name
+    const parentParts = parts.slice(0, -1); // All except folder itself
+    const relevantParts = parentParts.slice(-2); // Last 2 parent levels
+
+    // Use "..." prefix if we're skipping levels
+    const prefix = parentParts.length > 2 ? "~/.../": "~/";
+    return prefix + relevantParts.join("/");
+  };
+  const displayPath = getShortPath(folder.path);
 
   return (
     <div

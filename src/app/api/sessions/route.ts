@@ -36,9 +36,9 @@ export async function GET(request: NextRequest) {
     // Get all sessions from Claude's JSONL files
     const claudeSessions = await getSessions();
 
-    // Filter by scope path if provided
+    // Filter by scope path if provided (exact match, not subfolders)
     const filteredSessions = scopePath
-      ? claudeSessions.filter(s => s.projectPath?.startsWith(scopePath))
+      ? claudeSessions.filter(s => s.projectPath === scopePath)
       : claudeSessions;
 
     // Get our status data, running session IDs, and planned slugs

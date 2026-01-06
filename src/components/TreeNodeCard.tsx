@@ -140,7 +140,7 @@ function Level2Content({ node }: { node: TreeNode }) {
                 }
               `}
             >
-              {s.slug || s.title?.slice(0, 12) || "session"}
+              {s.title || s.slug || "session"}
             </span>
           ))}
         </div>
@@ -235,7 +235,7 @@ function SessionThumbnail({
           <Play className="w-2.5 h-2.5 text-emerald-400 fill-emerald-400 flex-shrink-0" />
         )}
         <span className="truncate text-zinc-200">
-          {session.slug || session.title?.slice(0, 15) || "session"}
+          {session.title || session.slug || "session"}
         </span>
       </div>
     </button>

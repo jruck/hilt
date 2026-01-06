@@ -94,7 +94,7 @@ function SessionLevel2({ session }: { session: Session }) {
           <Play className="w-3 h-3 text-emerald-400 fill-emerald-400 flex-shrink-0" />
         )}
         <span className="text-sm font-medium text-zinc-100 truncate">
-          {session.slug || session.title?.slice(0, 20) || "session"}
+          {session.title || session.slug || "session"}
         </span>
       </div>
       <div className="text-xs text-zinc-500 mt-1">
@@ -117,7 +117,7 @@ function SessionLevel3({ session }: { session: Session }) {
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
         )}
         <span className="text-xs text-zinc-300 truncate">
-          {(session.slug || session.title || "session").slice(0, 12)}
+          {(session.title || session.slug || "session").slice(0, 12)}
         </span>
       </div>
     </div>

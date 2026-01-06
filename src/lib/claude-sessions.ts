@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
+import type { FSWatcher } from "chokidar";
 import { SessionMetadata, SummaryEntry, SummaryEntrySchema } from "./types";
 
 const CLAUDE_PROJECTS_DIR = path.join(
@@ -445,7 +446,7 @@ export function watchSessions(
   basePath?: string
 ): () => void {
   // Dynamic import chokidar since it's ESM
-  let watcher: any = null;
+  let watcher: FSWatcher | null = null;
 
   import("chokidar").then((chokidar) => {
     const watchPath = path.join(CLAUDE_PROJECTS_DIR, "**/*.jsonl");

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { Clock, Folder, Check } from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { Clock, Folder } from "lucide-react";
 import { getRecentScopes, type RecentScope } from "@/lib/recent-scopes";
 
 interface RecentScopesButtonProps {
@@ -16,16 +16,26 @@ export function RecentScopesButton({
   onSelect,
 }: RecentScopesButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [recentScopes, setRecentScopes] = useState<RecentScope[]>([]);
+  // Track a version number that changes when dropdown opens - triggers recompute
+  const [refreshKey, setRefreshKey] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
-  // Load recent scopes when dropdown opens
-  useEffect(() => {
-    if (isOpen) {
-      setRecentScopes(getRecentScopes());
+  // Compute recent scopes when dropdown opens (triggered by refreshKey change)
+  const recentScopes = useMemo(() => {
+    if (!isOpen) return [];
+    // refreshKey is in deps to trigger recompute when dropdown opens
+    void refreshKey;
+    return getRecentScopes();
+  }, [isOpen, refreshKey]);
+
+  // Update refresh key when dropdown opens
+  const handleToggle = () => {
+    if (!isOpen) {
+      setRefreshKey(k => k + 1);
     }
-  }, [isOpen]);
+    setIsOpen(!isOpen);
+  };
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -77,7 +87,7 @@ export function RecentScopesButton({
     <div className="relative">
       <button
         ref={buttonRef}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={handleToggle}
         className={`p-1.5 rounded transition-colors ${
           isOpen
             ? "bg-zinc-700 text-zinc-200"

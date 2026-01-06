@@ -14,11 +14,14 @@ import {
 } from "@dnd-kit/core";
 import { Session, SessionStatus } from "@/lib/types";
 import { useSessions, useInboxItems } from "@/hooks/useSessions";
+import { useTreeSessions } from "@/hooks/useTreeSessions";
 import { Column } from "./Column";
 import { SessionCard } from "./SessionCard";
 import { TerminalDrawer } from "./TerminalDrawer";
 import { Sidebar } from "./sidebar";
 import { ScopeBreadcrumbs, BrowseButton, RecentScopesButton } from "./scope";
+import { ViewToggle, ViewMode } from "./ViewToggle";
+import { TreeView } from "./TreeView";
 import { recordScopeVisit } from "@/lib/recent-scopes";
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
 import { Loader2, X, Inbox, Loader2 as InProgressIcon, Clock, Search, Filter, FileText, Check } from "lucide-react";
@@ -43,6 +46,7 @@ interface InboxItem {
 
 const SCOPE_STORAGE_KEY = "claude-kanban-scope";
 const HOME_DIR_STORAGE_KEY = "claude-kanban-home-dir";
+const VIEW_MODE_STORAGE_KEY = "claude-kanban-view-mode";
 
 interface BoardProps {
   initialScope?: string;
@@ -54,6 +58,12 @@ function getCachedHomeDir(): string {
   return localStorage.getItem(HOME_DIR_STORAGE_KEY) || "";
 }
 
+// Get cached view mode preference
+function getCachedViewMode(): ViewMode {
+  if (typeof window === "undefined") return "kanban";
+  return (localStorage.getItem(VIEW_MODE_STORAGE_KEY) as ViewMode) || "kanban";
+}
+
 export function Board({ initialScope = "" }: BoardProps) {
   const router = useRouter();
 
@@ -61,6 +71,8 @@ export function Board({ initialScope = "" }: BoardProps) {
   const [scopePath, setScopePath] = useState<string>(initialScope);
   // Initialize homeDir from cache to prevent breadcrumb disappearing on navigation
   const [homeDir, setHomeDir] = useState<string>(getCachedHomeDir);
+  // View mode: kanban (columns) or tree (treemap)
+  const [viewMode, setViewMode] = useState<ViewMode>(getCachedViewMode);
 
   // Sync scopePath with URL changes (initialScope prop)
   useEffect(() => {
@@ -73,6 +85,13 @@ export function Board({ initialScope = "" }: BoardProps) {
       localStorage.setItem(SCOPE_STORAGE_KEY, scopePath);
     }
   }, [scopePath]);
+
+  // Persist view mode to localStorage when it changes
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
+    }
+  }, [viewMode]);
 
   // Fetch home directory on mount and validate scope if set
   useEffect(() => {
@@ -110,6 +129,7 @@ export function Board({ initialScope = "" }: BoardProps) {
 
   const { sessions, counts, isLoading, updateStatus, toggleStarred } = useSessions(scopePath || undefined);
   const { items: inboxItems, sections: todoSections, createItem, updateItem, deleteItem, reorderSections, reorderItem } = useInboxItems(scopePath || undefined);
+  const { tree, isLoading: isTreeLoading } = useTreeSessions(scopePath);
   const pinnedFolders = usePinnedFolders();
 
   // The most recent session would be resumed by `claude --continue`
@@ -791,6 +811,11 @@ Proceed autonomously otherwise.`;
           <BrowseButton onSelect={handleScopeChange} />
         </div>
 
+        {/* Center: View Toggle */}
+        <div className="flex items-center" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <ViewToggle view={viewMode} onChange={setViewMode} />
+        </div>
+
         {/* Right side: Filter & Search */}
         <div className="ml-auto flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           {/* Filter dropdown */}
@@ -864,73 +889,89 @@ Proceed autonomously otherwise.`;
           pinnedFolders={pinnedFolders}
         />
 
-        <DndContext
-          sensors={sensors}
-          onDragStart={handleDragStart}
-          onDragOver={handleDragOver}
-          onDragEnd={handleDragEnd}
-        >
-          {/* Board */}
+        {/* Conditional View: Tree or Kanban */}
+        {viewMode === "tree" ? (
           <div
-            className="flex-1 flex gap-4 p-4 overflow-x-auto transition-[padding] duration-300"
+            className="flex-1 flex flex-col p-4 transition-[padding] duration-300"
             style={{ paddingRight: isDrawerOpen ? `${drawerWidth + 16}px` : undefined }}
-            onClick={(e) => {
-              // Close drawer when clicking on board background (not on cards/columns)
-              if (e.target === e.currentTarget && isDrawerOpen) {
-                setIsDrawerOpen(false);
-              }
-            }}
           >
-            {COLUMNS.map((status) => {
-              const filteredSessions = getSessionsByStatus(status);
-              // Use filtered count when filters are active, otherwise use API count
-              const displayCount = hasActiveFilters ? filteredSessions.length : counts[status];
-              return (
-              <Column
-                key={status}
-                status={status}
-                sessions={filteredSessions}
-                totalCount={displayCount}
-                inboxItems={status === "inbox" ? filteredInboxItems : undefined}
-                todoSections={status === "inbox" ? todoSections : undefined}
-                scopePath={status === "inbox" ? scopePath : undefined}
-                onReorderSections={status === "inbox" ? reorderSections : undefined}
-                onReorderItem={status === "inbox" ? reorderItem : undefined}
-                onOpenSession={handleOpenSession}
-                onOpenPlan={handleOpenPlan}
-                onDeleteSession={handleDeleteSession}
-                onToggleStarred={toggleStarred}
-                onCreateInboxItem={status === "inbox" ? handleCreateInboxItem : undefined}
-                onCreateAndRunInboxItem={status === "inbox" ? handleCreateAndRunInboxItem : undefined}
-                onUpdateInboxItem={handleUpdateInboxItem}
-                onDeleteInboxItem={handleDeleteInboxItem}
-                onStartInboxItem={handleStartInboxItem}
-                onRefineInboxItem={handleRefineInboxItem}
-                onProcessReference={handleProcessReference}
-                sessionStatuses={sessionStatuses}
-                firstSeenAt={firstSeenAt}
-                selectedIds={selectedIds}
-                onSelectSession={handleSelectSession}
-                onSelectInboxItem={handleSelectInboxItem}
-                onBackgroundClick={() => isDrawerOpen && setIsDrawerOpen(false)}
-                openSessionCount={status === "active" ? openSessions.length : undefined}
-                isDrawerOpen={status === "active" ? isDrawerOpen : undefined}
-                onToggleDrawer={status === "active" ? () => setIsDrawerOpen(!isDrawerOpen) : undefined}
-                continuableSessionId={continuableSessionId}
-              />
-              );
-            })}
+<TreeView
+              tree={tree}
+              scopePath={scopePath}
+              onNavigate={handleScopeChange}
+              onOpenSession={handleOpenSession}
+              isLoading={isTreeLoading}
+            />
           </div>
+        ) : (
+          <DndContext
+            sensors={sensors}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragEnd={handleDragEnd}
+          >
+            {/* Board */}
+            <div
+              className="flex-1 flex gap-4 p-4 overflow-x-auto transition-[padding] duration-300"
+              style={{ paddingRight: isDrawerOpen ? `${drawerWidth + 16}px` : undefined }}
+              onClick={(e) => {
+                // Close drawer when clicking on board background (not on cards/columns)
+                if (e.target === e.currentTarget && isDrawerOpen) {
+                  setIsDrawerOpen(false);
+                }
+              }}
+            >
+              {COLUMNS.map((status) => {
+                const filteredSessions = getSessionsByStatus(status);
+                // Use filtered count when filters are active, otherwise use API count
+                const displayCount = hasActiveFilters ? filteredSessions.length : counts[status];
+                return (
+                <Column
+                  key={status}
+                  status={status}
+                  sessions={filteredSessions}
+                  totalCount={displayCount}
+                  inboxItems={status === "inbox" ? filteredInboxItems : undefined}
+                  todoSections={status === "inbox" ? todoSections : undefined}
+                  scopePath={status === "inbox" ? scopePath : undefined}
+                  onReorderSections={status === "inbox" ? reorderSections : undefined}
+                  onReorderItem={status === "inbox" ? reorderItem : undefined}
+                  onOpenSession={handleOpenSession}
+                  onOpenPlan={handleOpenPlan}
+                  onDeleteSession={handleDeleteSession}
+                  onToggleStarred={toggleStarred}
+                  onCreateInboxItem={status === "inbox" ? handleCreateInboxItem : undefined}
+                  onCreateAndRunInboxItem={status === "inbox" ? handleCreateAndRunInboxItem : undefined}
+                  onUpdateInboxItem={handleUpdateInboxItem}
+                  onDeleteInboxItem={handleDeleteInboxItem}
+                  onStartInboxItem={handleStartInboxItem}
+                  onRefineInboxItem={handleRefineInboxItem}
+                  onProcessReference={handleProcessReference}
+                  sessionStatuses={sessionStatuses}
+                  firstSeenAt={firstSeenAt}
+                  selectedIds={selectedIds}
+                  onSelectSession={handleSelectSession}
+                  onSelectInboxItem={handleSelectInboxItem}
+                  onBackgroundClick={() => isDrawerOpen && setIsDrawerOpen(false)}
+                  openSessionCount={status === "active" ? openSessions.length : undefined}
+                  isDrawerOpen={status === "active" ? isDrawerOpen : undefined}
+                  onToggleDrawer={status === "active" ? () => setIsDrawerOpen(!isDrawerOpen) : undefined}
+                  continuableSessionId={continuableSessionId}
+                />
+                );
+              })}
+            </div>
 
-          {/* Drag overlay */}
-          <DragOverlay>
-            {draggingSession && (
-              <div className="opacity-80">
-                <SessionCard session={draggingSession} />
-              </div>
-            )}
-          </DragOverlay>
-        </DndContext>
+            {/* Drag overlay */}
+            <DragOverlay>
+              {draggingSession && (
+                <div className="opacity-80">
+                  <SessionCard session={draggingSession} />
+                </div>
+              )}
+            </DragOverlay>
+          </DndContext>
+        )}
 
         {/* Terminal Drawer */}
         <TerminalDrawer

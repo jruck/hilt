@@ -3,7 +3,7 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Session } from "@/lib/types";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   MessageSquare,
   Clock,
@@ -52,25 +52,33 @@ function formatRelativeTime(date: Date): string {
 
 export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleStarred, status, firstSeenAt, isSelected, onSelect, isContinuable, disableDrag }: SessionCardProps) {
   const [copiedResume, setCopiedResume] = useState(false);
-  const [, forceUpdate] = useState(0);
+  // Track current time in state - use lazy initializer to avoid setState in effect
+  const [now, setNow] = useState(() => Date.now());
+
+  // Update time periodically while the "new" effect is fading
+  useEffect(() => {
+    if (!firstSeenAt) return;
+
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - firstSeenAt;
+      if (elapsed >= NEW_EFFECT_DURATION_MS) {
+        clearInterval(interval);
+      } else {
+        setNow(Date.now());
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [firstSeenAt]);
 
   // Calculate "newness" - how recently this session appeared (0 = not new, 1 = just appeared)
-  const getNewness = () => {
+  const newness = useMemo(() => {
     if (!firstSeenAt) return 0;
-    const elapsed = Date.now() - firstSeenAt;
+    const elapsed = now - firstSeenAt;
     if (elapsed >= NEW_EFFECT_DURATION_MS) return 0;
     return 1 - (elapsed / NEW_EFFECT_DURATION_MS);
-  };
+  }, [firstSeenAt, now]);
 
-  const newness = getNewness();
   const isNewlyAdded = newness > 0;
-
-  // Force re-render periodically while the effect is fading
-  useEffect(() => {
-    if (!isNewlyAdded) return;
-    const interval = setInterval(() => forceUpdate(n => n + 1), 1000);
-    return () => clearInterval(interval);
-  }, [isNewlyAdded]);
   const {
     attributes,
     listeners,

@@ -33,27 +33,26 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
   const fitAddonRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const spawnedRef = useRef(false);
+
+  // Refs for values accessed in callbacks - updated via effects to avoid render-time mutations
   const isActiveRef = useRef(isActive);
-  isActiveRef.current = isActive;
   const isDrawerOpenRef = useRef(isDrawerOpen);
-  isDrawerOpenRef.current = isDrawerOpen;
-  // Use refs for values that are only needed at spawn time and shouldn't trigger terminal recreation
-  // - sessionId can change from temp ID (new-xxx) to real UUID when session is created
-  // - isNew changes from true to false when the real session is matched
-  // - initialPrompt is only used once at spawn
   const sessionIdRef = useRef(sessionId);
-  sessionIdRef.current = sessionId;
   const isNewRef = useRef(isNew);
   const initialPromptRef = useRef(initialPrompt);
-  // Use refs for callbacks to avoid re-running effect when they change
   const onExitRef = useRef(onExit);
-  onExitRef.current = onExit;
   const onTitleChangeRef = useRef(onTitleChange);
-  onTitleChangeRef.current = onTitleChange;
   const onContextProgressRef = useRef(onContextProgress);
-  onContextProgressRef.current = onContextProgress;
   const onPlanEventRef = useRef(onPlanEvent);
-  onPlanEventRef.current = onPlanEvent;
+
+  // Sync refs with props - must be in effect, not during render
+  useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
+  useEffect(() => { isDrawerOpenRef.current = isDrawerOpen; }, [isDrawerOpen]);
+  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+  useEffect(() => { onExitRef.current = onExit; }, [onExit]);
+  useEffect(() => { onTitleChangeRef.current = onTitleChange; }, [onTitleChange]);
+  useEffect(() => { onContextProgressRef.current = onContextProgress; }, [onContextProgress]);
+  useEffect(() => { onPlanEventRef.current = onPlanEvent; }, [onPlanEvent]);
 
   const sendMessage = useCallback((msg: object) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

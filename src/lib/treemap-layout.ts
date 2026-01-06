@@ -262,6 +262,7 @@ export function getRenderLevel(width: number, height: number): 1 | 2 | 3 | 4 {
 /**
  * Prepare layout items from a tree node.
  * Combines child folders and direct sessions into a flat list for layout.
+ * Deduplicates sessions by id to prevent React key conflicts.
  */
 export function prepareLayoutItems(tree: TreeNode): TreeNode[] {
   const items: TreeNode[] = [];
@@ -269,9 +270,13 @@ export function prepareLayoutItems(tree: TreeNode): TreeNode[] {
   // Add child folders
   items.push(...tree.children);
 
-  // Add direct sessions as individual pseudo-nodes
+  // Add direct sessions as individual pseudo-nodes (deduplicate by id)
+  const seenIds = new Set<string>();
   for (const session of tree.sessions) {
-    items.push(createSessionNode(session, tree));
+    if (!seenIds.has(session.id)) {
+      seenIds.add(session.id);
+      items.push(createSessionNode(session, tree));
+    }
   }
 
   return items;

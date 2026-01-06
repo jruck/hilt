@@ -292,11 +292,20 @@ export function getAllSessions(node: TreeNode): Session[] {
 
 /**
  * Get sessions to display, prioritized by running > active > inbox > recent.
+ * Deduplicates sessions by id to prevent React key conflicts.
  */
 export function getDisplaySessions(node: TreeNode, max: number): Session[] {
   const all = getAllSessions(node);
 
-  return all
+  // Deduplicate sessions by id
+  const seen = new Set<string>();
+  const unique = all.filter((session) => {
+    if (seen.has(session.id)) return false;
+    seen.add(session.id);
+    return true;
+  });
+
+  return unique
     .sort((a, b) => {
       // Running sessions first
       if (a.isRunning !== b.isRunning) return a.isRunning ? -1 : 1;

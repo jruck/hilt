@@ -1196,15 +1196,41 @@ Alternative: Implement squarified treemap algorithm directly (no dependency).
 
 ## Testing Checklist
 
-- [ ] Tree builds correctly from flat session list
-- [ ] Metrics roll up from children to parents
-- [ ] Heat scores differentiate active vs stale folders
-- [ ] Treemap layout uses full available space
-- [ ] Render levels adapt to rectangle size
-- [ ] Click folder navigates (changes scope)
-- [ ] Click session opens terminal drawer
-- [ ] Toggle between Kanban ↔ Tree preserves scope
-- [ ] Running sessions show pulse indicator
-- [ ] Empty scope shows appropriate message
-- [ ] Resize window triggers re-layout
-- [ ] 5-second polling updates tree data
+- [x] Tree builds correctly from flat session list
+- [x] Metrics roll up from children to parents
+- [x] Heat scores differentiate active vs stale folders
+- [x] Treemap layout uses full available space
+- [x] Render levels adapt to rectangle size
+- [x] Click folder navigates (changes scope)
+- [x] Click session opens terminal drawer
+- [x] Toggle between Kanban ↔ Tree preserves scope
+- [x] Running sessions show pulse indicator
+- [x] Empty scope shows appropriate message
+- [x] Resize window triggers re-layout
+- [x] 5-second polling updates tree data
+- [x] View preference persists across page loads
+
+---
+
+## Implementation Complete (2026-01-06)
+
+### All Phases Implemented & Tested ✅
+
+All phases (1-4) have been implemented and verified:
+- Core infrastructure (tree-utils, heat-score, treemap-layout)
+- API changes (mode=tree parameter)
+- React components (ViewToggle, TreeView, TreeNodeCard, TreeSessionCard)
+- Board.tsx integration with view toggle
+
+### Bugs Fixed During Testing
+
+**TreeView Height Bug**: The TreeView container had a height of only 56px because the wrapper div in Board.tsx was missing `flex flex-col`. Fixed by adding `flex flex-col` to the wrapper class.
+
+### Known Limitations (Intentional)
+
+These are not bugs, but documented design decisions:
+- No drag-and-drop in Tree View (Kanban only)
+- No status changes from Tree View (must open session)
+- No inbox items in Tree View (drafts visible in Kanban only)
+- No animation on tree structure changes (rectangles snap)
+- Fixed heat formula (not user-configurable)

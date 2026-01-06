@@ -781,7 +781,7 @@ IMPORTANT: Do NOT begin implementing or writing code yet. This is a refinement p
         {/* Conditional View: Tree or Kanban */}
         {viewMode === "tree" ? (
           <div
-            className="flex-1 p-4 transition-[padding] duration-300"
+            className="flex-1 flex flex-col p-4 transition-[padding] duration-300"
             style={{ paddingRight: isDrawerOpen ? `${drawerWidth + 16}px` : undefined }}
           >
             <TreeView

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessions, getRunningSessionIds, getSessionMtime } from "@/lib/claude-sessions";
 import { getAllSessionStatuses, setSessionStatus } from "@/lib/db";
 import { Session, SessionStatus } from "@/lib/types";
+import { buildTree, isUnderScope } from "@/lib/tree-utils";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -32,14 +33,24 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get("page") || "1", 10);
     const pageSize = parseInt(searchParams.get("pageSize") || "50", 10);
     const scopePath = searchParams.get("scope") || undefined;
+    const mode = searchParams.get("mode") || "exact"; // "exact" | "tree"
 
     // Get all sessions from Claude's JSONL files
     const claudeSessions = await getSessions();
 
-    // Filter by scope path if provided (exact match, not subfolders)
-    const filteredSessions = scopePath
-      ? claudeSessions.filter(s => s.projectPath === scopePath)
-      : claudeSessions;
+    // Filter by scope path
+    // - mode=exact: Only sessions where projectPath === scope (current behavior)
+    // - mode=tree: All sessions under scope (prefix match, for tree view)
+    let filteredSessions;
+    if (mode === "tree") {
+      filteredSessions = scopePath
+        ? claudeSessions.filter(s => isUnderScope(s.projectPath, scopePath))
+        : claudeSessions;
+    } else {
+      filteredSessions = scopePath
+        ? claudeSessions.filter(s => s.projectPath === scopePath)
+        : claudeSessions;
+    }
 
     // Get our status data, running session IDs, and planned slugs
     const statuses = await getAllSessionStatuses();
@@ -122,13 +133,21 @@ export async function GET(request: NextRequest) {
     const startIndex = (page - 1) * pageSize;
     const paginatedSessions = sessions.slice(startIndex, startIndex + pageSize);
 
-    return NextResponse.json({
+    // Build response
+    const response: Record<string, unknown> = {
       sessions: paginatedSessions,
       total,
       page,
       pageSize,
       counts,
-    });
+    };
+
+    // Include tree structure for tree mode
+    if (mode === "tree") {
+      response.tree = buildTree(sessions, scopePath || "");
+    }
+
+    return NextResponse.json(response);
   } catch (error) {
     console.error("Error fetching sessions:", error);
     return NextResponse.json(

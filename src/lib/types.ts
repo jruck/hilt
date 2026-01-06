@@ -121,3 +121,34 @@ export interface StatusUpdateRequest {
   sortOrder?: number;
   starred?: boolean;
 }
+
+// ============ Tree View Types ============
+
+export interface TreeMetrics {
+  totalSessions: number;      // All sessions in this node + descendants
+  directSessions: number;     // Sessions in this exact folder only
+  activeCount: number;        // status === "active"
+  inboxCount: number;         // status === "inbox"
+  recentCount: number;        // status === "recent"
+  runningCount: number;       // isRunning === true
+  lastActivity: number;       // Timestamp (ms)
+  heatScore: number;          // Computed sizing metric
+  normalizedHeat?: number;    // 0-1 normalized for color mapping
+}
+
+export interface TreeNode {
+  path: string;               // Full folder path
+  name: string;               // Display name (last segment)
+  depth: number;              // Depth from current scope root
+
+  // Direct data
+  sessions: Session[];        // Sessions where projectPath === this.path
+  children: TreeNode[];       // Child folder nodes
+
+  // Rolled-up metrics (includes all descendants)
+  metrics: TreeMetrics;
+}
+
+export interface TreeSessionsResponse extends SessionsResponse {
+  tree: TreeNode;
+}

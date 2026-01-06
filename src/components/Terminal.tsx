@@ -37,6 +37,14 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
   isActiveRef.current = isActive;
   const isDrawerOpenRef = useRef(isDrawerOpen);
   isDrawerOpenRef.current = isDrawerOpen;
+  // Use refs for values that are only needed at spawn time and shouldn't trigger terminal recreation
+  // - sessionId can change from temp ID (new-xxx) to real UUID when session is created
+  // - isNew changes from true to false when the real session is matched
+  // - initialPrompt is only used once at spawn
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
+  const isNewRef = useRef(isNew);
+  const initialPromptRef = useRef(initialPrompt);
   // Use refs for callbacks to avoid re-running effect when they change
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
@@ -109,15 +117,16 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
 
     ws.onopen = () => {
       if (!spawnedRef.current) {
-        // Spawn the terminal
+        // Spawn the terminal - use sessionIdRef for current value
+        // (sessionId may have been updated from temp ID to real UUID)
         ws.send(
           JSON.stringify({
             type: "spawn",
             terminalId,
-            sessionId,
+            sessionId: sessionIdRef.current,
             projectPath,
-            isNew,
-            initialPrompt,
+            isNew: isNewRef.current,
+            initialPrompt: initialPromptRef.current,
           })
         );
         spawnedRef.current = true;
@@ -150,10 +159,10 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
             term.write(`\r\n\x1b[31mError: ${msg.message}\x1b[0m\r\n`);
             break;
           case "title":
-            onTitleChangeRef.current?.(sessionId, msg.title);
+            onTitleChangeRef.current?.(sessionIdRef.current, msg.title);
             break;
           case "context":
-            onContextProgressRef.current?.(sessionId, msg.progress);
+            onContextProgressRef.current?.(sessionIdRef.current, msg.progress);
             break;
           case "plan":
             onPlanEventRef.current?.({
@@ -211,8 +220,12 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
       term.dispose();
       spawnedRef.current = false;
     };
-  // Note: onExit intentionally excluded - using ref to avoid effect re-runs
-  }, [terminalId, sessionId, projectPath, wsUrl, isNew, initialPrompt, sendMessage]);
+  // Note: sessionId, isNew, initialPrompt intentionally excluded - using refs to avoid effect re-runs
+  // - sessionId can change from temp ID to real UUID when the session is created
+  // - isNew changes from true to false when the real session is matched
+  // - initialPrompt is only used once at spawn time
+  // We don't want any of these changes to recreate the terminal
+  }, [terminalId, projectPath, wsUrl, sendMessage]);
 
   // Auto-focus terminal and scroll to bottom when it becomes visible
   useEffect(() => {

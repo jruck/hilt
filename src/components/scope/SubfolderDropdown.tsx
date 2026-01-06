@@ -14,18 +14,17 @@ interface SubfolderDropdownProps {
 
 export function SubfolderDropdown({
   currentPath,
-  homeDir,
   onSelect,
   onClose,
   isPinned,
   onTogglePin,
 }: SubfolderDropdownProps) {
   const [folders, setFolders] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Track which path we've loaded data for - isLoading is derived from comparison
+  const [loadedPath, setLoadedPath] = useState<string | null>(null);
 
   // Fetch subfolders (or top-level folders if at root)
   useEffect(() => {
-    setIsLoading(true);
     // If currentPath is empty (root), don't pass a scope to get all top-level folders
     const url = currentPath
       ? `/api/folders?scope=${encodeURIComponent(currentPath)}`
@@ -34,13 +33,16 @@ export function SubfolderDropdown({
       .then((res) => res.json())
       .then((data) => {
         setFolders(data.folders || []);
-        setIsLoading(false);
+        setLoadedPath(currentPath);
       })
       .catch(() => {
         setFolders([]);
-        setIsLoading(false);
+        setLoadedPath(currentPath);
       });
   }, [currentPath]);
+
+  // Derive loading state - we're loading if we haven't loaded the current path yet
+  const isLoading = loadedPath !== currentPath;
 
   // Handle keyboard navigation
   useEffect(() => {

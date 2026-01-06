@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Trash2, Play, Square, CheckSquare, Pencil, Check, X, Brain } from "lucide-react";
@@ -72,7 +72,10 @@ export function InboxCard({
   isEditing: externalIsEditing,
   onEditingChange,
 }: InboxCardProps) {
-  const [isEditing, setIsEditing] = useState(externalIsEditing ?? false);
+  // Use external editing state if provided, otherwise track internally
+  const [internalIsEditing, setInternalIsEditing] = useState(false);
+  const isEditing = externalIsEditing ?? internalIsEditing;
+
   const [editValue, setEditValue] = useState(item.prompt);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -103,15 +106,16 @@ export function InboxCard({
     opacity: isDragging ? 0.5 : 1,
   };
 
-  // Sync with external editing state
-  useEffect(() => {
-    if (externalIsEditing !== undefined) {
-      setIsEditing(externalIsEditing);
-      if (externalIsEditing) {
-        setEditValue(item.prompt);
-      }
+  // Reset edit value when entering edit mode
+  // React-approved pattern: update state during render when props change
+  // See: https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  const [prevIsEditing, setPrevIsEditing] = useState(isEditing);
+  if (isEditing !== prevIsEditing) {
+    setPrevIsEditing(isEditing);
+    if (isEditing) {
+      setEditValue(item.prompt);
     }
-  }, [externalIsEditing, item.prompt]);
+  }
 
   // Focus input when editing starts
   useEffect(() => {
@@ -120,35 +124,35 @@ export function InboxCard({
     }
   }, [isEditing]);
 
-  const handleSave = () => {
+  const handleSave = useCallback(() => {
     const trimmed = editValue.trim();
     if (trimmed && trimmed !== item.prompt) {
       onUpdate?.(trimmed);
     }
-    setIsEditing(false);
+    setInternalIsEditing(false);
     onEditingChange?.(false);
-  };
+  }, [editValue, item.prompt, onUpdate, onEditingChange]);
 
-  const handleCancel = () => {
+  const handleCancel = useCallback(() => {
     setEditValue(item.prompt);
-    setIsEditing(false);
+    setInternalIsEditing(false);
     onEditingChange?.(false);
-  };
+  }, [item.prompt, onEditingChange]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSave();
     } else if (e.key === "Escape") {
       handleCancel();
     }
-  };
+  }, [handleSave, handleCancel]);
 
-  const startEditing = () => {
-    setEditValue(item.prompt);
-    setIsEditing(true);
+  const startEditing = useCallback(() => {
+    // Note: editValue is reset in the render logic above when isEditing becomes true
+    setInternalIsEditing(true);
     onEditingChange?.(true);
-  };
+  }, [onEditingChange]);
 
   if (isEditing) {
     return (

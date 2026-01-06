@@ -590,15 +590,17 @@ export function TerminalDrawer({
             )}
 
             {/* Render all terminals - use visibility instead of display to preserve dimensions */}
+            {/* Use stable terminalId for key to prevent remounting when session gets real ID */}
             {sessions.map((session) => {
+              const stableTerminalId = session.terminalId || session.id;
               const isVisible = viewMode === "terminal" && session.id === activeSession?.id && !isPlanOnlyView;
               return (
               <div
-                key={session.id}
+                key={stableTerminalId}
                 className={`absolute inset-0 p-3 ${isVisible ? 'visible' : 'invisible pointer-events-none'}`}
               >
             <Terminal
-              terminalId={session.id}
+              terminalId={stableTerminalId}
               sessionId={session.id}
               projectPath={session.projectPath}
               wsUrl="ws://localhost:3001"

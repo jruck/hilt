@@ -244,6 +244,7 @@ export function Board({ initialScope = "" }: BoardProps) {
       // - Same project path
       // - Activity timestamp within 60 seconds of temp session creation
       // - Not already an open session
+      // - Not already claimed by another temp session in this matching pass
       const match = sessions.find(s => {
         // Must be same project
         if (s.projectPath !== info.projectPath) return false;
@@ -256,6 +257,9 @@ export function Board({ initialScope = "" }: BoardProps) {
         // Must not already be in openSessions (except as this temp session)
         if (openSessions.some(os => os.id === s.id && os.id !== tempSession.id)) return false;
 
+        // Must not already be claimed by another temp session in this matching pass
+        if (Object.values(updates).includes(s.id)) return false;
+
         return true;
       });
 
@@ -267,13 +271,14 @@ export function Board({ initialScope = "" }: BoardProps) {
 
     if (hasUpdates) {
       // Update openSessions to replace temp IDs with real IDs
+      // IMPORTANT: Preserve terminalId to avoid terminal reload
       setOpenSessions(prev => prev.map(session => {
         const realId = updates[session.id];
         if (realId) {
           // Clean up temp session tracking
           delete tempSessionInfo.current[session.id];
-          // Replace ID, keep other session data (preserve terminal connection)
-          return { ...session, id: realId, isNew: false };
+          // Replace ID but preserve terminalId to keep terminal connected
+          return { ...session, id: realId, isNew: false, terminalId: session.terminalId };
         }
         return session;
       }));
@@ -281,7 +286,7 @@ export function Board({ initialScope = "" }: BoardProps) {
       // Update activeSession if it was a temp session
       setActiveSession(prev => {
         if (prev && updates[prev.id]) {
-          return { ...prev, id: updates[prev.id], isNew: false };
+          return { ...prev, id: updates[prev.id], isNew: false, terminalId: prev.terminalId };
         }
         return prev;
       });
@@ -484,6 +489,7 @@ export function Board({ initialScope = "" }: BoardProps) {
       status: "active",
       isNew: true,
       initialPrompt: prompt,
+      terminalId: tempId, // Stable terminal ID - won't change when session gets real ID
       slug: null,
       slugs: [],
       gitBranch: null,
@@ -533,6 +539,7 @@ export function Board({ initialScope = "" }: BoardProps) {
       status: "active",
       isNew: true,
       initialPrompt: item.prompt,
+      terminalId: tempId, // Stable terminal ID - won't change when session gets real ID
       slug: null,
       slugs: [],
       gitBranch: null,
@@ -550,7 +557,7 @@ export function Board({ initialScope = "" }: BoardProps) {
     await deleteItem(item.id);
   };
 
-  const handleRefineInboxItem = (item: { id: string; prompt: string }) => {
+  const handleRefineInboxItem = async (item: { id: string; prompt: string }) => {
     // Wrap the prompt with refinement instructions
     const refinementPrompt = `I have a rough idea that needs refinement before implementation:
 
@@ -583,6 +590,7 @@ IMPORTANT: Do NOT begin implementing or writing code yet. This is a refinement p
       status: "active",
       isNew: true,
       initialPrompt: refinementPrompt,
+      terminalId: tempId, // Stable terminal ID - won't change when session gets real ID
       slug: null,
       slugs: [],
       gitBranch: null,
@@ -592,10 +600,113 @@ IMPORTANT: Do NOT begin implementing or writing code yet. This is a refinement p
     tempSessionInfo.current[tempId] = { createdAt: now, projectPath };
 
     // Add to open sessions and open the drawer
-    // NOTE: We don't delete the inbox item - user can run it after refining
     setOpenSessions((prev) => [...prev, newSession]);
     setActiveSession(newSession);
     setIsDrawerOpen(true);
+
+    // Delete the inbox item since we're starting a session
+    await deleteItem(item.id);
+  };
+
+  // Helper to extract domain from URL for display
+  const extractDomain = (content: string): string => {
+    try {
+      const url = new URL(content.trim().split('\n')[0]);
+      return url.hostname.replace('www.', '');
+    } catch {
+      return content.slice(0, 30) + (content.length > 30 ? '...' : '');
+    }
+  };
+
+  // Helper to detect YouTube URLs
+  const isYouTubeUrl = (content: string): boolean => {
+    const firstLine = content.trim().split('\n')[0];
+    return /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)/.test(firstLine);
+  };
+
+  const handleProcessReference = async (item: { id: string; prompt: string }) => {
+    const isYouTube = isYouTubeUrl(item.prompt);
+
+    // Build fetch strategy based on content type
+    const fetchStrategy = isYouTube
+      ? `FETCH STRATEGY (YouTube video):
+1. First, fetch the transcript using: http://localhost:3000/api/youtube-transcript?url=VIDEO_URL
+   - This returns the full transcript text and timestamped segments
+   - If transcript fails, proceed to fallback options below
+2. Use WebFetch on the video page to get title, description, channel info
+3. If both fail, ask me to choose a fallback method (see FALLBACK OPTIONS below)`
+      : `FETCH STRATEGY:
+1. Use WebFetch tool first to get the content
+2. If WebFetch fails (paywall, blocked, incomplete), ask me to choose a fallback method
+
+FALLBACK OPTIONS (ask me to choose one):
+a) Firecrawl - best for paywalled/dynamic content, requires API key
+b) Claude-in-Chrome browser automation - interactive but slower
+c) Paste the content manually - I'll copy/paste it myself
+
+If I choose Firecrawl:
+1. Check status: GET http://localhost:3000/api/firecrawl
+   - Returns { configured: true/false }
+2. If not configured, tell me:
+   "Firecrawl requires an API key. Get one at https://firecrawl.dev
+    Then I'll configure it with: POST /api/firecrawl { action: 'configure', apiKey: 'your-key' }"
+3. If configured, scrape: POST http://localhost:3000/api/firecrawl { url: 'THE_URL' }
+   - Returns { success: true, content: '...markdown...', title: '...' }`;
+
+    // Wrap the prompt with reference processing instructions
+    const referencePrompt = `Process this as a reference for the Process knowledge base.
+
+SOURCE:
+---
+${item.prompt}
+---
+
+${fetchStrategy}
+
+PROCESSING:
+Follow References/index.md instructions exactly:
+- Create file: References/YYYY-MM-DD-slug.md
+- Include: metadata, video embed (if applicable), summary, key insights, implications for Process
+- For YouTube videos: extract video ID, create iframe embed, include transcript summary
+- Update the Catalog table in References/index.md
+
+MINIMAL INTERACTION:
+Only ask for input when absolutely necessary (choosing fallback method, missing content).
+Proceed autonomously otherwise.`;
+
+    // Create a temporary session for reference processing
+    const now = Date.now();
+    const tempId = `new-${now}`;
+    // Always use Process project for references
+    const projectPath = "/Users/jruck/Bridge/Libraries/Personal/Process";
+    const newSession: Session = {
+      id: tempId,
+      title: `Reference: ${extractDomain(item.prompt)}`,
+      firstPrompt: referencePrompt,
+      lastPrompt: referencePrompt,
+      project: "Process",
+      projectPath,
+      messageCount: 0,
+      lastActivity: new Date(),
+      status: "active",
+      isNew: true,
+      initialPrompt: referencePrompt,
+      terminalId: tempId, // Stable terminal ID - won't change when session gets real ID
+      slug: null,
+      slugs: [],
+      gitBranch: null,
+    };
+
+    // Track temp session for matching with real session later
+    tempSessionInfo.current[tempId] = { createdAt: now, projectPath };
+
+    // Add to open sessions and open the drawer
+    setOpenSessions((prev) => [...prev, newSession]);
+    setActiveSession(newSession);
+    setIsDrawerOpen(true);
+
+    // Delete the inbox item since we're starting a session
+    await deleteItem(item.id);
   };
 
   // Selection handlers
@@ -795,6 +906,7 @@ IMPORTANT: Do NOT begin implementing or writing code yet. This is a refinement p
                 onDeleteInboxItem={handleDeleteInboxItem}
                 onStartInboxItem={handleStartInboxItem}
                 onRefineInboxItem={handleRefineInboxItem}
+                onProcessReference={handleProcessReference}
                 sessionStatuses={sessionStatuses}
                 firstSeenAt={firstSeenAt}
                 selectedIds={selectedIds}

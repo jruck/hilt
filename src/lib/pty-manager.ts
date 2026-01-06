@@ -96,11 +96,23 @@ class PtyManager extends EventEmitter {
           promptSent = true;
           // Small delay to ensure Claude has fully initialized its input handler
           setTimeout(() => {
-            // Send prompt, then Enter key to submit
-            ptyProcess.write(initialPrompt);
+            // Send prompt using bracketed paste mode for multi-line prompts
+            // This ensures Claude Code recognizes it as pasted text
+            const usesBracketedPaste = initialPrompt.includes("\n") || initialPrompt.length > 200;
+            if (usesBracketedPaste) {
+              // Start bracketed paste sequence
+              ptyProcess.write("\x1b[200~");
+              ptyProcess.write(initialPrompt);
+              // End bracketed paste sequence
+              ptyProcess.write("\x1b[201~");
+            } else {
+              ptyProcess.write(initialPrompt);
+            }
+            // Use longer delay for larger prompts to ensure Claude fully processes the paste
+            const enterDelay = Math.min(500, 100 + Math.floor(initialPrompt.length / 100) * 50);
             setTimeout(() => {
               ptyProcess.write("\r");
-            }, 100);
+            }, enterDelay);
           }, 200);
         }
       }
@@ -132,10 +144,19 @@ class PtyManager extends EventEmitter {
           if (!promptSent) {
             console.log(`Fallback: sending prompt after timeout`);
             promptSent = true;
-            ptyProcess.write(initialPrompt);
+            // Use bracketed paste mode for multi-line prompts
+            const usesBracketedPaste = initialPrompt.includes("\n") || initialPrompt.length > 200;
+            if (usesBracketedPaste) {
+              ptyProcess.write("\x1b[200~");
+              ptyProcess.write(initialPrompt);
+              ptyProcess.write("\x1b[201~");
+            } else {
+              ptyProcess.write(initialPrompt);
+            }
+            const enterDelay = Math.min(500, 100 + Math.floor(initialPrompt.length / 100) * 50);
             setTimeout(() => {
               ptyProcess.write("\r");
-            }, 100);
+            }, enterDelay);
           }
         }, 10000);
       } else {

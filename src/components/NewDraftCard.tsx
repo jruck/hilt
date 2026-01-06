@@ -1,15 +1,17 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { FileText, Check, X, Play } from "lucide-react";
+import { FileText, Check, X, Play, Brain, Bookmark } from "lucide-react";
 
 interface NewDraftCardProps {
   onSave: (prompt: string) => void;
   onCancel: () => void;
   onSaveAndRun?: (prompt: string) => void;
+  onRefine?: (prompt: string) => void;
+  onProcessReference?: (prompt: string) => void;
 }
 
-export function NewDraftCard({ onSave, onCancel, onSaveAndRun }: NewDraftCardProps) {
+export function NewDraftCard({ onSave, onCancel, onSaveAndRun, onRefine, onProcessReference }: NewDraftCardProps) {
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -55,6 +57,20 @@ export function NewDraftCard({ onSave, onCancel, onSaveAndRun }: NewDraftCardPro
     }
   };
 
+  const handleRefine = () => {
+    const trimmed = value.trim();
+    if (trimmed && onRefine) {
+      onRefine(trimmed);
+    }
+  };
+
+  const handleProcessReference = () => {
+    const trimmed = value.trim();
+    if (trimmed && onProcessReference) {
+      onProcessReference(trimmed);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -94,6 +110,24 @@ export function NewDraftCard({ onSave, onCancel, onSaveAndRun }: NewDraftCardPro
         >
           <Check className="w-4 h-4" />
         </button>
+        {onRefine && (
+          <button
+            onClick={handleRefine}
+            className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 rounded transition-colors"
+            title="Refine"
+          >
+            <Brain className="w-4 h-4" />
+          </button>
+        )}
+        {onProcessReference && (
+          <button
+            onClick={handleProcessReference}
+            className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 rounded transition-colors"
+            title="Process as reference"
+          >
+            <Bookmark className="w-4 h-4" />
+          </button>
+        )}
         {onSaveAndRun && (
           <button
             onClick={handleSaveAndRun}

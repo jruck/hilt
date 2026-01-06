@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Trash2, Play, Square, CheckSquare, Pencil, Check, X, Brain } from "lucide-react";
+import { Trash2, Play, Square, CheckSquare, Pencil, Check, X, Brain, Bookmark } from "lucide-react";
 
 /**
  * Extract a display title from todo content.
@@ -54,6 +54,7 @@ interface InboxCardProps {
   onDelete?: () => void;
   onStart?: () => void;
   onRefine?: () => void;
+  onProcessReference?: () => void;
   onUpdate?: (prompt: string) => void;
   isSelected?: boolean;
   onSelect?: (item: InboxItem, selected: boolean) => void;
@@ -66,6 +67,7 @@ export function InboxCard({
   onDelete,
   onStart,
   onRefine,
+  onProcessReference,
   onUpdate,
   isSelected,
   onSelect,
@@ -227,6 +229,13 @@ export function InboxCard({
           title="Refine this idea before implementing"
         >
           <Brain className="w-4 h-4" />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onProcessReference?.(); }}
+          className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-blue-800 rounded transition-colors"
+          title="Process as reference"
+        >
+          <Bookmark className="w-4 h-4" />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onStart?.(); }}

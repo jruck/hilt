@@ -77,6 +77,8 @@ export interface Session extends SessionMetadata {
   // For new sessions started from inbox
   isNew?: boolean;
   initialPrompt?: string;
+  // Stable ID for terminal tracking - doesn't change when temp session gets real ID
+  terminalId?: string;
   // Worktree isolation
   isolation?: SessionIsolation;
   // Live running indicator (based on file modification time)

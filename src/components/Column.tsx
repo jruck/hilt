@@ -109,6 +109,7 @@ interface ColumnProps {
   onDeleteInboxItem?: (id: string) => void;
   onStartInboxItem?: (item: { id: string; prompt: string }) => void;
   onRefineInboxItem?: (item: { id: string; prompt: string }) => void;
+  onProcessReference?: (item: { id: string; prompt: string }) => void;
   onReorderSections?: (sectionOrder: string[]) => void;
   onReorderItem?: (itemId: string, targetSection: string | null, targetIndex: number) => void;
   sessionStatuses?: Record<string, string>;
@@ -258,6 +259,7 @@ export function Column({
   onDeleteInboxItem,
   onStartInboxItem,
   onRefineInboxItem,
+  onProcessReference,
   onReorderSections,
   onReorderItem,
   sessionStatuses = {},
@@ -416,6 +418,18 @@ export function Column({
     setSelectedSection(null);
   };
 
+  const handleRefine = (prompt: string) => {
+    onRefineInboxItem?.({ id: `draft-${Date.now()}`, prompt });
+    setIsCreatingNew(false);
+    setSelectedSection(null);
+  };
+
+  const handleProcessRef = (prompt: string) => {
+    onProcessReference?.({ id: `draft-${Date.now()}`, prompt });
+    setIsCreatingNew(false);
+    setSelectedSection(null);
+  };
+
   const handleCancelCreate = () => {
     setIsCreatingNew(false);
     setSelectedSection(null);
@@ -524,6 +538,8 @@ export function Column({
               onSave={handleCreate}
               onCancel={handleCancelCreate}
               onSaveAndRun={onCreateAndRunInboxItem ? handleCreateAndRun : undefined}
+              onRefine={onRefineInboxItem ? handleRefine : undefined}
+              onProcessReference={onProcessReference ? handleProcessRef : undefined}
             />
           </div>
         )}
@@ -547,6 +563,7 @@ export function Column({
                   onDelete={() => onDeleteInboxItem?.(item.id)}
                   onStart={() => onStartInboxItem?.(item)}
                   onRefine={() => onRefineInboxItem?.(item)}
+                  onProcessReference={() => onProcessReference?.(item)}
                   onUpdate={(prompt) => onUpdateInboxItem?.(item.id, prompt)}
                   isSelected={selectedIds.has(`inbox-${item.id}`)}
                   onSelect={onSelectInboxItem}
@@ -587,6 +604,7 @@ export function Column({
                         onDelete={() => onDeleteInboxItem?.(item.id)}
                         onStart={() => onStartInboxItem?.(item)}
                         onRefine={() => onRefineInboxItem?.(item)}
+                        onProcessReference={() => onProcessReference?.(item)}
                         onUpdate={(prompt) => onUpdateInboxItem?.(item.id, prompt)}
                         isSelected={selectedIds.has(`inbox-${item.id}`)}
                         onSelect={onSelectInboxItem}

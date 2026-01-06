@@ -2,8 +2,7 @@
 
 import { Folder, Play, Circle } from "lucide-react";
 import { TreeNode, Session } from "@/lib/types";
-import { getHeatColor } from "@/lib/heat-score";
-import { getAllSessions, getDisplaySessions } from "@/lib/tree-utils";
+import { getDisplaySessions } from "@/lib/tree-utils";
 
 interface TreeNodeCardProps {
   node: TreeNode;
@@ -20,7 +19,6 @@ export function TreeNodeCard({
 }: TreeNodeCardProps) {
   const { metrics } = node;
   const hasRunning = metrics.runningCount > 0;
-  const heatColor = getHeatColor(metrics.normalizedHeat ?? 0);
 
   return (
     <button
@@ -32,9 +30,6 @@ export function TreeNodeCard({
         flex flex-col overflow-hidden text-left
         ${hasRunning ? "ring-1 ring-emerald-500/50" : ""}
       `}
-      style={{
-        background: `linear-gradient(135deg, ${heatColor}12, transparent)`,
-      }}
     >
       {renderLevel === 1 && (
         <Level1Content node={node} onOpenSession={onOpenSession} />

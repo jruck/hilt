@@ -1,9 +1,134 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/* ============================================
+   THEME SYSTEM - Light theme (default)
+   Elegant, warm, high-contrast light mode
+   ============================================ */
 :root {
+  /* Legacy variables for compatibility */
+  --background: #fefefe;
+  --foreground: #1a1a2e;
+
+  /* Backgrounds - warm whites with subtle depth */
+  --bg-primary: #fefefe;
+  --bg-secondary: #f7f7f8;
+  --bg-tertiary: #eeeff2;
+  --bg-elevated: #ffffff;
+  --border-hover: #c4c8d0;
+
+  /* Borders - refined and visible */
+  --border-default: #dcdee3;
+  --border-subtle: #e8e9ed;
+  --border-strong: #b8bcc5;
+
+  /* Text - high contrast, readable */
+  --text-primary: #1a1a2e;
+  --text-secondary: #4a4a5a;
+  --text-tertiary: #7a7a8a;
+  --text-inverted: #ffffff;
+
+  /* Interactive */
+  --interactive-default: #2563eb;
+  --interactive-hover: #1d4ed8;
+  --interactive-active: #1e40af;
+
+  /* Status Colors - vibrant but not harsh */
+  --status-active: #059669;
+  --status-active-bg: #d1fae5;
+  --status-active-border: #6ee7b7;
+
+  --status-todo: #2563eb;
+  --status-todo-bg: #dbeafe;
+  --status-todo-border: #93c5fd;
+
+  --status-starred: #d97706;
+  --status-starred-bg: #fef3c7;
+
+  /* Surfaces (cards, panels) */
+  --surface-card: #ffffff;
+  --surface-card-hover: #f7f7f8;
+  --surface-panel: #f7f7f8;
+
+  /* Card toolbars - theme-aware */
+  --toolbar-bg: rgba(255, 255, 255, 0.95);
+  --toolbar-border: #dcdee3;
+  --toolbar-bg-blue: #eff6ff;
+  --toolbar-border-blue: #bfdbfe;
+  --toolbar-bg-emerald: #ecfdf5;
+  --toolbar-border-emerald: #a7f3d0;
+  --toolbar-hover: #f1f5f9;
+  --toolbar-hover-blue: #dbeafe;
+  --toolbar-hover-emerald: #d1fae5;
+
+  /* Scrollbar */
+  --scrollbar-track: #f1f2f4;
+  --scrollbar-thumb: #c4c8d0;
+  --scrollbar-thumb-hover: #9ca3af;
+}
+
+/* ============================================
+   DARK THEME
+   ============================================ */
+.dark {
+  /* Legacy variables for compatibility */
   --background: #0a0a0a;
   --foreground: #fafafa;
+
+  /* Backgrounds */
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #18181b;
+  --bg-tertiary: #27272a;
+  --bg-elevated: #18181b;
+
+  /* Borders */
+  --border-default: #27272a;
+  --border-subtle: #18181b;
+  --border-strong: #3f3f46;
+
+  /* Text */
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-tertiary: #71717a;
+  --text-inverted: #0a0a0a;
+
+  /* Interactive */
+  --interactive-default: #3b82f6;
+  --interactive-hover: #60a5fa;
+  --interactive-active: #93c5fd;
+
+  /* Status Colors */
+  --status-active: #10b981;
+  --status-active-bg: rgba(16, 185, 129, 0.1);
+  --status-active-border: rgba(16, 185, 129, 0.2);
+
+  --status-todo: #3b82f6;
+  --status-todo-bg: rgba(59, 130, 246, 0.1);
+  --status-todo-border: rgba(59, 130, 246, 0.2);
+
+  --status-starred: #fbbf24;
+  --status-starred-bg: rgba(251, 191, 36, 0.1);
+
+  /* Surfaces */
+  --surface-card: #18181b;
+  --surface-card-hover: #27272a;
+  --surface-panel: #18181b;
+
+  /* Card toolbars - dark theme */
+  --toolbar-bg: rgba(24, 24, 27, 0.95);
+  --toolbar-border: #3f3f46;
+  --toolbar-bg-blue: rgba(30, 64, 175, 0.8);
+  --toolbar-border-blue: rgba(59, 130, 246, 0.3);
+  --toolbar-bg-emerald: rgba(6, 78, 59, 0.8);
+  --toolbar-border-emerald: rgba(16, 185, 129, 0.3);
+  --toolbar-hover: #3f3f46;
+  --toolbar-hover-blue: rgba(30, 64, 175, 0.9);
+  --toolbar-hover-emerald: rgba(6, 78, 59, 0.9);
+
+  /* Scrollbar */
+  --scrollbar-track: #18181b;
+  --scrollbar-thumb: #3f3f46;
+  --scrollbar-thumb-hover: #52525b;
 }
 
 @theme inline {
@@ -14,27 +139,27 @@
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
-/* Custom scrollbar for dark theme */
+/* Custom scrollbar - uses theme variables */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #18181b;
+  background: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #3f3f46;
+  background: var(--scrollbar-thumb);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #52525b;
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* Line clamp utility */
@@ -52,7 +177,352 @@ body {
   overflow: hidden;
 }
 
-/* MDXEditor Dark Theme */
+/* ============================================
+   MDXEditor Light Theme
+   ============================================ */
+.light-theme.light-editor {
+  --accentBase: #f8fafc;
+  --accentBgSubtle: #f1f5f9;
+  --accentBg: #e2e8f0;
+  --accentBgHover: #cbd5e1;
+  --accentBgActive: #94a3b8;
+  --accentLine: #cbd5e1;
+  --accentBorder: #94a3b8;
+  --accentBorderHover: #64748b;
+  --accentSolid: #2563eb;
+  --accentSolidHover: #1d4ed8;
+  --accentText: #475569;
+  --accentTextContrast: #0f172a;
+
+  --baseBase: #ffffff;
+  --baseBgSubtle: #f8fafc;
+  --baseBg: #f1f5f9;
+  --baseBgHover: #e2e8f0;
+  --baseBgActive: #cbd5e1;
+  --baseLine: #e2e8f0;
+  --baseBorder: #cbd5e1;
+  --baseBorderHover: #94a3b8;
+  --baseSolid: #94a3b8;
+  --baseSolidHover: #64748b;
+  --baseText: #475569;
+  --baseTextContrast: #0f172a;
+
+  --admonitionTipBg: rgba(34, 197, 94, 0.1);
+  --admonitionTipBorder: #16a34a;
+  --admonitionInfoBg: rgba(59, 130, 246, 0.1);
+  --admonitionInfoBorder: #2563eb;
+  --admonitionCautionBg: rgba(234, 179, 8, 0.15);
+  --admonitionCautionBorder: #ca8a04;
+  --admonitionDangerBg: rgba(239, 68, 68, 0.1);
+  --admonitionDangerBorder: #dc2626;
+  --admonitionNoteBg: rgba(113, 113, 122, 0.1);
+  --admonitionNoteBorder: #52525b;
+
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  background-color: #ffffff;
+  color: #0f172a;
+}
+
+.light-theme .mdxeditor-toolbar {
+  background-color: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.light-theme [role="listbox"],
+.light-theme [data-radix-popper-content-wrapper] {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 6px !important;
+}
+
+.light-theme [role="option"] {
+  color: #334155 !important;
+  background-color: transparent !important;
+}
+
+.light-theme [role="option"]:hover,
+.light-theme [role="option"][data-highlighted] {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+.light-theme [role="option"][aria-selected="true"],
+.light-theme [role="option"][data-state="checked"] {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+}
+
+.light-theme [role="combobox"],
+.light-theme button[class*="selectTrigger"] {
+  background-color: #f1f5f9 !important;
+  color: #334155 !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+.light-theme [role="combobox"]:hover,
+.light-theme button[class*="selectTrigger"]:hover {
+  background-color: #e2e8f0 !important;
+  border-color: #cbd5e1 !important;
+}
+
+.light-theme [role="combobox"] span,
+.light-theme button[class*="selectTrigger"] span {
+  color: #334155 !important;
+}
+
+.light-theme [role="combobox"] svg,
+.light-theme button[class*="selectTrigger"] svg {
+  color: #64748b !important;
+  fill: #64748b !important;
+}
+
+.light-theme .mdxeditor-root-contenteditable {
+  background-color: #ffffff;
+}
+
+.light-theme [contenteditable] {
+  color: #334155;
+}
+
+.light-theme [contenteditable] p {
+  color: #334155;
+}
+
+/* Light theme table styling */
+.light-theme table {
+  border-collapse: collapse !important;
+  border-spacing: 0 !important;
+  margin: 0.5rem 0 !important;
+}
+
+.light-theme table th,
+.light-theme table td {
+  background-color: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+}
+
+.light-theme table th[class*="AlignedCell"],
+.light-theme table td[class*="AlignedCell"] {
+  padding: 0.25rem 0.5rem !important;
+  border: none !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  background-color: transparent !important;
+  color: #334155 !important;
+  vertical-align: middle !important;
+}
+
+.light-theme table th[class*="AlignedCell"] ~ th[class*="AlignedCell"],
+.light-theme table td[class*="AlignedCell"] ~ td[class*="AlignedCell"] {
+  border-left: 1px solid #e2e8f0 !important;
+}
+
+.light-theme table tr:nth-child(2) th[class*="AlignedCell"] {
+  border-top: 1px solid #e2e8f0 !important;
+}
+
+.light-theme table th[class*="AlignedCell"] {
+  font-weight: 600 !important;
+  color: #0f172a !important;
+}
+
+.light-theme table button {
+  background-color: transparent !important;
+  border: none !important;
+  padding: 0.125rem !important;
+  min-height: auto !important;
+  height: auto !important;
+}
+
+.light-theme table button:hover {
+  background-color: #e2e8f0 !important;
+  border-radius: 4px !important;
+}
+
+.light-theme table [contenteditable] {
+  overflow: hidden !important;
+  scrollbar-width: none !important;
+}
+
+.light-theme table [contenteditable]::-webkit-scrollbar {
+  display: none !important;
+}
+
+/* Light theme dialogs */
+.light-theme [role="dialog"] {
+  background-color: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1) !important;
+}
+
+.light-theme [role="dialog"] [role="toolbar"] {
+  background-color: #ffffff !important;
+  gap: 2px !important;
+}
+
+.light-theme [role="dialog"] [role="radio"] {
+  background-color: #f1f5f9 !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #334155 !important;
+}
+
+.light-theme [role="dialog"] [role="radio"]:hover {
+  background-color: #e2e8f0 !important;
+  border-color: #cbd5e1 !important;
+}
+
+.light-theme [role="dialog"] [role="radio"][aria-checked="true"] {
+  background-color: #2563eb !important;
+  border-color: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+
+.light-theme [role="dialog"] button {
+  background-color: #f1f5f9 !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #334155 !important;
+}
+
+.light-theme [role="dialog"] button:hover {
+  background-color: #e2e8f0 !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.light-theme [role="dialog"] button svg,
+.light-theme [role="dialog"] [role="radio"] svg {
+  color: #475569 !important;
+  fill: none !important;
+  stroke: currentColor !important;
+}
+
+.light-theme [role="dialog"] button:hover svg,
+.light-theme [role="dialog"] [role="radio"]:hover svg {
+  color: #0f172a !important;
+}
+
+.light-theme [role="dialog"] [role="radio"][aria-checked="true"] svg {
+  color: #ffffff !important;
+}
+
+/* Light theme CodeMirror */
+.light-theme .cm-editor {
+  background-color: #f8fafc !important;
+  color: #334155 !important;
+  border-radius: 8px !important;
+}
+
+.light-theme .cm-editor .cm-scroller {
+  background-color: #f8fafc !important;
+}
+
+.light-theme .cm-editor .cm-content {
+  color: #334155 !important;
+}
+
+.light-theme .cm-editor .cm-gutters {
+  background-color: #f8fafc !important;
+  color: #94a3b8 !important;
+  border-right: 1px solid #e2e8f0 !important;
+}
+
+.light-theme .cm-editor .cm-gutter-lint {
+  background-color: #f8fafc !important;
+}
+
+.light-theme .cm-editor .cm-activeLineGutter {
+  background-color: #e2e8f0 !important;
+}
+
+.light-theme .cm-editor .cm-activeLine {
+  background-color: rgba(226, 232, 240, 0.5) !important;
+}
+
+.light-theme .cm-editor .cm-selectionBackground {
+  background-color: rgba(59, 130, 246, 0.2) !important;
+}
+
+.light-theme .cm-editor .cm-cursor {
+  border-left-color: #0f172a !important;
+}
+
+/* Light theme syntax highlighting */
+.light-theme .cm-editor .cm-line {
+  color: #334155 !important;
+}
+
+.light-theme .cm-editor .tok-keyword {
+  color: #7c3aed !important;
+}
+
+.light-theme .cm-editor .tok-string,
+.light-theme .cm-editor .tok-string2 {
+  color: #16a34a !important;
+}
+
+.light-theme .cm-editor .tok-number {
+  color: #ca8a04 !important;
+}
+
+.light-theme .cm-editor .tok-comment {
+  color: #94a3b8 !important;
+  font-style: italic;
+}
+
+.light-theme .cm-editor .tok-function,
+.light-theme .cm-editor .tok-definition {
+  color: #2563eb !important;
+}
+
+.light-theme .cm-editor .tok-variableName {
+  color: #334155 !important;
+}
+
+.light-theme .cm-editor .tok-propertyName {
+  color: #db2777 !important;
+}
+
+.light-theme .cm-editor .tok-typeName {
+  color: #ca8a04 !important;
+}
+
+.light-theme .cm-editor .tok-operator {
+  color: #64748b !important;
+}
+
+.light-theme .cm-editor .tok-punctuation {
+  color: #64748b !important;
+}
+
+.light-theme .cm-editor .tok-bracket {
+  color: #64748b !important;
+}
+
+.light-theme .cm-editor .tok-regexp {
+  color: #ea580c !important;
+}
+
+.light-theme .cm-editor .tok-tagName {
+  color: #dc2626 !important;
+}
+
+.light-theme .cm-editor .tok-attributeName {
+  color: #7c3aed !important;
+}
+
+.light-theme [data-lexical-decorator="true"] {
+  background-color: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 8px !important;
+  margin: 0.5rem 0 !important;
+}
+
+/* ============================================
+   MDXEditor Dark Theme
+   ============================================ */
 .dark-theme.dark-editor {
   --accentBase: #18181b;
   --accentBgSubtle: #27272a;

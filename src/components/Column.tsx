@@ -143,7 +143,7 @@ const columnConfig: Record<
   recent: {
     title: "Recent",
     icon: <Clock className="w-4 h-4" />,
-    color: "text-zinc-400",
+    color: "text-[var(--text-tertiary)]",
   },
 };
 
@@ -162,22 +162,22 @@ function TimeGroupHeader({
   onToggleCollapse: () => void;
 }) {
   return (
-    <div className="flex items-center gap-2 px-2 py-1 w-full hover:bg-zinc-800/50 rounded transition-colors">
+    <div className="flex items-center gap-2 px-2 py-1 w-full hover:bg-[var(--bg-tertiary)]/50 rounded transition-colors">
       <button
         onClick={onToggleCollapse}
         className="flex items-center gap-2 flex-1 text-left"
       >
         {isCollapsed ? (
-          <ChevronRight className="w-3 h-3 text-zinc-500" />
+          <ChevronRight className="w-3 h-3 text-[var(--text-tertiary)]" />
         ) : (
-          <ChevronDown className="w-3 h-3 text-zinc-500" />
+          <ChevronDown className="w-3 h-3 text-[var(--text-tertiary)]" />
         )}
         {icon}
-        <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+        <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
           {label}
         </h3>
-        <div className="flex-1 h-px bg-zinc-700"></div>
-        <span className="text-xs text-zinc-500">{itemCount}</span>
+        <div className="flex-1 h-px bg-[var(--border-strong)]"></div>
+        <span className="text-xs text-[var(--text-tertiary)]">{itemCount}</span>
       </button>
     </div>
   );
@@ -214,12 +214,12 @@ function SortableSectionHeader({
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center gap-2 px-2 py-1 w-full hover:bg-zinc-800/50 rounded transition-colors"
+      className="flex items-center gap-2 px-2 py-1 w-full hover:bg-[var(--bg-tertiary)]/50 rounded transition-colors"
     >
       <button
         {...attributes}
         {...listeners}
-        className="cursor-grab active:cursor-grabbing text-zinc-600 hover:text-zinc-400 touch-none"
+        className="cursor-grab active:cursor-grabbing text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] touch-none"
       >
         <GripVertical className="w-3 h-3" />
       </button>
@@ -228,15 +228,15 @@ function SortableSectionHeader({
         className="flex items-center gap-2 flex-1 text-left"
       >
         {isCollapsed ? (
-          <ChevronRight className="w-3 h-3 text-zinc-500" />
+          <ChevronRight className="w-3 h-3 text-[var(--text-tertiary)]" />
         ) : (
-          <ChevronDown className="w-3 h-3 text-zinc-500" />
+          <ChevronDown className="w-3 h-3 text-[var(--text-tertiary)]" />
         )}
-        <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+        <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
           {section.heading}
         </h3>
-        <div className="flex-1 h-px bg-zinc-700"></div>
-        <span className="text-xs text-zinc-500">{itemCount}</span>
+        <div className="flex-1 h-px bg-[var(--border-strong)]"></div>
+        <span className="text-xs text-[var(--text-tertiary)]">{itemCount}</span>
       </button>
     </div>
   );
@@ -439,17 +439,17 @@ export function Column({
     <div
       ref={setNodeRef}
       className={`
-        flex flex-col bg-zinc-900 rounded-xl border border-zinc-800
+        flex flex-col bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-default)]
         flex-1 basis-0 min-w-[280px] h-full
         ${isOver ? "ring-2 ring-blue-500 ring-opacity-50" : ""}
       `}
     >
       {/* Header */}
-      <div className="flex items-center justify-between h-11 px-3 border-b border-zinc-800">
+      <div className="flex items-center justify-between h-11 px-3 border-b border-[var(--border-default)]">
         <div className="flex items-center gap-2">
           <span className={config.color}>{config.icon}</span>
-          <h2 className="font-semibold text-zinc-100">{config.title}</h2>
-          <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded-full">
+          <h2 className="font-semibold text-[var(--text-primary)]">{config.title}</h2>
+          <span className="text-xs text-[var(--text-tertiary)] bg-[var(--bg-tertiary)] px-2 py-0.5 rounded-full">
             {status === "inbox"
               ? inboxItems.length + (totalCount ?? sessions.length)
               : (totalCount ?? sessions.length)}
@@ -463,7 +463,7 @@ export function Column({
               {onCreateInboxItem && (
                 <button
                   onClick={handleAddClick}
-                  className="p-1 text-blue-400 hover:text-blue-300 hover:bg-zinc-800 rounded transition-colors"
+                  className="p-1 text-blue-400 hover:text-blue-300 hover:bg-[var(--bg-tertiary)] rounded transition-colors"
                   title="Add draft prompt"
                 >
                   <Plus className="w-4 h-4" />
@@ -479,7 +479,7 @@ export function Column({
                       body: JSON.stringify({ path: todoPath })
                     }).catch(console.error);
                   }}
-                  className="p-1 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition-colors"
+                  className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded transition-colors"
                   title="Open Todo.md in Finder"
                 >
                   <FolderOpen className="w-4 h-4" />
@@ -494,8 +494,8 @@ export function Column({
               onClick={onToggleDrawer}
               className={`flex items-center gap-1.5 px-2 py-1 rounded text-sm transition-colors ${
                 isDrawerOpen
-                  ? 'bg-zinc-700 text-zinc-100'
-                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
+                  ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
+                  : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
               }`}
               title={isDrawerOpen ? 'Hide terminal drawer' : 'Show terminal drawer'}
             >
@@ -522,7 +522,7 @@ export function Column({
             <select
               value={selectedSection || ""}
               onChange={(e) => setSelectedSection(e.target.value || null)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
+              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-default)] rounded px-2 py-1.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-blue-500"
             >
               <option value="New">New</option>
               <option value="">No section</option>
@@ -745,7 +745,7 @@ export function Column({
         </SortableContext>
 
         {sessions.length === 0 && inboxItems.length === 0 && !isCreatingNew && (
-          <div className="text-center text-zinc-600 text-sm py-8">
+          <div className="text-center text-[var(--text-tertiary)] text-sm py-8">
             {status === "inbox"
               ? "No items"
               : status === "recent"

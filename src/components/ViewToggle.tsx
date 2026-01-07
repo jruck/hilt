@@ -11,7 +11,7 @@ interface ViewToggleProps {
 
 export function ViewToggle({ view, onChange }: ViewToggleProps) {
   return (
-    <div className="flex items-center bg-zinc-800 rounded-lg p-0.5">
+    <div className="flex items-center bg-[var(--bg-tertiary)] rounded-lg p-0.5">
       <button
         onClick={() => onChange("tree")}
         className={`
@@ -19,8 +19,8 @@ export function ViewToggle({ view, onChange }: ViewToggleProps) {
           transition-colors
           ${
             view === "tree"
-              ? "bg-zinc-700 text-zinc-100"
-              : "text-zinc-400 hover:text-zinc-200"
+              ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm"
+              : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           }
         `}
         title="Tree view (folders as treemap)"
@@ -35,8 +35,8 @@ export function ViewToggle({ view, onChange }: ViewToggleProps) {
           transition-colors
           ${
             view === "board"
-              ? "bg-zinc-700 text-zinc-100"
-              : "text-zinc-400 hover:text-zinc-200"
+              ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm"
+              : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           }
         `}
         title="Kanban board view"
@@ -51,8 +51,8 @@ export function ViewToggle({ view, onChange }: ViewToggleProps) {
           transition-colors
           ${
             view === "docs"
-              ? "bg-zinc-700 text-zinc-100"
-              : "text-zinc-400 hover:text-zinc-200"
+              ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm"
+              : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           }
         `}
         title="Documentation"

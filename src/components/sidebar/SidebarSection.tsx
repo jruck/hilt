@@ -27,7 +27,7 @@ export function SidebarSection({
   if (isCollapsed) {
     return (
       <div className="flex flex-col items-center py-2">
-        <div className="p-2 text-zinc-400" title={title}>
+        <div className="p-2 text-[var(--text-secondary)]" title={title}>
           <Icon className="w-4 h-4" />
         </div>
       </div>
@@ -38,7 +38,7 @@ export function SidebarSection({
     <div className="flex flex-col">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-zinc-500 uppercase tracking-wider hover:text-zinc-400 transition-colors"
+        className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wider hover:text-[var(--text-secondary)] transition-colors"
       >
         {isExpanded ? (
           <ChevronDown className="w-3 h-3" />

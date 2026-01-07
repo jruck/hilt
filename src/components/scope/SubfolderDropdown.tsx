@@ -65,19 +65,19 @@ export function SubfolderDropdown({
   const isAtRoot = !currentPath;
 
   return (
-    <div className="w-[300px] bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl overflow-hidden">
+    <div className="w-[300px] bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded-lg shadow-xl overflow-hidden">
       {/* Subfolders/Projects section */}
       <div className="px-2 py-1.5">
-        <span className="text-xs text-zinc-500 uppercase tracking-wide">
+        <span className="text-xs text-[var(--text-tertiary)] uppercase tracking-wide">
           {isAtRoot ? "Projects" : "Subfolders with sessions"}
         </span>
       </div>
 
       <div className="max-h-[250px] overflow-y-auto">
         {isLoading ? (
-          <p className="px-3 py-2 text-sm text-zinc-500">Loading...</p>
+          <p className="px-3 py-2 text-sm text-[var(--text-tertiary)]">Loading...</p>
         ) : folders.length === 0 ? (
-          <p className="px-3 py-2 text-sm text-zinc-500">
+          <p className="px-3 py-2 text-sm text-[var(--text-tertiary)]">
             {isAtRoot ? "No projects with sessions" : "No subfolders with sessions"}
           </p>
         ) : (
@@ -85,11 +85,11 @@ export function SubfolderDropdown({
             <button
               key={folder}
               onClick={() => onSelect(folder)}
-              className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-zinc-800 transition-colors ${
-                currentPath === folder ? "bg-zinc-800 text-blue-400" : "text-zinc-300"
+              className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-[var(--bg-tertiary)] transition-colors ${
+                currentPath === folder ? "bg-[var(--bg-tertiary)] text-blue-400" : "text-[var(--text-secondary)]"
               }`}
             >
-              <Folder className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+              <Folder className="w-4 h-4 text-[var(--text-tertiary)] flex-shrink-0" />
               <span className="flex-1 font-mono truncate">{getFolderName(folder)}</span>
               {currentPath === folder && <Check className="w-4 h-4 flex-shrink-0" />}
             </button>
@@ -99,7 +99,7 @@ export function SubfolderDropdown({
 
       {/* Action buttons row */}
       {currentPath && onTogglePin && (
-        <div className="border-t border-zinc-700 px-2 py-2 flex items-center gap-1">
+        <div className="border-t border-[var(--border-default)] px-2 py-2 flex items-center gap-1">
           <button
             onClick={() => {
               onTogglePin();
@@ -107,8 +107,8 @@ export function SubfolderDropdown({
             }}
             className={`flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors ${
               isPinned
-                ? "text-blue-400 bg-blue-900/30 hover:bg-blue-900/50"
-                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+                ? "text-[var(--status-todo)] bg-[var(--status-todo-bg)] hover:bg-[var(--status-todo-bg)]"
+                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
             }`}
             title={isPinned ? "Unpin folder" : "Pin folder"}
           >

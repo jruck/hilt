@@ -19,6 +19,7 @@ import { useSidebarState } from "@/hooks/useSidebarState";
 import { SessionsResponse } from "@/lib/types";
 import { PinnedFolder } from "@/lib/pinned-folders";
 import { SidebarToggle } from "./SidebarToggle";
+import { ThemeToggle } from "../ThemeToggle";
 import { SidebarSection } from "./SidebarSection";
 import { SortablePinnedFolderItem } from "./SortablePinnedFolderItem";
 
@@ -111,7 +112,7 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarP
   if (!sidebarHydrated || !foldersHydrated) {
     return (
       <div
-        className="flex-shrink-0 bg-zinc-900 border-r border-zinc-700 transition-all duration-300"
+        className="flex-shrink-0 bg-[var(--bg-secondary)] border-r border-[var(--border-default)] transition-all duration-300"
         style={{ width: 256 }}
       />
     );
@@ -119,7 +120,7 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarP
 
   return (
     <div
-      className="flex-shrink-0 bg-zinc-900 border-r border-zinc-700 transition-all duration-300 flex flex-col overflow-hidden"
+      className="flex-shrink-0 bg-[var(--bg-secondary)] border-r border-[var(--border-default)] transition-all duration-300 flex flex-col overflow-hidden"
       style={{ width: isCollapsed ? 48 : 256 }}
     >
       {/* Pinned Folders Section */}
@@ -131,7 +132,7 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarP
           isCollapsed={isCollapsed}
         >
           {folders.length === 0 ? (
-            <div className="px-2 py-4 text-xs text-zinc-500 text-center">
+            <div className="px-2 py-4 text-xs text-[var(--text-tertiary)] text-center">
               Pin folders from the breadcrumbs above
             </div>
           ) : (
@@ -165,12 +166,15 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarP
         </SidebarSection>
       </div>
 
-      {/* Footer with toggle */}
+      {/* Footer with theme toggle and sidebar toggle */}
       <div
-        className={`flex items-center h-11 border-t border-zinc-800 ${
-          isCollapsed ? "justify-center px-0" : "justify-end px-2"
+        className={`border-t border-[var(--border-default)] ${
+          isCollapsed
+            ? "flex flex-col items-center py-2 gap-1"
+            : "flex items-center justify-between px-2 h-11"
         }`}
       >
+        <ThemeToggle />
         <SidebarToggle isCollapsed={isCollapsed} onToggle={toggle} />
       </div>
     </div>

@@ -782,17 +782,17 @@ Proceed autonomously otherwise.`;
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-zinc-950">
-        <Loader2 className="w-8 h-8 text-zinc-500 animate-spin" />
+      <div className="flex items-center justify-center h-screen bg-[var(--bg-primary)]">
+        <Loader2 className="w-8 h-8 text-[var(--text-tertiary)] animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-screen bg-zinc-950">
+    <div className="flex flex-col h-screen bg-[var(--bg-primary)]">
       {/* Status Bar - fixed height for drawer alignment */}
       <div
-        className="relative flex items-center justify-between px-4 h-11 bg-zinc-900 border-b border-zinc-800"
+        className="relative flex items-center justify-between px-4 h-11 bg-[var(--bg-secondary)] border-b border-[var(--border-default)]"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
         {/* Left side: Scope controls (breadcrumbs, recent, browse) */}
@@ -834,24 +834,24 @@ Proceed autonomously otherwise.`;
               onClick={() => setIsFilterOpen(!isFilterOpen)}
               className={`p-1.5 rounded transition-colors ${
                 hasActiveFilters
-                  ? "text-blue-400 bg-blue-900/30 hover:bg-blue-900/50"
-                  : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+                  ? "text-[var(--interactive-default)] bg-[var(--status-todo-bg)] hover:bg-[var(--status-todo-bg)]"
+                  : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
               }`}
               title="Filters"
             >
               <Filter className="w-4 h-4" />
             </button>
             {isFilterOpen && (
-              <div className="absolute right-0 top-full mt-1 w-48 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl z-50 py-1">
+              <div className="absolute right-0 top-full mt-1 w-48 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg shadow-xl z-50 py-1">
                 <button
                   onClick={() => {
                     setFilters(prev => ({ ...prev, hasPlan: !prev.hasPlan }));
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-zinc-700 transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-[var(--bg-tertiary)] transition-colors"
                 >
-                  <FileText className="w-4 h-4 text-zinc-400" />
+                  <FileText className="w-4 h-4 text-[var(--text-tertiary)]" />
                   <span className="flex-1">Plans</span>
-                  {filters.hasPlan && <Check className="w-4 h-4 text-blue-400" />}
+                  {filters.hasPlan && <Check className="w-4 h-4 text-[var(--interactive-default)]" />}
                 </button>
               </div>
             )}
@@ -860,7 +860,7 @@ Proceed autonomously otherwise.`;
           {/* Search */}
           {searchQuery ? (
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-tertiary)]" />
               <input
                 type="text"
                 placeholder="Search..."
@@ -870,11 +870,11 @@ Proceed autonomously otherwise.`;
                   if (!e.target.value) setSearchQuery("");
                 }}
                 autoFocus
-                className="w-40 pl-8 pr-7 py-1.5 text-sm bg-zinc-800 rounded text-zinc-200 placeholder-zinc-500 focus:outline-none"
+                className="w-40 pl-8 pr-7 py-1.5 text-sm bg-[var(--bg-tertiary)] rounded text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none"
               />
               <button
                 onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -882,12 +882,13 @@ Proceed autonomously otherwise.`;
           ) : (
             <button
               onClick={() => setSearchQuery(" ")}
-              className="p-1.5 rounded transition-colors text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+              className="p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
               title="Search"
             >
               <Search className="w-4 h-4" />
             </button>
           )}
+
         </div>
       </div>
 
@@ -903,8 +904,8 @@ Proceed autonomously otherwise.`;
         {viewMode === "docs" ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              <p className="text-2xl text-zinc-400 font-medium">Coming Soon</p>
-              <p className="text-sm text-zinc-500 mt-2">Documentation view is under development</p>
+              <p className="text-2xl text-[var(--text-tertiary)] font-medium">Coming Soon</p>
+              <p className="text-sm text-[var(--text-tertiary)] mt-2">Documentation view is under development</p>
             </div>
           </div>
         ) : viewMode === "tree" ? (
@@ -1011,26 +1012,26 @@ Proceed autonomously otherwise.`;
 
       {/* Selection Action Bar - Bottom */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center justify-between px-4 py-2 bg-blue-950/50 border-t border-blue-800/50">
+        <div className="flex items-center justify-between px-4 py-2 bg-[var(--status-todo-bg)] border-t border-[var(--status-todo-border)]">
           <div className="flex items-center gap-3">
-            <span className="text-sm text-blue-300">
+            <span className="text-sm text-[var(--interactive-default)]">
               {selectedIds.size} selected
             </span>
             <button
               onClick={clearSelection}
-              className="p-1 text-blue-400 hover:text-blue-200 hover:bg-blue-800/50 rounded transition-colors"
+              className="p-1 text-[var(--interactive-default)] hover:text-[var(--interactive-hover)] hover:bg-[var(--status-todo-bg)] rounded transition-colors"
               title="Clear selection (Esc)"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-blue-400 mr-2">Move to:</span>
+            <span className="text-xs text-[var(--interactive-default)] mr-2">Move to:</span>
             {COLUMNS.map((status) => (
               <button
                 key={status}
                 onClick={() => moveSelectedTo(status)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-[var(--bg-tertiary)] hover:bg-[var(--surface-card-hover)] text-[var(--text-primary)] rounded transition-colors"
               >
                 {COLUMN_CONFIG[status].icon}
                 <span>{COLUMN_CONFIG[status].label}</span>

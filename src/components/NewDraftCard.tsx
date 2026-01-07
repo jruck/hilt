@@ -84,7 +84,7 @@ export function NewDraftCard({ onSave, onCancel, onSaveAndRun, onRefine, onProce
   };
 
   return (
-    <div className="relative bg-blue-950/30 border border-blue-500 rounded-lg p-3 shadow-sm">
+    <div className="relative bg-[var(--status-todo-bg)] border border-[var(--status-todo)] rounded-lg p-3 shadow-sm">
       <textarea
         ref={inputRef}
         value={value}
@@ -92,20 +92,20 @@ export function NewDraftCard({ onSave, onCancel, onSaveAndRun, onRefine, onProce
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}
         placeholder="Enter your prompt..."
-        className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500 resize-none"
+        className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-default)] rounded px-2 py-1.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none focus:border-blue-500 resize-none"
         rows={2}
       />
       <div className="flex justify-end gap-1 mt-2">
         <button
           onClick={onCancel}
-          className="p-1 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 rounded transition-colors"
+          className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded transition-colors"
           title="Cancel (Esc)"
         >
           <X className="w-4 h-4" />
         </button>
         <button
           onClick={handleSave}
-          className="p-1 text-emerald-500 hover:text-emerald-400 hover:bg-zinc-700 rounded transition-colors"
+          className="p-1 text-emerald-500 hover:text-emerald-400 hover:bg-[var(--bg-tertiary)] rounded transition-colors"
           title="Save (Enter)"
         >
           <Check className="w-4 h-4" />
@@ -113,7 +113,7 @@ export function NewDraftCard({ onSave, onCancel, onSaveAndRun, onRefine, onProce
         {onRefine && (
           <button
             onClick={handleRefine}
-            className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 rounded transition-colors"
+            className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] rounded transition-colors"
             title="Refine"
           >
             <Brain className="w-4 h-4" />
@@ -122,7 +122,7 @@ export function NewDraftCard({ onSave, onCancel, onSaveAndRun, onRefine, onProce
         {onProcessReference && (
           <button
             onClick={handleProcessReference}
-            className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 rounded transition-colors"
+            className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] rounded transition-colors"
             title="Process as reference"
           >
             <Bookmark className="w-4 h-4" />
@@ -131,7 +131,7 @@ export function NewDraftCard({ onSave, onCancel, onSaveAndRun, onRefine, onProce
         {onSaveAndRun && (
           <button
             onClick={handleSaveAndRun}
-            className="p-1 text-blue-500 hover:text-blue-400 hover:bg-zinc-700 rounded transition-colors"
+            className="p-1 text-blue-500 hover:text-blue-400 hover:bg-[var(--bg-tertiary)] rounded transition-colors"
             title="Save & Run (⌘+Enter)"
           >
             <Play className="w-4 h-4" />

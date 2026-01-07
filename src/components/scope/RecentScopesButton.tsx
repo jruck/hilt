@@ -90,8 +90,8 @@ export function RecentScopesButton({
         onClick={handleToggle}
         className={`p-1.5 rounded transition-colors ${
           isOpen
-            ? "bg-zinc-700 text-zinc-200"
-            : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+            ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]"
+            : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
         }`}
         title="Recent scopes"
       >
@@ -101,17 +101,17 @@ export function RecentScopesButton({
       {isOpen && (
         <div
           ref={dropdownRef}
-          className="absolute top-full left-0 mt-1 w-[300px] bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-50 overflow-hidden"
+          className="absolute top-full left-0 mt-1 w-[300px] bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded-lg shadow-xl z-50 overflow-hidden"
         >
-          <div className="px-3 py-2 border-b border-zinc-800">
-            <span className="text-xs text-zinc-500 uppercase tracking-wide">
+          <div className="px-3 py-2 border-b border-[var(--border-default)]">
+            <span className="text-xs text-[var(--text-tertiary)] uppercase tracking-wide">
               Recent Scopes
             </span>
           </div>
 
           <div className="max-h-[300px] overflow-y-auto">
             {filteredScopes.length === 0 ? (
-              <p className="px-3 py-3 text-sm text-zinc-500 text-center">
+              <p className="px-3 py-3 text-sm text-[var(--text-tertiary)] text-center">
                 No recent scopes
               </p>
             ) : (
@@ -119,9 +119,9 @@ export function RecentScopesButton({
                 <button
                   key={scope.path}
                   onClick={() => handleSelect(scope.path)}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-zinc-800 transition-colors text-zinc-300"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)]"
                 >
-                  <Folder className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+                  <Folder className="w-4 h-4 text-[var(--text-tertiary)] flex-shrink-0" />
                   <span className="flex-1 font-mono truncate">
                     {displayPath(scope.path)}
                   </span>

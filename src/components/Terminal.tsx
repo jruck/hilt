@@ -1,9 +1,59 @@
 "use client";
 
 import { useEffect, useRef, useCallback } from "react";
-import { Terminal as XTerm } from "@xterm/xterm";
+import { Terminal as XTerm, ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { useTheme } from "@/hooks/useTheme";
 import "@xterm/xterm/css/xterm.css";
+
+// Terminal color themes
+const darkTerminalTheme: ITheme = {
+  background: "#0a0a0a",
+  foreground: "#fafafa",
+  cursor: "#fafafa",
+  cursorAccent: "#0a0a0a",
+  selectionBackground: "#3f3f46",
+  black: "#18181b",
+  red: "#ef4444",
+  green: "#22c55e",
+  yellow: "#eab308",
+  blue: "#3b82f6",
+  magenta: "#a855f7",
+  cyan: "#06b6d4",
+  white: "#fafafa",
+  brightBlack: "#52525b",
+  brightRed: "#f87171",
+  brightGreen: "#4ade80",
+  brightYellow: "#facc15",
+  brightBlue: "#60a5fa",
+  brightMagenta: "#c084fc",
+  brightCyan: "#22d3ee",
+  brightWhite: "#ffffff",
+};
+
+const lightTerminalTheme: ITheme = {
+  background: "#ffffff",
+  foreground: "#1f2937",
+  cursor: "#1f2937",
+  cursorAccent: "#ffffff",
+  selectionBackground: "#bfdbfe",
+  black: "#1f2937",
+  red: "#dc2626",
+  green: "#16a34a",
+  yellow: "#ca8a04",
+  blue: "#2563eb",
+  magenta: "#9333ea",
+  cyan: "#0891b2",
+  white: "#f3f4f6",
+  brightBlack: "#6b7280",
+  brightRed: "#ef4444",
+  brightGreen: "#22c55e",
+  brightYellow: "#eab308",
+  brightBlue: "#3b82f6",
+  brightMagenta: "#a855f7",
+  brightCyan: "#06b6d4",
+  brightWhite: "#ffffff",
+};
 
 interface PlanEvent {
   event: "created" | "updated";
@@ -33,6 +83,7 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
   const fitAddonRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const spawnedRef = useRef(false);
+  const { resolvedTheme } = useTheme();
 
   // Refs for values accessed in callbacks - updated via effects to avoid render-time mutations
   const isActiveRef = useRef(isActive);
@@ -63,34 +114,12 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Create terminal
+    // Create terminal with theme-appropriate colors
     const term = new XTerm({
       cursorBlink: true,
       fontSize: 13,
       fontFamily: '"Fira Code", "Cascadia Code", Menlo, Monaco, monospace',
-      theme: {
-        background: "#0a0a0a",
-        foreground: "#fafafa",
-        cursor: "#fafafa",
-        cursorAccent: "#0a0a0a",
-        selectionBackground: "#3f3f46",
-        black: "#18181b",
-        red: "#ef4444",
-        green: "#22c55e",
-        yellow: "#eab308",
-        blue: "#3b82f6",
-        magenta: "#a855f7",
-        cyan: "#06b6d4",
-        white: "#fafafa",
-        brightBlack: "#52525b",
-        brightRed: "#f87171",
-        brightGreen: "#4ade80",
-        brightYellow: "#facc15",
-        brightBlue: "#60a5fa",
-        brightMagenta: "#c084fc",
-        brightCyan: "#22d3ee",
-        brightWhite: "#ffffff",
-      },
+      theme: resolvedTheme === "dark" ? darkTerminalTheme : lightTerminalTheme,
     });
 
     const fitAddon = new FitAddon();
@@ -244,6 +273,13 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
       }, 50);
     }
   }, [isActive, isDrawerOpen]);
+
+  // Update terminal theme when app theme changes
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.options.theme = resolvedTheme === "dark" ? darkTerminalTheme : lightTerminalTheme;
+    }
+  }, [resolvedTheme]);
 
   return (
     <div

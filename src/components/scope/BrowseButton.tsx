@@ -28,7 +28,7 @@ export function BrowseButton({ onSelect }: BrowseButtonProps) {
   return (
     <button
       onClick={handleBrowse}
-      className="p-1.5 rounded transition-colors text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+      className="p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
       title="Browse folders in Finder"
     >
       <FolderOpen className="w-4 h-4" />

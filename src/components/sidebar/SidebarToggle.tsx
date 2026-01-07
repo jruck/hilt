@@ -14,7 +14,7 @@ export function SidebarToggle({ isCollapsed, onToggle }: SidebarToggleProps) {
   return (
     <button
       onClick={onToggle}
-      className="p-1.5 rounded transition-colors text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+      className="p-1.5 rounded transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
       title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
     >
       {isCollapsed ? (

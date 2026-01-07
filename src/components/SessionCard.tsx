@@ -108,10 +108,10 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
 
   // Corner fold color - matches card's border stroke exactly
   const getFoldColor = () => {
-    if (isSelected) return "rgb(59, 130, 246)"; // blue-500 (border-blue-500)
-    if (session.starred) return "rgba(234, 179, 8, 0.3)"; // yellow-500/30 (border-yellow-500/30)
-    if (session.status === "active") return "rgba(34, 197, 94, 0.2)"; // emerald-500/20 (border-emerald-500/20)
-    return "rgb(63, 63, 70)"; // zinc-700 (border-zinc-700)
+    if (isSelected) return "var(--status-todo)";
+    if (session.starred) return "var(--status-starred)";
+    if (session.status === "active") return "var(--status-active-border)";
+    return "var(--border-default)";
   };
 
   return (
@@ -125,16 +125,16 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
       className={`
         group relative border rounded-lg p-3 overflow-hidden
         transition-all duration-300 cursor-pointer
-        ${isDragging ? "shadow-xl ring-2 ring-blue-500" : "shadow-sm"}
+        ${isDragging ? "shadow-xl ring-2 ring-[var(--status-active)]" : "shadow-sm"}
         ${isNewlyAdded
-          ? "border-emerald-500/60 bg-emerald-500/10"
+          ? "border-[var(--status-active)] bg-[var(--status-active-bg)]"
           : isSelected
-            ? "border-blue-500 bg-blue-500/10 hover:border-blue-400"
+            ? "border-[var(--status-todo)] bg-[var(--status-todo-bg)] hover:border-[var(--status-todo)]"
             : session.starred
-              ? "border-yellow-500/30 bg-yellow-500/5 hover:border-yellow-500/50"
+              ? "border-[var(--status-starred)] bg-[var(--status-starred-bg)] hover:border-[var(--status-starred)]"
               : session.status === "active"
-                ? "border-emerald-500/20 bg-emerald-500/5 hover:border-emerald-500/40"
-                : "border-zinc-700 bg-zinc-800 hover:border-zinc-600"
+                ? "border-[var(--status-active-border)] bg-[var(--status-active-bg)] hover:border-[var(--status-active)]"
+                : "border-[var(--border-default)] bg-[var(--bg-tertiary)] hover:border-[var(--border-hover)]"
         }
       `}
     >
@@ -150,22 +150,22 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
       {/* Hover actions - floating toolbar */}
       {(() => {
         const hoverBg = isNewlyAdded || session.status === "active"
-          ? "hover:bg-emerald-800"
+          ? "hover:bg-[var(--toolbar-hover-emerald)]"
           : isSelected
-            ? "hover:bg-blue-800"
-            : "hover:bg-zinc-600";
+            ? "hover:bg-[var(--toolbar-hover-blue)]"
+            : "hover:bg-[var(--toolbar-hover)]";
         return (
           <div
             className={`
               absolute top-1.5 right-1.5 flex items-center gap-0.5 px-1 py-0.5
               rounded-md shadow-lg
               ${isNewlyAdded
-                ? "bg-emerald-900 border border-emerald-800"
+                ? "bg-[var(--toolbar-bg-emerald)] border border-[var(--toolbar-border-emerald)]"
                 : isSelected
-                  ? "bg-blue-900 border border-blue-800"
+                  ? "bg-[var(--toolbar-bg-blue)] border border-[var(--toolbar-border-blue)]"
                   : session.status === "active"
-                    ? "bg-emerald-900/80 border border-emerald-800/80"
-                    : "bg-zinc-700 border border-zinc-600"
+                    ? "bg-[var(--toolbar-bg-emerald)] border border-[var(--toolbar-border-emerald)]"
+                    : "bg-[var(--toolbar-bg)] border border-[var(--toolbar-border)]"
               }
               ${isSelected || session.starred ? "opacity-100" : "opacity-0 group-hover:opacity-100"}
               transition-opacity
@@ -173,7 +173,7 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
           >
             <button
               onClick={(e) => { e.stopPropagation(); onSelect?.(session, !isSelected); }}
-              className={`p-1 text-zinc-400 hover:text-zinc-200 ${hoverBg} rounded transition-colors`}
+              className={`p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] ${hoverBg} rounded transition-colors`}
               title={isSelected ? "Deselect" : "Select"}
             >
               {isSelected ? <CheckSquare className="w-4 h-4 text-blue-400" /> : <Square className="w-4 h-4" />}
@@ -182,7 +182,7 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
               <button
                 onClick={(e) => { e.stopPropagation(); onToggleStarred?.(session.id); }}
                 className={`p-1 ${hoverBg} rounded transition-colors ${
-                  session.starred ? "text-yellow-400" : "text-zinc-400 hover:text-zinc-200"
+                  session.starred ? "text-yellow-400" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
                 title={session.starred ? "Unstar" : "Star"}
               >
@@ -191,7 +191,7 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
             )}
             <button
               onClick={(e) => { e.stopPropagation(); onOpen?.(session); }}
-              className={`p-1 text-zinc-400 hover:text-zinc-200 ${hoverBg} rounded transition-colors`}
+              className={`p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] ${hoverBg} rounded transition-colors`}
               title="Open session"
             >
               <Play className="w-4 h-4" />
@@ -199,7 +199,7 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
             {session.status !== "recent" && (
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete?.(session); }}
-                className={`p-1 text-zinc-400 hover:text-zinc-200 ${hoverBg} rounded transition-colors`}
+                className={`p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] ${hoverBg} rounded transition-colors`}
                 title="Mark as done"
               >
                 <CheckCircle className="w-4 h-4" />
@@ -218,7 +218,7 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
           </span>
         )}
-        <h3 className="text-sm font-medium text-zinc-100 truncate flex-1" title={session.title}>
+        <h3 className="text-sm font-medium text-[var(--text-primary)] truncate flex-1" title={session.title}>
           {session.title}
         </h3>
         {session.isolation?.enabled && (
@@ -240,12 +240,12 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
 
       {/* Last Prompt */}
       {session.lastPrompt && session.lastPrompt !== session.title && (
-        <p className="text-xs text-zinc-400 mt-1 line-clamp-2">
+        <p className="text-xs text-[var(--text-secondary)] mt-1 line-clamp-2">
           {session.lastPrompt}
         </p>
       )}
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs text-zinc-500">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs text-[var(--text-tertiary)]">
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -255,7 +255,7 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
               body: JSON.stringify({ path: session.projectPath })
             }).catch(console.error);
           }}
-          className="flex items-center gap-1 hover:text-zinc-300 transition-colors"
+          className="flex items-center gap-1 hover:text-[var(--text-secondary)] transition-colors"
           title="Open in Finder"
         >
           <Folder className="w-3 h-3" />
@@ -264,7 +264,7 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
 
         <button
           onClick={handleCopyResume}
-          className="flex items-center gap-1 hover:text-zinc-300 transition-colors"
+          className="flex items-center gap-1 hover:text-[var(--text-secondary)] transition-colors"
           title="Copy resume command"
         >
           <Hash className="w-3 h-3" />
@@ -275,7 +275,7 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
         {session.planSlugs && session.planSlugs.length > 0 && (
           <button
             onClick={(e) => { e.stopPropagation(); onOpenPlan?.(session); }}
-            className="flex items-center gap-0.5 hover:text-zinc-300 transition-colors"
+            className="flex items-center gap-0.5 hover:text-[var(--text-secondary)] transition-colors"
             title="Open in plan mode"
           >
             <FileText className="w-3 h-3" />

@@ -24,10 +24,10 @@ export function TreeSessionCard({
         transition-all duration-150 cursor-pointer
         flex flex-col overflow-hidden text-left
         ${isActive
-          ? "border-emerald-500/20 bg-emerald-500/5 hover:border-emerald-500/40"
+          ? "border-[var(--status-active-border)] bg-[var(--status-active-bg)] hover:border-[var(--status-active)]"
           : session.status === "inbox"
-            ? "border-blue-500/20 bg-blue-500/5 hover:border-blue-500/40"
-            : "border-zinc-700 bg-zinc-800/80 hover:border-zinc-600"
+            ? "border-[var(--status-todo-border)] bg-[var(--status-todo-bg)] hover:border-[var(--status-todo)]"
+            : "border-[var(--border-default)] bg-[var(--bg-tertiary)]/80 hover:border-[var(--border-hover)]"
         }
       `}
     >
@@ -48,11 +48,11 @@ function SessionLevel1({ session }: { session: Session }) {
           <Play className="w-4 h-4 text-emerald-400 fill-emerald-400 flex-shrink-0 mt-0.5" />
         )}
         <div className="flex-1 min-w-0">
-          <div className="font-medium text-zinc-100 line-clamp-2">
+          <div className="font-medium text-[var(--text-primary)] line-clamp-2">
             {session.title || session.slug || "Untitled"}
           </div>
           {session.slug && session.title && (
-            <div className="text-xs text-zinc-500 truncate mt-0.5">
+            <div className="text-xs text-[var(--text-tertiary)] truncate mt-0.5">
               {session.slug}
             </div>
           )}
@@ -61,13 +61,13 @@ function SessionLevel1({ session }: { session: Session }) {
 
       {/* Last prompt preview */}
       {session.lastPrompt && (
-        <div className="text-xs text-zinc-400 line-clamp-2 mb-2 flex-1">
+        <div className="text-xs text-[var(--text-secondary)] line-clamp-2 mb-2 flex-1">
           {session.lastPrompt}
         </div>
       )}
 
       {/* Footer */}
-      <div className="flex items-center gap-3 text-xs text-zinc-500 mt-auto">
+      <div className="flex items-center gap-3 text-xs text-[var(--text-tertiary)] mt-auto">
         <span className="flex items-center gap-1">
           <MessageSquare className="w-3 h-3" />
           {session.messageCount}
@@ -90,15 +90,15 @@ function SessionLevel2({ session }: { session: Session }) {
         {session.isRunning && (
           <Play className="w-3 h-3 text-emerald-400 fill-emerald-400 flex-shrink-0" />
         )}
-        <span className="text-sm font-medium text-zinc-100 truncate">
+        <span className="text-sm font-medium text-[var(--text-primary)] truncate">
           {session.title || session.slug || "session"}
         </span>
       </div>
-      <div className="text-xs text-zinc-500 mt-1">
+      <div className="text-xs text-[var(--text-tertiary)] mt-1">
         {session.messageCount} msgs
       </div>
       {session.lastPrompt && (
-        <div className="text-xs text-zinc-400 truncate mt-1 flex-1">
+        <div className="text-xs text-[var(--text-secondary)] truncate mt-1 flex-1">
           {session.lastPrompt.slice(0, 50)}
         </div>
       )}
@@ -113,7 +113,7 @@ function SessionLevel3({ session }: { session: Session }) {
         {session.isRunning && (
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
         )}
-        <span className="text-xs text-zinc-300 truncate">
+        <span className="text-xs text-[var(--text-secondary)] truncate">
           {(session.title || session.slug || "session").slice(0, 12)}
         </span>
       </div>
@@ -133,7 +133,7 @@ function SessionLevel4({ session }: { session: Session }) {
       ) : session.status === "inbox" ? (
         <span className="w-2 h-2 rounded-full bg-blue-400" />
       ) : (
-        <span className="w-2 h-2 rounded-full bg-zinc-500" />
+        <span className="w-2 h-2 rounded-full bg-[var(--text-tertiary)]" />
       )}
     </div>
   );

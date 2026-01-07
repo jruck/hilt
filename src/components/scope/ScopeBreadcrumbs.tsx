@@ -123,13 +123,13 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange, isPinned, onToggleP
         <button
           ref={isAtRoot ? lastSegmentRef : undefined}
           onClick={handleRootClick}
-          className="flex items-center gap-1 px-2 py-1 rounded text-sm transition-colors font-mono hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+          className="flex items-center gap-1 px-2 py-1 rounded text-sm transition-colors font-mono hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           title="All Projects (root)"
         >
           <span>/</span>
           {isAtRoot && (
             <ChevronDown
-              className={`w-3.5 h-3.5 text-zinc-500 transition-transform ${
+              className={`w-3.5 h-3.5 text-[var(--text-tertiary)] transition-transform ${
                 isDropdownOpen ? "rotate-180" : ""
               }`}
             />
@@ -144,18 +144,18 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange, isPinned, onToggleP
           return (
             <div key={segment.fullPath} className="flex items-center">
               {/* Separator */}
-              <span className="text-zinc-600 px-0.5">→</span>
+              <span className="text-[var(--text-tertiary)] px-0.5">→</span>
 
               {/* Segment button */}
               <button
                 ref={isLast ? lastSegmentRef : undefined}
                 onClick={(e) => handleSegmentClick(segment, e)}
-                className="flex items-center gap-1 px-2 py-1 rounded text-sm transition-colors hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                className="flex items-center gap-1 px-2 py-1 rounded text-sm transition-colors hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               >
                 <span className="font-mono">{displayName}</span>
                 {isLast && (
                   <ChevronDown
-                    className={`w-3.5 h-3.5 text-zinc-500 transition-transform ${
+                    className={`w-3.5 h-3.5 text-[var(--text-tertiary)] transition-transform ${
                       isDropdownOpen ? "rotate-180" : ""
                     }`}
                   />

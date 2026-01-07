@@ -94,12 +94,12 @@ export function TreeView({
   return (
     <div
       ref={containerRef}
-      className="flex-1 relative bg-zinc-900 overflow-hidden rounded-lg"
+      className="flex-1 relative bg-[var(--bg-secondary)] overflow-hidden rounded-lg"
     >
       {/* Loading overlay */}
       {isLoading && (
-        <div className="absolute inset-0 bg-zinc-900/50 flex items-center justify-center z-10">
-          <Loader2 className="w-6 h-6 text-zinc-400 animate-spin" />
+        <div className="absolute inset-0 bg-[var(--bg-secondary)]/50 flex items-center justify-center z-10">
+          <Loader2 className="w-6 h-6 text-[var(--text-secondary)] animate-spin" />
         </div>
       )}
 
@@ -136,7 +136,7 @@ export function TreeView({
 
       {/* Empty state */}
       {!isLoading && tree && rects.length === 0 && (
-        <div className="flex flex-col items-center justify-center h-full text-zinc-500 gap-2">
+        <div className="flex flex-col items-center justify-center h-full text-[var(--text-tertiary)] gap-2">
           <span className="text-lg">No sessions in this scope</span>
           <span className="text-sm">
             {scopePath
@@ -148,7 +148,7 @@ export function TreeView({
 
       {/* No tree yet (initial load) */}
       {!isLoading && !tree && (
-        <div className="flex items-center justify-center h-full text-zinc-500">
+        <div className="flex items-center justify-center h-full text-[var(--text-tertiary)]">
           <Loader2 className="w-6 h-6 animate-spin" />
         </div>
       )}

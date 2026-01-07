@@ -70,17 +70,17 @@ export function SortablePinnedFolderItem({
       style={style}
       className={`group flex items-center gap-1 px-1 py-1.5 rounded cursor-pointer transition-colors ${
         isDragging
-          ? "bg-zinc-700 opacity-50"
+          ? "bg-[var(--bg-tertiary)] opacity-50"
           : isActive
-          ? "bg-zinc-800 text-zinc-100"
-          : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+          ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]"
+          : "text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
       }`}
     >
       {/* Drag handle */}
       <div
         {...attributes}
         {...listeners}
-        className="p-0.5 cursor-grab active:cursor-grabbing text-zinc-600 hover:text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="p-0.5 cursor-grab active:cursor-grabbing text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] opacity-0 group-hover:opacity-100 transition-opacity"
       >
         <GripVertical className="w-3.5 h-3.5" />
       </div>
@@ -98,7 +98,7 @@ export function SortablePinnedFolderItem({
             <span className="text-sm truncate">{folder.name}</span>
             {hasRunning && <LiveIndicator title="Running sessions" />}
           </div>
-          <div className="text-xs text-zinc-500 truncate">{displayPath}</div>
+          <div className="text-xs text-[var(--text-tertiary)] truncate">{displayPath}</div>
         </div>
       </div>
 
@@ -107,7 +107,7 @@ export function SortablePinnedFolderItem({
         {/* Inbox (To Do) count - blue (matches column header) */}
         {inboxCount > 0 && (
           <span
-            className="text-xs text-blue-400 bg-blue-500/20 px-1.5 py-0.5 rounded"
+            className="text-xs text-[var(--status-todo)] bg-[var(--status-todo-bg)] px-1.5 py-0.5 rounded"
             title={`${inboxCount} in To Do`}
           >
             {inboxCount}
@@ -116,7 +116,7 @@ export function SortablePinnedFolderItem({
         {/* Active (In Progress) count - green (matches column header) */}
         {activeCount > 0 && (
           <span
-            className="text-xs text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded"
+            className="text-xs text-[var(--status-active)] bg-[var(--status-active-bg)] px-1.5 py-0.5 rounded"
             title={`${activeCount} in progress`}
           >
             {activeCount}
@@ -127,7 +127,7 @@ export function SortablePinnedFolderItem({
             e.stopPropagation();
             onUnpin();
           }}
-          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 transition-opacity"
+          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-opacity"
           title="Unpin folder"
         >
           <X className="w-3.5 h-3.5" />

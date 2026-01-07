@@ -161,7 +161,7 @@ export function InboxCard({
       <div
         ref={setNodeRef}
         style={style}
-        className="relative bg-blue-950/30 border border-blue-500 rounded-lg p-3 shadow-sm"
+        className="relative bg-[var(--status-todo-bg)] border border-[var(--status-todo)] rounded-lg p-3 shadow-sm"
       >
         <textarea
           ref={inputRef}
@@ -170,20 +170,20 @@ export function InboxCard({
           onKeyDown={handleKeyDown}
           onBlur={handleSave}
           placeholder="Enter your prompt..."
-          className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500 resize-none font-mono"
+          className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-default)] rounded px-2 py-1.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none focus:border-blue-500 resize-none font-mono"
           rows={editRows}
         />
         <div className="flex justify-end gap-1 mt-2">
           <button
             onClick={handleCancel}
-            className="p-1 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 rounded transition-colors"
+            className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded transition-colors"
             title="Cancel"
           >
             <X className="w-4 h-4" />
           </button>
           <button
             onClick={handleSave}
-            className="p-1 text-emerald-500 hover:text-emerald-400 hover:bg-zinc-700 rounded transition-colors"
+            className="p-1 text-emerald-500 hover:text-emerald-400 hover:bg-[var(--bg-tertiary)] rounded transition-colors"
             title="Save"
           >
             <Check className="w-4 h-4" />
@@ -200,68 +200,68 @@ export function InboxCard({
       {...attributes}
       {...listeners}
       className={`
-        group relative bg-blue-950/30 border rounded-lg p-3
-        hover:border-blue-700/50 transition-colors cursor-grab
-        ${isDragging ? "shadow-xl ring-2 ring-blue-500" : "shadow-sm"}
-        ${isSelected ? "border-blue-500 bg-blue-500/10" : "border-blue-800/50"}
+        group relative bg-[var(--status-todo-bg)] border rounded-lg p-3
+        hover:border-[var(--status-todo)] transition-colors cursor-grab
+        ${isDragging ? "shadow-xl ring-2 ring-[var(--status-todo)]" : "shadow-sm"}
+        ${isSelected ? "border-[var(--status-todo)] bg-[var(--status-todo-bg)]" : "border-[var(--status-todo-border)]"}
       `}
     >
       {/* Hover actions - floating toolbar */}
       <div className={`
         absolute top-1.5 right-1.5 flex items-center gap-0.5 px-1 py-0.5
-        bg-blue-900 border border-blue-800 rounded-md shadow-lg
+        bg-[var(--toolbar-bg-blue)] border border-[var(--toolbar-border-blue)] rounded-md shadow-lg
         ${isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"}
         transition-opacity
       `}>
         <button
           onClick={(e) => { e.stopPropagation(); onSelect?.(item, !isSelected); }}
-          className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-blue-800 rounded transition-colors"
+          className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--toolbar-hover-blue)] rounded transition-colors"
           title={isSelected ? "Deselect" : "Select"}
         >
           {isSelected ? <CheckSquare className="w-4 h-4 text-blue-400" /> : <Square className="w-4 h-4" />}
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); startEditing(); }}
-          className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-blue-800 rounded transition-colors"
+          className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--toolbar-hover-blue)] rounded transition-colors"
           title="Edit prompt"
         >
           <Pencil className="w-4 h-4" />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onRefine?.(); }}
-          className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-blue-800 rounded transition-colors"
+          className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--toolbar-hover-blue)] rounded transition-colors"
           title="Refine this idea before implementing"
         >
           <Brain className="w-4 h-4" />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onProcessReference?.(); }}
-          className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-blue-800 rounded transition-colors"
+          className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--toolbar-hover-blue)] rounded transition-colors"
           title="Process as reference"
         >
           <Bookmark className="w-4 h-4" />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onStart?.(); }}
-          className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-blue-800 rounded transition-colors"
+          className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--toolbar-hover-blue)] rounded transition-colors"
           title="Start session with this prompt"
         >
           <Play className="w-4 h-4" />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
-          className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-blue-800 rounded transition-colors"
+          className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--toolbar-hover-blue)] rounded transition-colors"
           title="Delete draft"
         >
           <Trash2 className="w-4 h-4" />
         </button>
       </div>
 
-      <p className="text-sm text-zinc-300 line-clamp-2" title={hasStructure ? item.prompt : displayTitle}>
+      <p className="text-sm text-[var(--text-secondary)] line-clamp-2" title={hasStructure ? item.prompt : displayTitle}>
         {displayTitle}
       </p>
       {hasStructure && (
-        <p className="text-xs text-zinc-500 mt-1 truncate">
+        <p className="text-xs text-[var(--text-tertiary)] mt-1 truncate">
           {item.prompt.split("\n").length} lines
         </p>
       )}

@@ -31,8 +31,8 @@ export function PinnedFolderItem({
     <div
       className={`group flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
         isActive
-          ? "bg-zinc-800 text-zinc-100"
-          : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+          ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]"
+          : "text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
       }`}
       onClick={onClick}
       title={folder.path}
@@ -44,12 +44,12 @@ export function PinnedFolderItem({
           <span className="text-sm truncate">{folder.name}</span>
           {hasRunning && <LiveIndicator title="Running sessions" />}
         </div>
-        <div className="text-xs text-zinc-500 truncate">{displayPath}</div>
+        <div className="text-xs text-[var(--text-tertiary)] truncate">{displayPath}</div>
       </div>
 
       <div className="flex items-center gap-1.5 flex-shrink-0">
         {sessionCount > 0 && (
-          <span className="text-xs text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">
+          <span className="text-xs text-[var(--text-tertiary)] bg-[var(--bg-tertiary)] px-1.5 py-0.5 rounded">
             {sessionCount}
           </span>
         )}
@@ -58,7 +58,7 @@ export function PinnedFolderItem({
             e.stopPropagation();
             onUnpin();
           }}
-          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 transition-opacity"
+          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-opacity"
           title="Unpin folder"
         >
           <X className="w-3.5 h-3.5" />

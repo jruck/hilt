@@ -123,7 +123,7 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange, isPinned, onToggleP
         <button
           ref={isAtRoot ? lastSegmentRef : undefined}
           onClick={handleRootClick}
-          className="flex items-center gap-1 px-2 py-1 rounded text-sm transition-colors font-mono hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          className="flex items-center gap-1 px-2 py-1 rounded text-[13px] transition-colors font-mono hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           title="All Projects (root)"
         >
           <span>/</span>
@@ -144,13 +144,13 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange, isPinned, onToggleP
           return (
             <div key={segment.fullPath} className="flex items-center">
               {/* Separator */}
-              <span className="text-[var(--text-tertiary)] px-0.5">→</span>
+              <span className="text-[var(--text-tertiary)] text-[13px] px-0.5">→</span>
 
               {/* Segment button */}
               <button
                 ref={isLast ? lastSegmentRef : undefined}
                 onClick={(e) => handleSegmentClick(segment, e)}
-                className="flex items-center gap-1 px-2 py-1 rounded text-sm transition-colors hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                className="flex items-center gap-1 px-2 py-1 rounded text-[13px] transition-colors font-mono hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               >
                 <span className="font-mono">{displayName}</span>
                 {isLast && (

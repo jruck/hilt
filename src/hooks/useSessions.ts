@@ -1,17 +1,32 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import useSWR from "swr";
 import { Session, SessionStatus, SessionsResponse } from "@/lib/types";
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
+// Custom hook for visibility-aware polling
+function useVisibilityAwareInterval(activeInterval: number, hiddenInterval: number) {
+  const [isVisible, setIsVisible] = useState(true);
+
+  useEffect(() => {
+    const handleVisibility = () => setIsVisible(!document.hidden);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
+
+  return isVisible ? activeInterval : hiddenInterval;
+}
+
 export function useSessions(scopePath?: string, page = 1, pageSize = 100) {
+  const refreshInterval = useVisibilityAwareInterval(5000, 30000); // 5s visible, 30s hidden
   const scopeParam = scopePath ? `&scope=${encodeURIComponent(scopePath)}` : '';
   const { data, error, isLoading, mutate } = useSWR<SessionsResponse>(
     `/api/sessions?page=${page}&pageSize=${pageSize}${scopeParam}`,
     fetcher,
     {
-      refreshInterval: 5000, // Refresh every 5 seconds
+      refreshInterval,
       revalidateOnFocus: true,
       keepPreviousData: true, // Prevent loading flash on scope change
     }
@@ -86,6 +101,7 @@ export function useSessions(scopePath?: string, page = 1, pageSize = 100) {
 }
 
 export function useInboxItems(scopePath?: string) {
+  const refreshInterval = useVisibilityAwareInterval(5000, 30000); // 5s visible, 30s hidden
   const scopeParam = scopePath ? `?scope=${encodeURIComponent(scopePath)}` : '';
   const { data, error, isLoading, mutate } = useSWR<{
     items: Array<{
@@ -103,7 +119,7 @@ export function useInboxItems(scopePath?: string) {
     }>;
     lastModTime: number | null;
   }>(`/api/inbox${scopeParam}`, fetcher, {
-    refreshInterval: 2000, // Poll every 2 seconds to detect external file changes
+    refreshInterval, // Match session polling - 5s visible, 30s hidden
     keepPreviousData: true, // Prevent loading flash on scope change
   });
 

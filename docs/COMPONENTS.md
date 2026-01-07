@@ -363,15 +363,38 @@ Folder rectangle in treemap.
 
 ### TreeSessionCard.tsx
 
-**File**: `src/components/TreeSessionCard.tsx` (140 lines)
+**File**: `src/components/TreeSessionCard.tsx` (~230 lines)
 
-Session leaf in treemap.
+Session leaf in treemap. Shows content appropriate to render level.
 
-**Content**
+**Render Levels**
 
-- Title (truncated to fit)
-- Running indicator (pulsing dot)
-- Click to open terminal
+| Level | Min Area | Content |
+|-------|----------|---------|
+| 1 | Large | Title, slug, lastPrompt (if different), message count, git branch, action toolbar |
+| 2 | Medium | Title, message count, action toolbar |
+| 3 | Small | Truncated title (12 chars), running dot |
+| 4 | Tiny | Colored status dot only |
+
+**Action Toolbar** (Levels 1-2 only)
+
+Floating toolbar appears on hover in top-right corner:
+- Select/Deselect (checkbox icon)
+- Open session (Play icon)
+- Mark as Done (CheckCircle icon) - only for non-recent sessions
+
+**Props**
+
+```typescript
+interface TreeSessionCardProps {
+  session: Session;
+  renderLevel: 1 | 2 | 3 | 4;
+  onClick: () => void;
+  onSelect?: (session: Session, selected: boolean) => void;
+  onDelete?: (session: Session) => void;
+  isSelected?: boolean;
+}
+```
 
 ---
 

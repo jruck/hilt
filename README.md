@@ -83,6 +83,7 @@ Detailed documentation is available in the [`docs/`](docs/) folder:
 | [Data Models](docs/DATA-MODELS.md) | TypeScript interfaces, Zod schemas, storage formats |
 | [Components](docs/COMPONENTS.md) | React component hierarchy and props |
 | [Development](docs/DEVELOPMENT.md) | Setup, debugging, common patterns |
+| [Design Philosophy](docs/DESIGN-PHILOSOPHY.md) | UI/UX preferences and patterns for AI assistants |
 | [Changelog](docs/CHANGELOG.md) | Version history with technical notes |
 
 ## Architecture
@@ -160,6 +161,7 @@ claude-kanban/
 │   ├── DATA-MODELS.md          # Type definitions
 │   ├── COMPONENTS.md           # Component docs
 │   ├── DEVELOPMENT.md          # Dev guide
+│   ├── DESIGN-PHILOSOPHY.md    # UI/UX preferences
 │   └── CHANGELOG.md            # Version history
 ├── .claude/
 │   ├── commands/               # Slash commands
@@ -193,10 +195,12 @@ For detailed file descriptions, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#
 Before making changes:
 1. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for system context
 2. Check [docs/CHANGELOG.md](docs/CHANGELOG.md) for recent changes
+3. **For UI work**: Read [docs/DESIGN-PHILOSOPHY.md](docs/DESIGN-PHILOSOPHY.md) for design preferences
 
 After completing work:
 1. Update [docs/CHANGELOG.md](docs/CHANGELOG.md) under `[Unreleased]`
 2. Update relevant docs if architecture/API/types changed
+3. **For UI work**: Update [docs/DESIGN-PHILOSOPHY.md](docs/DESIGN-PHILOSOPHY.md) if new patterns or preferences were learned
 
 See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for detailed development guidelines.
 

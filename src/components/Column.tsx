@@ -95,6 +95,7 @@ interface ColumnProps {
   status: SessionStatus;
   sessions: Session[];
   totalCount?: number;  // True total count from API (may differ from sessions.length due to pagination)
+  isLoading?: boolean;  // Show skeleton cards while loading
   inboxItems?: InboxItem[];
   todoSections?: TodoSection[];
   scopePath?: string;  // For opening todo file
@@ -124,6 +125,16 @@ interface ColumnProps {
   onToggleDrawer?: () => void;
   // ID of session that would be resumed by `claude --continue`
   continuableSessionId?: string;
+}
+
+// Skeleton card placeholder while loading
+function SkeletonCard() {
+  return (
+    <div className="bg-[var(--surface-card)] rounded-lg p-3 animate-pulse">
+      <div className="h-4 bg-[var(--bg-tertiary)] rounded w-3/4 mb-2" />
+      <div className="h-3 bg-[var(--bg-tertiary)] rounded w-1/2" />
+    </div>
+  );
 }
 
 const columnConfig: Record<
@@ -246,6 +257,7 @@ export function Column({
   status,
   sessions,
   totalCount,
+  isLoading = false,
   inboxItems = [],
   todoSections = [],
   scopePath,
@@ -744,7 +756,17 @@ export function Column({
           )}
         </SortableContext>
 
-        {sessions.length === 0 && inboxItems.length === 0 && !isCreatingNew && (
+        {/* Skeleton cards while loading */}
+        {isLoading && sessions.length === 0 && inboxItems.length === 0 && (
+          <div className="space-y-2">
+            <SkeletonCard />
+            <SkeletonCard />
+            {status === "recent" && <SkeletonCard />}
+          </div>
+        )}
+
+        {/* Empty state - only show when not loading */}
+        {!isLoading && sessions.length === 0 && inboxItems.length === 0 && !isCreatingNew && (
           <div className="text-center text-[var(--text-tertiary)] text-sm py-8">
             {status === "inbox"
               ? "No items"

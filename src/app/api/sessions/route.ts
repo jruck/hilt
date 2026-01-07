@@ -3,14 +3,20 @@ import { getSessions, getRunningSessionIds, getSessionMtime } from "@/lib/claude
 import { getAllSessionStatuses, setSessionStatus } from "@/lib/db";
 import { Session, SessionStatus } from "@/lib/types";
 import { buildTree, isUnderScope } from "@/lib/tree-utils";
+import { getCachedPlannedSlugs, setCachedPlannedSlugs } from "@/lib/session-cache";
 import fs from "fs";
 import path from "path";
 import os from "os";
 
 const PLANS_DIR = path.join(os.homedir(), ".claude", "plans");
 
-// Get set of slugs that have plan files
+// Get set of slugs that have plan files (with 30s caching)
 function getPlannedSlugs(): Set<string> {
+  // Try cache first
+  const cached = getCachedPlannedSlugs();
+  if (cached) return cached;
+
+  // Cache miss - scan directory
   const slugs = new Set<string>();
   try {
     if (fs.existsSync(PLANS_DIR)) {
@@ -24,6 +30,9 @@ function getPlannedSlugs(): Set<string> {
   } catch {
     // Ignore errors reading plans directory
   }
+
+  // Cache the result
+  setCachedPlannedSlugs(slugs);
   return slugs;
 }
 

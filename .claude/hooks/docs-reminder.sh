@@ -27,6 +27,7 @@ cat << 'EOF'
    • docs/ARCHITECTURE.md - If system design changed
    • docs/API.md - If API routes changed
    • docs/DATA-MODELS.md - If types changed
+   • docs/DESIGN-PHILOSOPHY.md - If UI/UX patterns were refined or new preferences learned
 
 EOF
 

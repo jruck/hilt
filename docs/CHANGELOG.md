@@ -8,6 +8,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
+- **Tree View Action Buttons** - Session cards in Tree View now show action toolbar on hover
+  - Select, Open, and Mark as Done buttons appear on larger cards (render levels 1-2)
+  - Matches floating toolbar pattern from Kanban SessionCard
+  - Smaller cards (levels 3-4) omit buttons due to space constraints
+  - Files: `src/components/TreeSessionCard.tsx`, `src/components/TreeView.tsx`
+
+### Fixed
+
+- **Tree View Title Priority** - Session cards now always show title first, not last message
+  - Level 1: Title, optional slug, lastPrompt preview (only if different from title)
+  - Level 2: Title only (removed lastPrompt to focus on what matters)
+  - Level 3-4: Truncated title or status dot
+  - Previously could show lastPrompt when title should be primary
+
+- **Design Philosophy Document** - Living document capturing UI/UX preferences for AI assistants
+  - `docs/DESIGN-PHILOSOPHY.md` - Core principles, specific patterns, interaction preferences
+  - Evolution Log section for tracking design decisions over time
+  - Integrated into commit hooks, `/commit`, `/docs-check` workflows
+  - Added to CLAUDE.md as required reading before UI work
+
 - **Documentation System** - Comprehensive docs for AI agents and developers
   - `docs/ARCHITECTURE.md` - System design, data flow, constraints (556 lines)
   - `docs/API.md` - All API routes and WebSocket protocol (509 lines)

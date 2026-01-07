@@ -6,7 +6,6 @@ import {
   layoutTreemap,
   prepareLayoutItems,
   isSessionNode,
-  getSessionIdFromNode,
   TreemapRect,
 } from "@/lib/treemap-layout";
 import { TreeNodeCard } from "./TreeNodeCard";
@@ -19,6 +18,10 @@ interface TreeViewProps {
   onNavigate: (path: string) => void;
   onOpenSession: (session: Session) => void;
   isLoading?: boolean;
+  // Session action callbacks
+  onSelectSession?: (session: Session, selected: boolean) => void;
+  onDeleteSession?: (session: Session) => void;
+  selectedSessionIds?: Set<string>;
 }
 
 export function TreeView({
@@ -27,6 +30,9 @@ export function TreeView({
   onNavigate,
   onOpenSession,
   isLoading,
+  onSelectSession,
+  onDeleteSession,
+  selectedSessionIds,
 }: TreeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -121,6 +127,9 @@ export function TreeView({
               session={rect.node.sessions[0]}
               renderLevel={rect.renderLevel}
               onClick={() => handleRectClick(rect)}
+              onSelect={onSelectSession}
+              onDelete={onDeleteSession}
+              isSelected={selectedSessionIds?.has(rect.node.sessions[0].id)}
             />
           ) : (
             // Folder card

@@ -2,6 +2,7 @@
 
 import { use } from "react";
 import { Board } from "@/components/Board";
+import { ScopeProvider } from "@/contexts/ScopeContext";
 
 interface PageProps {
   params: Promise<{ path?: string[] }>;
@@ -13,5 +14,9 @@ export default function Home({ params }: PageProps) {
   // e.g., ["Users", "jruck", "Work"] -> "/Users/jruck/Work"
   const scopePath = path ? `/${path.join("/")}` : "";
 
-  return <Board initialScope={scopePath} />;
+  return (
+    <ScopeProvider initialScope={scopePath}>
+      <Board />
+    </ScopeProvider>
+  );
 }

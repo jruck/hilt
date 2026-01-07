@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { useRouter } from "next/navigation";
 import {
   DndContext,
   DragEndEvent,
@@ -15,6 +14,7 @@ import {
 import { Session, SessionStatus } from "@/lib/types";
 import { useSessions, useInboxItems } from "@/hooks/useSessions";
 import { useTreeSessions } from "@/hooks/useTreeSessions";
+import { useScope } from "@/contexts/ScopeContext";
 import { Column } from "./Column";
 import { SessionCard } from "./SessionCard";
 import { TerminalDrawer } from "./TerminalDrawer";
@@ -22,9 +22,8 @@ import { Sidebar } from "./sidebar";
 import { ScopeBreadcrumbs, BrowseButton, RecentScopesButton } from "./scope";
 import { ViewToggle, ViewMode } from "./ViewToggle";
 import { TreeView } from "./TreeView";
-import { recordScopeVisit } from "@/lib/recent-scopes";
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
-import { Loader2, X, Inbox, Loader2 as InProgressIcon, Clock, Search, Filter, FileText, Check } from "lucide-react";
+import { X, Inbox, Loader2 as InProgressIcon, Clock, Search, Filter, FileText, Check } from "lucide-react";
 
 const COLUMNS: SessionStatus[] = ["inbox", "active", "recent"];
 
@@ -44,13 +43,8 @@ interface InboxItem {
   sortOrder: number;
 }
 
-const SCOPE_STORAGE_KEY = "claude-kanban-scope";
 const HOME_DIR_STORAGE_KEY = "claude-kanban-home-dir";
 const VIEW_MODE_STORAGE_KEY = "claude-kanban-view-mode";
-
-interface BoardProps {
-  initialScope?: string;
-}
 
 // Get cached homeDir synchronously to prevent breadcrumb flash
 function getCachedHomeDir(): string {
@@ -69,27 +63,14 @@ function getCachedViewMode(): ViewMode {
   return "board";
 }
 
-export function Board({ initialScope = "" }: BoardProps) {
-  const router = useRouter();
+export function Board() {
+  // Scope path from context - no more router.push, pure client-side state
+  const { scopePath, setScopePath } = useScope();
 
-  // Scope path for filtering sessions - controlled by URL via initialScope
-  const [scopePath, setScopePath] = useState<string>(initialScope);
   // Initialize homeDir from cache to prevent breadcrumb disappearing on navigation
   const [homeDir, setHomeDir] = useState<string>(getCachedHomeDir);
   // View mode: board (columns) or tree (treemap)
   const [viewMode, setViewMode] = useState<ViewMode>(getCachedViewMode);
-
-  // Sync scopePath with URL changes (initialScope prop)
-  useEffect(() => {
-    setScopePath(initialScope);
-  }, [initialScope]);
-
-  // Persist scope to localStorage when it changes
-  useEffect(() => {
-    if (typeof window !== "undefined" && scopePath !== undefined) {
-      localStorage.setItem(SCOPE_STORAGE_KEY, scopePath);
-    }
-  }, [scopePath]);
 
   // Persist view mode to localStorage when it changes
   useEffect(() => {
@@ -98,39 +79,44 @@ export function Board({ initialScope = "" }: BoardProps) {
     }
   }, [viewMode]);
 
-  // Fetch home directory on mount and validate scope if set
+  // Fetch home directory on mount (if not cached) and validate scope if set
   useEffect(() => {
+    // homeDir is already initialized from cache via lazy initializer
+    // Only fetch from API if we don't have it
+    if (homeDir) {
+      // Only validate if scope looks suspicious (not empty and not under cached homeDir)
+      if (scopePath && !scopePath.startsWith(homeDir)) {
+        fetch(`/api/folders?validate=${encodeURIComponent(scopePath)}`)
+          .then((res) => res.json())
+          .then((data) => {
+            if (!data.valid) {
+              setScopePath("");
+            }
+          })
+          .catch(console.error);
+      }
+      return;
+    }
+
+    // No cache, need to fetch homeDir
     fetch("/api/folders")
       .then((res) => res.json())
       .then(async (data) => {
         setHomeDir(data.homeDir);
-        // Cache for future navigations to prevent breadcrumb flash
         localStorage.setItem(HOME_DIR_STORAGE_KEY, data.homeDir);
 
-        // Validate current scope path (if one is set)
-        // Empty scope is valid - it means "all projects" (root view)
+        // Validate current scope path if set
         if (scopePath && scopePath !== data.homeDir) {
           const validateRes = await fetch(`/api/folders?validate=${encodeURIComponent(scopePath)}`);
           const validateData = await validateRes.json();
           if (!validateData.valid) {
-            // Invalid path, reset to root (all projects)
             setScopePath("");
-            localStorage.setItem(SCOPE_STORAGE_KEY, "");
           }
         }
       })
       .catch(console.error);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Navigate to a new scope - URL is the source of truth
-  const handleScopeChange = useCallback((path: string) => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(SCOPE_STORAGE_KEY, path);
-      recordScopeVisit(path);
-    }
-    // Navigate via URL - the initialScope prop will sync scopePath state
-    router.push(path || "/", { scroll: false });
-  }, [router]);
 
   const { sessions, counts, isLoading, updateStatus, toggleStarred } = useSessions(scopePath || undefined);
   const { items: inboxItems, sections: todoSections, createItem, updateItem, deleteItem, reorderSections, reorderItem } = useInboxItems(scopePath || undefined);
@@ -792,14 +778,7 @@ Proceed autonomously otherwise.`;
     ? inboxItems.filter((item) => matchesSearch(item.prompt))
     : inboxItems;
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-[var(--bg-primary)]">
-        <Loader2 className="w-8 h-8 text-[var(--text-tertiary)] animate-spin" />
-      </div>
-    );
-  }
-
+  // No longer block render with full-screen spinner - columns show skeleton cards instead
   return (
     <div className="flex flex-col h-screen bg-[var(--bg-primary)]">
       {/* Status Bar - fixed height for drawer alignment */}
@@ -814,32 +793,22 @@ Proceed autonomously otherwise.`;
               <ScopeBreadcrumbs
                   value={scopePath}
                   homeDir={homeDir}
-                  onChange={handleScopeChange}
+                  onChange={setScopePath}
                   isPinned={pinnedFolders.isPinned(scopePath)}
                   onTogglePin={() => pinnedFolders.togglePin(scopePath)}
                 />
               <RecentScopesButton
                 currentPath={scopePath}
                 homeDir={homeDir}
-                onSelect={handleScopeChange}
+                onSelect={setScopePath}
               />
             </>
           )}
-          <BrowseButton onSelect={handleScopeChange} />
+          <BrowseButton onSelect={setScopePath} />
         </div>
 
-        {/* Center: View Toggle - absolutely positioned for true centering */}
-        <div
-          className="absolute left-1/2 -translate-x-1/2 flex items-center pointer-events-none"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        >
-          <div className="pointer-events-auto">
-            <ViewToggle view={viewMode} onChange={setViewMode} />
-          </div>
-        </div>
-
-        {/* Right side: Filter & Search */}
-        <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        {/* Right side: Filter, Search, View Toggle */}
+        <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           {/* Filter dropdown */}
           <div className="relative" ref={filterRef}>
             <button
@@ -901,6 +870,8 @@ Proceed autonomously otherwise.`;
             </button>
           )}
 
+          {/* View Toggle */}
+          <ViewToggle view={viewMode} onChange={setViewMode} />
         </div>
       </div>
 
@@ -908,7 +879,7 @@ Proceed autonomously otherwise.`;
         {/* Left Sidebar */}
         <Sidebar
           currentScope={scopePath}
-          onScopeChange={handleScopeChange}
+          onScopeChange={setScopePath}
           pinnedFolders={pinnedFolders}
         />
 
@@ -928,9 +899,12 @@ Proceed autonomously otherwise.`;
             <TreeView
               tree={tree}
               scopePath={scopePath}
-              onNavigate={handleScopeChange}
+              onNavigate={setScopePath}
               onOpenSession={handleOpenSession}
               isLoading={isTreeLoading}
+              onSelectSession={handleSelectSession}
+              onDeleteSession={handleDeleteSession}
+              selectedSessionIds={selectedIds}
             />
           </div>
         ) : (
@@ -961,6 +935,7 @@ Proceed autonomously otherwise.`;
                   status={status}
                   sessions={filteredSessions}
                   totalCount={displayCount}
+                  isLoading={isLoading}
                   inboxItems={status === "inbox" ? filteredInboxItems : undefined}
                   todoSections={status === "inbox" ? todoSections : undefined}
                   scopePath={status === "inbox" ? scopePath : undefined}

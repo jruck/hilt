@@ -7,12 +7,24 @@ Kanban UI for managing Claude Code sessions. See `README.md` for full feature li
 **Before making changes**, read:
 - `docs/ARCHITECTURE.md` - System design, data flow, component structure, constraints
 - `docs/CHANGELOG.md` - Recent changes and technical context
+- `docs/DESIGN-PHILOSOPHY.md` - **Read before UI work** to match user's preferences
 
 **After completing work**:
 1. Update `docs/CHANGELOG.md` under `[Unreleased]` section
 2. If architectural changes were made, update `docs/ARCHITECTURE.md`
 3. For new/modified types, update `docs/DATA-MODELS.md`
 4. For new/modified API routes, update `docs/API.md`
+5. **For UI/UX work**: Update `docs/DESIGN-PHILOSOPHY.md` if you learned new preferences or patterns
+
+**Ad-hoc documentation requests**: When the user says things like:
+- "make a note of this in my design philosophy" → Update `docs/DESIGN-PHILOSOPHY.md`
+- "document this in the project" → Choose the appropriate doc based on content:
+  - Architecture/system design → `docs/ARCHITECTURE.md`
+  - API changes → `docs/API.md`
+  - Type definitions → `docs/DATA-MODELS.md`
+  - UI/UX preferences, patterns, or decisions → `docs/DESIGN-PHILOSOPHY.md`
+  - Component behavior → `docs/COMPONENTS.md`
+- "remember this for future sessions" → Usually means `docs/DESIGN-PHILOSOPHY.md` (Evolution Log) or `CLAUDE.md` (constraints)
 
 ## Quick Context
 

@@ -20,6 +20,7 @@ Before committing, verify documentation is updated:
    - `docs/API.md` - if API routes changed
    - `docs/DATA-MODELS.md` - if types changed
    - `docs/COMPONENTS.md` - if significant component changes
+   - `docs/DESIGN-PHILOSOPHY.md` - if UI/UX work revealed new preferences or patterns
 
 4. **Create the commit**:
    - Use descriptive commit message

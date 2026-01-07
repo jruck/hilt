@@ -47,10 +47,11 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarP
   const { folders, unpinFolder, reorderFolders, isHydrated: foldersHydrated } = pinnedFolders;
 
   // Fetch ALL sessions (no scope filter) so we can count across all pinned folders
+  // Use longer refresh interval (10s) since sidebar counts are less time-critical
   const { data: sessionsData } = useSWR<SessionsResponse>(
     '/api/sessions?page=1&pageSize=500',
     fetcher,
-    { refreshInterval: 5000 }
+    { refreshInterval: 10000 }
   );
   const allSessions = sessionsData?.sessions ?? [];
 
@@ -59,7 +60,7 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarP
   const { data: inboxCountsData } = useSWR<{ counts: Record<string, number> }>(
     folderPaths ? `/api/inbox-counts?paths=${encodeURIComponent(folderPaths)}` : null,
     fetcher,
-    { refreshInterval: 5000 }
+    { refreshInterval: 10000 }
   );
   const inboxCounts = inboxCountsData?.counts ?? {};
 
@@ -112,16 +113,22 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarP
   if (!sidebarHydrated || !foldersHydrated) {
     return (
       <div
-        className="flex-shrink-0 bg-[var(--bg-secondary)] border-r border-[var(--border-default)] transition-all duration-300"
-        style={{ width: 256 }}
+        className="flex-shrink-0 bg-[var(--bg-secondary)] border-r border-[var(--border-default)]"
+        style={{
+          width: 256,
+          transition: 'background-color var(--theme-transition), border-color var(--theme-transition)'
+        }}
       />
     );
   }
 
   return (
     <div
-      className="flex-shrink-0 bg-[var(--bg-secondary)] border-r border-[var(--border-default)] transition-all duration-300 flex flex-col overflow-hidden"
-      style={{ width: isCollapsed ? 48 : 256 }}
+      className="flex-shrink-0 bg-[var(--bg-secondary)] border-r border-[var(--border-default)] flex flex-col overflow-hidden"
+      style={{
+        width: isCollapsed ? 48 : 256,
+        transition: 'width 300ms ease-in-out, background-color var(--theme-transition), border-color var(--theme-transition)'
+      }}
     >
       {/* Pinned Folders Section */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden pt-3">

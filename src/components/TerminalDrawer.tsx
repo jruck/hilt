@@ -81,6 +81,27 @@ export function TerminalDrawer({
   const [planSaveError, setPlanSaveError] = useState<string | null>(null);
   // Track the initial content MDXEditor outputs after parsing (used as baseline for change detection)
   const editorBaselineRef = useRef<{ slug: string; content: string } | null>(null);
+  // WebSocket port (dynamically discovered)
+  const [wsPort, setWsPort] = useState<number | null>(null);
+
+  // Fetch WebSocket port on mount
+  useEffect(() => {
+    async function fetchPort() {
+      try {
+        const res = await fetch("/api/ws-port");
+        if (res.ok) {
+          const data = await res.json();
+          setWsPort(data.port);
+        }
+      } catch (err) {
+        console.error("Failed to fetch WS port:", err);
+      }
+    }
+    fetchPort();
+    // Re-fetch periodically in case the server restarts on a different port
+    const interval = setInterval(fetchPort, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Drawer resize state
   const MIN_WIDTH = 400;
@@ -591,31 +612,31 @@ export function TerminalDrawer({
 
             {/* Render all terminals - use visibility instead of display to preserve dimensions */}
             {/* Use stable terminalId for key to prevent remounting when session gets real ID */}
-            {sessions.map((session) => {
+            {wsPort && sessions.map((session) => {
               const stableTerminalId = session.terminalId || session.id;
               const isVisible = viewMode === "terminal" && session.id === activeSession?.id && !isPlanOnlyView;
               return (
-              <div
-                key={stableTerminalId}
-                className={`absolute inset-0 p-3 ${isVisible ? 'visible' : 'invisible pointer-events-none'}`}
-              >
-            <Terminal
-              terminalId={stableTerminalId}
-              sessionId={session.id}
-              projectPath={session.projectPath}
-              wsUrl="ws://localhost:3001"
-              isNew={session.isNew}
-              initialPrompt={session.initialPrompt}
-              isActive={session.id === activeSession?.id}
-              isDrawerOpen={isOpen}
-              onExit={() => onCloseSession(session.id)}
-              onTitleChange={handleTitleChange}
-              onContextProgress={handleContextProgress}
-              onPlanEvent={handlePlanEvent}
-            />
-          </div>
-        );
-        })}
+                <div
+                  key={stableTerminalId}
+                  className={`absolute inset-0 p-3 ${isVisible ? 'visible' : 'invisible pointer-events-none'}`}
+                >
+                  <Terminal
+                    terminalId={stableTerminalId}
+                    sessionId={session.id}
+                    projectPath={session.projectPath}
+                    wsUrl={`ws://localhost:${wsPort}`}
+                    isNew={session.isNew}
+                    initialPrompt={session.initialPrompt}
+                    isActive={session.id === activeSession?.id}
+                    isDrawerOpen={isOpen}
+                    onExit={() => onCloseSession(session.id)}
+                    onTitleChange={handleTitleChange}
+                    onContextProgress={handleContextProgress}
+                    onPlanEvent={handlePlanEvent}
+                  />
+                </div>
+              );
+            })}
 
         {activeSession && viewMode === "info" && (
             <div className="p-6 space-y-6 overflow-auto h-full">

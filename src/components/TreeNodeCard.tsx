@@ -23,9 +23,12 @@ export function TreeNodeCard({
   return (
     <button
       onClick={onClick}
+      style={{
+        transition: 'transform 150ms, box-shadow 150ms, background-color var(--theme-transition), border-color var(--theme-transition), color var(--theme-transition)'
+      }}
       className={`
         w-full h-full rounded-lg border
-        transition-all duration-150 cursor-pointer
+        cursor-pointer
         flex flex-col overflow-hidden text-left
         ${hasActive
           ? "border-[var(--status-active-border)] bg-[var(--status-active-bg)] hover:border-[var(--status-active)]"
@@ -223,11 +226,14 @@ function SessionThumbnail({
   const isActive = session.status === "active" || session.isRunning;
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClick(e as unknown as React.MouseEvent); }}
       className={`
         p-1.5 rounded text-left text-xs
-        transition-colors
+        transition-colors cursor-pointer
         ${isActive
           ? "bg-[var(--status-active-bg)] border border-[var(--status-active-border)] hover:border-[var(--status-active)]"
           : parentHasActive
@@ -244,6 +250,6 @@ function SessionThumbnail({
           {session.title || session.slug || "session"}
         </span>
       </div>
-    </button>
+    </div>
   );
 }

@@ -3,6 +3,7 @@ import * as path from "path";
 import * as readline from "readline";
 import type { FSWatcher } from "chokidar";
 import { SessionMetadata, SummaryEntry, SummaryEntrySchema } from "./types";
+import { getCachedSessions, setCachedSessions } from "./session-cache";
 
 const CLAUDE_PROJECTS_DIR = path.join(
   process.env.HOME || "~",
@@ -202,10 +203,22 @@ async function parseSessionFile(
 
 /**
  * Get all sessions, optionally filtered by a base path prefix
+ * Uses in-memory caching for significant performance improvement
  */
 export async function getSessions(
   basePath?: string
 ): Promise<SessionMetadata[]> {
+  // Try cache first for unscoped requests (scoped requests filter from cached data)
+  const cached = getCachedSessions();
+  if (cached) {
+    // If we have cached data, filter it for scoped requests
+    if (basePath) {
+      return cached.filter(s => s.projectPath.startsWith(basePath));
+    }
+    return cached;
+  }
+
+  // No cache - need to parse all sessions
   const sessions: SessionMetadata[] = [];
 
   if (!fs.existsSync(CLAUDE_PROJECTS_DIR)) {
@@ -219,11 +232,6 @@ export async function getSessions(
     if (folder.startsWith(".")) continue;
 
     const projectPath = decodeProjectPath(folder);
-
-    // Filter by base path if provided
-    if (basePath && !projectPath.startsWith(basePath)) {
-      continue;
-    }
 
     const projectDir = path.join(CLAUDE_PROJECTS_DIR, folder);
     const stat = fs.statSync(projectDir);
@@ -244,6 +252,14 @@ export async function getSessions(
 
   // Sort by last activity (most recent first)
   sessions.sort((a, b) => b.lastActivity.getTime() - a.lastActivity.getTime());
+
+  // Cache the full result (regardless of basePath filter)
+  setCachedSessions(sessions);
+
+  // Return filtered if basePath was provided
+  if (basePath) {
+    return sessions.filter(s => s.projectPath.startsWith(basePath));
+  }
 
   return sessions;
 }

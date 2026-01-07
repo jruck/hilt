@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Trash2, Play, Square, CheckSquare, Pencil, Check, X, Brain, Bookmark } from "lucide-react";
+import { Trash2, Play, Square, CheckSquare, Pencil, Brain, Bookmark, Check, X } from "lucide-react";
 
 /**
  * Extract a display title from todo content.
@@ -79,7 +79,6 @@ export function InboxCard({
   const isEditing = externalIsEditing ?? internalIsEditing;
 
   const [editValue, setEditValue] = useState(item.prompt);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Extract display title from structured content
   const { title: displayTitle, hasStructure } = useMemo(
@@ -87,11 +86,26 @@ export function InboxCard({
     [item.prompt]
   );
 
-  // Calculate rows for textarea based on content
-  const editRows = useMemo(() => {
-    const lineCount = editValue.split("\n").length;
-    return Math.max(4, Math.min(20, lineCount + 2));
-  }, [editValue]);
+  // Auto-resize textarea to fit content, with max height at 50vh
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const adjustTextareaHeight = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    // Reset height to auto to get accurate scrollHeight
+    textarea.style.height = 'auto';
+
+    // Calculate max height as 50% of viewport
+    const maxHeight = window.innerHeight * 0.5;
+
+    // Set height to scrollHeight, capped at maxHeight
+    const newHeight = Math.min(textarea.scrollHeight, maxHeight);
+    textarea.style.height = `${newHeight}px`;
+
+    // Enable scrolling if content exceeds max height
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, []);
 
   const {
     attributes,
@@ -119,12 +133,17 @@ export function InboxCard({
     }
   }
 
-  // Focus input when editing starts
+  // Focus and resize when editing starts
   useEffect(() => {
-    if (isEditing && inputRef.current) {
-      inputRef.current.focus();
+    if (isEditing && textareaRef.current) {
+      textareaRef.current.focus();
+      // Place cursor at end
+      textareaRef.current.selectionStart = textareaRef.current.value.length;
+      textareaRef.current.selectionEnd = textareaRef.current.value.length;
+      // Initial height adjustment
+      adjustTextareaHeight();
     }
-  }, [isEditing]);
+  }, [isEditing, adjustTextareaHeight]);
 
   const handleSave = useCallback(() => {
     const trimmed = editValue.trim();
@@ -141,14 +160,51 @@ export function InboxCard({
     onEditingChange?.(false);
   }, [item.prompt, onEditingChange]);
 
+  // Save and then run the updated prompt
+  const handleSaveAndRun = useCallback(() => {
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== item.prompt) {
+      onUpdate?.(trimmed);
+    }
+    setInternalIsEditing(false);
+    onEditingChange?.(false);
+    // Run after saving
+    onStart?.();
+  }, [editValue, item.prompt, onUpdate, onEditingChange, onStart]);
+
+  // Save and then refine
+  const handleSaveAndRefine = useCallback(() => {
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== item.prompt) {
+      onUpdate?.(trimmed);
+    }
+    setInternalIsEditing(false);
+    onEditingChange?.(false);
+    onRefine?.();
+  }, [editValue, item.prompt, onUpdate, onEditingChange, onRefine]);
+
+  // Save and then process as reference
+  const handleSaveAndProcessRef = useCallback(() => {
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== item.prompt) {
+      onUpdate?.(trimmed);
+    }
+    setInternalIsEditing(false);
+    onEditingChange?.(false);
+    onProcessReference?.();
+  }, [editValue, item.prompt, onUpdate, onEditingChange, onProcessReference]);
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      handleSaveAndRun();
+    } else if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSave();
     } else if (e.key === "Escape") {
       handleCancel();
     }
-  }, [handleSave, handleCancel]);
+  }, [handleSave, handleCancel, handleSaveAndRun]);
 
   const startEditing = useCallback(() => {
     // Note: editValue is reset in the render logic above when isEditing becomes true
@@ -164,30 +220,65 @@ export function InboxCard({
         className="relative bg-[var(--status-todo-bg)] border border-[var(--status-todo)] rounded-lg p-3 shadow-sm"
       >
         <textarea
-          ref={inputRef}
+          ref={textareaRef}
           value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
+          onChange={(e) => {
+            setEditValue(e.target.value);
+            adjustTextareaHeight();
+          }}
           onKeyDown={handleKeyDown}
           onBlur={handleSave}
           placeholder="Enter your prompt..."
-          className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-default)] rounded px-2 py-1.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none focus:border-blue-500 resize-none font-mono"
-          rows={editRows}
+          className="w-full bg-transparent border-none text-sm text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none resize-none leading-normal"
+          style={{ minHeight: '1.5em' }}
         />
-        <div className="flex justify-end gap-1 mt-2">
+        {/* Action buttons - always visible at bottom */}
+        <div className="flex justify-between items-center mt-2">
+          {/* Cancel on left */}
           <button
-            onClick={handleCancel}
-            className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded transition-colors"
-            title="Cancel"
+            onMouseDown={(e) => { e.preventDefault(); handleCancel(); }}
+            className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] rounded transition-colors"
+            title="Cancel (Esc)"
           >
             <X className="w-4 h-4" />
           </button>
-          <button
-            onClick={handleSave}
-            className="p-1 text-emerald-500 hover:text-emerald-400 hover:bg-[var(--bg-tertiary)] rounded transition-colors"
-            title="Save"
-          >
-            <Check className="w-4 h-4" />
-          </button>
+          {/* Actions on right */}
+          <div className="flex items-center gap-1">
+            {onRefine && (
+              <button
+                onMouseDown={(e) => { e.preventDefault(); handleSaveAndRefine(); }}
+                className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] rounded transition-colors"
+                title="Refine"
+              >
+                <Brain className="w-4 h-4" />
+              </button>
+            )}
+            {onProcessReference && (
+              <button
+                onMouseDown={(e) => { e.preventDefault(); handleSaveAndProcessRef(); }}
+                className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] rounded transition-colors"
+                title="Process as reference"
+              >
+                <Bookmark className="w-4 h-4" />
+              </button>
+            )}
+            {onStart && (
+              <button
+                onMouseDown={(e) => { e.preventDefault(); handleSaveAndRun(); }}
+                className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] rounded transition-colors"
+                title="Run (⌘+Enter)"
+              >
+                <Play className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              onMouseDown={(e) => { e.preventDefault(); handleSave(); }}
+              className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] rounded transition-colors"
+              title="Save (Enter)"
+            >
+              <Check className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -257,7 +348,7 @@ export function InboxCard({
         </button>
       </div>
 
-      <p className="text-sm text-[var(--text-secondary)] line-clamp-2" title={hasStructure ? item.prompt : displayTitle}>
+      <p className="text-sm text-[var(--text-secondary)] leading-normal line-clamp-2" title={hasStructure ? item.prompt : displayTitle}>
         {displayTitle}
       </p>
       {hasStructure && (

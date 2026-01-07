@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { SessionStatus } from "./types";
+import { getCachedStatus, setCachedStatus, invalidateStatusCache } from "./session-cache";
 
 // Use DATA_DIR env var if set, otherwise use local ./data
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
@@ -12,6 +13,18 @@ function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
+}
+
+// Get file mtime for cache validation
+function getStatusFileMtime(): number {
+  try {
+    if (fs.existsSync(STATUS_FILE)) {
+      return fs.statSync(STATUS_FILE).mtime.getTime();
+    }
+  } catch {
+    // Ignore errors
+  }
+  return 0;
 }
 
 // Status storage
@@ -70,6 +83,8 @@ function readStatusFile(): StatusData {
 function writeStatusFile(data: StatusData) {
   ensureDataDir();
   fs.writeFileSync(STATUS_FILE, JSON.stringify(data, null, 2));
+  // Invalidate cache after write
+  invalidateStatusCache();
 }
 
 export async function getSessionStatus(
@@ -106,6 +121,14 @@ export async function setSessionStatus(
 export async function getAllSessionStatuses(): Promise<
   Map<string, { status: SessionStatus; sortOrder: number; starred?: boolean; lastKnownMtime?: number }>
 > {
+  // Check cache first using file mtime for validation
+  const currentMtime = getStatusFileMtime();
+  const cached = getCachedStatus(currentMtime);
+  if (cached) {
+    return cached as Map<string, { status: SessionStatus; sortOrder: number; starred?: boolean; lastKnownMtime?: number }>;
+  }
+
+  // Cache miss - read file
   const data = readStatusFile();
   const map = new Map<string, { status: SessionStatus; sortOrder: number; starred?: boolean; lastKnownMtime?: number }>();
 
@@ -117,6 +140,9 @@ export async function getAllSessionStatuses(): Promise<
       lastKnownMtime: record.lastKnownMtime,
     });
   }
+
+  // Cache the result
+  setCachedStatus(map, currentMtime);
 
   return map;
 }

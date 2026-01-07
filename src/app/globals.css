@@ -6,6 +6,9 @@
    Elegant, warm, high-contrast light mode
    ============================================ */
 :root {
+  /* Theme transition timing - used across app for coordinated theme switches */
+  --theme-transition: 200ms ease-out;
+
   /* Legacy variables for compatibility */
   --background: #fefefe;
   --foreground: #1a1a2e;

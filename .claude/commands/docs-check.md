@@ -21,6 +21,11 @@ Verify that documentation is in sync with the codebase.
    - Read `src/lib/types.ts`
    - Verify interfaces match documentation
 
+5. **DESIGN-PHILOSOPHY.md** - Does it reflect recent UI work?
+   - Check if recent UI changes revealed new patterns or preferences
+   - Look for entries in Evolution Log matching recent work
+   - Consider if any rejected approaches should be documented
+
 ## Your Task
 
 1. Read the documentation files

@@ -117,14 +117,18 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
   return (
     <div
       ref={setNodeRef}
-      style={{ ...style, ...glowStyle }}
+      style={{
+        ...style,
+        ...glowStyle,
+        transition: 'transform 300ms, box-shadow 300ms, background-color var(--theme-transition), border-color var(--theme-transition), color var(--theme-transition)'
+      }}
       {...attributes}
       {...listeners}
       onClick={() => onOpen?.(session)}
       title={isContinuable && !isNewlyAdded ? "Most recent - will be resumed by 'claude --continue'" : undefined}
       className={`
         group relative border rounded-lg p-3 overflow-hidden
-        transition-all duration-300 cursor-pointer
+        cursor-pointer
         ${isDragging ? "shadow-xl ring-2 ring-[var(--status-active)]" : "shadow-sm"}
         ${isNewlyAdded
           ? "border-[var(--status-active)] bg-[var(--status-active-bg)]"

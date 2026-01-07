@@ -36,6 +36,9 @@ interface StatusRecord {
   // When set to "recent", store the JSONL mtime so we only auto-promote
   // back to "active" if there's NEW activity after marking done
   lastKnownMtime?: number;
+  // Archival state - hidden from default views
+  archived?: boolean;
+  archivedAt?: string;  // ISO timestamp of when archived
 }
 
 interface StatusData {
@@ -119,18 +122,18 @@ export async function setSessionStatus(
 }
 
 export async function getAllSessionStatuses(): Promise<
-  Map<string, { status: SessionStatus; sortOrder: number; starred?: boolean; lastKnownMtime?: number }>
+  Map<string, { status: SessionStatus; sortOrder: number; starred?: boolean; lastKnownMtime?: number; archived?: boolean; archivedAt?: string }>
 > {
   // Check cache first using file mtime for validation
   const currentMtime = getStatusFileMtime();
   const cached = getCachedStatus(currentMtime);
   if (cached) {
-    return cached as Map<string, { status: SessionStatus; sortOrder: number; starred?: boolean; lastKnownMtime?: number }>;
+    return cached as Map<string, { status: SessionStatus; sortOrder: number; starred?: boolean; lastKnownMtime?: number; archived?: boolean; archivedAt?: string }>;
   }
 
   // Cache miss - read file
   const data = readStatusFile();
-  const map = new Map<string, { status: SessionStatus; sortOrder: number; starred?: boolean; lastKnownMtime?: number }>();
+  const map = new Map<string, { status: SessionStatus; sortOrder: number; starred?: boolean; lastKnownMtime?: number; archived?: boolean; archivedAt?: string }>();
 
   for (const [sessionId, record] of Object.entries(data)) {
     map.set(sessionId, {
@@ -138,6 +141,8 @@ export async function getAllSessionStatuses(): Promise<
       sortOrder: record.sortOrder,
       starred: record.starred,
       lastKnownMtime: record.lastKnownMtime,
+      archived: record.archived,
+      archivedAt: record.archivedAt,
     });
   }
 
@@ -228,4 +233,35 @@ export async function deleteInboxItem(id: string): Promise<void> {
   const items = readInboxFile();
   const filtered = items.filter((item) => item.id !== id);
   writeInboxFile(filtered);
+}
+
+// Archive a session (hide from default views)
+export async function archiveSession(sessionId: string): Promise<void> {
+  const data = readStatusFile();
+  const existing = data[sessionId];
+
+  data[sessionId] = {
+    status: existing?.status ?? "recent",
+    sortOrder: existing?.sortOrder ?? 0,
+    starred: existing?.starred,
+    lastKnownMtime: existing?.lastKnownMtime,
+    archived: true,
+    archivedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  writeStatusFile(data);
+}
+
+// Unarchive a session (restore to default views)
+export async function unarchiveSession(sessionId: string): Promise<void> {
+  const data = readStatusFile();
+  const existing = data[sessionId];
+
+  if (existing) {
+    delete existing.archived;
+    delete existing.archivedAt;
+    existing.updatedAt = new Date().toISOString();
+    writeStatusFile(data);
+  }
 }

@@ -23,7 +23,7 @@ import { ScopeBreadcrumbs, BrowseButton, RecentScopesButton } from "./scope";
 import { ViewToggle, ViewMode } from "./ViewToggle";
 import { TreeView } from "./TreeView";
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
-import { X, Inbox, Loader2 as InProgressIcon, Clock, Search, Filter, FileText, Check } from "lucide-react";
+import { X, Inbox, Loader2 as InProgressIcon, Clock, Search, Filter, FileText, Check, Archive } from "lucide-react";
 
 const COLUMNS: SessionStatus[] = ["inbox", "active", "recent"];
 
@@ -118,9 +118,12 @@ export function Board() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { sessions, counts, isLoading, updateStatus, toggleStarred } = useSessions(scopePath || undefined);
+  // Filter state for showing archived sessions
+  const [showArchived, setShowArchived] = useState(false);
+
+  const { sessions, counts, isLoading, updateStatus, toggleStarred, archiveSession, unarchiveSession } = useSessions(scopePath || undefined, 1, 100, showArchived);
   const { items: inboxItems, sections: todoSections, createItem, updateItem, deleteItem, reorderSections, reorderItem } = useInboxItems(scopePath || undefined);
-  const { tree, isLoading: isTreeLoading } = useTreeSessions(scopePath);
+  const { tree, isLoading: isTreeLoading } = useTreeSessions(scopePath, showArchived);
   const pinnedFolders = usePinnedFolders();
 
   // The most recent session would be resumed by `claude --continue`
@@ -150,6 +153,15 @@ export function Board() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   // Filter state
   const [filters, setFilters] = useState<{ hasPlan: boolean }>({ hasPlan: false });
+
+  // Handlers for archive/unarchive
+  const handleArchiveSession = async (sessionId: string) => {
+    await archiveSession(sessionId);
+  };
+
+  const handleUnarchiveSession = async (sessionId: string) => {
+    await unarchiveSession(sessionId);
+  };
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const filterRef = useRef<HTMLDivElement>(null);
   // Track when sessions were first seen (for "new" effect)
@@ -312,7 +324,7 @@ export function Board() {
   }, [searchQuery]);
 
   // Check if any filters are active
-  const hasActiveFilters = filters.hasPlan;
+  const hasActiveFilters = filters.hasPlan || showArchived;
 
   const getSessionsByStatus = useCallback(
     (status: SessionStatus) => {
@@ -834,6 +846,17 @@ Proceed autonomously otherwise.`;
                   <span className="flex-1">Plans</span>
                   {filters.hasPlan && <Check className="w-4 h-4 text-[var(--interactive-default)]" />}
                 </button>
+                <button
+                  onClick={() => setShowArchived(!showArchived)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-[var(--bg-tertiary)] transition-colors"
+                >
+                  <Archive className="w-4 h-4 text-[var(--text-tertiary)]" />
+                  <span className="flex-1">Archived</span>
+                  {counts.archived > 0 && (
+                    <span className="text-xs text-[var(--text-tertiary)]">{counts.archived}</span>
+                  )}
+                  {showArchived && <Check className="w-4 h-4 text-[var(--interactive-default)]" />}
+                </button>
               </div>
             )}
           </div>
@@ -904,6 +927,8 @@ Proceed autonomously otherwise.`;
               isLoading={isTreeLoading}
               onSelectSession={handleSelectSession}
               onDeleteSession={handleDeleteSession}
+              onArchiveSession={handleArchiveSession}
+              onUnarchiveSession={showArchived ? handleUnarchiveSession : undefined}
               selectedSessionIds={selectedIds}
             />
           </div>
@@ -945,6 +970,8 @@ Proceed autonomously otherwise.`;
                   onOpenPlan={handleOpenPlan}
                   onDeleteSession={handleDeleteSession}
                   onToggleStarred={toggleStarred}
+                  onArchiveSession={status === "recent" ? handleArchiveSession : undefined}
+                  onUnarchiveSession={status === "recent" && showArchived ? handleUnarchiveSession : undefined}
                   onCreateInboxItem={status === "inbox" ? handleCreateInboxItem : undefined}
                   onCreateAndRunInboxItem={status === "inbox" ? handleCreateAndRunInboxItem : undefined}
                   onUpdateInboxItem={handleUpdateInboxItem}

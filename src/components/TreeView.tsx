@@ -21,6 +21,8 @@ interface TreeViewProps {
   // Session action callbacks
   onSelectSession?: (session: Session, selected: boolean) => void;
   onDeleteSession?: (session: Session) => void;
+  onArchiveSession?: (sessionId: string) => void;
+  onUnarchiveSession?: (sessionId: string) => void;
   selectedSessionIds?: Set<string>;
 }
 
@@ -32,6 +34,8 @@ export function TreeView({
   isLoading,
   onSelectSession,
   onDeleteSession,
+  onArchiveSession,
+  onUnarchiveSession,
   selectedSessionIds,
 }: TreeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -129,6 +133,8 @@ export function TreeView({
               onClick={() => handleRectClick(rect)}
               onSelect={onSelectSession}
               onDelete={onDeleteSession}
+              onArchive={onArchiveSession}
+              onUnarchive={onUnarchiveSession}
               isSelected={selectedSessionIds?.has(rect.node.sessions[0].id)}
             />
           ) : (

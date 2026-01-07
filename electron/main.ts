@@ -214,6 +214,11 @@ async function createWindow() {
   // Load the Next.js app
   mainWindow.loadURL(`http://localhost:${port}`);
 
+  // Log any load errors
+  mainWindow.webContents.on("did-fail-load", (event, errorCode, errorDescription) => {
+    console.error(`Failed to load: ${errorCode} - ${errorDescription}`);
+  });
+
   // Inject Electron-specific CSS
   mainWindow.webContents.on("did-finish-load", () => {
     mainWindow?.webContents.insertCSS(`

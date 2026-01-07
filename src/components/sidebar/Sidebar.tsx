@@ -109,25 +109,26 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarP
     }
   };
 
-  // Don't render until hydrated to prevent flash
-  if (!sidebarHydrated || !foldersHydrated) {
-    return (
-      <div
-        className="flex-shrink-0 bg-[var(--bg-secondary)] border-r border-[var(--border-default)]"
-        style={{
-          width: 256,
-          transition: 'background-color var(--theme-transition), border-color var(--theme-transition)'
-        }}
-      />
-    );
-  }
+  // Determine if we're in a loading/hydrating state
+  const isLoading = !sidebarHydrated || !foldersHydrated;
+
+  // During loading, use default expanded state to match server render
+  const effectiveCollapsed = isLoading ? false : isCollapsed;
+
+  // Use default expanded width during loading to match server render
+  const sidebarWidth = effectiveCollapsed ? 48 : 256;
+
+  // Only enable width transitions after hydration to prevent flash
+  const transitionStyle = isLoading
+    ? 'background-color var(--theme-transition), border-color var(--theme-transition)'
+    : 'width 300ms ease-in-out, background-color var(--theme-transition), border-color var(--theme-transition)';
 
   return (
     <div
       className="flex-shrink-0 bg-[var(--bg-secondary)] border-r border-[var(--border-default)] flex flex-col overflow-hidden"
       style={{
-        width: isCollapsed ? 48 : 256,
-        transition: 'width 300ms ease-in-out, background-color var(--theme-transition), border-color var(--theme-transition)'
+        width: sidebarWidth,
+        transition: transitionStyle
       }}
     >
       {/* Pinned Folders Section */}
@@ -136,7 +137,7 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarP
           title="Pinned"
           icon={Pin}
           defaultExpanded={true}
-          isCollapsed={isCollapsed}
+          isCollapsed={effectiveCollapsed}
         >
           {folders.length === 0 ? (
             <div className="px-2 py-4 text-xs text-[var(--text-tertiary)] text-center">
@@ -176,13 +177,13 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarP
       {/* Footer with theme toggle and sidebar toggle */}
       <div
         className={`border-t border-[var(--border-default)] ${
-          isCollapsed
+          effectiveCollapsed
             ? "flex flex-col items-center py-2 gap-1"
             : "flex items-center justify-between px-2 h-11"
         }`}
       >
         <ThemeToggle />
-        <SidebarToggle isCollapsed={isCollapsed} onToggle={toggle} />
+        <SidebarToggle isCollapsed={effectiveCollapsed} onToggle={toggle} />
       </div>
     </div>
   );

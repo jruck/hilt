@@ -17,6 +17,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   - macOS hardened runtime with code signing entitlements
   - electron-builder configuration for DMG distribution
   - App icon using 🧱 (bricks) emoji
+  - `did-fail-load` error logging for debugging renderer load failures
 
 - **Tree View Action Buttons** - Session cards in Tree View now show action toolbar on hover
   - Select, Open, and Mark as Done buttons appear on larger cards (render levels 1-2)
@@ -25,6 +26,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   - Files: `src/components/TreeSessionCard.tsx`, `src/components/TreeView.tsx`
 
 ### Fixed
+
+- **Sidebar Hydration Mismatch** - Fix SSR/client hydration error in Sidebar component
+  - Removed early-return placeholder that had different DOM structure than full render
+  - Use `effectiveCollapsed` pattern to ensure consistent initial render
+  - Server and client now render identical structure, just with loading state styling
+  - Files: `src/components/sidebar/Sidebar.tsx`
 
 - **Tree View Title Priority** - Session cards now always show title first, not last message
   - Level 1: Title, optional slug, lastPrompt preview (only if different from title)

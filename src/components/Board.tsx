@@ -24,6 +24,7 @@ import { ViewToggle, ViewMode } from "./ViewToggle";
 import { TreeView } from "./TreeView";
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
 import { X, Inbox, Loader2 as InProgressIcon, Clock, Search, Filter, FileText, Check } from "lucide-react";
+import * as tauri from "@/lib/tauri";
 
 const COLUMNS: SessionStatus[] = ["inbox", "active", "recent"];
 
@@ -86,10 +87,9 @@ export function Board() {
     if (homeDir) {
       // Only validate if scope looks suspicious (not empty and not under cached homeDir)
       if (scopePath && !scopePath.startsWith(homeDir)) {
-        fetch(`/api/folders?validate=${encodeURIComponent(scopePath)}`)
-          .then((res) => res.json())
-          .then((data) => {
-            if (!data.valid) {
+        tauri.pathExists(scopePath)
+          .then((valid) => {
+            if (!valid) {
               setScopePath("");
             }
           })
@@ -98,18 +98,16 @@ export function Board() {
       return;
     }
 
-    // No cache, need to fetch homeDir
-    fetch("/api/folders")
-      .then((res) => res.json())
-      .then(async (data) => {
-        setHomeDir(data.homeDir);
-        localStorage.setItem(HOME_DIR_STORAGE_KEY, data.homeDir);
+    // No cache, need to fetch homeDir from Tauri
+    tauri.getHomeDir()
+      .then(async (fetchedHomeDir) => {
+        setHomeDir(fetchedHomeDir);
+        localStorage.setItem(HOME_DIR_STORAGE_KEY, fetchedHomeDir);
 
         // Validate current scope path if set
-        if (scopePath && scopePath !== data.homeDir) {
-          const validateRes = await fetch(`/api/folders?validate=${encodeURIComponent(scopePath)}`);
-          const validateData = await validateRes.json();
-          if (!validateData.valid) {
+        if (scopePath && scopePath !== fetchedHomeDir) {
+          const valid = await tauri.pathExists(scopePath);
+          if (!valid) {
             setScopePath("");
           }
         }

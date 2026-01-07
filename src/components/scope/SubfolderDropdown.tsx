@@ -25,20 +25,16 @@ export function SubfolderDropdown({
 
   // Fetch subfolders (or top-level folders if at root)
   useEffect(() => {
-    // If currentPath is empty (root), don't pass a scope to get all top-level folders
-    const url = currentPath
-      ? `/api/folders?scope=${encodeURIComponent(currentPath)}`
-      : `/api/folders`;
-    fetch(url)
-      .then((res) => res.json())
-      .then((data) => {
-        setFolders(data.folders || []);
+    import("@/lib/tauri").then(async (tauri) => {
+      try {
+        const response = await tauri.getSubfolders(currentPath || "");
+        setFolders(response.folders || []);
         setLoadedPath(currentPath);
-      })
-      .catch(() => {
+      } catch {
         setFolders([]);
         setLoadedPath(currentPath);
-      });
+      }
+    });
   }, [currentPath]);
 
   // Derive loading state - we're loading if we haven't loaded the current path yet

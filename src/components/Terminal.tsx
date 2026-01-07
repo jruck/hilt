@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { Terminal as XTerm, ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { useTheme } from "@/hooks/useTheme";
+import * as tauri from "@/lib/tauri";
 import "@xterm/xterm/css/xterm.css";
 
 // Terminal color themes
@@ -66,7 +67,6 @@ interface TerminalProps {
   terminalId: string;
   sessionId: string;
   projectPath?: string;
-  wsUrl: string;
   isNew?: boolean;
   initialPrompt?: string;
   isActive?: boolean;  // Whether this terminal tab is currently selected
@@ -77,11 +77,10 @@ interface TerminalProps {
   onPlanEvent?: (plan: PlanEvent) => void;
 }
 
-export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, initialPrompt, isActive = true, isDrawerOpen = true, onExit, onTitleChange, onContextProgress, onPlanEvent }: TerminalProps) {
+export function Terminal({ terminalId, sessionId, projectPath, isNew, initialPrompt, isActive = true, isDrawerOpen = true, onExit, onTitleChange, onContextProgress, onPlanEvent }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
   const spawnedRef = useRef(false);
   const { resolvedTheme } = useTheme();
 
@@ -105,11 +104,21 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
   useEffect(() => { onContextProgressRef.current = onContextProgress; }, [onContextProgress]);
   useEffect(() => { onPlanEventRef.current = onPlanEvent; }, [onPlanEvent]);
 
-  const sendMessage = useCallback((msg: object) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(msg));
+  const sendData = useCallback(async (data: string) => {
+    try {
+      await tauri.writeTerminal(terminalId, data);
+    } catch (err) {
+      console.error("Failed to write to terminal:", err);
     }
-  }, []);
+  }, [terminalId]);
+
+  const sendResize = useCallback(async (cols: number, rows: number) => {
+    try {
+      await tauri.resizeTerminal(terminalId, cols, rows);
+    } catch (err) {
+      console.error("Failed to resize terminal:", err);
+    }
+  }, [terminalId]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -139,85 +148,76 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Connect to WebSocket
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    // Set up Tauri event listeners
+    const unlisteners: Array<() => void> = [];
 
-    ws.onopen = () => {
-      if (!spawnedRef.current) {
-        // Spawn the terminal - use sessionIdRef for current value
-        // (sessionId may have been updated from temp ID to real UUID)
-        ws.send(
-          JSON.stringify({
-            type: "spawn",
-            terminalId,
-            sessionId: sessionIdRef.current,
-            projectPath,
-            isNew: isNewRef.current,
-            initialPrompt: initialPromptRef.current,
-          })
-        );
+    // Listen for PTY data
+    tauri.onPtyData((event) => {
+      if (event.terminalId === terminalId) {
+        term.write(event.data);
+      }
+    }).then(fn => unlisteners.push(fn));
+
+    // Listen for PTY exit
+    tauri.onPtyExit((event) => {
+      if (event.terminalId === terminalId) {
+        term.write(`\r\n\x1b[33m[Process exited with code ${event.exitCode}]\x1b[0m\r\n`);
+        onExitRef.current?.(event.exitCode);
+      }
+    }).then(fn => unlisteners.push(fn));
+
+    // Listen for title changes
+    tauri.onPtyTitle((event) => {
+      if (event.terminalId === terminalId) {
+        onTitleChangeRef.current?.(sessionIdRef.current, event.title);
+      }
+    }).then(fn => unlisteners.push(fn));
+
+    // Listen for context progress
+    tauri.onPtyContext((event) => {
+      if (event.terminalId === terminalId) {
+        onContextProgressRef.current?.(sessionIdRef.current, event.progress);
+      }
+    }).then(fn => unlisteners.push(fn));
+
+    // Listen for plan changes
+    tauri.onPlanChanged((event) => {
+      if (event.event !== "removed") {
+        onPlanEventRef.current?.({
+          event: event.event as "created" | "updated",
+          slug: event.slug,
+          path: event.path,
+          content: event.content || "",
+        });
+      }
+    }).then(fn => unlisteners.push(fn));
+
+    // Listen for spawn confirmation
+    tauri.onPtySpawned((event) => {
+      if (event.terminalId === terminalId) {
+        // Send initial size
+        sendResize(term.cols, term.rows);
+      }
+    }).then(fn => unlisteners.push(fn));
+
+    // Spawn the terminal
+    if (!spawnedRef.current) {
+      tauri.spawnTerminal(
+        terminalId,
+        sessionIdRef.current,
+        projectPath || "",
+        isNewRef.current || false,
+        initialPromptRef.current
+      ).then(() => {
         spawnedRef.current = true;
-      }
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        switch (msg.type) {
-          case "data":
-            term.write(msg.data);
-            break;
-          case "exit":
-            term.write(`\r\n\x1b[33m[Process exited with code ${msg.exitCode}]\x1b[0m\r\n`);
-            onExitRef.current?.(msg.exitCode);
-            break;
-          case "spawned":
-            // Send initial size
-            ws.send(
-              JSON.stringify({
-                type: "resize",
-                terminalId,
-                cols: term.cols,
-                rows: term.rows,
-              })
-            );
-            break;
-          case "error":
-            term.write(`\r\n\x1b[31mError: ${msg.message}\x1b[0m\r\n`);
-            break;
-          case "title":
-            onTitleChangeRef.current?.(sessionIdRef.current, msg.title);
-            break;
-          case "context":
-            onContextProgressRef.current?.(sessionIdRef.current, msg.progress);
-            break;
-          case "plan":
-            onPlanEventRef.current?.({
-              event: msg.event,
-              slug: msg.slug,
-              path: msg.path,
-              content: msg.content,
-            });
-            break;
-        }
-      } catch (err) {
-        console.error("Error parsing WS message:", err);
-      }
-    };
-
-    ws.onerror = () => {
-      term.write("\r\n\x1b[31mWebSocket connection error. Is the terminal server running?\x1b[0m\r\n");
-      term.write("\x1b[90mRun: npm run ws-server\x1b[0m\r\n");
-    };
-
-    ws.onclose = () => {
-      term.write("\r\n\x1b[33m[Connection closed]\x1b[0m\r\n");
-    };
+      }).catch((err) => {
+        term.write(`\r\n\x1b[31mError: ${err}\x1b[0m\r\n`);
+      });
+    }
 
     // Handle terminal input
     term.onData((data) => {
-      sendMessage({ type: "data", terminalId, data });
+      sendData(data);
     });
 
     // Handle resize - skip when terminal is hidden to prevent scroll jumps
@@ -227,12 +227,7 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
 
       try {
         fitAddon.fit();
-        sendMessage({
-          type: "resize",
-          terminalId,
-          cols: term.cols,
-          rows: term.rows,
-        });
+        sendResize(term.cols, term.rows);
       } catch {
         // Ignore fit errors during resize
       }
@@ -244,7 +239,14 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
     // Cleanup
     return () => {
       resizeObserver.disconnect();
-      ws.close();
+      // Kill the terminal process
+      tauri.killTerminal(terminalId).catch(() => {
+        // Ignore errors on cleanup
+      });
+      // Clean up event listeners
+      for (const unlisten of unlisteners) {
+        unlisten();
+      }
       term.dispose();
       spawnedRef.current = false;
     };
@@ -253,7 +255,7 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
   // - isNew changes from true to false when the real session is matched
   // - initialPrompt is only used once at spawn time
   // We don't want any of these changes to recreate the terminal
-  }, [terminalId, projectPath, wsUrl, sendMessage]);
+  }, [terminalId, projectPath, sendData, sendResize, resolvedTheme]);
 
   // Auto-focus terminal and scroll to bottom when it becomes visible
   useEffect(() => {

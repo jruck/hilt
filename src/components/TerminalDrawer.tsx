@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { Session } from "@/lib/types";
 import { X, Terminal as TerminalIcon, Copy, Check, CheckCircle, Info, Folder, GitBranch, MessageSquare, Clock, FileText, Hash, FolderOpen, Save, Loader2 } from "lucide-react";
+import * as tauri from "@/lib/tauri";
 
 // Dynamic import to avoid SSR issues with xterm.js
 const Terminal = dynamic(() => import("./Terminal").then((mod) => mod.Terminal), {
@@ -81,27 +82,6 @@ export function TerminalDrawer({
   const [planSaveError, setPlanSaveError] = useState<string | null>(null);
   // Track the initial content MDXEditor outputs after parsing (used as baseline for change detection)
   const editorBaselineRef = useRef<{ slug: string; content: string } | null>(null);
-  // WebSocket port (dynamically discovered)
-  const [wsPort, setWsPort] = useState<number | null>(null);
-
-  // Fetch WebSocket port on mount
-  useEffect(() => {
-    async function fetchPort() {
-      try {
-        const res = await fetch("/api/ws-port");
-        if (res.ok) {
-          const data = await res.json();
-          setWsPort(data.port);
-        }
-      } catch (err) {
-        console.error("Failed to fetch WS port:", err);
-      }
-    }
-    fetchPort();
-    // Re-fetch periodically in case the server restarts on a different port
-    const interval = setInterval(fetchPort, 30000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Drawer resize state
   const MIN_WIDTH = 400;
@@ -209,12 +189,7 @@ export function TerminalDrawer({
 
   const openPlanInFinder = useCallback(() => {
     if (!activePlan?.path) return;
-    // Use the reveal API endpoint
-    fetch('/api/reveal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: activePlan.path })
-    }).catch(console.error);
+    tauri.revealInFinder(activePlan.path).catch(console.error);
   }, [activePlan?.path]);
 
   // Handle plan content changes from editor
@@ -249,15 +224,7 @@ export function TerminalDrawer({
     setPlanSaveError(null);
 
     try {
-      const res = await fetch(`/api/plans/${encodeURIComponent(activePlan.slug)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: editedPlanContent }),
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to save plan');
-      }
+      await tauri.updatePlan(activePlan.slug, editedPlanContent);
 
       // Update the cache with the new content
       setPlanCache(prev => {
@@ -314,7 +281,7 @@ export function TerminalDrawer({
     });
   }, []);
 
-  // Stable callback for plan events from WebSocket (real-time plan detection)
+  // Stable callback for plan events from Tauri (real-time plan detection)
   const handlePlanEvent = useCallback((plan: { event: string; slug: string; path: string; content: string }) => {
     setPlanCache(prev => {
       const next = new Map(prev);
@@ -350,8 +317,16 @@ export function TerminalDrawer({
     const fetchPlans = async () => {
       for (const slug of slugs) {
         try {
-          const res = await fetch(`/api/plans/${encodeURIComponent(slug)}`);
-          const data: PlanData = await res.json();
+          const plan = await tauri.getPlan(slug);
+          const data: PlanData = plan ? {
+            exists: true,
+            slug: plan.slug,
+            content: plan.content,
+            path: plan.path,
+          } : {
+            exists: false,
+            slug,
+          };
 
           setPlanCache(prev => {
             const existing = prev.get(slug);
@@ -551,11 +526,7 @@ export function TerminalDrawer({
               <div className="flex items-center gap-4 text-xs text-[var(--text-tertiary)]">
                 <button
                   onClick={() => {
-                    fetch('/api/reveal', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ path: activeSession.projectPath })
-                    }).catch(console.error);
+                    tauri.revealInFinder(activeSession.projectPath).catch(console.error);
                   }}
                   className="flex items-center gap-1 hover:text-[var(--text-secondary)] transition-colors"
                   title="Open in Finder"
@@ -612,7 +583,7 @@ export function TerminalDrawer({
 
             {/* Render all terminals - use visibility instead of display to preserve dimensions */}
             {/* Use stable terminalId for key to prevent remounting when session gets real ID */}
-            {wsPort && sessions.map((session) => {
+            {sessions.map((session) => {
               const stableTerminalId = session.terminalId || session.id;
               const isVisible = viewMode === "terminal" && session.id === activeSession?.id && !isPlanOnlyView;
               return (
@@ -624,7 +595,6 @@ export function TerminalDrawer({
                     terminalId={stableTerminalId}
                     sessionId={session.id}
                     projectPath={session.projectPath}
-                    wsUrl={`ws://localhost:${wsPort}`}
                     isNew={session.isNew}
                     initialPrompt={session.initialPrompt}
                     isActive={session.id === activeSession?.id}
@@ -656,11 +626,7 @@ export function TerminalDrawer({
                   <span className="text-[var(--text-tertiary)]">Project</span>
                   <button
                     onClick={() => {
-                      fetch('/api/reveal', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ path: activeSession.projectPath })
-                      }).catch(console.error);
+                      tauri.revealInFinder(activeSession.projectPath).catch(console.error);
                     }}
                     className="text-[var(--text-secondary)] hover:text-blue-400 transition-colors text-left"
                     title="Open in Finder"

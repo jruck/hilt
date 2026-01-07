@@ -1,6 +1,7 @@
 "use client";
 
 import { FolderOpen } from "lucide-react";
+import * as tauri from "@/lib/tauri";
 
 interface BrowseButtonProps {
   onSelect: (path: string) => void;
@@ -9,17 +10,12 @@ interface BrowseButtonProps {
 export function BrowseButton({ onSelect }: BrowseButtonProps) {
   const handleBrowse = async () => {
     try {
-      const res = await fetch("/api/folders", { method: "POST" });
-      const data = await res.json();
+      const path = await tauri.pickFolder();
 
-      if (data.cancelled) {
-        // User cancelled, do nothing
-        return;
+      if (path) {
+        onSelect(path);
       }
-
-      if (data.path) {
-        onSelect(data.path);
-      }
+      // If path is null, user cancelled - do nothing
     } catch (error) {
       console.error("Failed to open folder picker:", error);
     }

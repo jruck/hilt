@@ -18,6 +18,7 @@ import {
   Check,
   FileText,
 } from "lucide-react";
+import * as tauri from "@/lib/tauri";
 
 interface SessionCardProps {
   session: Session;
@@ -253,11 +254,7 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
         <button
           onClick={(e) => {
             e.stopPropagation();
-            fetch('/api/reveal', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ path: session.projectPath })
-            }).catch(console.error);
+            tauri.revealInFinder(session.projectPath).catch(console.error);
           }}
           className="flex items-center gap-1 hover:text-[var(--text-secondary)] transition-colors"
           title="Open in Finder"

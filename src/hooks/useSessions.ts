@@ -1,10 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import useSWR from "swr";
-import { Session, SessionStatus, SessionsResponse } from "@/lib/types";
-
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Session, SessionStatus } from "@/lib/types";
+import * as tauri from "@/lib/tauri";
 
 // Custom hook for visibility-aware polling
 function useVisibilityAwareInterval(activeInterval: number, hiddenInterval: number) {
@@ -19,18 +17,85 @@ function useVisibilityAwareInterval(activeInterval: number, hiddenInterval: numb
   return isVisible ? activeInterval : hiddenInterval;
 }
 
-export function useSessions(scopePath?: string, page = 1, pageSize = 100) {
+export function useSessions(scopePath?: string, _page = 1, _pageSize = 100) {
   const refreshInterval = useVisibilityAwareInterval(5000, 30000); // 5s visible, 30s hidden
-  const scopeParam = scopePath ? `&scope=${encodeURIComponent(scopePath)}` : '';
-  const { data, error, isLoading, mutate } = useSWR<SessionsResponse>(
-    `/api/sessions?page=${page}&pageSize=${pageSize}${scopeParam}`,
-    fetcher,
-    {
-      refreshInterval,
-      revalidateOnFocus: true,
-      keepPreviousData: true, // Prevent loading flash on scope change
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [counts, setCounts] = useState({ inbox: 0, active: 0, recent: 0, running: 0 });
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const fetchSessions = useCallback(async () => {
+    try {
+      const response = await tauri.getSessions(scopePath);
+      // Map Tauri response to frontend Session type
+      const mappedSessions: Session[] = response.sessions.map(s => ({
+        id: s.id,
+        title: s.title,
+        project: s.project,
+        projectPath: s.projectPath || "",
+        lastActivity: new Date(s.updatedAt),
+        messageCount: s.messageCount,
+        gitBranch: s.gitBranch || null,
+        firstPrompt: s.firstPrompt || null,
+        lastPrompt: s.lastPrompt || null,
+        slug: s.slug || null,
+        slugs: s.slugs,
+        status: s.status,
+        sortOrder: s.sortOrder,
+        starred: s.starred,
+        isRunning: s.isRunning,
+        planSlugs: s.planSlugs,
+        terminalId: s.terminalId,
+      }));
+
+      // Deduplicate sessions by ID
+      const seen = new Set<string>();
+      const deduplicatedSessions = mappedSessions.filter((s) => {
+        if (seen.has(s.id)) return false;
+        seen.add(s.id);
+        return true;
+      });
+
+      setSessions(deduplicatedSessions);
+      setCounts(response.counts);
+      setError(null);
+    } catch (e) {
+      setError(e as Error);
+    } finally {
+      setIsLoading(false);
     }
-  );
+  }, [scopePath]);
+
+  // Initial fetch and polling
+  useEffect(() => {
+    fetchSessions();
+
+    intervalRef.current = setInterval(fetchSessions, refreshInterval);
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [fetchSessions, refreshInterval]);
+
+  // Listen for file change events from Tauri
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+
+    tauri.onFileChanged((event) => {
+      if (event.fileType === "session") {
+        fetchSessions();
+      }
+    }).then(fn => {
+      unlisten = fn;
+    });
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [fetchSessions]);
 
   const updateStatus = async (
     sessionId: string,
@@ -38,63 +103,44 @@ export function useSessions(scopePath?: string, page = 1, pageSize = 100) {
     sortOrder?: number
   ) => {
     // Optimistic update
-    if (data) {
-      const updatedSessions = data.sessions.map((s) =>
+    setSessions(prev =>
+      prev.map((s) =>
         s.id === sessionId ? { ...s, status, sortOrder: sortOrder ?? s.sortOrder } : s
-      );
-      mutate({ ...data, sessions: updatedSessions }, false);
-    }
+      )
+    );
 
-    // Send to server
-    await fetch("/api/sessions", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId, status, sortOrder }),
-    });
+    // Send to Tauri backend
+    await tauri.updateSessionStatus(sessionId, status, sortOrder);
 
     // Revalidate
-    mutate();
+    fetchSessions();
   };
 
   const toggleStarred = async (sessionId: string) => {
-    const session = data?.sessions.find((s) => s.id === sessionId);
+    const session = sessions.find((s) => s.id === sessionId);
     const newStarred = !session?.starred;
 
     // Optimistic update
-    if (data) {
-      const updatedSessions = data.sessions.map((s) =>
+    setSessions(prev =>
+      prev.map((s) =>
         s.id === sessionId ? { ...s, starred: newStarred } : s
-      );
-      mutate({ ...data, sessions: updatedSessions }, false);
-    }
+      )
+    );
 
-    // Send to server
-    await fetch("/api/sessions", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId, starred: newStarred }),
-    });
+    // Send to Tauri backend
+    await tauri.updateSessionStatus(sessionId, undefined, undefined, newStarred);
 
     // Revalidate
-    mutate();
+    fetchSessions();
   };
 
-  // Deduplicate sessions by ID (in case of race conditions between API calls)
-  const sessions = data?.sessions ?? [];
-  const seen = new Set<string>();
-  const deduplicatedSessions = sessions.filter((s) => {
-    if (seen.has(s.id)) return false;
-    seen.add(s.id);
-    return true;
-  });
-
   return {
-    sessions: deduplicatedSessions,
-    total: data?.total ?? 0,
-    counts: data?.counts ?? { inbox: 0, active: 0, recent: 0 },
+    sessions,
+    total: sessions.length,
+    counts,
     isLoading,
     isError: error,
-    mutate,
+    mutate: fetchSessions,
     updateStatus,
     toggleStarred,
   };
@@ -102,150 +148,149 @@ export function useSessions(scopePath?: string, page = 1, pageSize = 100) {
 
 export function useInboxItems(scopePath?: string) {
   const refreshInterval = useVisibilityAwareInterval(5000, 30000); // 5s visible, 30s hidden
-  const scopeParam = scopePath ? `?scope=${encodeURIComponent(scopePath)}` : '';
-  const { data, error, isLoading, mutate } = useSWR<{
-    items: Array<{
-      id: string;
-      prompt: string;
-      completed: boolean;
-      section: string | null;
-      projectPath: string | null;
-      createdAt: string;
-      sortOrder: number;
-    }>;
-    sections: Array<{
-      heading: string;
-      level: number;
-    }>;
-    lastModTime: number | null;
-  }>(`/api/inbox${scopeParam}`, fetcher, {
-    refreshInterval, // Match session polling - 5s visible, 30s hidden
-    keepPreviousData: true, // Prevent loading flash on scope change
-  });
+  const [items, setItems] = useState<Array<{
+    id: string;
+    prompt: string;
+    completed: boolean;
+    section: string | null;
+    projectPath: string | null;
+    createdAt: string;
+    sortOrder: number;
+  }>>([]);
+  const [sections, setSections] = useState<Array<{
+    heading: string;
+    level: number;
+  }>>([]);
+  const [lastModTime, setLastModTime] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const fetchInbox = useCallback(async () => {
+    if (!scopePath) {
+      setItems([]);
+      setSections([]);
+      setLastModTime(null);
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const response = await tauri.getInbox(scopePath);
+      // Map sections to the expected format
+      const mappedItems = response.sections.flatMap(section =>
+        section.items.map(item => ({
+          id: item.id,
+          prompt: item.content,
+          completed: false,
+          section: section.name || null,
+          projectPath: scopePath,
+          createdAt: item.createdAt,
+          sortOrder: 0,
+        }))
+      );
+      const mappedSections = response.sections.map(s => ({
+        heading: s.name,
+        level: 2,
+      }));
+
+      setItems(mappedItems);
+      setSections(mappedSections);
+      setError(null);
+    } catch (e) {
+      setError(e as Error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [scopePath]);
+
+  // Initial fetch and polling
+  useEffect(() => {
+    fetchInbox();
+
+    intervalRef.current = setInterval(fetchInbox, refreshInterval);
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [fetchInbox, refreshInterval]);
+
+  // Listen for file change events from Tauri
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+
+    tauri.onFileChanged((event) => {
+      if (event.fileType === "inbox" || event.fileType === "todo") {
+        fetchInbox();
+      }
+    }).then(fn => {
+      unlisten = fn;
+    });
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [fetchInbox]);
 
   const createItem = async (prompt: string, section?: string | null) => {
-    const response = await fetch("/api/inbox", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, section, scope: scopePath }),
-    });
-    const result = await response.json();
-    mutate();
+    if (!scopePath) return "";
+
+    const result = await tauri.addInboxItem(scopePath, section || "Inbox", prompt);
+    fetchInbox();
     return result.id;
   };
 
   const updateItem = async (
     id: string,
     prompt?: string,
-    completed?: boolean,
+    _completed?: boolean,
     section?: string | null
   ) => {
-    await fetch("/api/inbox", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, prompt, completed, section, scope: scopePath }),
-    });
-    mutate();
+    if (!scopePath) return;
+
+    if (prompt !== undefined) {
+      await tauri.updateInboxItem(scopePath, id, prompt);
+    }
+    if (section !== undefined) {
+      await tauri.moveInboxItem(scopePath, id, section || "Inbox");
+    }
+    fetchInbox();
   };
 
   const deleteItem = async (id: string) => {
-    const scopeParam = scopePath ? `&scope=${encodeURIComponent(scopePath)}` : '';
-    await fetch(`/api/inbox?id=${id}${scopeParam}`, { method: "DELETE" });
-    mutate();
+    if (!scopePath) return;
+
+    await tauri.deleteInboxItem(scopePath, id);
+    fetchInbox();
   };
 
-  const reorderSections = async (sectionOrder: string[]) => {
-    // Optimistic update
-    if (data) {
-      const reorderedSections = sectionOrder
-        .map(heading => data.sections.find(s => s.heading === heading))
-        .filter((s): s is { heading: string; level: number } => s !== undefined);
-      mutate({ ...data, sections: reorderedSections }, false);
-    }
-
-    await fetch("/api/inbox", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sectionOrder, scope: scopePath }),
-    });
-    mutate();
+  const reorderSections = async (_sectionOrder: string[]) => {
+    // Section reordering is handled by the markdown file structure
+    // This would require updating the Todo.md file order
+    fetchInbox();
   };
 
   const reorderItem = async (
     itemId: string,
     targetSection: string | null,
-    targetIndex: number
+    _targetIndex: number
   ) => {
-    // Optimistic update
-    if (data) {
-      const items = [...data.items];
-      const itemIndex = items.findIndex((i) => i.id === itemId);
-      if (itemIndex !== -1) {
-        const [item] = items.splice(itemIndex, 1);
-        item.section = targetSection;
+    if (!scopePath) return;
 
-        // Find items in target section to compute insertion point
-        const targetItems = items.filter((i) => i.section === targetSection);
-
-        // Find where to insert in the flat array
-        if (targetItems.length === 0) {
-          // No items in target section, find first item of next section or append
-          const sectionOrder = data.sections.map((s) => s.heading);
-          const targetIdx = targetSection ? sectionOrder.indexOf(targetSection) : -1;
-
-          if (targetSection === null) {
-            // Insert at beginning (orphan items come first)
-            items.unshift(item);
-          } else if (targetIdx === -1 || targetIdx === sectionOrder.length - 1) {
-            items.push(item);
-          } else {
-            // Find first item of next section
-            const nextSection = sectionOrder[targetIdx + 1];
-            const nextIdx = items.findIndex((i) => i.section === nextSection);
-            if (nextIdx !== -1) {
-              items.splice(nextIdx, 0, item);
-            } else {
-              items.push(item);
-            }
-          }
-        } else {
-          // Insert relative to existing items in section
-          const clampedIndex = Math.min(targetIndex, targetItems.length);
-          if (clampedIndex >= targetItems.length) {
-            // Insert after last item in section
-            const lastItemInSection = targetItems[targetItems.length - 1];
-            const lastIdx = items.findIndex((i) => i.id === lastItemInSection.id);
-            items.splice(lastIdx + 1, 0, item);
-          } else {
-            // Insert before the item at targetIndex
-            const targetItem = targetItems[clampedIndex];
-            const insertIdx = items.findIndex((i) => i.id === targetItem.id);
-            items.splice(insertIdx, 0, item);
-          }
-        }
-
-        mutate({ ...data, items }, false);
-      }
-    }
-
-    await fetch("/api/inbox", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        itemReorder: { itemId, targetSection, targetIndex },
-        scope: scopePath,
-      }),
-    });
-    mutate();
+    // Move item to target section
+    await tauri.moveInboxItem(scopePath, itemId, targetSection || "Inbox");
+    fetchInbox();
   };
 
   return {
-    items: data?.items ?? [],
-    sections: data?.sections ?? [],
-    lastModTime: data?.lastModTime ?? null,
+    items,
+    sections,
+    lastModTime,
     isLoading,
     isError: error,
-    mutate,
+    mutate: fetchInbox,
     createItem,
     updateItem,
     deleteItem,

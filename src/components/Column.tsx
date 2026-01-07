@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import * as tauri from "@/lib/tauri";
 import {
   DndContext,
   DragEndEvent,
@@ -485,11 +486,7 @@ export function Column({
                 <button
                   onClick={() => {
                     const todoPath = `${scopePath}/docs/Todo.md`;
-                    fetch('/api/reveal', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ path: todoPath })
-                    }).catch(console.error);
+                    tauri.revealInFinder(todoPath).catch(console.error);
                   }}
                   className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded transition-colors"
                   title="Open Todo.md in Finder"

@@ -79,30 +79,38 @@ export async function GET(request: NextRequest) {
     }
 
     // Merge sessions with status data, running indicator, and plan status
-    const sessions: Session[] = filteredSessions.map((session) => {
-      const statusData = statuses.get(session.id);
-      const currentMtime = runningIds.get(session.id);
-      const isRunning = currentMtime !== undefined;
+    // Also deduplicate by ID (in case of any filesystem race conditions)
+    const seenIds = new Set<string>();
+    const sessions: Session[] = filteredSessions
+      .filter((session) => {
+        if (seenIds.has(session.id)) return false;
+        seenIds.add(session.id);
+        return true;
+      })
+      .map((session) => {
+        const statusData = statuses.get(session.id);
+        const currentMtime = runningIds.get(session.id);
+        const isRunning = currentMtime !== undefined;
 
-      // Determine if we should show as active:
-      // - If running AND there's new activity since last status change
-      // - OR if stored status is already active
-      const lastKnownMtime = statusData?.lastKnownMtime;
-      const hasNewActivity = !lastKnownMtime || (currentMtime !== undefined && currentMtime > lastKnownMtime);
-      const shouldShowAsActive = isRunning && hasNewActivity;
+        // Determine if we should show as active:
+        // - If running AND there's new activity since last status change
+        // - OR if stored status is already active
+        const lastKnownMtime = statusData?.lastKnownMtime;
+        const hasNewActivity = !lastKnownMtime || (currentMtime !== undefined && currentMtime > lastKnownMtime);
+        const shouldShowAsActive = isRunning && hasNewActivity;
 
-      // Find which of the session's slugs have plan files
-      const planSlugs = session.slugs?.filter(slug => plannedSlugs.has(slug)) || [];
+        // Find which of the session's slugs have plan files
+        const planSlugs = session.slugs?.filter(slug => plannedSlugs.has(slug)) || [];
 
-      return {
-        ...session,
-        status: shouldShowAsActive ? "active" : (statusData?.status || "recent"),
-        sortOrder: statusData?.sortOrder || 0,
-        starred: statusData?.starred || false,
-        isRunning,
-        planSlugs,
-      };
-    });
+        return {
+          ...session,
+          status: shouldShowAsActive ? "active" : (statusData?.status || "recent"),
+          sortOrder: statusData?.sortOrder || 0,
+          starred: statusData?.starred || false,
+          isRunning,
+          planSlugs,
+        };
+      });
 
     // Sort by status priority, then by sort order, then by last activity
     const statusOrder: Record<SessionStatus, number> = {

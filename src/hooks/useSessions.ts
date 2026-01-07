@@ -64,8 +64,17 @@ export function useSessions(scopePath?: string, page = 1, pageSize = 100) {
     mutate();
   };
 
+  // Deduplicate sessions by ID (in case of race conditions between API calls)
+  const sessions = data?.sessions ?? [];
+  const seen = new Set<string>();
+  const deduplicatedSessions = sessions.filter((s) => {
+    if (seen.has(s.id)) return false;
+    seen.add(s.id);
+    return true;
+  });
+
   return {
-    sessions: data?.sessions ?? [],
+    sessions: deduplicatedSessions,
     total: data?.total ?? 0,
     counts: data?.counts ?? { inbox: 0, active: 0, recent: 0 },
     isLoading,

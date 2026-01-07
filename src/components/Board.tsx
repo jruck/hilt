@@ -361,10 +361,22 @@ export function Board({ initialScope = "" }: BoardProps) {
             matchesSearch(s.slug)
           );
         }
-        return [...newSessions, ...realSessions];
+        // Deduplicate by ID to prevent duplicate key errors
+        const seen = new Set<string>();
+        return [...newSessions, ...realSessions].filter((s) => {
+          if (seen.has(s.id)) return false;
+          seen.add(s.id);
+          return true;
+        });
       }
 
-      return realSessions;
+      // Deduplicate by ID to prevent duplicate key errors
+      const seen = new Set<string>();
+      return realSessions.filter((s) => {
+        if (seen.has(s.id)) return false;
+        seen.add(s.id);
+        return true;
+      });
     },
     [sessions, openSessions, searchQuery, matchesSearch, filters]
   );

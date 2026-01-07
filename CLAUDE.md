@@ -1,10 +1,22 @@
 # Claude Kanban
 
-See @README.md for full documentation, architecture diagram, and project structure.
+Kanban UI for managing Claude Code sessions. See `README.md` for full feature list.
+
+## Documentation
+
+**Before making changes**, read:
+- `docs/ARCHITECTURE.md` - System design, data flow, component structure, constraints
+- `docs/CHANGELOG.md` - Recent changes and technical context
+
+**After completing work**:
+1. Update `docs/CHANGELOG.md` under `[Unreleased]` section
+2. If architectural changes were made, update `docs/ARCHITECTURE.md`
+3. For new/modified types, update `docs/DATA-MODELS.md`
+4. For new/modified API routes, update `docs/API.md`
 
 ## Quick Context
 
-Kanban UI for managing Claude Code sessions. Fills gaps that Claude Code CLI doesn't provide:
+Fills gaps that Claude Code CLI doesn't provide:
 - Persistent task/status tracking (native TodoWrite is session-scoped only)
 - Visual session organization across workflow states
 - Draft prompts (Inbox) for queuing work
@@ -17,6 +29,14 @@ Kanban UI for managing Claude Code sessions. Fills gaps that Claude Code CLI doe
 | Status persistence | `src/lib/db.ts` → `data/session-status.json` |
 | Board UI | `src/components/Board.tsx`, `Column.tsx`, `SessionCard.tsx` |
 | Terminal | `server/ws-server.ts` (PTY), `src/components/Terminal.tsx` (xterm.js) |
+| Tree View | `src/components/TreeView.tsx`, `src/lib/tree-utils.ts` |
+
+## Critical Constraints
+
+1. **Claude JSONL files are read-only** - Never write to `~/.claude/projects/`
+2. **Use `terminalId` not `sessionId`** as React key for terminals (prevents reload)
+3. **Scope filtering modes differ**: Board uses exact match, Tree uses prefix match
+4. **Running detection**: 30-second file mtime threshold
 
 ## Session Data Model
 
@@ -27,14 +47,16 @@ interface Session {
   title: string;        // Summary or first prompt
   messageCount: number;
   gitBranch: string | null;
-  status: "inbox" | "active" | "inactive" | "done";  // Our kanban state
+  status: "inbox" | "active" | "recent";  // Kanban column
+  isRunning?: boolean;  // File modified within 30s
+  terminalId?: string;  // Stable ID for terminal tracking
 }
 ```
 
 ## Custom Commands
 
 - `/track [type] [description]` - Track bugs, tasks, ideas, decisions
-- `/plan [description]` - Create feature plans in `nimbalyst-local/plans/`
+- `/plan [description]` - Create feature plans
 - `/kanban` - Open the Kanban UI
 
 ## Development

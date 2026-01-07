@@ -6,7 +6,25 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Added
+
+- **Documentation System** - Comprehensive docs for AI agents and developers
+  - `docs/ARCHITECTURE.md` - System design, data flow, constraints (556 lines)
+  - `docs/API.md` - All API routes and WebSocket protocol (509 lines)
+  - `docs/DATA-MODELS.md` - TypeScript types and schemas (438 lines)
+  - `docs/COMPONENTS.md` - React component hierarchy (626 lines)
+  - `docs/DEVELOPMENT.md` - Setup, debugging, patterns (350 lines)
+  - `docs/CHANGELOG.md` - Version history with technical notes
+
+- **Documentation Enforcement** - Hooks and commands to ensure docs stay updated
+  - PostToolUse hook reminds agents to update docs after code changes
+  - `/commit` command checks documentation before committing
+  - `/docs-check` command verifies docs are in sync with code
+  - Files: `.claude/settings.json`, `.claude/hooks/docs-reminder.sh`, `.claude/commands/commit.md`, `.claude/commands/docs-check.md`
+
+### Changed
+
+- **CLAUDE.md** - Added documentation protocol instructions for AI agents
 
 ---
 

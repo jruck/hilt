@@ -47,8 +47,8 @@ next-env.d.ts
 # User data
 /data/
 
-# Claude Code settings
-.claude/
+# Claude Code local settings (keep project settings tracked)
+.claude/settings.local.json
 
 # Electron
 /dist-electron/

@@ -34,6 +34,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
+- **Terminal Not Loading in Electron** - Fix terminals not rendering in Electron app
+  - Root cause: `isElectronEnv()` was called directly in render, returning `false` during SSR
+  - After hydration, no re-render was triggered because there was no state change
+  - Solution: Added `useIsElectron()` hook that detects Electron via useEffect/useState
+  - This ensures a re-render occurs after hydration when Electron is detected
+  - Files: `src/components/TerminalDrawer.tsx`
+
 - **Sidebar Hydration Mismatch** - Fix SSR/client hydration error in Sidebar component
   - Removed early-return placeholder that had different DOM structure than full render
   - Use `effectiveCollapsed` pattern to ensure consistent initial render

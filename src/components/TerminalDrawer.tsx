@@ -12,6 +12,20 @@ function isElectronEnv(): boolean {
   return typeof window !== "undefined" && (window as unknown as { electronAPI?: { isElectron: boolean } }).electronAPI?.isElectron === true;
 }
 
+/**
+ * Hook to detect Electron environment after hydration
+ * Returns false during SSR and initial render to avoid hydration mismatch
+ */
+function useIsElectron(): boolean {
+  const [isElectron, setIsElectron] = useState(false);
+
+  useEffect(() => {
+    setIsElectron(isElectronEnv());
+  }, []);
+
+  return isElectron;
+}
+
 // Dynamic import to avoid SSR issues with xterm.js
 const Terminal = dynamic(() => import("./Terminal").then((mod) => mod.Terminal), {
   ssr: false,
@@ -71,6 +85,9 @@ export function TerminalDrawer({
   onStatusUpdate,
   onWidthChange,
 }: TerminalDrawerProps) {
+  // Detect Electron environment (must be done via hook to avoid hydration mismatch)
+  const isElectron = useIsElectron();
+
   // Check if we're in plan-only view mode (viewing plan without terminal)
   const isPlanOnlyView = planViewSession && activeSession?.id === planViewSession.id;
   const [copied, setCopied] = useState(false);
@@ -620,7 +637,7 @@ export function TerminalDrawer({
             {/* Render all terminals - use visibility instead of display to preserve dimensions */}
             {/* Use stable terminalId for key to prevent remounting when session gets real ID */}
             {/* In Electron mode, Terminal uses IPC. In browser mode, we wait for wsPort */}
-            {(isElectronEnv() || wsPort) && sessions.map((session) => {
+            {(isElectron || wsPort) && sessions.map((session) => {
               const stableTerminalId = session.terminalId || session.id;
               const isVisible = viewMode === "terminal" && session.id === activeSession?.id && !isPlanOnlyView;
               return (

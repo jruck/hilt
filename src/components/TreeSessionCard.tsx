@@ -1,6 +1,6 @@
 "use client";
 
-import { Play, MessageSquare, GitBranch, Square, CheckSquare, CheckCircle } from "lucide-react";
+import { Play, MessageSquare, GitBranch, Square, CheckSquare, CheckCircle, Archive, ArchiveRestore } from "lucide-react";
 import { Session } from "@/lib/types";
 
 interface TreeSessionCardProps {
@@ -9,6 +9,8 @@ interface TreeSessionCardProps {
   onClick: () => void;
   onSelect?: (session: Session, selected: boolean) => void;
   onDelete?: (session: Session) => void;
+  onArchive?: (sessionId: string) => void;
+  onUnarchive?: (sessionId: string) => void;
   isSelected?: boolean;
 }
 
@@ -18,6 +20,8 @@ export function TreeSessionCard({
   onClick,
   onSelect,
   onDelete,
+  onArchive,
+  onUnarchive,
   isSelected,
 }: TreeSessionCardProps) {
   const isActive = session.status === "active" || !!session.isRunning;
@@ -40,11 +44,13 @@ export function TreeSessionCard({
         flex flex-col overflow-hidden text-left
         ${isSelected
           ? "border-[var(--status-todo)] bg-[var(--status-todo-bg)] hover:border-[var(--status-todo)]"
-          : isActive
-            ? "border-[var(--status-active-border)] bg-[var(--status-active-bg)] hover:border-[var(--status-active)]"
-            : session.status === "inbox"
-              ? "border-[var(--status-todo-border)] bg-[var(--status-todo-bg)] hover:border-[var(--status-todo)]"
-              : "border-[var(--border-default)] bg-[var(--bg-tertiary)]/80 hover:border-[var(--border-hover)]"
+          : session.archived
+            ? "border-dashed border-[var(--border-default)] bg-[var(--bg-secondary)] opacity-75 hover:opacity-100"
+            : isActive
+              ? "border-[var(--status-active-border)] bg-[var(--status-active-bg)] hover:border-[var(--status-active)]"
+              : session.status === "inbox"
+                ? "border-[var(--status-todo-border)] bg-[var(--status-todo-bg)] hover:border-[var(--status-todo)]"
+                : "border-[var(--border-default)] bg-[var(--bg-tertiary)]/80 hover:border-[var(--border-hover)]"
         }
       `}
     >
@@ -57,6 +63,8 @@ export function TreeSessionCard({
           onSelect={onSelect}
           onClick={onClick}
           onDelete={onDelete}
+          onArchive={onArchive}
+          onUnarchive={onUnarchive}
         />
       )}
       {renderLevel === 1 && <SessionLevel1 session={session} />}
@@ -75,6 +83,8 @@ function ActionToolbar({
   onSelect,
   onClick,
   onDelete,
+  onArchive,
+  onUnarchive,
 }: {
   session: Session;
   isSelected?: boolean;
@@ -82,6 +92,8 @@ function ActionToolbar({
   onSelect?: (session: Session, selected: boolean) => void;
   onClick: () => void;
   onDelete?: (session: Session) => void;
+  onArchive?: (sessionId: string) => void;
+  onUnarchive?: (sessionId: string) => void;
 }) {
   const hoverBg = isActive
     ? "hover:bg-[var(--toolbar-hover-emerald)]"
@@ -127,6 +139,24 @@ function ActionToolbar({
           title="Mark as done"
         >
           <CheckCircle className="w-3.5 h-3.5" />
+        </button>
+      )}
+      {session.status === "recent" && !session.archived && onArchive && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onArchive(session.id); }}
+          className={`p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] ${hoverBg} rounded transition-colors`}
+          title="Archive"
+        >
+          <Archive className="w-3.5 h-3.5" />
+        </button>
+      )}
+      {session.archived && onUnarchive && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onUnarchive(session.id); }}
+          className={`p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] ${hoverBg} rounded transition-colors`}
+          title="Unarchive"
+        >
+          <ArchiveRestore className="w-3.5 h-3.5" />
         </button>
       )}
     </div>

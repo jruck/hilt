@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessions, getRunningSessionIds, getSessionMtime } from "@/lib/claude-sessions";
-import { getAllSessionStatuses, setSessionStatus } from "@/lib/db";
+import { getAllSessionStatuses, setSessionStatus, archiveSession, unarchiveSession } from "@/lib/db";
 import { Session, SessionStatus } from "@/lib/types";
 import { buildTree, isUnderScope } from "@/lib/tree-utils";
 import { getCachedPlannedSlugs, setCachedPlannedSlugs } from "@/lib/session-cache";
 import fs from "fs";
 import path from "path";
 import os from "os";
+
+// Auto-archive threshold: sessions inactive for 7 days
+const ARCHIVE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 
 const PLANS_DIR = path.join(os.homedir(), ".claude", "plans");
 
@@ -43,6 +46,7 @@ export async function GET(request: NextRequest) {
     const pageSize = parseInt(searchParams.get("pageSize") || "50", 10);
     const scopePath = searchParams.get("scope") || undefined;
     const mode = searchParams.get("mode") || "exact"; // "exact" | "tree"
+    const showArchived = searchParams.get("showArchived") === "true";
 
     // Get all sessions from Claude's JSONL files
     const claudeSessions = await getSessions();
@@ -87,6 +91,34 @@ export async function GET(request: NextRequest) {
       Promise.all(statusUpdates).catch(console.error);
     }
 
+    // Auto-archive: sessions with status "recent" that are:
+    // - Not starred (user explicitly marked as important)
+    // - Not running (currently active)
+    // - Inactive for more than ARCHIVE_THRESHOLD_MS (7 days)
+    const now = Date.now();
+    const archiveUpdates: Promise<void>[] = [];
+    for (const session of filteredSessions) {
+      const statusData = statuses.get(session.id);
+      const isRunning = runningIds.has(session.id);
+
+      if (
+        statusData?.status === "recent" &&
+        !statusData?.starred &&
+        !statusData?.archived &&
+        !isRunning
+      ) {
+        const lastActivity = session.lastActivity.getTime();
+        const age = now - lastActivity;
+        if (age > ARCHIVE_THRESHOLD_MS) {
+          archiveUpdates.push(archiveSession(session.id));
+        }
+      }
+    }
+    // Fire and forget - don't block response
+    if (archiveUpdates.length > 0) {
+      Promise.all(archiveUpdates).catch(console.error);
+    }
+
     // Merge sessions with status data, running indicator, and plan status
     // Also deduplicate by ID (in case of any filesystem race conditions)
     const seenIds = new Set<string>();
@@ -111,15 +143,29 @@ export async function GET(request: NextRequest) {
         // Find which of the session's slugs have plan files
         const planSlugs = session.slugs?.filter(slug => plannedSlugs.has(slug)) || [];
 
+        // If running session was archived, auto-unarchive it
+        if (isRunning && statusData?.archived) {
+          unarchiveSession(session.id).catch(console.error);
+        }
+
         return {
           ...session,
           status: shouldShowAsActive ? "active" : (statusData?.status || "recent"),
           sortOrder: statusData?.sortOrder || 0,
           starred: statusData?.starred || false,
+          archived: isRunning ? false : statusData?.archived || false,  // Running sessions are never archived
           isRunning,
           planSlugs,
         };
       });
+
+    // Count total archived before filtering (always show this count)
+    const totalArchived = sessions.filter(s => s.archived).length;
+
+    // Filter out archived sessions when showArchived is false
+    const visibleSessions = showArchived
+      ? sessions
+      : sessions.filter(s => !s.archived);
 
     // Sort by status priority, then by sort order, then by last activity
     const statusOrder: Record<SessionStatus, number> = {
@@ -128,7 +174,7 @@ export async function GET(request: NextRequest) {
       recent: 2,
     };
 
-    sessions.sort((a, b) => {
+    visibleSessions.sort((a, b) => {
       const statusDiff = statusOrder[a.status] - statusOrder[b.status];
       if (statusDiff !== 0) return statusDiff;
 
@@ -138,17 +184,18 @@ export async function GET(request: NextRequest) {
       return b.lastActivity.getTime() - a.lastActivity.getTime();
     });
 
-    // Count by status before pagination
+    // Count by status (visible sessions only, except archived which shows total)
     const counts = {
-      inbox: sessions.filter(s => s.status === "inbox").length,
-      active: sessions.filter(s => s.status === "active").length,
-      recent: sessions.filter(s => s.status === "recent").length,
+      inbox: visibleSessions.filter(s => s.status === "inbox").length,
+      active: visibleSessions.filter(s => s.status === "active").length,
+      recent: visibleSessions.filter(s => s.status === "recent" && !s.archived).length,
+      archived: totalArchived,  // Always show total archived count
     };
 
     // Paginate
-    const total = sessions.length;
+    const total = visibleSessions.length;
     const startIndex = (page - 1) * pageSize;
-    const paginatedSessions = sessions.slice(startIndex, startIndex + pageSize);
+    const paginatedSessions = visibleSessions.slice(startIndex, startIndex + pageSize);
 
     // Build response
     const response: Record<string, unknown> = {
@@ -159,9 +206,9 @@ export async function GET(request: NextRequest) {
       counts,
     };
 
-    // Include tree structure for tree mode
+    // Include tree structure for tree mode (using visible sessions)
     if (mode === "tree") {
-      response.tree = buildTree(sessions, scopePath || "");
+      response.tree = buildTree(visibleSessions, scopePath || "");
     }
 
     return NextResponse.json(response);
@@ -177,13 +224,23 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
-    const { sessionId, status, sortOrder, starred } = body;
+    const { sessionId, status, sortOrder, starred, archived } = body;
 
     if (!sessionId) {
       return NextResponse.json(
         { error: "sessionId is required" },
         { status: 400 }
       );
+    }
+
+    // Handle archive/unarchive as a separate operation
+    if (archived !== undefined) {
+      if (archived) {
+        await archiveSession(sessionId);
+      } else {
+        await unarchiveSession(sessionId);
+      }
+      return NextResponse.json({ success: true });
     }
 
     const validStatuses: SessionStatus[] = ["inbox", "active", "recent"];

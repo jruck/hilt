@@ -7,7 +7,56 @@ import { getSessionById } from "../src/lib/claude-sessions";
 
 const PREFERRED_PORT = parseInt(process.env.WS_PORT || "3001", 10);
 const PORT_FILE = path.join(process.env.HOME || "~", ".claude-kanban-ws-port");
+const LOCK_FILE = path.join(process.env.HOME || "~", ".claude-kanban-server.lock");
 const PLANS_DIR = path.join(process.env.HOME || "~", ".claude", "plans");
+
+/**
+ * Check if a process with the given PID is running
+ */
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Acquire a lock to prevent multiple server instances
+ * Returns true if lock acquired, false if another server is running
+ */
+function acquireLock(): boolean {
+  try {
+    if (fs.existsSync(LOCK_FILE)) {
+      const pidStr = fs.readFileSync(LOCK_FILE, "utf-8").trim();
+      const pid = parseInt(pidStr, 10);
+      if (!isNaN(pid) && isProcessRunning(pid)) {
+        console.error(`Server already running (PID ${pid}). Use 'pkill -f ws-server' to stop it.`);
+        return false;
+      }
+      // Stale lock file - process is dead
+      console.log(`Removing stale lock file (PID ${pid} is not running)`);
+    }
+    // Write our PID
+    fs.writeFileSync(LOCK_FILE, String(process.pid), "utf-8");
+    return true;
+  } catch (err) {
+    console.error("Failed to acquire lock:", err);
+    return false;
+  }
+}
+
+/**
+ * Release the lock file
+ */
+function releaseLock(): void {
+  try {
+    fs.unlinkSync(LOCK_FILE);
+  } catch {
+    // Ignore if file doesn't exist
+  }
+}
 
 interface WSMessage {
   type: "spawn" | "data" | "resize" | "kill";
@@ -126,6 +175,11 @@ function extractContextProgress(data: string): number | null {
 }
 
 async function startServer() {
+  // Prevent multiple server instances
+  if (!acquireLock()) {
+    process.exit(1);
+  }
+
   const port = await findAvailablePort(PREFERRED_PORT);
   writePortFile(port);
 
@@ -269,6 +323,7 @@ async function startServer() {
   process.on("SIGINT", async () => {
     console.log("\nShutting down WebSocket server...");
     removePortFile();
+    releaseLock();
     ptyManager.getAll().forEach((session) => {
       ptyManager.kill(session.id);
     });

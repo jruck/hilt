@@ -94,6 +94,7 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
   const wsRef = useRef<WebSocket | null>(null);
   const spawnedRef = useRef(false);
   const cleanupFunctionsRef = useRef<(() => void)[]>([]);
+  const intentionalCloseRef = useRef(false);  // Track if close was intentional (cleanup)
   const { resolvedTheme } = useTheme();
 
   // Refs for values accessed in callbacks - updated via effects to avoid render-time mutations
@@ -172,7 +173,7 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
       setupElectronTransport(term, fitAddon);
     } else {
       // WebSocket transport (browser mode)
-      setupWebSocketTransport(term, fitAddon);
+      setupWebSocketTransport(term);
     }
 
     // Handle terminal input
@@ -202,7 +203,8 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
       // Clean up Electron IPC listeners
       cleanupFunctionsRef.current.forEach(cleanup => cleanup());
       cleanupFunctionsRef.current = [];
-      // Clean up WebSocket
+      // Clean up WebSocket - mark as intentional to prevent reconnection attempts
+      intentionalCloseRef.current = true;
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -280,7 +282,7 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
   /**
    * Setup WebSocket transport (for browser dev mode)
    */
-  function setupWebSocketTransport(term: XTerm, fitAddon: FitAddon) {
+  function setupWebSocketTransport(term: XTerm) {
     if (!wsUrl) {
       term.write("\r\n\x1b[31mNo WebSocket URL provided and not running in Electron.\x1b[0m\r\n");
       term.write("\x1b[90mRun: npm run ws-server\x1b[0m\r\n");
@@ -360,8 +362,111 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
     };
 
     ws.onclose = () => {
-      term.write("\r\n\x1b[33m[Connection closed]\x1b[0m\r\n");
+      // Skip reconnection if this was an intentional close (component unmounting)
+      if (intentionalCloseRef.current) {
+        return;
+      }
+      term.write("\r\n\x1b[33m[Connection closed - attempting to reconnect...]\x1b[0m\r\n");
+      // Attempt to reconnect with exponential backoff
+      attemptReconnect(term, 1);
     };
+  }
+
+  /**
+   * Attempt to reconnect to the WebSocket server with exponential backoff
+   */
+  function attemptReconnect(term: XTerm, attempt: number) {
+    const MAX_ATTEMPTS = 5;
+    const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000); // 1s, 2s, 4s, 8s, 10s
+
+    if (attempt > MAX_ATTEMPTS) {
+      term.write("\r\n\x1b[31m[Failed to reconnect after 5 attempts]\x1b[0m\r\n");
+      term.write("\x1b[90mCheck if the server is running: npm run ws-server\x1b[0m\r\n");
+      return;
+    }
+
+    setTimeout(() => {
+      if (!wsUrl) return;
+
+      term.write(`\x1b[90m[Reconnect attempt ${attempt}/${MAX_ATTEMPTS}...]\x1b[0m\r\n`);
+
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        term.write("\x1b[32m[Reconnected!]\x1b[0m\r\n");
+        // Re-spawn the terminal (server may have restarted)
+        spawnedRef.current = false;
+        ws.send(
+          JSON.stringify({
+            type: "spawn",
+            terminalId,
+            sessionId: sessionIdRef.current,
+            projectPath,
+            isNew: false, // Always resume on reconnect
+            initialPrompt: undefined,
+          })
+        );
+        spawnedRef.current = true;
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          switch (msg.type) {
+            case "data":
+              term.write(msg.data);
+              break;
+            case "exit":
+              term.write(`\r\n\x1b[33m[Process exited with code ${msg.exitCode}]\x1b[0m\r\n`);
+              onExitRef.current?.(msg.exitCode);
+              break;
+            case "spawned":
+              ws.send(
+                JSON.stringify({
+                  type: "resize",
+                  terminalId,
+                  cols: term.cols,
+                  rows: term.rows,
+                })
+              );
+              break;
+            case "error":
+              term.write(`\r\n\x1b[31mError: ${msg.message}\x1b[0m\r\n`);
+              break;
+            case "title":
+              onTitleChangeRef.current?.(sessionIdRef.current, msg.title);
+              break;
+            case "context":
+              onContextProgressRef.current?.(sessionIdRef.current, msg.progress);
+              break;
+            case "plan":
+              onPlanEventRef.current?.({
+                event: msg.event,
+                slug: msg.slug,
+                path: msg.path,
+                content: msg.content,
+              });
+              break;
+          }
+        } catch (err) {
+          console.error("Error parsing WS message:", err);
+        }
+      };
+
+      ws.onerror = () => {
+        // Will trigger onclose, which will retry
+      };
+
+      ws.onclose = () => {
+        // Skip reconnection if intentionally closed
+        if (intentionalCloseRef.current) {
+          return;
+        }
+        // Try again with next attempt
+        attemptReconnect(term, attempt + 1);
+      };
+    }, delay);
   }
 
   // Auto-focus terminal and scroll to bottom when it becomes visible

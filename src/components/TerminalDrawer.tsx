@@ -365,8 +365,8 @@ export function TerminalDrawer({
     }
   }, [activeSession?.id, activeSession?.planMode]);
 
-  // Fetch plans for active session - check ALL slugs since they can change mid-session
-  // Poll periodically to detect newly created plans
+  // Fetch plans for active session on initial load
+  // New plans are detected via WebSocket events (handlePlanEvent callback)
   useEffect(() => {
     const slugs = activeSession?.slugs || (activeSession?.slug ? [activeSession.slug] : []);
     if (slugs.length === 0) return;
@@ -393,13 +393,8 @@ export function TerminalDrawer({
       }
     };
 
-    // Initial fetch
+    // Initial fetch only - real-time updates come via WebSocket
     fetchPlans();
-
-    // Poll every 3 seconds to detect new plans
-    const interval = setInterval(fetchPlans, 3000);
-
-    return () => clearInterval(interval);
   }, [activeSession?.slug, activeSession?.slugs]);
 
   // If no sessions and no plan-only view, don't render anything

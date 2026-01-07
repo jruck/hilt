@@ -8,6 +8,32 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
+- **Turbopack by Default** - Switched from Webpack to Turbopack for faster dev experience
+  - Initial compile: 585ms (was ~1000ms with Webpack)
+  - HMR updates: ~50ms (was ~500ms)
+  - Added `dev:webpack` script as fallback if needed
+  - Files: `package.json`
+
+- **Server Process Lock** - Prevents multiple WebSocket server instances
+  - Lock file at `~/.claude-kanban-server.lock` with PID
+  - Detects and cleans up stale locks from crashed processes
+  - Clear error message when attempting to start duplicate server
+  - Files: `server/ws-server.ts`
+
+- **WebSocket Auto-Reconnection** - Terminals auto-reconnect when server restarts
+  - Exponential backoff: 1s, 2s, 4s, 8s, 10s delays
+  - Max 5 attempts before giving up with helpful error
+  - Shows reconnection status in terminal
+  - Files: `src/components/Terminal.tsx`
+
+### Changed
+
+- **Removed Plan Polling** - Plan files no longer poll every 3 seconds
+  - Initial fetch on session open only
+  - Real-time updates via WebSocket events (already implemented)
+  - Reduces network requests significantly with multiple open sessions
+  - Files: `src/components/TerminalDrawer.tsx`
+
 - **Server-Side Preferences Persistence** - User preferences now persist across Electron rebuilds
   - Pinned folders, sidebar state, theme, view mode, and recent scopes stored in `data/preferences.json`
   - New `/api/preferences` route for CRUD operations
@@ -33,6 +59,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   - Files: `src/components/TreeSessionCard.tsx`, `src/components/TreeView.tsx`
 
 ### Fixed
+
+- **Drawer Dismissal on Terminal Start** - Fix drawer closing when terminal session kicks off
+  - Root cause: WebSocket `onclose` handler was triggering reconnection attempts during React cleanup
+  - When component unmounts/remounts (e.g., during HMR or React StrictMode), the WebSocket close triggered reconnect, which caused race conditions with terminal spawn
+  - Solution: Added `intentionalCloseRef` flag to track cleanup closes vs unexpected disconnects
+  - Only attempt reconnection when close is unexpected (server disconnect, network error)
+  - Files: `src/components/Terminal.tsx`
 
 - **Terminal Not Loading in Electron** - Fix terminals not rendering in Electron app
   - Root cause: `isElectronEnv()` was called directly in render, returning `false` during SSR

@@ -2,7 +2,7 @@
 
 import { LayoutGrid, Network, FileText } from "lucide-react";
 
-export type ViewMode = "kanban" | "tree" | "docs";
+export type ViewMode = "tree" | "board" | "docs";
 
 interface ViewToggleProps {
   view: ViewMode;
@@ -12,22 +12,6 @@ interface ViewToggleProps {
 export function ViewToggle({ view, onChange }: ViewToggleProps) {
   return (
     <div className="flex items-center bg-zinc-800 rounded-lg p-0.5">
-      <button
-        onClick={() => onChange("kanban")}
-        className={`
-          flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium
-          transition-colors
-          ${
-            view === "kanban"
-              ? "bg-zinc-700 text-zinc-100"
-              : "text-zinc-400 hover:text-zinc-200"
-          }
-        `}
-        title="Kanban board view"
-      >
-        <LayoutGrid className="w-4 h-4" />
-        <span className="hidden sm:inline">Kanban</span>
-      </button>
       <button
         onClick={() => onChange("tree")}
         className={`
@@ -43,6 +27,22 @@ export function ViewToggle({ view, onChange }: ViewToggleProps) {
       >
         <Network className="w-4 h-4" />
         <span className="hidden sm:inline">Tree</span>
+      </button>
+      <button
+        onClick={() => onChange("board")}
+        className={`
+          flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium
+          transition-colors
+          ${
+            view === "board"
+              ? "bg-zinc-700 text-zinc-100"
+              : "text-zinc-400 hover:text-zinc-200"
+          }
+        `}
+        title="Kanban board view"
+      >
+        <LayoutGrid className="w-4 h-4" />
+        <span className="hidden sm:inline">Board</span>
       </button>
       <button
         onClick={() => onChange("docs")}

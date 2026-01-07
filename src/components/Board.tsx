@@ -60,8 +60,13 @@ function getCachedHomeDir(): string {
 
 // Get cached view mode preference
 function getCachedViewMode(): ViewMode {
-  if (typeof window === "undefined") return "kanban";
-  return (localStorage.getItem(VIEW_MODE_STORAGE_KEY) as ViewMode) || "kanban";
+  if (typeof window === "undefined") return "board";
+  const cached = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+  // Migrate old "kanban" value to "board"
+  if (cached === "kanban" || cached === "board") return "board";
+  if (cached === "tree") return "tree";
+  if (cached === "docs") return "docs";
+  return "board";
 }
 
 export function Board({ initialScope = "" }: BoardProps) {
@@ -71,7 +76,7 @@ export function Board({ initialScope = "" }: BoardProps) {
   const [scopePath, setScopePath] = useState<string>(initialScope);
   // Initialize homeDir from cache to prevent breadcrumb disappearing on navigation
   const [homeDir, setHomeDir] = useState<string>(getCachedHomeDir);
-  // View mode: kanban (columns) or tree (treemap)
+  // View mode: board (columns) or tree (treemap)
   const [viewMode, setViewMode] = useState<ViewMode>(getCachedViewMode);
 
   // Sync scopePath with URL changes (initialScope prop)
@@ -894,7 +899,7 @@ Proceed autonomously otherwise.`;
           pinnedFolders={pinnedFolders}
         />
 
-        {/* Conditional View: Docs, Tree, or Kanban */}
+        {/* Conditional View: Docs, Tree, or Board */}
         {viewMode === "docs" ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">

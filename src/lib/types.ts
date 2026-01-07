@@ -156,3 +156,43 @@ export interface TreeNode {
 export interface TreeSessionsResponse extends SessionsResponse {
   tree: TreeNode;
 }
+
+// ============ Docs Viewer Types ============
+
+export interface FileNode {
+  name: string;           // Display name (e.g., "README.md")
+  path: string;           // Absolute path
+  type: "file" | "directory";
+  children?: FileNode[];  // Only for directories
+  extension?: string;     // e.g., "md", "ts", "png"
+  size?: number;          // File size in bytes
+  modTime: number;        // Unix timestamp (ms)
+}
+
+export interface DocsTreeResponse {
+  root: FileNode;
+  scope: string;
+  modTime: number;        // Latest modTime across all files (for change detection)
+}
+
+export interface DocsFileResponse {
+  path: string;
+  content: string | null;  // null for binary files
+  isBinary: boolean;
+  isViewable: boolean;     // true for markdown, txt, code files
+  mimeType: string;
+  size: number;
+  modTime: number;
+}
+
+export interface DocsSaveRequest {
+  path: string;
+  content: string;
+  scope: string;  // For validation
+}
+
+export interface DocsSaveResponse {
+  success: boolean;
+  modTime: number;
+  error?: string;
+}

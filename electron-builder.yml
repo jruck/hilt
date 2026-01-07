@@ -1,0 +1,46 @@
+appId: com.claude-kanban.app
+productName: Claude Kanban
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - ".next/**/*"
+  - "electron/**/*.js"
+  - "src/**/*"
+  - "server/**/*"
+  - "public/**/*"
+  - "package.json"
+  - "node_modules/**/*"
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  gatekeeperAssess: false
+
+dmg:
+  title: Claude Kanban
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+# Rebuild native modules for Electron
+electronRebuildConfig:
+  onlyModules:
+    - "@cdktf/node-pty-prebuilt-multiarch"
+
+# Don't publish to anywhere
+publish: null

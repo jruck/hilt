@@ -18,17 +18,19 @@ export function TreeNodeCard({
   onOpenSession,
 }: TreeNodeCardProps) {
   const { metrics } = node;
-  const hasRunning = metrics.runningCount > 0;
+  const hasActive = metrics.activeCount > 0 || metrics.runningCount > 0;
 
   return (
     <button
       onClick={onClick}
       className={`
-        w-full h-full rounded-lg border border-zinc-700
-        bg-zinc-800/80 hover:bg-zinc-750 hover:border-zinc-600
+        w-full h-full rounded-lg border
         transition-all duration-150 cursor-pointer
         flex flex-col overflow-hidden text-left
-        ${hasRunning ? "ring-1 ring-emerald-500/50" : ""}
+        ${hasActive
+          ? "border-emerald-500/20 bg-emerald-500/5 hover:border-emerald-500/40"
+          : "border-zinc-700 bg-zinc-800/80 hover:border-zinc-600"
+        }
       `}
     >
       {renderLevel === 1 && (
@@ -50,12 +52,13 @@ function Level1Content({
   onOpenSession: (id: string) => void;
 }) {
   const { metrics } = node;
+  const hasActive = metrics.activeCount > 0 || metrics.runningCount > 0;
   const displaySessions = getDisplaySessions(node, 6);
 
   return (
     <>
       {/* Header */}
-      <div className="flex items-center gap-2 p-3 border-b border-zinc-700/50">
+      <div className={`flex items-center gap-2 p-3 border-b ${hasActive ? "border-emerald-500/10" : "border-zinc-700/50"}`}>
         <Folder className="w-4 h-4 text-blue-400 flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="font-medium text-zinc-100 truncate">{node.name}</div>
@@ -70,6 +73,7 @@ function Level1Content({
             <SessionThumbnail
               key={session.id}
               session={session}
+              parentHasActive={hasActive}
               onClick={(e) => {
                 e.stopPropagation();
                 onOpenSession(session.id);
@@ -80,7 +84,7 @@ function Level1Content({
       )}
 
       {/* Footer metrics */}
-      <div className="flex items-center gap-3 px-3 py-2 border-t border-zinc-700/50 text-xs">
+      <div className={`flex items-center gap-3 px-3 py-2 border-t text-xs ${hasActive ? "border-emerald-500/10" : "border-zinc-700/50"}`}>
         {metrics.activeCount > 0 && (
           <span className="flex items-center gap-1 text-emerald-400">
             <Circle className="w-2 h-2 fill-current" />
@@ -209,20 +213,27 @@ function Level4Content({ node }: { node: TreeNode }) {
 // Session thumbnail for Level 1
 function SessionThumbnail({
   session,
+  parentHasActive,
   onClick,
 }: {
   session: Session;
+  parentHasActive: boolean;
   onClick: (e: React.MouseEvent) => void;
 }) {
+  const isActive = session.status === "active" || session.isRunning;
+
   return (
     <button
       onClick={onClick}
       className={`
         p-1.5 rounded text-left text-xs
-        bg-zinc-700/50 hover:bg-zinc-700
-        border border-zinc-600/50 hover:border-zinc-500
         transition-colors
-        ${session.isRunning ? "ring-1 ring-emerald-500" : ""}
+        ${isActive
+          ? "bg-emerald-500/10 border border-emerald-500/20 hover:border-emerald-500/40"
+          : parentHasActive
+            ? "bg-emerald-500/5 border border-emerald-500/10 hover:border-emerald-500/20"
+            : "bg-zinc-700/50 border border-zinc-600/50 hover:border-zinc-500"
+        }
       `}
     >
       <div className="flex items-center gap-1">

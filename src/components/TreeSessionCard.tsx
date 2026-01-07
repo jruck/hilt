@@ -14,24 +14,21 @@ export function TreeSessionCard({
   renderLevel,
   onClick,
 }: TreeSessionCardProps) {
-  const isRunning = session.isRunning;
-
-  // Status-based border colors
-  const statusColors = {
-    active: "border-emerald-500/50 bg-emerald-500/5",
-    inbox: "border-blue-500/50 bg-blue-500/5",
-    recent: "border-zinc-700 bg-zinc-800/80",
-  };
+  const isActive = session.status === "active" || session.isRunning;
 
   return (
     <button
       onClick={onClick}
       className={`
         w-full h-full rounded-lg border
-        ${isRunning ? "border-emerald-500/50 bg-emerald-500/10" : statusColors[session.status]}
-        hover:bg-zinc-800 hover:border-zinc-600
         transition-all duration-150 cursor-pointer
         flex flex-col overflow-hidden text-left
+        ${isActive
+          ? "border-emerald-500/20 bg-emerald-500/5 hover:border-emerald-500/40"
+          : session.status === "inbox"
+            ? "border-blue-500/20 bg-blue-500/5 hover:border-blue-500/40"
+            : "border-zinc-700 bg-zinc-800/80 hover:border-zinc-600"
+        }
       `}
     >
       {renderLevel === 1 && <SessionLevel1 session={session} />}
@@ -125,24 +122,18 @@ function SessionLevel3({ session }: { session: Session }) {
 }
 
 function SessionLevel4({ session }: { session: Session }) {
-  // Status indicator colors
-  const statusDot = {
-    active: "bg-emerald-400",
-    inbox: "bg-blue-400",
-    recent: "bg-zinc-500",
-  };
+  const isActive = session.status === "active" || session.isRunning;
 
   return (
-    <div
-      className={`
-        flex items-center justify-center h-full
-        ${session.isRunning ? "bg-emerald-500/20" : ""}
-      `}
-    >
+    <div className="flex items-center justify-center h-full">
       {session.isRunning ? (
         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+      ) : isActive ? (
+        <span className="w-2 h-2 rounded-full bg-emerald-400" />
+      ) : session.status === "inbox" ? (
+        <span className="w-2 h-2 rounded-full bg-blue-400" />
       ) : (
-        <span className={`w-2 h-2 rounded-full ${statusDot[session.status]}`} />
+        <span className="w-2 h-2 rounded-full bg-zinc-500" />
       )}
     </div>
   );

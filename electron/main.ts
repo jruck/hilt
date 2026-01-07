@@ -223,7 +223,7 @@ async function createWindow() {
       nextjs-portal { display: none !important; }
 
       /* Add left padding to status bar for macOS traffic light buttons */
-      [data-statusbar] { padding-left: 72px; }
+      [data-statusbar] { padding-left: 80px; }
     `);
   });
 

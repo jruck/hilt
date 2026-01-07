@@ -64,6 +64,13 @@ func createIcon(size: Int, outputPath: String) -> Bool {
     let cgSize = CGFloat(size)
     let rect = NSRect(x: 0, y: 0, width: cgSize, height: cgSize)
 
+    // Apple's macOS icon spec: 824px squircle on 1024px canvas = ~80.5%
+    // This means ~9.75% margin on each side (100px on 1024px)
+    let marginPercent: CGFloat = 0.0976
+    let margin = cgSize * marginPercent
+    let iconSize = cgSize - (margin * 2)
+    let iconRect = NSRect(x: margin, y: margin, width: iconSize, height: iconSize)
+
     // Create image
     let image = NSImage(size: NSSize(width: cgSize, height: cgSize))
     image.lockFocus()
@@ -77,16 +84,17 @@ func createIcon(size: Int, outputPath: String) -> Bool {
     // Clear background (transparent)
     context.clear(rect)
 
-    // Create squircle clip path
-    let squircle = squirclePath(in: rect)
+    // Create squircle clip path - now uses iconRect instead of full rect
+    let squircle = squirclePath(in: iconRect)
 
     // Fill with black background
     NSColor.black.setFill()
     squircle.fill()
 
-    // Draw emoji centered
+    // Draw emoji centered within the squircle
     let emoji = "🧱"
-    let fontSize = cgSize * 0.55
+    // Emoji size relative to squircle (not canvas) - 70% fills it nicely
+    let fontSize = iconSize * 0.70
 
     // Use system font which includes Apple Color Emoji
     let font = NSFont.systemFont(ofSize: fontSize)
@@ -102,9 +110,10 @@ func createIcon(size: Int, outputPath: String) -> Bool {
     let attrString = NSAttributedString(string: emoji, attributes: attributes)
     let textSize = attrString.size()
 
+    // Center within the iconRect (squircle bounds), not the full canvas
     let textRect = NSRect(
-        x: (cgSize - textSize.width) / 2,
-        y: (cgSize - textSize.height) / 2,
+        x: iconRect.midX - (textSize.width / 2),
+        y: iconRect.midY - (textSize.height / 2),
         width: textSize.width,
         height: textSize.height
     )

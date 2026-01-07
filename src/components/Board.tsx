@@ -781,7 +781,8 @@ Proceed autonomously otherwise.`;
     <div className="flex flex-col h-screen bg-[var(--bg-primary)]">
       {/* Status Bar - fixed height for drawer alignment */}
       <div
-        className="relative flex items-center justify-between px-4 h-11 bg-[var(--bg-secondary)] border-b border-[var(--border-default)]"
+        className="relative flex items-center justify-between pl-20 pr-4 h-11 bg-[var(--bg-secondary)] border-b border-[var(--border-default)]"
+        data-tauri-drag-region
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
         {/* Left side: Scope controls (breadcrumbs, recent, browse) */}

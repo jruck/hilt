@@ -17,6 +17,8 @@ import {
   Hash,
   Check,
   FileText,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
 
 interface SessionCardProps {
@@ -25,6 +27,8 @@ interface SessionCardProps {
   onOpenPlan?: (session: Session) => void;  // Open session in plan mode
   onDelete?: (session: Session) => void;
   onToggleStarred?: (sessionId: string) => void;
+  onArchive?: (sessionId: string) => void;  // Archive session
+  onUnarchive?: (sessionId: string) => void;  // Unarchive session
   status?: string;  // Dynamic terminal status from Claude Code
   firstSeenAt?: number;  // Timestamp when this session first appeared on the board
   isSelected?: boolean;
@@ -50,7 +54,7 @@ function formatRelativeTime(date: Date): string {
   return date.toLocaleDateString();
 }
 
-export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleStarred, status, firstSeenAt, isSelected, onSelect, isContinuable, disableDrag }: SessionCardProps) {
+export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleStarred, onArchive, onUnarchive, status, firstSeenAt, isSelected, onSelect, isContinuable, disableDrag }: SessionCardProps) {
   const [copiedResume, setCopiedResume] = useState(false);
   // Track current time in state - use lazy initializer to avoid setState in effect
   const [now, setNow] = useState(() => Date.now());
@@ -134,11 +138,13 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
           ? "border-[var(--status-active)] bg-[var(--status-active-bg)]"
           : isSelected
             ? "border-[var(--status-todo)] bg-[var(--status-todo-bg)] hover:border-[var(--status-todo)]"
-            : session.starred
-              ? "border-[var(--status-starred)] bg-[var(--status-starred-bg)] hover:border-[var(--status-starred)]"
-              : session.status === "active"
-                ? "border-[var(--status-active-border)] bg-[var(--status-active-bg)] hover:border-[var(--status-active)]"
-                : "border-[var(--border-default)] bg-[var(--bg-tertiary)] hover:border-[var(--border-hover)]"
+            : session.archived
+              ? "border-dashed border-[var(--border-default)] bg-[var(--bg-secondary)] opacity-75 hover:opacity-100"
+              : session.starred
+                ? "border-[var(--status-starred)] bg-[var(--status-starred-bg)] hover:border-[var(--status-starred)]"
+                : session.status === "active"
+                  ? "border-[var(--status-active-border)] bg-[var(--status-active-bg)] hover:border-[var(--status-active)]"
+                  : "border-[var(--border-default)] bg-[var(--bg-tertiary)] hover:border-[var(--border-hover)]"
         }
       `}
     >
@@ -191,6 +197,24 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
                 title={session.starred ? "Unstar" : "Star"}
               >
                 <Star className={`w-4 h-4 ${session.starred ? "fill-current" : ""}`} />
+              </button>
+            )}
+            {session.status === "recent" && !session.archived && onArchive && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onArchive(session.id); }}
+                className={`p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] ${hoverBg} rounded transition-colors`}
+                title="Archive"
+              >
+                <Archive className="w-4 h-4" />
+              </button>
+            )}
+            {session.archived && onUnarchive && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onUnarchive(session.id); }}
+                className={`p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] ${hoverBg} rounded transition-colors`}
+                title="Unarchive"
+              >
+                <ArchiveRestore className="w-4 h-4" />
               </button>
             )}
             <button

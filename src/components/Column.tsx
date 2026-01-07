@@ -103,6 +103,8 @@ interface ColumnProps {
   onOpenPlan?: (session: Session) => void;  // Open session in plan mode
   onDeleteSession?: (session: Session) => void;
   onToggleStarred?: (sessionId: string) => void;
+  onArchiveSession?: (sessionId: string) => void;  // Archive session (hide from default views)
+  onUnarchiveSession?: (sessionId: string) => void;  // Unarchive session (when showing archived)
   onCreateInboxItem?: (prompt: string, section?: string | null) => void;
   onCreateAndRunInboxItem?: (prompt: string) => void;
   onUpdateInboxItem?: (id: string, prompt: string) => void;
@@ -265,6 +267,8 @@ export function Column({
   onOpenPlan,
   onDeleteSession,
   onToggleStarred,
+  onArchiveSession,
+  onUnarchiveSession,
   onCreateInboxItem,
   onCreateAndRunInboxItem,
   onUpdateInboxItem,
@@ -691,6 +695,8 @@ export function Column({
                           onOpenPlan={onOpenPlan}
                           onDelete={onDeleteSession}
                           onToggleStarred={onToggleStarred}
+                          onArchive={onArchiveSession}
+                          onUnarchive={onUnarchiveSession}
                           status={sessionStatuses[session.id]}
                           firstSeenAt={firstSeenAt[session.id]}
                           isSelected={selectedIds.has(session.id)}
@@ -722,6 +728,8 @@ export function Column({
                             onOpenPlan={onOpenPlan}
                             onDelete={onDeleteSession}
                             onToggleStarred={onToggleStarred}
+                            onArchive={onArchiveSession}
+                            onUnarchive={onUnarchiveSession}
                             status={sessionStatuses[session.id]}
                             firstSeenAt={firstSeenAt[session.id]}
                             isSelected={selectedIds.has(session.id)}
@@ -746,6 +754,8 @@ export function Column({
                 onOpenPlan={onOpenPlan}
                 onDelete={onDeleteSession}
                 onToggleStarred={onToggleStarred}
+                onArchive={onArchiveSession}
+                onUnarchive={onUnarchiveSession}
                 status={sessionStatuses[session.id]}
                 firstSeenAt={firstSeenAt[session.id]}
                 isSelected={selectedIds.has(session.id)}

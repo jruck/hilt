@@ -19,11 +19,12 @@ function useVisibilityAwareInterval(activeInterval: number, hiddenInterval: numb
   return isVisible ? activeInterval : hiddenInterval;
 }
 
-export function useSessions(scopePath?: string, page = 1, pageSize = 100) {
+export function useSessions(scopePath?: string, page = 1, pageSize = 100, showArchived = false) {
   const refreshInterval = useVisibilityAwareInterval(5000, 30000); // 5s visible, 30s hidden
   const scopeParam = scopePath ? `&scope=${encodeURIComponent(scopePath)}` : '';
+  const archivedParam = showArchived ? '&showArchived=true' : '';
   const { data, error, isLoading, mutate } = useSWR<SessionsResponse>(
-    `/api/sessions?page=${page}&pageSize=${pageSize}${scopeParam}`,
+    `/api/sessions?page=${page}&pageSize=${pageSize}${scopeParam}${archivedParam}`,
     fetcher,
     {
       refreshInterval,
@@ -79,6 +80,60 @@ export function useSessions(scopePath?: string, page = 1, pageSize = 100) {
     mutate();
   };
 
+  const archiveSession = async (sessionId: string) => {
+    // Optimistic update - remove from list when not showing archived
+    if (data && !showArchived) {
+      const updatedSessions = data.sessions.filter((s) => s.id !== sessionId);
+      const updatedCounts = {
+        ...data.counts,
+        recent: data.counts.recent - 1,
+        archived: data.counts.archived + 1,
+      };
+      mutate({ ...data, sessions: updatedSessions, counts: updatedCounts }, false);
+    } else if (data) {
+      // When showing archived, just mark it as archived
+      const updatedSessions = data.sessions.map((s) =>
+        s.id === sessionId ? { ...s, archived: true } : s
+      );
+      mutate({ ...data, sessions: updatedSessions }, false);
+    }
+
+    // Send to server
+    await fetch("/api/sessions", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId, archived: true }),
+    });
+
+    // Revalidate
+    mutate();
+  };
+
+  const unarchiveSession = async (sessionId: string) => {
+    // Optimistic update
+    if (data) {
+      const updatedSessions = data.sessions.map((s) =>
+        s.id === sessionId ? { ...s, archived: false } : s
+      );
+      const updatedCounts = {
+        ...data.counts,
+        recent: data.counts.recent + 1,
+        archived: Math.max(0, data.counts.archived - 1),
+      };
+      mutate({ ...data, sessions: updatedSessions, counts: updatedCounts }, false);
+    }
+
+    // Send to server
+    await fetch("/api/sessions", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId, archived: false }),
+    });
+
+    // Revalidate
+    mutate();
+  };
+
   // Deduplicate sessions by ID (in case of race conditions between API calls)
   const sessions = data?.sessions ?? [];
   const seen = new Set<string>();
@@ -91,12 +146,14 @@ export function useSessions(scopePath?: string, page = 1, pageSize = 100) {
   return {
     sessions: deduplicatedSessions,
     total: data?.total ?? 0,
-    counts: data?.counts ?? { inbox: 0, active: 0, recent: 0 },
+    counts: data?.counts ?? { inbox: 0, active: 0, recent: 0, archived: 0 },
     isLoading,
     isError: error,
     mutate,
     updateStatus,
     toggleStarred,
+    archiveSession,
+    unarchiveSession,
   };
 }
 

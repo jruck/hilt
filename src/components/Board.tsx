@@ -23,7 +23,7 @@ import { ScopeBreadcrumbs, BrowseButton, RecentScopesButton } from "./scope";
 import { ViewToggle, ViewMode } from "./ViewToggle";
 import { TreeView } from "./TreeView";
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
-import { X, Inbox, Loader2 as InProgressIcon, Clock, Search, Filter, FileText, Check } from "lucide-react";
+import { X, Inbox, Loader2 as InProgressIcon, Clock, Search, Filter, FileText, Check, Archive } from "lucide-react";
 
 const COLUMNS: SessionStatus[] = ["inbox", "active", "recent"];
 
@@ -50,12 +50,14 @@ export function Board() {
   // Scope path from context - no more router.push, pure client-side state
   const { scopePath, setScopePath } = useScope();
 
-  // Initialize with empty string for SSR, hydrate from localStorage after mount
-  const [homeDir, setHomeDir] = useState<string>("");
-  const [viewMode, setViewMode] = useState<ViewMode>("board");
+  // Track if we've hydrated from localStorage (to prevent hydration mismatch)
   const [isHydrated, setIsHydrated] = useState(false);
 
-  // Hydrate from localStorage after mount (SSR-safe)
+  // Initialize with empty/default values for SSR, then hydrate from localStorage
+  const [homeDir, setHomeDir] = useState<string>("");
+  const [viewMode, setViewMode] = useState<ViewMode>("board");
+
+  // Hydrate from localStorage after mount to prevent SSR mismatch
   useEffect(() => {
     const cachedHomeDir = localStorage.getItem(HOME_DIR_STORAGE_KEY) || "";
     const cachedViewMode = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
@@ -76,16 +78,18 @@ export function Board() {
     setIsHydrated(true);
   }, []);
 
-  // Persist view mode to localStorage when it changes (only after hydration)
+  // Persist view mode to localStorage when it changes (skip during initial hydration)
   useEffect(() => {
     if (isHydrated) {
       localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
     }
   }, [viewMode, isHydrated]);
 
-  // Fetch home directory on mount (if not already set) and validate scope if set
+  // Fetch home directory after hydration (if not cached) and validate scope if set
   useEffect(() => {
-    // Only fetch from API if we don't have homeDir yet
+    if (!isHydrated) return;
+
+    // If we already have homeDir from cache, just validate scope
     if (homeDir) {
       // Only validate if scope looks suspicious (not empty and not under cached homeDir)
       if (scopePath && !scopePath.startsWith(homeDir)) {
@@ -119,11 +123,14 @@ export function Board() {
       })
       .catch(console.error);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isHydrated]);
 
-  const { sessions, counts, isLoading, updateStatus, toggleStarred } = useSessions(scopePath || undefined);
+  // Filter state for showing archived sessions
+  const [showArchived, setShowArchived] = useState(false);
+
+  const { sessions, counts, isLoading, updateStatus, toggleStarred, archiveSession, unarchiveSession } = useSessions(scopePath || undefined, 1, 100, showArchived);
   const { items: inboxItems, sections: todoSections, createItem, updateItem, deleteItem, reorderSections, reorderItem } = useInboxItems(scopePath || undefined);
-  const { tree, isLoading: isTreeLoading } = useTreeSessions(scopePath);
+  const { tree, isLoading: isTreeLoading } = useTreeSessions(scopePath, showArchived);
   const pinnedFolders = usePinnedFolders();
 
   // The most recent session would be resumed by `claude --continue`
@@ -153,6 +160,15 @@ export function Board() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   // Filter state
   const [filters, setFilters] = useState<{ hasPlan: boolean }>({ hasPlan: false });
+
+  // Handlers for archive/unarchive
+  const handleArchiveSession = async (sessionId: string) => {
+    await archiveSession(sessionId);
+  };
+
+  const handleUnarchiveSession = async (sessionId: string) => {
+    await unarchiveSession(sessionId);
+  };
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const filterRef = useRef<HTMLDivElement>(null);
   // Track when sessions were first seen (for "new" effect)
@@ -315,7 +331,7 @@ export function Board() {
   }, [searchQuery]);
 
   // Check if any filters are active
-  const hasActiveFilters = filters.hasPlan;
+  const hasActiveFilters = filters.hasPlan || showArchived;
 
   const getSessionsByStatus = useCallback(
     (status: SessionStatus) => {
@@ -838,6 +854,17 @@ Proceed autonomously otherwise.`;
                   <span className="flex-1">Plans</span>
                   {filters.hasPlan && <Check className="w-4 h-4 text-[var(--interactive-default)]" />}
                 </button>
+                <button
+                  onClick={() => setShowArchived(!showArchived)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-[var(--bg-tertiary)] transition-colors"
+                >
+                  <Archive className="w-4 h-4 text-[var(--text-tertiary)]" />
+                  <span className="flex-1">Archived</span>
+                  {counts.archived > 0 && (
+                    <span className="text-xs text-[var(--text-tertiary)]">{counts.archived}</span>
+                  )}
+                  {showArchived && <Check className="w-4 h-4 text-[var(--interactive-default)]" />}
+                </button>
               </div>
             )}
           </div>
@@ -908,6 +935,8 @@ Proceed autonomously otherwise.`;
               isLoading={isTreeLoading}
               onSelectSession={handleSelectSession}
               onDeleteSession={handleDeleteSession}
+              onArchiveSession={handleArchiveSession}
+              onUnarchiveSession={showArchived ? handleUnarchiveSession : undefined}
               selectedSessionIds={selectedIds}
             />
           </div>
@@ -949,6 +978,8 @@ Proceed autonomously otherwise.`;
                   onOpenPlan={handleOpenPlan}
                   onDeleteSession={handleDeleteSession}
                   onToggleStarred={toggleStarred}
+                  onArchiveSession={status === "recent" ? handleArchiveSession : undefined}
+                  onUnarchiveSession={status === "recent" && showArchived ? handleUnarchiveSession : undefined}
                   onCreateInboxItem={status === "inbox" ? handleCreateInboxItem : undefined}
                   onCreateAndRunInboxItem={status === "inbox" ? handleCreateAndRunInboxItem : undefined}
                   onUpdateInboxItem={handleUpdateInboxItem}

@@ -74,6 +74,7 @@ export interface Session extends SessionMetadata {
   status: SessionStatus;
   sortOrder?: number;
   starred?: boolean;
+  archived?: boolean;  // Hidden from default views, shown when "Show Archived" is enabled
   // For new sessions started from inbox
   isNew?: boolean;
   initialPrompt?: string;
@@ -114,6 +115,7 @@ export interface SessionsResponse {
     inbox: number;
     active: number;
     recent: number;
+    archived: number;  // Total archived (always shown, even when filtered out)
   };
 }
 

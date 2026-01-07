@@ -1,29 +1,30 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 const STORAGE_KEY = "claude-kanban-sidebar-collapsed";
-
-// Helper to read from localStorage safely
-function getStoredValue(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored === "true";
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Hook for sidebar collapsed/expanded state with localStorage persistence
  * Default: expanded (open)
  */
 export function useSidebarState() {
-  // Use lazy initializer to read from localStorage without setState in effect
-  const [isCollapsed, setIsCollapsed] = useState(() => getStoredValue());
-  // Client-side only - will be true after first render
-  const [isHydrated] = useState(() => typeof window !== "undefined");
+  // Start with default value (expanded) to match server render
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Hydrate from localStorage after mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored === "true") {
+        setIsCollapsed(true);
+      }
+    } catch {
+      // Silently fail if localStorage is unavailable
+    }
+    setIsHydrated(true);
+  }, []);
 
   // Persist state changes to localStorage
   const setCollapsed = useCallback((collapsed: boolean) => {

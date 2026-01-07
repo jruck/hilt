@@ -57,3 +57,5 @@ next-env.d.ts
 # Local files
 WARP.md
 nimbalyst-local/
+.dev-port
+dist/

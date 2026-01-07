@@ -110,10 +110,12 @@ async function findAvailablePort(startPort: number): Promise<number> {
 async function startNextServer(): Promise<number> {
   const isPackaged = app.isPackaged;
 
-  // In development, connect to the already-running dev server on port 3000
+  // In development, connect to the already-running dev server
+  // Port can be specified via CLAUDE_KANBAN_DEV_PORT env var (set by dev app launcher)
   if (!isPackaged) {
-    serverPort = 3000;
-    return 3000;
+    const devPort = parseInt(process.env.CLAUDE_KANBAN_DEV_PORT || "3000", 10);
+    serverPort = devPort;
+    return devPort;
   }
 
   // Production: start the standalone server

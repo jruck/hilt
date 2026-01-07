@@ -12,6 +12,7 @@
     "dev:all": "concurrently \"npm run dev\" \"npm run ws-server\"",
     "electron:compile": "tsc -p electron/tsconfig.json",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron electron/launcher.cjs\"",
+    "electron:create-dev-app": "bash scripts/create-dev-app.sh",
     "electron:build": "npm run build && npm run electron:compile",
     "electron:dist": "npm run electron:build && electron-builder",
     "electron:dist:mac": "npm run electron:build && electron-builder --mac",

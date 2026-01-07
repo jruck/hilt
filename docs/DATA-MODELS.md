@@ -277,6 +277,45 @@ interface InboxDB {
 }
 ```
 
+### preferences.json
+
+Stored in `data/preferences.json`. Persists user preferences across app restarts and Electron rebuilds.
+
+```typescript
+interface UserPreferences {
+  pinnedFolders: PinnedFolder[];
+  // Folders pinned to sidebar for quick access
+
+  sidebarCollapsed: boolean;
+  // Whether sidebar is collapsed or expanded
+
+  theme: "light" | "dark" | "system";
+  // UI theme preference
+
+  recentScopes: string[];
+  // Last 10 visited folder paths (most recent first)
+
+  viewMode: "board" | "tree" | "docs";
+  // Current view mode
+}
+
+interface PinnedFolder {
+  id: string;
+  // Unique identifier (timestamp + random)
+
+  path: string;
+  // Full folder path
+
+  name: string;
+  // Display name (last path segment)
+
+  pinnedAt: number;
+  // Timestamp for ordering
+}
+```
+
+**Note**: Preferences were previously stored in localStorage, which would be cleared when Electron app cache was rebuilt. Server-side storage ensures persistence.
+
 ### Todo.md Format
 
 Primary inbox storage when project has a `docs/Todo.md` file.
@@ -301,15 +340,13 @@ Parsing rules:
 
 ## localStorage Keys
 
-Browser-side persistence.
+Browser-side persistence (limited - most preferences now server-side).
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `view-mode` | `"board"` \| `"tree"` \| `"docs"` | Current view mode |
-| `recent-scopes` | `string[]` | JSON array of recent folder paths |
-| `pinned-folders` | `string[]` | JSON array of pinned folder paths |
-| `sidebar-collapsed` | `boolean` | Sidebar visibility state |
-| `home-dir` | `string` | Cached home directory path |
+| `claude-kanban-home-dir` | `string` | Cached home directory path |
+
+**Note**: View mode, recent scopes, pinned folders, sidebar state, and theme are now stored server-side in `data/preferences.json` to persist across Electron rebuilds.
 
 ## API Response Types
 

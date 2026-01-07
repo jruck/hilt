@@ -1,39 +1,47 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
-
-const STORAGE_KEY = "claude-kanban-sidebar-collapsed";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 /**
- * Hook for sidebar collapsed/expanded state with localStorage persistence
+ * Hook for sidebar collapsed/expanded state with server-side persistence
  * Default: expanded (open)
  */
 export function useSidebarState() {
   // Start with default value (expanded) to match server render
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsedState] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
+  const initialFetchDone = useRef(false);
 
-  // Hydrate from localStorage after mount
+  // Fetch initial state from server
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored === "true") {
-        setIsCollapsed(true);
-      }
-    } catch {
-      // Silently fail if localStorage is unavailable
-    }
-    setIsHydrated(true);
+    if (initialFetchDone.current) return;
+    initialFetchDone.current = true;
+
+    fetch("/api/preferences?key=sidebarCollapsed")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.value !== undefined) {
+          setIsCollapsedState(data.value);
+        }
+      })
+      .catch(() => {
+        // Silently fail if API is unavailable
+      })
+      .finally(() => {
+        setIsHydrated(true);
+      });
   }, []);
 
-  // Persist state changes to localStorage
+  // Persist state changes to server
   const setCollapsed = useCallback((collapsed: boolean) => {
-    setIsCollapsed(collapsed);
-    try {
-      localStorage.setItem(STORAGE_KEY, String(collapsed));
-    } catch {
-      // Silently fail if localStorage is unavailable
-    }
+    setIsCollapsedState(collapsed);
+    fetch("/api/preferences", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "sidebarCollapsed", value: collapsed }),
+    }).catch(() => {
+      // Silently fail if API is unavailable
+    });
   }, []);
 
   const toggle = useCallback(() => {

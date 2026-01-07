@@ -7,6 +7,7 @@ import { getCachedStatus, setCachedStatus, invalidateStatusCache } from "./sessi
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
 const STATUS_FILE = path.join(DATA_DIR, "session-status.json");
 const INBOX_FILE = path.join(DATA_DIR, "inbox.json");
+const PREFERENCES_FILE = path.join(DATA_DIR, "preferences.json");
 
 // Ensure data directory exists
 function ensureDataDir() {
@@ -264,4 +265,175 @@ export async function unarchiveSession(sessionId: string): Promise<void> {
     existing.updatedAt = new Date().toISOString();
     writeStatusFile(data);
   }
+}
+
+// ============================================================================
+// Preferences storage (pinned folders, sidebar state, theme, recent scopes)
+// ============================================================================
+
+interface PinnedFolder {
+  id: string;
+  path: string;
+  name: string;
+  pinnedAt: number;
+}
+
+interface UserPreferences {
+  pinnedFolders: PinnedFolder[];
+  sidebarCollapsed: boolean;
+  theme: "light" | "dark" | "system";
+  recentScopes: string[];
+  viewMode: "board" | "tree" | "docs";
+}
+
+const DEFAULT_PREFERENCES: UserPreferences = {
+  pinnedFolders: [],
+  sidebarCollapsed: false,
+  theme: "system",
+  recentScopes: [],
+  viewMode: "board",
+};
+
+function readPreferencesFile(): UserPreferences {
+  ensureDataDir();
+  if (!fs.existsSync(PREFERENCES_FILE)) {
+    return { ...DEFAULT_PREFERENCES };
+  }
+  try {
+    const content = fs.readFileSync(PREFERENCES_FILE, "utf-8");
+    const data = JSON.parse(content);
+    // Merge with defaults for any missing fields
+    return { ...DEFAULT_PREFERENCES, ...data };
+  } catch {
+    return { ...DEFAULT_PREFERENCES };
+  }
+}
+
+function writePreferencesFile(prefs: UserPreferences) {
+  ensureDataDir();
+  fs.writeFileSync(PREFERENCES_FILE, JSON.stringify(prefs, null, 2));
+}
+
+// Pinned folders
+export async function getPinnedFolders(): Promise<PinnedFolder[]> {
+  const prefs = readPreferencesFile();
+  // Sort by pinnedAt ascending (oldest first = stable ordering)
+  return prefs.pinnedFolders.sort((a, b) => a.pinnedAt - b.pinnedAt);
+}
+
+export async function pinFolder(path: string): Promise<PinnedFolder> {
+  const prefs = readPreferencesFile();
+
+  // Check if already pinned
+  const existing = prefs.pinnedFolders.find(f => f.path === path);
+  if (existing) {
+    return existing;
+  }
+
+  // Extract name from path
+  const name = path.split("/").filter(Boolean).pop() || path;
+
+  const newFolder: PinnedFolder = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    path,
+    name,
+    pinnedAt: Date.now(),
+  };
+
+  prefs.pinnedFolders.push(newFolder);
+  writePreferencesFile(prefs);
+
+  return newFolder;
+}
+
+export async function unpinFolder(id: string): Promise<void> {
+  const prefs = readPreferencesFile();
+  prefs.pinnedFolders = prefs.pinnedFolders.filter(f => f.id !== id);
+  writePreferencesFile(prefs);
+}
+
+export async function reorderPinnedFolders(activeId: string, overId: string): Promise<PinnedFolder[]> {
+  const prefs = readPreferencesFile();
+  const folders = prefs.pinnedFolders;
+
+  const activeIndex = folders.findIndex(f => f.id === activeId);
+  const overIndex = folders.findIndex(f => f.id === overId);
+
+  if (activeIndex === -1 || overIndex === -1) {
+    return folders;
+  }
+
+  // Remove from old position and insert at new position
+  const [removed] = folders.splice(activeIndex, 1);
+  folders.splice(overIndex, 0, removed);
+
+  // Update pinnedAt timestamps to reflect new order
+  const now = Date.now();
+  folders.forEach((folder, index) => {
+    folder.pinnedAt = now + index;
+  });
+
+  prefs.pinnedFolders = folders;
+  writePreferencesFile(prefs);
+
+  return folders;
+}
+
+// Sidebar state
+export async function getSidebarCollapsed(): Promise<boolean> {
+  const prefs = readPreferencesFile();
+  return prefs.sidebarCollapsed;
+}
+
+export async function setSidebarCollapsed(collapsed: boolean): Promise<void> {
+  const prefs = readPreferencesFile();
+  prefs.sidebarCollapsed = collapsed;
+  writePreferencesFile(prefs);
+}
+
+// Theme
+export async function getTheme(): Promise<"light" | "dark" | "system"> {
+  const prefs = readPreferencesFile();
+  return prefs.theme;
+}
+
+export async function setTheme(theme: "light" | "dark" | "system"): Promise<void> {
+  const prefs = readPreferencesFile();
+  prefs.theme = theme;
+  writePreferencesFile(prefs);
+}
+
+// Recent scopes
+export async function getRecentScopes(): Promise<string[]> {
+  const prefs = readPreferencesFile();
+  return prefs.recentScopes;
+}
+
+export async function addRecentScope(scope: string): Promise<string[]> {
+  const prefs = readPreferencesFile();
+  // Remove if already exists (will re-add at front)
+  prefs.recentScopes = prefs.recentScopes.filter(s => s !== scope);
+  // Add to front
+  prefs.recentScopes.unshift(scope);
+  // Keep only last 10
+  prefs.recentScopes = prefs.recentScopes.slice(0, 10);
+  writePreferencesFile(prefs);
+  return prefs.recentScopes;
+}
+
+// View mode
+export async function getViewMode(): Promise<"board" | "tree" | "docs"> {
+  const prefs = readPreferencesFile();
+  return prefs.viewMode;
+}
+
+export async function setViewMode(mode: "board" | "tree" | "docs"): Promise<void> {
+  const prefs = readPreferencesFile();
+  prefs.viewMode = mode;
+  writePreferencesFile(prefs);
+}
+
+// Get all preferences at once (for initial load)
+export async function getAllPreferences(): Promise<UserPreferences> {
+  return readPreferencesFile();
 }

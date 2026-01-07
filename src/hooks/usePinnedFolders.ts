@@ -1,63 +1,129 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import {
-  PinnedFolder,
-  getPinnedFolders,
-  pinFolder as pinFolderUtil,
-  unpinFolder as unpinFolderUtil,
-  isPinned as isPinnedUtil,
-  findPinnedByPath,
-  reorderFolders as reorderFoldersUtil,
-} from "@/lib/pinned-folders";
+import useSWR, { mutate } from "swr";
+
+export interface PinnedFolder {
+  id: string;
+  path: string;
+  name: string;
+  pinnedAt: number;
+}
+
+const CACHE_KEY = "/api/preferences?key=pinnedFolders";
+
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
 /**
  * Hook for pinned folders CRUD operations
+ * Now uses server-side storage via API instead of localStorage
  */
 export function usePinnedFolders() {
-  // Start with empty array to match server render
-  const [folders, setFolders] = useState<PinnedFolder[]>([]);
+  const { data: folders = [], isLoading, error } = useSWR<PinnedFolder[]>(
+    CACHE_KEY,
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 5000,
+    }
+  );
+
   const [isHydrated, setIsHydrated] = useState(false);
 
-  // Hydrate from localStorage after mount
+  // Mark as hydrated once we have data
   useEffect(() => {
-    setFolders(getPinnedFolders());
-    setIsHydrated(true);
-  }, []);
+    if (!isLoading) {
+      setIsHydrated(true);
+    }
+  }, [isLoading]);
 
-  const pinFolder = useCallback((path: string) => {
-    const newFolder = pinFolderUtil(path);
-    setFolders(getPinnedFolders());
+  const pinFolder = useCallback(async (path: string): Promise<PinnedFolder> => {
+    const res = await fetch("/api/preferences", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "pinFolder", path }),
+    });
+    const newFolder = await res.json();
+
+    // Optimistically update the cache
+    mutate(CACHE_KEY);
+
     return newFolder;
   }, []);
 
-  const unpinFolder = useCallback((id: string) => {
-    unpinFolderUtil(id);
-    setFolders(getPinnedFolders());
+  const unpinFolder = useCallback(async (id: string): Promise<void> => {
+    // Optimistically update the cache
+    mutate(
+      CACHE_KEY,
+      (current: PinnedFolder[] | undefined) =>
+        current?.filter((f) => f.id !== id) ?? [],
+      false
+    );
+
+    await fetch(`/api/preferences?action=unpinFolder&id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+
+    // Revalidate
+    mutate(CACHE_KEY);
   }, []);
 
-  const isPinned = useCallback((path: string) => {
-    return isPinnedUtil(path);
-  }, []);
+  const isPinned = useCallback(
+    (path: string): boolean => {
+      return folders.some((f) => f.path === path);
+    },
+    [folders]
+  );
 
-  const togglePin = useCallback((path: string) => {
-    const existing = findPinnedByPath(path);
-    if (existing) {
-      unpinFolderUtil(existing.id);
-    } else {
-      pinFolderUtil(path);
-    }
-    setFolders(getPinnedFolders());
-  }, []);
+  const togglePin = useCallback(
+    async (path: string): Promise<void> => {
+      const existing = folders.find((f) => f.path === path);
+      if (existing) {
+        await unpinFolder(existing.id);
+      } else {
+        await pinFolder(path);
+      }
+    },
+    [folders, unpinFolder, pinFolder]
+  );
 
-  const reorderFolders = useCallback((activeId: string, overId: string) => {
-    const reordered = reorderFoldersUtil(activeId, overId);
-    setFolders(reordered);
-  }, []);
+  const reorderFolders = useCallback(
+    async (activeId: string, overId: string): Promise<void> => {
+      // Optimistically reorder
+      mutate(
+        CACHE_KEY,
+        (current: PinnedFolder[] | undefined) => {
+          if (!current) return [];
+          const folders = [...current];
+          const activeIndex = folders.findIndex((f) => f.id === activeId);
+          const overIndex = folders.findIndex((f) => f.id === overId);
+          if (activeIndex === -1 || overIndex === -1) return current;
 
-  // Allow external refresh of folders (for cross-component sync)
+          const [removed] = folders.splice(activeIndex, 1);
+          folders.splice(overIndex, 0, removed);
+          return folders;
+        },
+        false
+      );
+
+      await fetch("/api/preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "reorderPinnedFolders",
+          activeId,
+          overId,
+        }),
+      });
+
+      // Revalidate
+      mutate(CACHE_KEY);
+    },
+    []
+  );
+
   const refreshFolders = useCallback(() => {
-    setFolders(getPinnedFolders());
+    mutate(CACHE_KEY);
   }, []);
 
   return {
@@ -69,5 +135,7 @@ export function usePinnedFolders() {
     reorderFolders,
     refreshFolders,
     isHydrated,
+    isLoading,
+    error,
   };
 }

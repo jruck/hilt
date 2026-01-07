@@ -1,5 +1,6 @@
 /**
- * Recent scopes tracking via localStorage
+ * Recent scopes tracking via server-side API
+ * Persists to data/preferences.json instead of localStorage
  */
 
 export interface RecentScope {
@@ -8,27 +9,38 @@ export interface RecentScope {
   visitCount: number;
 }
 
-const STORAGE_KEY = "claude-kanban-recent-scopes";
-const MAX_ENTRIES = 10;
+// Cache for synchronous access
+let cachedScopes: RecentScope[] = [];
+let cacheInitialized = false;
 
 /**
- * Get recent scopes from localStorage, sorted by lastVisited (most recent first)
+ * Initialize cache from server (call on app load)
  */
-export function getRecentScopes(): RecentScope[] {
-  if (typeof window === "undefined") return [];
+export async function initRecentScopes(): Promise<void> {
+  if (cacheInitialized) return;
 
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return [];
+    const res = await fetch("/api/preferences?key=recentScopes");
+    const paths: string[] = await res.json();
 
-    const scopes: RecentScope[] = JSON.parse(stored);
-    // Sort by lastVisited descending
-    return scopes.sort((a, b) =>
-      new Date(b.lastVisited).getTime() - new Date(a.lastVisited).getTime()
-    );
+    // Convert simple path array to RecentScope objects
+    cachedScopes = paths.map((path, index) => ({
+      path,
+      lastVisited: new Date().toISOString(),
+      visitCount: paths.length - index, // Higher count for earlier items
+    }));
+    cacheInitialized = true;
   } catch {
-    return [];
+    // Silently fail if API is unavailable
   }
+}
+
+/**
+ * Get recent scopes (returns cached data for sync access)
+ * Call initRecentScopes() first for fresh data
+ */
+export function getRecentScopes(): RecentScope[] {
+  return cachedScopes;
 }
 
 /**
@@ -37,50 +49,50 @@ export function getRecentScopes(): RecentScope[] {
 export function recordScopeVisit(path: string): void {
   if (typeof window === "undefined") return;
 
-  try {
-    const scopes = getRecentScopes();
-    const now = new Date().toISOString();
+  // Update local cache immediately
+  const now = new Date().toISOString();
+  const existingIndex = cachedScopes.findIndex(s => s.path === path);
 
-    // Find existing entry
-    const existingIndex = scopes.findIndex(s => s.path === path);
-
-    if (existingIndex !== -1) {
-      // Update existing entry
-      scopes[existingIndex].lastVisited = now;
-      scopes[existingIndex].visitCount += 1;
-    } else {
-      // Add new entry
-      scopes.push({
-        path,
-        lastVisited: now,
-        visitCount: 1,
-      });
-    }
-
-    // Sort by lastVisited and trim to max entries
-    scopes.sort((a, b) =>
-      new Date(b.lastVisited).getTime() - new Date(a.lastVisited).getTime()
-    );
-
-    const trimmed = scopes.slice(0, MAX_ENTRIES);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
-  } catch {
-    // Silently fail if localStorage is unavailable
+  if (existingIndex !== -1) {
+    // Update existing entry
+    cachedScopes[existingIndex].lastVisited = now;
+    cachedScopes[existingIndex].visitCount += 1;
+    // Move to front
+    const [removed] = cachedScopes.splice(existingIndex, 1);
+    cachedScopes.unshift(removed);
+  } else {
+    // Add new entry at front
+    cachedScopes.unshift({
+      path,
+      lastVisited: now,
+      visitCount: 1,
+    });
   }
+
+  // Trim to 10 entries
+  cachedScopes = cachedScopes.slice(0, 10);
+
+  // Persist to server (fire and forget)
+  fetch("/api/preferences", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "addRecentScope", scope: path }),
+  }).catch(() => {
+    // Silently fail if API is unavailable
+  });
 }
 
 /**
  * Get popular scopes (sorted by visit count)
  */
 export function getPopularScopes(): RecentScope[] {
-  const scopes = getRecentScopes();
-  return [...scopes].sort((a, b) => b.visitCount - a.visitCount);
+  return [...cachedScopes].sort((a, b) => b.visitCount - a.visitCount);
 }
 
 /**
  * Clear all recent scopes
  */
 export function clearRecentScopes(): void {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(STORAGE_KEY);
+  cachedScopes = [];
+  // Note: Add API endpoint for this if needed
 }

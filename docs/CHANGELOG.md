@@ -8,6 +8,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
+- **Server-Side Preferences Persistence** - User preferences now persist across Electron rebuilds
+  - Pinned folders, sidebar state, theme, view mode, and recent scopes stored in `data/preferences.json`
+  - New `/api/preferences` route for CRUD operations
+  - Updated hooks (`usePinnedFolders`, `useSidebarState`, `useTheme`) to use server-side storage
+  - Previous localStorage-based storage would be lost when Electron app cache was cleared
+  - Files: `src/lib/db.ts`, `src/app/api/preferences/route.ts`, `src/hooks/usePinnedFolders.ts`, `src/hooks/useSidebarState.ts`, `src/hooks/useTheme.ts`, `src/lib/recent-scopes.ts`
+
 - **Electron IPC Transport** - Native desktop app with IPC-based terminal communication
   - Replaces WebSocket with Electron IPC for PTY communication when running as native app
   - `electron/main.ts` - Main process with IPC handlers, embedded Next.js server, PTY manager

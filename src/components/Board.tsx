@@ -57,31 +57,48 @@ export function Board() {
   const [homeDir, setHomeDir] = useState<string>("");
   const [viewMode, setViewMode] = useState<ViewMode>("board");
 
-  // Hydrate from localStorage after mount to prevent SSR mismatch
+  // Hydrate from localStorage (for homeDir) and server (for viewMode) after mount
   useEffect(() => {
     const cachedHomeDir = localStorage.getItem(HOME_DIR_STORAGE_KEY) || "";
-    const cachedViewMode = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
 
     if (cachedHomeDir) {
       setHomeDir(cachedHomeDir);
     }
 
-    // Migrate old "kanban" value to "board"
-    if (cachedViewMode === "kanban" || cachedViewMode === "board") {
-      setViewMode("board");
-    } else if (cachedViewMode === "tree") {
-      setViewMode("tree");
-    } else if (cachedViewMode === "docs") {
-      setViewMode("docs");
-    }
-
-    setIsHydrated(true);
+    // Fetch view mode from server-side preferences
+    fetch("/api/preferences?key=viewMode")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.value === "board" || data.value === "tree" || data.value === "docs") {
+          setViewMode(data.value);
+        }
+      })
+      .catch(() => {
+        // Fall back to localStorage for backward compatibility
+        const cachedViewMode = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+        if (cachedViewMode === "kanban" || cachedViewMode === "board") {
+          setViewMode("board");
+        } else if (cachedViewMode === "tree") {
+          setViewMode("tree");
+        } else if (cachedViewMode === "docs") {
+          setViewMode("docs");
+        }
+      })
+      .finally(() => {
+        setIsHydrated(true);
+      });
   }, []);
 
-  // Persist view mode to localStorage when it changes (skip during initial hydration)
+  // Persist view mode to server when it changes (skip during initial hydration)
   useEffect(() => {
     if (isHydrated) {
-      localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
+      fetch("/api/preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "viewMode", value: viewMode }),
+      }).catch(() => {
+        // Silently fail
+      });
     }
   }, [viewMode, isHydrated]);
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Clock, Folder } from "lucide-react";
-import { getRecentScopes, type RecentScope } from "@/lib/recent-scopes";
+import { getRecentScopes, initRecentScopes, type RecentScope } from "@/lib/recent-scopes";
 
 interface RecentScopesButtonProps {
   currentPath: string;
@@ -20,6 +20,11 @@ export function RecentScopesButton({
   const [refreshKey, setRefreshKey] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // Initialize recent scopes from server on mount
+  useEffect(() => {
+    initRecentScopes();
+  }, []);
 
   // Compute recent scopes when dropdown opens (triggered by refreshKey change)
   const recentScopes = useMemo(() => {

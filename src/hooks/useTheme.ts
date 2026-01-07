@@ -5,18 +5,6 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react';
 export type Theme = 'dark' | 'light' | 'system';
 export type ResolvedTheme = 'dark' | 'light';
 
-const STORAGE_KEY = 'claude-kanban-theme';
-
-// Get the stored theme from localStorage
-function getStoredTheme(): Theme {
-  if (typeof window === 'undefined') return 'system';
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored === 'dark' || stored === 'light' || stored === 'system') {
-    return stored;
-  }
-  return 'system';
-}
-
 // Get the system preference
 function getSystemTheme(): ResolvedTheme {
   if (typeof window === 'undefined') return 'dark';
@@ -41,6 +29,7 @@ function applyTheme(resolved: ResolvedTheme) {
 
 // Store for external sync
 let currentTheme: Theme = 'system';
+let serverFetchDone = false;
 const listeners: Set<() => void> = new Set();
 
 function subscribe(listener: () => void) {
@@ -56,19 +45,44 @@ function getServerSnapshot(): Theme {
   return 'system';
 }
 
-function setTheme(theme: Theme) {
+function setThemeInternal(theme: Theme, persist: boolean = true) {
   currentTheme = theme;
   if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY, theme);
     applyTheme(resolveTheme(theme));
+
+    if (persist) {
+      // Persist to server
+      fetch('/api/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'theme', value: theme }),
+      }).catch(() => {
+        // Silently fail if API is unavailable
+      });
+    }
   }
   listeners.forEach(listener => listener());
 }
 
-// Initialize on first load
+// Initialize on first load - fetch from server
 if (typeof window !== 'undefined') {
-  currentTheme = getStoredTheme();
-  applyTheme(resolveTheme(currentTheme));
+  // Apply system theme immediately to avoid flash
+  applyTheme(resolveTheme('system'));
+
+  // Fetch persisted theme from server
+  if (!serverFetchDone) {
+    serverFetchDone = true;
+    fetch('/api/preferences?key=theme')
+      .then(res => res.json())
+      .then(data => {
+        if (data.value && (data.value === 'dark' || data.value === 'light' || data.value === 'system')) {
+          setThemeInternal(data.value, false); // Don't persist back to server
+        }
+      })
+      .catch(() => {
+        // Silently fail if API is unavailable
+      });
+  }
 
   // Listen for system preference changes
   const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -90,7 +104,7 @@ export function useTheme() {
   }, [resolvedTheme]);
 
   const setThemeCallback = useCallback((newTheme: Theme) => {
-    setTheme(newTheme);
+    setThemeInternal(newTheme, true);
   }, []);
 
   return {

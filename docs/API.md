@@ -349,6 +349,132 @@ Get inbox item counts grouped by scope.
 
 ---
 
+## Preferences
+
+**File**: `src/app/api/preferences/route.ts`
+
+Server-side storage for user preferences. Persists across Electron rebuilds (unlike localStorage).
+
+### GET /api/preferences
+
+Get all or specific preferences.
+
+**Query Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `key` | string | Optional. Specific preference key to fetch |
+
+**Response (no key)**
+
+```typescript
+{
+  pinnedFolders: PinnedFolder[];
+  sidebarCollapsed: boolean;
+  theme: "light" | "dark" | "system";
+  recentScopes: string[];
+  viewMode: "board" | "tree" | "docs";
+}
+```
+
+**Response (key=pinnedFolders)**
+
+```typescript
+PinnedFolder[]  // Array of pinned folder objects
+```
+
+**Response (key=sidebarCollapsed|theme|viewMode)**
+
+```typescript
+{ value: boolean | string }
+```
+
+**Response (key=recentScopes)**
+
+```typescript
+string[]  // Array of recent scope paths
+```
+
+### POST /api/preferences
+
+Create/add operations.
+
+**Request Body**
+
+```typescript
+{
+  action: "pinFolder";
+  path: string;  // Folder path to pin
+}
+
+// OR
+
+{
+  action: "addRecentScope";
+  scope: string;  // Scope path to add to recents
+}
+```
+
+**Response**
+
+```typescript
+// pinFolder
+PinnedFolder  // The created pinned folder
+
+// addRecentScope
+string[]  // Updated recent scopes array
+```
+
+### PATCH /api/preferences
+
+Update operations.
+
+**Request Body**
+
+```typescript
+// Reorder pinned folders
+{
+  action: "reorderPinnedFolders";
+  activeId: string;
+  overId: string;
+}
+
+// OR simple key-value update
+{
+  key: "sidebarCollapsed" | "theme" | "viewMode";
+  value: boolean | string;
+}
+```
+
+**Response**
+
+```typescript
+// reorderPinnedFolders
+PinnedFolder[]  // Reordered array
+
+// key-value update
+{ success: true }
+```
+
+### DELETE /api/preferences
+
+Delete operations.
+
+**Query Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `action` | `"unpinFolder"` | Action to perform |
+| `id` | string | Pinned folder ID to unpin |
+
+**Response**
+
+```typescript
+{ success: true }
+```
+
+---
+
 ## External Integration Routes
 
 ### POST /api/firecrawl

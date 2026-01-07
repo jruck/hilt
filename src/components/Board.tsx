@@ -786,6 +786,7 @@ Proceed autonomously otherwise.`;
     <div className="flex flex-col h-screen bg-[var(--bg-primary)]">
       {/* Status Bar - fixed height for drawer alignment */}
       <div
+        data-statusbar
         className="relative flex items-center justify-between px-4 h-11 bg-[var(--bg-secondary)] border-b border-[var(--border-default)]"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >

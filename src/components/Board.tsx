@@ -787,11 +787,11 @@ Proceed autonomously otherwise.`;
     <div className="flex flex-col h-screen bg-zinc-950">
       {/* Status Bar - fixed height for drawer alignment */}
       <div
-        className="flex items-center gap-4 px-4 h-11 bg-zinc-900 border-b border-zinc-800"
+        className="relative flex items-center justify-between px-4 h-11 bg-zinc-900 border-b border-zinc-800"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
         {/* Left side: Scope controls (breadcrumbs, recent, browse) */}
-        <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <div className="flex items-center gap-1 min-w-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           {homeDir && (
             <>
               <ScopeBreadcrumbs
@@ -811,13 +811,18 @@ Proceed autonomously otherwise.`;
           <BrowseButton onSelect={handleScopeChange} />
         </div>
 
-        {/* Center: View Toggle */}
-        <div className="flex items-center" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <ViewToggle view={viewMode} onChange={setViewMode} />
+        {/* Center: View Toggle - absolutely positioned for true centering */}
+        <div
+          className="absolute left-1/2 -translate-x-1/2 flex items-center pointer-events-none"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          <div className="pointer-events-auto">
+            <ViewToggle view={viewMode} onChange={setViewMode} />
+          </div>
         </div>
 
         {/* Right side: Filter & Search */}
-        <div className="ml-auto flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           {/* Filter dropdown */}
           <div className="relative" ref={filterRef}>
             <button

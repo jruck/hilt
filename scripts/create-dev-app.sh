@@ -41,53 +41,47 @@ EOF
 cat > "$APP_PATH/Contents/MacOS/launcher" << 'LAUNCHER_EOF'
 #!/bin/bash
 # Claude Kanban Dev Launcher
-# Handles port detection and starts dev server if needed
+# Fast startup - skips slow nvm sourcing
 
 PROJECT_DIR="PLACEHOLDER_PROJECT_DIR"
 PORT_FILE="$PROJECT_DIR/.dev-port"
 cd "$PROJECT_DIR"
 
-# Use nvm if available
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-
-# Function to check if a port has our dev server
-check_our_server() {
-    local port=$1
-    # Check if responding and is Next.js (returns HTML with _next)
-    if curl -s "http://localhost:$port" 2>/dev/null | grep -q "_next"; then
-        return 0
-    fi
-    return 1
-}
-
-# Function to find available port
-find_available_port() {
-    local port=3000
-    while [ $port -lt 3100 ]; do
-        if ! lsof -i :$port > /dev/null 2>&1; then
-            echo $port
-            return
-        fi
-        port=$((port + 1))
-    done
-    echo 3000  # fallback
-}
-
-# Check if we have a saved port from a previous run
-DEV_PORT=""
-if [ -f "$PORT_FILE" ]; then
-    SAVED_PORT=$(cat "$PORT_FILE")
-    if check_our_server "$SAVED_PORT"; then
-        DEV_PORT="$SAVED_PORT"
+# Add nvm node to PATH without sourcing slow nvm.sh
+if [ -d "$HOME/.nvm/versions/node" ]; then
+    NODE_DIR=$(ls -1 "$HOME/.nvm/versions/node" | tail -1)
+    if [ -n "$NODE_DIR" ]; then
+        export PATH="$HOME/.nvm/versions/node/$NODE_DIR/bin:$PATH"
     fi
 fi
 
-# If no saved port or it's stale, look for running server or start new one
+# Quick server check with 2-second timeout
+check_server() {
+    curl -s --max-time 2 "http://localhost:$1" 2>/dev/null | grep -q "_next"
+}
+
+# Find available port
+find_port() {
+    for p in 3000 3001 3002 3003 3004 3005; do
+        if ! lsof -i :$p > /dev/null 2>&1; then
+            echo $p
+            return
+        fi
+    done
+    echo 3000
+}
+
+# Try saved port first
+DEV_PORT=""
+if [ -f "$PORT_FILE" ]; then
+    SAVED=$(cat "$PORT_FILE")
+    check_server "$SAVED" && DEV_PORT="$SAVED"
+fi
+
+# Scan common ports for existing server
 if [ -z "$DEV_PORT" ]; then
-    # Check common ports for existing Next.js server
     for port in 3000 3001 3002 3003; do
-        if check_our_server "$port"; then
+        if check_server "$port"; then
             DEV_PORT="$port"
             echo "$DEV_PORT" > "$PORT_FILE"
             break
@@ -95,27 +89,22 @@ if [ -z "$DEV_PORT" ]; then
     done
 fi
 
-# No server found, start a new one
+# No server found - start one
 if [ -z "$DEV_PORT" ]; then
-    DEV_PORT=$(find_available_port)
-    echo "Starting dev server on port $DEV_PORT..."
+    DEV_PORT=$(find_port)
     echo "$DEV_PORT" > "$PORT_FILE"
 
-    # Start dev server in Terminal with the specific port
+    # Start dev server in Terminal
     osascript -e "tell application \"Terminal\" to do script \"cd '$PROJECT_DIR' && source ~/.nvm/nvm.sh 2>/dev/null; nvm use 2>/dev/null; PORT=$DEV_PORT npm run dev\""
 
-    # Wait for server to be ready (up to 60 seconds)
-    echo "Waiting for dev server..."
+    # Wait for server (max 60s)
     for i in {1..60}; do
-        if check_our_server "$DEV_PORT"; then
-            echo "Dev server ready on port $DEV_PORT"
-            break
-        fi
+        check_server "$DEV_PORT" && break
         sleep 1
     done
 fi
 
-# Launch Electron with the port
+# Launch Electron
 export CLAUDE_KANBAN_DEV_PORT="$DEV_PORT"
 exec "$PROJECT_DIR/node_modules/.bin/electron" "$PROJECT_DIR/electron/launcher.cjs"
 LAUNCHER_EOF

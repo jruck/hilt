@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   PinnedFolder,
   getPinnedFolders,
@@ -15,13 +15,15 @@ import {
  * Hook for pinned folders CRUD operations
  */
 export function usePinnedFolders() {
-  // Use lazy initializer to read from localStorage without setState in effect
-  const [folders, setFolders] = useState<PinnedFolder[]>(() => {
-    if (typeof window === "undefined") return [];
-    return getPinnedFolders();
-  });
-  // Client-side only - will be true after first render
-  const [isHydrated] = useState(() => typeof window !== "undefined");
+  // Start with empty array to match server render
+  const [folders, setFolders] = useState<PinnedFolder[]>([]);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Hydrate from localStorage after mount
+  useEffect(() => {
+    setFolders(getPinnedFolders());
+    setIsHydrated(true);
+  }, []);
 
   const pinFolder = useCallback((path: string) => {
     const newFolder = pinFolderUtil(path);

@@ -26,8 +26,11 @@ export function TreeSessionCard({
   const canShowActions = renderLevel <= 2;
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
       style={{
         transition: 'transform 150ms, box-shadow 150ms, background-color var(--theme-transition), border-color var(--theme-transition), color var(--theme-transition)'
       }}
@@ -60,7 +63,7 @@ export function TreeSessionCard({
       {renderLevel === 2 && <SessionLevel2 session={session} />}
       {renderLevel === 3 && <SessionLevel3 session={session} />}
       {renderLevel === 4 && <SessionLevel4 session={session} />}
-    </button>
+    </div>
   );
 }
 

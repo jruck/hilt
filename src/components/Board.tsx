@@ -46,43 +46,50 @@ interface InboxItem {
 const HOME_DIR_STORAGE_KEY = "claude-kanban-home-dir";
 const VIEW_MODE_STORAGE_KEY = "claude-kanban-view-mode";
 
-// Get cached homeDir synchronously to prevent breadcrumb flash
-function getCachedHomeDir(): string {
-  if (typeof window === "undefined") return "";
-  return localStorage.getItem(HOME_DIR_STORAGE_KEY) || "";
-}
-
-// Get cached view mode preference
-function getCachedViewMode(): ViewMode {
-  if (typeof window === "undefined") return "board";
-  const cached = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
-  // Migrate old "kanban" value to "board"
-  if (cached === "kanban" || cached === "board") return "board";
-  if (cached === "tree") return "tree";
-  if (cached === "docs") return "docs";
-  return "board";
-}
-
 export function Board() {
   // Scope path from context - no more router.push, pure client-side state
   const { scopePath, setScopePath } = useScope();
 
-  // Initialize homeDir from cache to prevent breadcrumb disappearing on navigation
-  const [homeDir, setHomeDir] = useState<string>(getCachedHomeDir);
-  // View mode: board (columns) or tree (treemap)
-  const [viewMode, setViewMode] = useState<ViewMode>(getCachedViewMode);
+  // Track if we've hydrated from localStorage (to prevent hydration mismatch)
+  const [isHydrated, setIsHydrated] = useState(false);
 
-  // Persist view mode to localStorage when it changes
+  // Initialize with empty/default values for SSR, then hydrate from localStorage
+  const [homeDir, setHomeDir] = useState<string>("");
+  const [viewMode, setViewMode] = useState<ViewMode>("board");
+
+  // Hydrate from localStorage after mount to prevent SSR mismatch
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    const cachedHomeDir = localStorage.getItem(HOME_DIR_STORAGE_KEY) || "";
+    const cachedViewMode = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+
+    if (cachedHomeDir) {
+      setHomeDir(cachedHomeDir);
+    }
+
+    // Migrate old "kanban" value to "board"
+    if (cachedViewMode === "kanban" || cachedViewMode === "board") {
+      setViewMode("board");
+    } else if (cachedViewMode === "tree") {
+      setViewMode("tree");
+    } else if (cachedViewMode === "docs") {
+      setViewMode("docs");
+    }
+
+    setIsHydrated(true);
+  }, []);
+
+  // Persist view mode to localStorage when it changes (skip during initial hydration)
+  useEffect(() => {
+    if (isHydrated) {
       localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
     }
-  }, [viewMode]);
+  }, [viewMode, isHydrated]);
 
-  // Fetch home directory on mount (if not cached) and validate scope if set
+  // Fetch home directory after hydration (if not cached) and validate scope if set
   useEffect(() => {
-    // homeDir is already initialized from cache via lazy initializer
-    // Only fetch from API if we don't have it
+    if (!isHydrated) return;
+
+    // If we already have homeDir from cache, just validate scope
     if (homeDir) {
       // Only validate if scope looks suspicious (not empty and not under cached homeDir)
       if (scopePath && !scopePath.startsWith(homeDir)) {
@@ -116,7 +123,7 @@ export function Board() {
       })
       .catch(console.error);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isHydrated]);
 
   const { sessions, counts, isLoading, updateStatus, toggleStarred } = useSessions(scopePath || undefined);
   const { items: inboxItems, sections: todoSections, createItem, updateItem, deleteItem, reorderSections, reorderItem } = useInboxItems(scopePath || undefined);

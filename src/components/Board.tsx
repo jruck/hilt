@@ -894,13 +894,20 @@ Proceed autonomously otherwise.`;
           pinnedFolders={pinnedFolders}
         />
 
-        {/* Conditional View: Tree or Kanban */}
-        {viewMode === "tree" ? (
+        {/* Conditional View: Docs, Tree, or Kanban */}
+        {viewMode === "docs" ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center">
+              <p className="text-2xl text-zinc-400 font-medium">Coming Soon</p>
+              <p className="text-sm text-zinc-500 mt-2">Documentation view is under development</p>
+            </div>
+          </div>
+        ) : viewMode === "tree" ? (
           <div
             className="flex-1 flex flex-col p-4 transition-[padding] duration-300"
             style={{ paddingRight: isDrawerOpen ? `${drawerWidth + 16}px` : undefined }}
           >
-<TreeView
+            <TreeView
               tree={tree}
               scopePath={scopePath}
               onNavigate={handleScopeChange}

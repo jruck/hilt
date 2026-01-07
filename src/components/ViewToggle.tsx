@@ -1,8 +1,8 @@
 "use client";
 
-import { LayoutGrid, Network } from "lucide-react";
+import { LayoutGrid, Network, FileText } from "lucide-react";
 
-export type ViewMode = "kanban" | "tree";
+export type ViewMode = "kanban" | "tree" | "docs";
 
 interface ViewToggleProps {
   view: ViewMode;
@@ -43,6 +43,22 @@ export function ViewToggle({ view, onChange }: ViewToggleProps) {
       >
         <Network className="w-4 h-4" />
         <span className="hidden sm:inline">Tree</span>
+      </button>
+      <button
+        onClick={() => onChange("docs")}
+        className={`
+          flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium
+          transition-colors
+          ${
+            view === "docs"
+              ? "bg-zinc-700 text-zinc-100"
+              : "text-zinc-400 hover:text-zinc-200"
+          }
+        `}
+        title="Documentation"
+      >
+        <FileText className="w-4 h-4" />
+        <span className="hidden sm:inline">Docs</span>
       </button>
     </div>
   );

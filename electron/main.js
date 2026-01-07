@@ -137,41 +137,31 @@ async function findAvailablePort(startPort) {
     });
 }
 /**
- * Start the embedded Next.js server
+ * Start the embedded Next.js server (production) or connect to existing dev server
  */
 async function startNextServer() {
+    const isPackaged = electron_1.app.isPackaged;
+    // In development, connect to the already-running dev server
+    // Port can be specified via CLAUDE_KANBAN_DEV_PORT env var (set by dev app launcher)
+    if (!isPackaged) {
+        const devPort = parseInt(process.env.CLAUDE_KANBAN_DEV_PORT || "3000", 10);
+        serverPort = devPort;
+        return devPort;
+    }
+    // Production: start the standalone server
     const port = await findAvailablePort(3000);
     serverPort = port;
     return new Promise((resolve, reject) => {
-        // In production, we run the built Next.js standalone server
-        // In development, we might run via npm
-        const isPackaged = electron_1.app.isPackaged;
-        if (isPackaged) {
-            // Production: run the standalone server
-            const serverPath = path.join(process.resourcesPath, "app", ".next", "standalone", "server.js");
-            nextServer = (0, child_process_1.spawn)("node", [serverPath], {
-                env: {
-                    ...process.env,
-                    PORT: String(port),
-                    DATA_DIR,
-                    NODE_ENV: "production",
-                },
-                cwd: path.join(process.resourcesPath, "app"),
-            });
-        }
-        else {
-            // Development: run via npm
-            const projectRoot = path.join(__dirname, "..");
-            nextServer = (0, child_process_1.spawn)("npm", ["run", "start", "--", "-p", String(port)], {
-                env: {
-                    ...process.env,
-                    PORT: String(port),
-                    DATA_DIR,
-                },
-                cwd: projectRoot,
-                shell: true,
-            });
-        }
+        const serverPath = path.join(process.resourcesPath, "app", ".next", "standalone", "server.js");
+        nextServer = (0, child_process_1.spawn)("node", [serverPath], {
+            env: {
+                ...process.env,
+                PORT: String(port),
+                DATA_DIR,
+                NODE_ENV: "production",
+            },
+            cwd: path.join(process.resourcesPath, "app"),
+        });
         let started = false;
         nextServer.stdout?.on("data", (data) => {
             const output = data.toString();
@@ -211,12 +201,12 @@ async function createWindow() {
     if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
     }
-    // Load modules dynamically using require() since they're outside electron/ rootDir
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const ptyModule = require("../src/lib/pty-manager");
+    // Load modules using require - tsx/cjs handles TypeScript compilation
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const ptyModule = require("../src/lib/pty-manager.ts");
     ptyManager = ptyModule.ptyManager;
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const sessionsModule = require("../src/lib/claude-sessions");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const sessionsModule = require("../src/lib/claude-sessions.ts");
     getSessionById = sessionsModule.getSessionById;
     // Start the Next.js server
     console.log("Starting Next.js server...");
@@ -238,6 +228,15 @@ async function createWindow() {
     });
     // Load the Next.js app
     mainWindow.loadURL(`http://localhost:${port}`);
+    // Hide Next.js dev indicator in Electron (keeps hot reload working)
+    mainWindow.webContents.on("did-finish-load", () => {
+        mainWindow?.webContents.insertCSS(`
+      /* Hide Next.js dev indicator */
+      [data-nextjs-dialog-overlay],
+      [data-nextjs-toast],
+      nextjs-portal { display: none !important; }
+    `);
+    });
     mainWindow.on("closed", () => {
         mainWindow = null;
     });

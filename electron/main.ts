@@ -214,6 +214,16 @@ async function createWindow() {
   // Load the Next.js app
   mainWindow.loadURL(`http://localhost:${port}`);
 
+  // Hide Next.js dev indicator in Electron (keeps hot reload working)
+  mainWindow.webContents.on("did-finish-load", () => {
+    mainWindow?.webContents.insertCSS(`
+      /* Hide Next.js dev indicator */
+      [data-nextjs-dialog-overlay],
+      [data-nextjs-toast],
+      nextjs-portal { display: none !important; }
+    `);
+  });
+
   mainWindow.on("closed", () => {
     mainWindow = null;
   });

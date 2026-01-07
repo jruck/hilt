@@ -104,7 +104,19 @@ claude-kanban/
 ├── data/                       # Persistent storage (gitignored)
 │   ├── session-status.json     # Kanban states
 │   └── inbox.json              # Draft prompts (fallback)
-└── electron/                   # Electron wrapper (optional)
+├── electron/                   # Electron native app
+│   ├── main.ts                 # Main process, IPC handlers
+│   ├── preload.ts              # contextBridge API
+│   ├── launcher.cjs            # tsx loader for dev
+│   ├── types.d.ts              # TypeScript declarations
+│   └── tsconfig.json           # Electron-specific config
+├── build/                      # Build assets
+│   ├── icon.svg                # Source icon (🧱)
+│   ├── icon.icns               # macOS icon
+│   └── entitlements.mac.plist  # Code signing entitlements
+├── scripts/
+│   └── generate-icons.mjs      # Icon generation script
+└── electron-builder.yml        # Distribution config
 ```
 
 ## Data Flow Patterns
@@ -498,10 +510,15 @@ Claude's session files contain these entry types:
 - WebSocket: 3001 (configurable via WS_PORT)
 - Both must be available
 
-### 8. Electron Caveats
-- Optional wrapper in `electron/`
-- Manages server lifecycle
+### 8. Electron IPC Transport
+- Native desktop app with IPC-based PTY communication
+- `electron/main.ts` - Main process with IPC handlers
+- `electron/preload.ts` - contextBridge for secure API exposure
+- `Terminal.tsx` detects Electron environment and uses IPC instead of WebSocket
+- In development: tsx loader runs TypeScript directly
+- In production: Embedded Next.js standalone server
 - Uses custom data directory via DATA_DIR env
+- macOS hardened runtime with entitlements for code signing
 
 ## File Index
 

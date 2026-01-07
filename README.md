@@ -49,6 +49,12 @@ A Kanban-style board for managing Claude Code sessions. Visualize, organize, and
 - **Plan Filter** - Show only sessions with associated plan files
 - **Time Groupings** - Recent column groups by Today, Yesterday, This Week, etc.
 
+### Native Desktop App
+- **Electron Wrapper** - Run as a native macOS application
+- **IPC Transport** - Terminal communication via Electron IPC (no WebSocket needed)
+- **Standalone Build** - Embedded Next.js server for self-contained distribution
+- **DMG Installer** - Easy installation via drag-and-drop
+
 ## Getting Started
 
 ### Prerequisites
@@ -66,11 +72,23 @@ npm install
 
 ### Running the App
 
+**Browser Mode:**
 ```bash
 npm run dev:all
 ```
-
 Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+**Native macOS App:**
+```bash
+npm run electron:dev
+```
+Launches the Electron app with hot reload for development.
+
+**Build for Distribution:**
+```bash
+npm run electron:build
+```
+Creates a DMG installer in the `dist/` folder.
 
 ## Documentation
 
@@ -155,6 +173,13 @@ claude-kanban/
 │   └── lib/                    # Core utilities
 ├── server/
 │   └── ws-server.ts            # WebSocket + PTY server
+├── electron/                   # Native desktop app
+│   ├── main.ts                 # Main process with IPC handlers
+│   ├── preload.ts              # contextBridge API
+│   └── launcher.cjs            # tsx loader for dev
+├── build/                      # Build assets
+│   ├── icon.svg                # Source icon (🧱)
+│   └── icon.icns               # macOS app icon
 ├── docs/                       # Documentation
 │   ├── ARCHITECTURE.md         # System design
 │   ├── API.md                  # API reference
@@ -181,6 +206,9 @@ For detailed file descriptions, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#
 | `npm run ws-server` | Start WebSocket server only |
 | `npm run build` | Production build |
 | `npm run lint` | Run ESLint |
+| `npm run electron:dev` | Start Electron app in dev mode |
+| `npm run electron:build` | Build native macOS app |
+| `npm run electron:rebuild` | Rebuild native modules for Electron |
 
 ## Keyboard Shortcuts
 

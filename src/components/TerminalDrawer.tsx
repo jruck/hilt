@@ -5,6 +5,13 @@ import dynamic from "next/dynamic";
 import { Session } from "@/lib/types";
 import { X, Terminal as TerminalIcon, Copy, Check, CheckCircle, Info, Folder, GitBranch, MessageSquare, Clock, FileText, Hash, FolderOpen, Save, Loader2 } from "lucide-react";
 
+/**
+ * Detect if running in Electron environment
+ */
+function isElectronEnv(): boolean {
+  return typeof window !== "undefined" && (window as unknown as { electronAPI?: { isElectron: boolean } }).electronAPI?.isElectron === true;
+}
+
 // Dynamic import to avoid SSR issues with xterm.js
 const Terminal = dynamic(() => import("./Terminal").then((mod) => mod.Terminal), {
   ssr: false,
@@ -612,7 +619,8 @@ export function TerminalDrawer({
 
             {/* Render all terminals - use visibility instead of display to preserve dimensions */}
             {/* Use stable terminalId for key to prevent remounting when session gets real ID */}
-            {wsPort && sessions.map((session) => {
+            {/* In Electron mode, Terminal uses IPC. In browser mode, we wait for wsPort */}
+            {(isElectronEnv() || wsPort) && sessions.map((session) => {
               const stableTerminalId = session.terminalId || session.id;
               const isVisible = viewMode === "terminal" && session.id === activeSession?.id && !isPlanOnlyView;
               return (
@@ -624,7 +632,7 @@ export function TerminalDrawer({
                     terminalId={stableTerminalId}
                     sessionId={session.id}
                     projectPath={session.projectPath}
-                    wsUrl={`ws://localhost:${wsPort}`}
+                    wsUrl={wsPort ? `ws://localhost:${wsPort}` : undefined}
                     isNew={session.isNew}
                     initialPrompt={session.initialPrompt}
                     isActive={session.id === activeSession?.id}

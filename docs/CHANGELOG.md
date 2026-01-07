@@ -8,6 +8,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
+- **Electron IPC Transport** - Native desktop app with IPC-based terminal communication
+  - Replaces WebSocket with Electron IPC for PTY communication when running as native app
+  - `electron/main.ts` - Main process with IPC handlers, embedded Next.js server, PTY manager
+  - `electron/preload.ts` - contextBridge API for secure renderer-to-main communication
+  - `electron/launcher.cjs` - tsx loader for TypeScript execution in development
+  - Dual-mode transport in `Terminal.tsx` - auto-detects Electron vs browser environment
+  - macOS hardened runtime with code signing entitlements
+  - electron-builder configuration for DMG distribution
+  - App icon using 🧱 (bricks) emoji
+
 - **Tree View Action Buttons** - Session cards in Tree View now show action toolbar on hover
   - Select, Open, and Mark as Done buttons appear on larger cards (render levels 1-2)
   - Matches floating toolbar pattern from Kanban SessionCard

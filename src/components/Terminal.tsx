@@ -6,6 +6,9 @@ import { FitAddon } from "@xterm/addon-fit";
 import { useTheme } from "@/hooks/useTheme";
 import "@xterm/xterm/css/xterm.css";
 
+// Import Electron types (available when running in Electron)
+/// <reference path="../../electron/types.d.ts" />
+
 // Terminal color themes
 const darkTerminalTheme: ITheme = {
   background: "#0a0a0a",
@@ -66,7 +69,7 @@ interface TerminalProps {
   terminalId: string;
   sessionId: string;
   projectPath?: string;
-  wsUrl: string;
+  wsUrl?: string;  // Optional - only used for WebSocket mode
   isNew?: boolean;
   initialPrompt?: string;
   isActive?: boolean;  // Whether this terminal tab is currently selected
@@ -77,12 +80,20 @@ interface TerminalProps {
   onPlanEvent?: (plan: PlanEvent) => void;
 }
 
+/**
+ * Detect if running in Electron environment
+ */
+function isElectron(): boolean {
+  return typeof window !== "undefined" && window.electronAPI?.isElectron === true;
+}
+
 export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, initialPrompt, isActive = true, isDrawerOpen = true, onExit, onTitleChange, onContextProgress, onPlanEvent }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const spawnedRef = useRef(false);
+  const cleanupFunctionsRef = useRef<(() => void)[]>([]);
   const { resolvedTheme } = useTheme();
 
   // Refs for values accessed in callbacks - updated via effects to avoid render-time mutations
@@ -105,11 +116,27 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
   useEffect(() => { onContextProgressRef.current = onContextProgress; }, [onContextProgress]);
   useEffect(() => { onPlanEventRef.current = onPlanEvent; }, [onPlanEvent]);
 
-  const sendMessage = useCallback((msg: object) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(msg));
+  // Send message function - works for both Electron IPC and WebSocket
+  const sendMessage = useCallback((type: string, data: Record<string, unknown>) => {
+    if (isElectron()) {
+      // Electron IPC mode
+      const api = window.electronAPI!.pty;
+      switch (type) {
+        case "data":
+          api.write({ terminalId, data: data.data as string });
+          break;
+        case "resize":
+          api.resize({ terminalId, cols: data.cols as number, rows: data.rows as number });
+          break;
+        case "kill":
+          api.kill({ terminalId });
+          break;
+      }
+    } else if (wsRef.current?.readyState === WebSocket.OPEN) {
+      // WebSocket mode
+      wsRef.current.send(JSON.stringify({ type, terminalId, ...data }));
     }
-  }, []);
+  }, [terminalId]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -138,6 +165,127 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
 
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
+
+    // Setup transport based on environment
+    if (isElectron()) {
+      // Electron IPC transport
+      setupElectronTransport(term, fitAddon);
+    } else {
+      // WebSocket transport (browser mode)
+      setupWebSocketTransport(term, fitAddon);
+    }
+
+    // Handle terminal input
+    term.onData((data) => {
+      sendMessage("data", { data });
+    });
+
+    // Handle resize - skip when terminal is hidden to prevent scroll jumps
+    const handleResize = () => {
+      // Don't fit if terminal is not active or drawer is closed
+      if (!isActiveRef.current || !isDrawerOpenRef.current) return;
+
+      try {
+        fitAddon.fit();
+        sendMessage("resize", { cols: term.cols, rows: term.rows });
+      } catch {
+        // Ignore fit errors during resize
+      }
+    };
+
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(containerRef.current);
+
+    // Cleanup
+    return () => {
+      resizeObserver.disconnect();
+      // Clean up Electron IPC listeners
+      cleanupFunctionsRef.current.forEach(cleanup => cleanup());
+      cleanupFunctionsRef.current = [];
+      // Clean up WebSocket
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      term.dispose();
+      spawnedRef.current = false;
+    };
+  // Note: sessionId, isNew, initialPrompt intentionally excluded - using refs to avoid effect re-runs
+  // We don't want any of these changes to recreate the terminal
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terminalId, projectPath, wsUrl, sendMessage]);
+
+  /**
+   * Setup Electron IPC transport
+   */
+  function setupElectronTransport(term: XTerm, fitAddon: FitAddon) {
+    const api = window.electronAPI!.pty;
+
+    // Setup event listeners
+    const cleanupData = api.onData((event) => {
+      if (event.terminalId === terminalId) {
+        term.write(event.data);
+      }
+    });
+    cleanupFunctionsRef.current.push(cleanupData);
+
+    const cleanupExit = api.onExit((event) => {
+      if (event.terminalId === terminalId) {
+        term.write(`\r\n\x1b[33m[Process exited with code ${event.exitCode}]\x1b[0m\r\n`);
+        onExitRef.current?.(event.exitCode);
+      }
+    });
+    cleanupFunctionsRef.current.push(cleanupExit);
+
+    const cleanupTitle = api.onTitle((event) => {
+      if (event.terminalId === terminalId) {
+        onTitleChangeRef.current?.(sessionIdRef.current, event.title);
+      }
+    });
+    cleanupFunctionsRef.current.push(cleanupTitle);
+
+    const cleanupContext = api.onContext((event) => {
+      if (event.terminalId === terminalId) {
+        onContextProgressRef.current?.(sessionIdRef.current, event.progress);
+      }
+    });
+    cleanupFunctionsRef.current.push(cleanupContext);
+
+    const cleanupPlan = api.onPlan((event) => {
+      onPlanEventRef.current?.({
+        event: event.event,
+        slug: event.slug,
+        path: event.path,
+        content: event.content,
+      });
+    });
+    cleanupFunctionsRef.current.push(cleanupPlan);
+
+    // Spawn the terminal
+    if (!spawnedRef.current) {
+      api.spawn({
+        terminalId,
+        sessionId: sessionIdRef.current,
+        projectPath,
+        isNew: isNewRef.current,
+        initialPrompt: initialPromptRef.current,
+      }).then(() => {
+        // Send initial size after spawn
+        api.resize({ terminalId, cols: term.cols, rows: term.rows });
+      });
+      spawnedRef.current = true;
+    }
+  }
+
+  /**
+   * Setup WebSocket transport (for browser dev mode)
+   */
+  function setupWebSocketTransport(term: XTerm, fitAddon: FitAddon) {
+    if (!wsUrl) {
+      term.write("\r\n\x1b[31mNo WebSocket URL provided and not running in Electron.\x1b[0m\r\n");
+      term.write("\x1b[90mRun: npm run ws-server\x1b[0m\r\n");
+      return;
+    }
 
     // Connect to WebSocket
     const ws = new WebSocket(wsUrl);
@@ -214,46 +362,7 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
     ws.onclose = () => {
       term.write("\r\n\x1b[33m[Connection closed]\x1b[0m\r\n");
     };
-
-    // Handle terminal input
-    term.onData((data) => {
-      sendMessage({ type: "data", terminalId, data });
-    });
-
-    // Handle resize - skip when terminal is hidden to prevent scroll jumps
-    const handleResize = () => {
-      // Don't fit if terminal is not active or drawer is closed
-      if (!isActiveRef.current || !isDrawerOpenRef.current) return;
-
-      try {
-        fitAddon.fit();
-        sendMessage({
-          type: "resize",
-          terminalId,
-          cols: term.cols,
-          rows: term.rows,
-        });
-      } catch {
-        // Ignore fit errors during resize
-      }
-    };
-
-    const resizeObserver = new ResizeObserver(handleResize);
-    resizeObserver.observe(containerRef.current);
-
-    // Cleanup
-    return () => {
-      resizeObserver.disconnect();
-      ws.close();
-      term.dispose();
-      spawnedRef.current = false;
-    };
-  // Note: sessionId, isNew, initialPrompt intentionally excluded - using refs to avoid effect re-runs
-  // - sessionId can change from temp ID to real UUID when the session is created
-  // - isNew changes from true to false when the real session is matched
-  // - initialPrompt is only used once at spawn time
-  // We don't want any of these changes to recreate the terminal
-  }, [terminalId, projectPath, wsUrl, sendMessage]);
+  }
 
   // Auto-focus terminal and scroll to bottom when it becomes visible
   useEffect(() => {

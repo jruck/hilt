@@ -1,4 +1,4 @@
-import * as pty from "@cdktf/node-pty-prebuilt-multiarch";
+import * as pty from "node-pty";
 import { EventEmitter } from "events";
 import * as fs from "fs";
 

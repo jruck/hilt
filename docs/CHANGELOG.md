@@ -25,6 +25,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 ### Changed
 
 - **CLAUDE.md** - Added documentation protocol instructions for AI agents
+- **README.md** - Reorganized with documentation index, relative links to docs/, contributing section
 
 ---
 

@@ -6,6 +6,7 @@ A Kanban-style board for managing Claude Code sessions. Visualize, organize, and
 
 ### Session Management
 - **Three-Column Board** - Organize sessions across To Do (drafts), In Progress (active), and Recent (completed)
+- **Tree View** - Fractal workspace visualization with heat-score based sizing
 - **Drag & Drop** - Move sessions between columns with smooth animations
 - **Multi-Select** - Batch move multiple sessions at once
 - **Session Starring** - Pin important sessions to the top of Recent
@@ -39,7 +40,7 @@ A Kanban-style board for managing Claude Code sessions. Visualize, organize, and
 ### Scope Navigation
 - **Breadcrumb Nav** - Click path segments to navigate project hierarchy
 - **All Projects View** - Root "/" shows sessions across all projects
-- **Subfolder Dropdown** - Browse into nested folders
+- **Collapsible Sidebar** - Pin frequently used folders for quick access
 - **Recent Scopes** - Quick access to frequently visited folders
 - **URL-Based State** - Scope persisted in URL for bookmarking/sharing
 
@@ -47,44 +48,6 @@ A Kanban-style board for managing Claude Code sessions. Visualize, organize, and
 - **Global Search** - Filter by title, prompt, slug, project, or git branch
 - **Plan Filter** - Show only sessions with associated plan files
 - **Time Groupings** - Recent column groups by Today, Yesterday, This Week, etc.
-
-### Session Metadata
-- **Live Status** - Current task from terminal title
-- **Last Prompt** - Preview of most recent user message
-- **Project Path** - Clickable link to open in Finder
-- **Git Branch** - Current branch for sessions with git context
-- **Message Count** - Number of messages in session
-- **Relative Time** - "3m ago", "Yesterday", etc.
-
-## Claude Code Integration
-
-Custom slash commands for use within Claude Code sessions:
-
-| Command | Description |
-|---------|-------------|
-| `/kanban` | Open the Kanban UI in your browser |
-| `/track [type] [desc]` | Track bugs, tasks, ideas, or decisions |
-| `/plan [description]` | Create a feature plan document |
-
-Commands are defined in `.claude/commands/` and work in any Claude Code session within this project.
-
-## Tech Stack
-
-**Frontend**
-- Next.js 16 with React 19
-- TypeScript 5
-- Tailwind CSS 4
-- dnd-kit for drag-and-drop
-- xterm.js + addon-fit for terminal emulation
-- MDXEditor with CodeMirror for plan editing
-- SWR for data fetching with real-time polling
-- Lucide React for icons
-
-**Backend**
-- Next.js API routes
-- WebSocket server (ws) for PTY management
-- node-pty for pseudo-terminal spawning
-- Zod for schema validation
 
 ## Getting Started
 
@@ -108,6 +71,19 @@ npm run dev:all
 ```
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+## Documentation
+
+Detailed documentation is available in the [`docs/`](docs/) folder:
+
+| Document | Description |
+|----------|-------------|
+| [Architecture](docs/ARCHITECTURE.md) | System design, data flow diagrams, constraints |
+| [API Reference](docs/API.md) | All REST endpoints and WebSocket protocol |
+| [Data Models](docs/DATA-MODELS.md) | TypeScript interfaces, Zod schemas, storage formats |
+| [Components](docs/COMPONENTS.md) | React component hierarchy and props |
+| [Development](docs/DEVELOPMENT.md) | Setup, debugging, common patterns |
+| [Changelog](docs/CHANGELOG.md) | Version history with technical notes |
 
 ## Architecture
 
@@ -135,70 +111,64 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 └──────────────────┘ └──────────────────┘ └──────────────────┘
 ```
 
-### Data Flow
+For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-1. **Session Discovery** - Reads Claude's JSONL files from `~/.claude/projects/{encoded-path}/`
-2. **Status Merge** - Combines Claude's session metadata with persisted Kanban status
-3. **Real-Time Updates** - SWR polling every 5 seconds, detects file changes for running sessions
-4. **Terminal Spawning** - WebSocket sends spawn message, PTY server starts `claude --resume` or new session
-5. **Plan Detection** - WebSocket broadcasts events when plans are created/updated during sessions
+## Tech Stack
 
-### Data Persistence
+| Layer | Technology | Purpose |
+|-------|------------|---------|
+| Framework | Next.js 16 + React 19 | UI and API routes |
+| Language | TypeScript 5 | Type safety |
+| Styling | Tailwind CSS 4 | Utility-first CSS |
+| Drag & Drop | dnd-kit | Kanban card movement |
+| Terminal | xterm.js | Terminal emulation |
+| Editor | MDXEditor | Plan markdown editing |
+| Data Fetching | SWR | Server state + polling |
+| WebSocket | ws + node-pty | Real-time PTY I/O |
+| Validation | Zod | Schema validation |
 
-| File | Purpose |
-|------|---------|
-| `data/session-status.json` | Kanban column status, sort order, starred state |
-| `data/inbox.json` | Draft prompts (fallback when no Todo.md) |
-| `~/.claude/projects/` | Session JSONL files (read-only, owned by Claude) |
-| `~/.claude/plans/` | Plan markdown files |
-| `./Todo.md` | Project-specific draft prompts (per scope) |
+## Claude Code Integration
+
+Custom slash commands for use within Claude Code sessions:
+
+| Command | Description |
+|---------|-------------|
+| `/kanban` | Open the Kanban UI in your browser |
+| `/track [type] [desc]` | Track bugs, tasks, ideas, or decisions |
+| `/plan [description]` | Create a feature plan document |
+| `/commit` | Pre-commit checklist with documentation verification |
+| `/docs-check` | Verify documentation is in sync with code |
+
+Commands are defined in `.claude/commands/` and work in any Claude Code session within this project.
 
 ## Project Structure
 
 ```
 claude-kanban/
 ├── src/
-│   ├── app/
-│   │   ├── [[...path]]/page.tsx  # URL-based scope routing
-│   │   ├── layout.tsx            # Root layout
-│   │   ├── globals.css           # Tailwind + MDXEditor styles
-│   │   └── api/
-│   │       ├── sessions/         # Session list & status updates
-│   │       ├── inbox/            # Todo.md parsing & management
-│   │       ├── plans/[slug]/     # Plan CRUD
-│   │       ├── folders/          # Scope browsing & validation
-│   │       ├── reveal/           # Finder integration
-│   │       └── cwd/              # Current working directory
-│   ├── components/
-│   │   ├── Board.tsx             # Main kanban board, state management
-│   │   ├── Column.tsx            # Individual column with grouping
-│   │   ├── SessionCard.tsx       # Session display with actions
-│   │   ├── InboxCard.tsx         # Draft prompt card
-│   │   ├── NewDraftCard.tsx      # Create new draft input
-│   │   ├── TerminalDrawer.tsx    # Terminal panel with tabs
-│   │   ├── Terminal.tsx          # xterm.js wrapper
-│   │   ├── PlanEditor.tsx        # MDXEditor for plans
-│   │   └── scope/
-│   │       ├── ScopeBreadcrumbs.tsx   # Breadcrumb navigation
-│   │       ├── BrowseButton.tsx       # File picker
-│   │       ├── RecentScopesButton.tsx # Recent folders dropdown
-│   │       └── SubfolderDropdown.tsx  # Subfolder browser
-│   ├── hooks/
-│   │   ├── useSessions.ts        # Session data fetching & mutations
-│   │   └── useInboxItems.ts      # Inbox data hook
-│   └── lib/
-│       ├── types.ts              # Zod schemas & TypeScript types
-│       ├── db.ts                 # Status & inbox file I/O
-│       ├── claude-sessions.ts    # JSONL parsing & running detection
-│       ├── recent-scopes.ts      # localStorage scope tracking
-│       ├── todo-md.ts            # Todo.md parsing
-│       └── pty-manager.ts        # PTY spawning utilities
+│   ├── app/                    # Next.js App Router
+│   │   ├── [[...path]]/        # URL-based scope routing
+│   │   └── api/                # REST API routes
+│   ├── components/             # React components
+│   ├── hooks/                  # Custom React hooks
+│   └── lib/                    # Core utilities
 ├── server/
-│   └── ws-server.ts              # WebSocket + PTY server
-├── data/                         # Persistent storage (gitignored)
-├── package.json
-└── tsconfig.json
+│   └── ws-server.ts            # WebSocket + PTY server
+├── docs/                       # Documentation
+│   ├── ARCHITECTURE.md         # System design
+│   ├── API.md                  # API reference
+│   ├── DATA-MODELS.md          # Type definitions
+│   ├── COMPONENTS.md           # Component docs
+│   ├── DEVELOPMENT.md          # Dev guide
+│   └── CHANGELOG.md            # Version history
+├── .claude/
+│   ├── commands/               # Slash commands
+│   ├── hooks/                  # Automation hooks
+│   └── settings.json           # Hook configuration
+└── data/                       # Persistent storage (gitignored)
 ```
+
+For detailed file descriptions, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#directory-structure).
 
 ## Scripts
 
@@ -217,6 +187,18 @@ claude-kanban/
 | `Escape` | Close terminal drawer / deselect sessions |
 | Click + Drag | Move sessions between columns |
 | `Cmd/Ctrl + Click` | Multi-select sessions |
+
+## Contributing
+
+Before making changes:
+1. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for system context
+2. Check [docs/CHANGELOG.md](docs/CHANGELOG.md) for recent changes
+
+After completing work:
+1. Update [docs/CHANGELOG.md](docs/CHANGELOG.md) under `[Unreleased]`
+2. Update relevant docs if architecture/API/types changed
+
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for detailed development guidelines.
 
 ## License
 

@@ -4,7 +4,7 @@
 set -e
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="Claude Kanban Dev"
+APP_NAME="Claude Kanban"
 APP_PATH="$PROJECT_DIR/dist/$APP_NAME.app"
 
 echo "Creating $APP_NAME.app..."
@@ -24,9 +24,9 @@ cat > "$APP_PATH/Contents/Info.plist" << 'EOF'
     <key>CFBundleIconFile</key>
     <string>icon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.claude-kanban.dev</string>
+    <string>com.claude-kanban.app</string>
     <key>CFBundleName</key>
-    <string>Claude Kanban Dev</string>
+    <string>Claude Kanban</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleVersion</key>
@@ -40,7 +40,7 @@ EOF
 # Create launcher script
 cat > "$APP_PATH/Contents/MacOS/launcher" << 'LAUNCHER_EOF'
 #!/bin/bash
-# Claude Kanban Dev Launcher
+# Claude Kanban Launcher
 # Fast startup - skips slow nvm sourcing
 
 PROJECT_DIR="PLACEHOLDER_PROJECT_DIR"

@@ -5,6 +5,9 @@ const nextConfig: NextConfig = {
   // This creates a minimal server that can run without node_modules
   output: "standalone",
 
+  // Enable Turbopack (Next.js 16 default)
+  turbopack: {},
+
   // Webpack configuration for Electron compatibility
   webpack: (config, { isServer }) => {
     // Handle native modules in Electron

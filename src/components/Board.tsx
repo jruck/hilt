@@ -22,6 +22,7 @@ import { Sidebar } from "./sidebar";
 import { ScopeBreadcrumbs, BrowseButton, RecentScopesButton } from "./scope";
 import { ViewToggle, ViewMode } from "./ViewToggle";
 import { TreeView } from "./TreeView";
+import { DocsView } from "./DocsView";
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
 import { X, Inbox, Loader2 as InProgressIcon, Clock, Search, Filter, FileText, Check, Archive } from "lucide-react";
 
@@ -933,12 +934,10 @@ Proceed autonomously otherwise.`;
 
         {/* Conditional View: Docs, Tree, or Board */}
         {viewMode === "docs" ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <p className="text-2xl text-[var(--text-tertiary)] font-medium">Coming Soon</p>
-              <p className="text-sm text-[var(--text-tertiary)] mt-2">Documentation view is under development</p>
-            </div>
-          </div>
+          <DocsView
+            scopePath={scopePath}
+            onScopeChange={setScopePath}
+          />
         ) : viewMode === "tree" ? (
           <div
             className="flex-1 flex flex-col p-4 transition-[padding] duration-300"

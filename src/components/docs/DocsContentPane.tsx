@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Save, Loader2, AlertCircle } from "lucide-react";
 import { DocsBreadcrumbs } from "./DocsBreadcrumbs";
@@ -65,10 +65,14 @@ export function DocsContentPane({
   fileTree,
 }: DocsContentPaneProps) {
   const [saveError, setSaveError] = useState<string | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Clear save error when file changes
+  // Reset scroll position and clear save error when file changes
   useEffect(() => {
     setSaveError(null);
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
+    }
   }, [filePath]);
 
   // Handle mode toggle with unsaved changes
@@ -79,7 +83,11 @@ export function DocsContentPane({
           "You have unsaved changes. Discard them and switch to read mode?"
         );
         if (!confirmed) return;
-        onContentChange(null); // Discard changes
+      }
+      // Always reset editedContent when going to read mode
+      // This ensures wikilinks are processed fresh from the original content
+      if (!newEditMode) {
+        onContentChange(null);
       }
       onEditModeChange(newEditMode);
     },
@@ -188,7 +196,7 @@ export function DocsContentPane({
         />
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Save button */}
+          {/* Save button - shown when there are unsaved changes */}
           {hasUnsavedChanges && (
             <button
               onClick={handleSave}
@@ -202,11 +210,6 @@ export function DocsContentPane({
               )}
               Save
             </button>
-          )}
-
-          {/* Unsaved indicator */}
-          {hasUnsavedChanges && !isSaving && (
-            <span className="text-xs text-amber-500">(unsaved)</span>
           )}
 
           {/* Save error */}
@@ -223,10 +226,10 @@ export function DocsContentPane({
       </div>
 
       {/* Editor */}
-      <div className="flex-1 overflow-auto">
+      <div ref={scrollContainerRef} className="flex-1 overflow-auto">
         <DocsEditor
           markdown={displayContent}
-          onChange={(newContent) => onContentChange(newContent)}
+          onChange={isEditMode ? (newContent) => onContentChange(newContent) : undefined}
           readOnly={!isEditMode}
           currentFilePath={filePath}
           scopePath={scopePath}

@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useEffect, useImperativeHandle, useRef, useCallback } from "react";
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useCallback, useMemo } from "react";
 import { useTheme } from "@/hooks/useTheme";
 import {
   MDXEditor,
@@ -29,7 +29,7 @@ import {
 } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
 import type { FileNode } from "@/lib/types";
-import { resolveWikilink } from "@/lib/docs/wikilink-resolver";
+import { resolveWikilink, parseWikilinks } from "@/lib/docs/wikilink-resolver";
 
 interface DocsEditorProps {
   markdown: string;
@@ -57,15 +57,51 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
       setMarkdown: (md: string) => editorRef.current?.setMarkdown(md),
     }));
 
-    // Update editor when markdown prop changes
+    // Process markdown to convert wikilinks to standard markdown links for display
+    // Only process in read mode - in edit mode, show raw [[wikilink]] syntax
+    const processedMarkdown = useMemo(() => {
+      // In edit mode, don't process wikilinks - let user edit the raw syntax
+      if (readOnly === false) {
+        return markdown;
+      }
+
+      if (!currentFilePath || !scopePath) {
+        return markdown;
+      }
+
+      const wikilinks = parseWikilinks(markdown);
+      if (wikilinks.length === 0) {
+        return markdown;
+      }
+
+      // Process in reverse order to preserve indices
+      let result = markdown;
+      for (let i = wikilinks.length - 1; i >= 0; i--) {
+        const link = wikilinks[i];
+        const resolved = resolveWikilink(link.target, currentFilePath, scopePath, fileTree || null);
+
+        // Convert to markdown link format
+        // Use hash links to prevent browser navigation, with data encoded in the hash
+        const linkPath = resolved.exists && resolved.absolutePath
+          ? `#wikilink:${encodeURIComponent(resolved.absolutePath)}`
+          : `#wikilink-broken:${encodeURIComponent(link.target)}`;
+
+        const markdownLink = `[${link.display}](${linkPath})`;
+        result = result.slice(0, link.start) + markdownLink + result.slice(link.end);
+      }
+
+      return result;
+    }, [markdown, currentFilePath, scopePath, fileTree, readOnly]);
+
+    // Update editor when processed markdown changes
     useEffect(() => {
       if (editorRef.current) {
         const currentContent = editorRef.current.getMarkdown();
-        if (currentContent !== markdown) {
-          editorRef.current.setMarkdown(markdown);
+        if (currentContent !== processedMarkdown) {
+          editorRef.current.setMarkdown(processedMarkdown);
         }
       }
-    }, [markdown]);
+    }, [processedMarkdown]);
 
     // Fix MDXEditor scroll
     useEffect(() => {
@@ -76,42 +112,41 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
       }
     }, []);
 
-    // Handle wikilink clicks
-    const handleClick = useCallback((e: MouseEvent) => {
+    // Handle wikilink clicks (intercept our custom hash links)
+    const handleWikilinkClick = useCallback((e: MouseEvent) => {
       const target = e.target as HTMLElement;
 
-      // Check if clicked on a wikilink
-      if (target.classList.contains('wikilink') || target.closest('.wikilink')) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        const linkEl = target.classList.contains('wikilink') ? target : target.closest('.wikilink');
-        const linkTarget = linkEl?.getAttribute('data-target');
-
-        if (linkTarget && currentFilePath && scopePath && onNavigateToFile) {
-          const resolved = resolveWikilink(linkTarget, currentFilePath, scopePath, fileTree || null);
-          if (resolved.exists && resolved.absolutePath) {
-            onNavigateToFile(resolved.absolutePath);
+      // Check if clicked on a link with #wikilink: hash
+      const link = target.closest('a');
+      if (link) {
+        const href = link.getAttribute('href');
+        if (href?.startsWith('#wikilink:')) {
+          e.preventDefault();
+          e.stopPropagation();
+          const filePath = decodeURIComponent(href.replace('#wikilink:', ''));
+          if (onNavigateToFile) {
+            onNavigateToFile(filePath);
           }
+        } else if (href?.startsWith('#wikilink-broken:')) {
+          e.preventDefault();
+          e.stopPropagation();
+          // Could show a toast or tooltip for broken links
         }
       }
-    }, [currentFilePath, scopePath, fileTree, onNavigateToFile]);
+    }, [onNavigateToFile]);
 
     useEffect(() => {
       const container = containerRef.current;
       if (container) {
-        container.addEventListener('click', handleClick);
-        return () => container.removeEventListener('click', handleClick);
+        // Use mousedown with capture to intercept before browser navigation
+        container.addEventListener('mousedown', handleWikilinkClick, true);
+        container.addEventListener('click', handleWikilinkClick, true);
+        return () => {
+          container.removeEventListener('mousedown', handleWikilinkClick, true);
+          container.removeEventListener('click', handleWikilinkClick, true);
+        };
       }
-    }, [handleClick]);
-
-    // Process markdown to convert wikilinks to styled spans for display
-    // This is a simple approach - for better integration we'd create a proper MDXEditor plugin
-    const processedMarkdown = useCallback((md: string) => {
-      // For now, just return as-is - the wikilinks will show as [[text]]
-      // A full MDXEditor plugin would be needed for proper rendering
-      return md;
-    }, []);
+    }, [handleWikilinkClick]);
 
     const plugins = [
       headingsPlugin(),
@@ -181,25 +216,21 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
     return (
       <div ref={containerRef} className="h-full flex flex-col docs-editor-wrapper">
         <MDXEditor
+          key={readOnly ? "read" : "edit"}
           ref={editorRef}
-          markdown={processedMarkdown(markdown)}
+          markdown={processedMarkdown}
           onChange={onChange}
           readOnly={readOnly}
           plugins={plugins}
-          contentEditableClassName={`prose prose-sm ${proseInvert} max-w-none
+          contentEditableClassName={`prose ${proseInvert} max-w-none
             prose-headings:font-semibold
-            prose-h1:text-lg prose-h1:mt-4 prose-h1:mb-2
-            prose-h2:text-base prose-h2:mt-3 prose-h2:mb-1.5
-            prose-h3:text-sm prose-h3:mt-2 prose-h3:mb-1
-            prose-p:text-sm prose-p:leading-relaxed prose-p:my-1
-            prose-li:text-sm prose-li:my-0.5
-            prose-strong:font-semibold
-            prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
-            prose-pre:rounded-lg prose-pre:p-3 prose-pre:my-2
-            prose-a:no-underline hover:prose-a:underline
-            prose-ul:my-1 prose-ol:my-1
+            prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:bg-[var(--bg-tertiary)] prose-code:text-[var(--text-secondary)] prose-code:before:content-none prose-code:after:content-none
+            prose-pre:rounded-lg prose-pre:bg-[var(--bg-tertiary)]
+            prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
             prose-table:border-collapse
-            outline-none p-4`}
+            prose-th:border prose-th:border-[var(--border-default)] prose-th:px-3 prose-th:py-2
+            prose-td:border prose-td:border-[var(--border-default)] prose-td:px-3 prose-td:py-2
+            outline-none px-12 py-6`}
           className={`${themeClass} h-full flex-1`}
         />
       </div>

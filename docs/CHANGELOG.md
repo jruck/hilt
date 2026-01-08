@@ -6,6 +6,61 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Fixed
+
+- **Folder Click Auto-Select index.md** - Clicking on a folder in the docs tree now auto-selects index.md
+  - When clicking on a folder row (not the chevron), the folder expands AND its index.md is auto-selected
+  - Also works for breadcrumb navigation - clicking a folder navigates and selects index.md
+  - Files: `src/components/docs/DocsTreeItem.tsx`, `src/components/DocsView.tsx`
+
+- **Wikilinks Render After Mode Switch** - Wikilinks now render correctly after switching from edit to read mode
+  - Previously, wikilinks would show as raw `[[syntax]]` after returning from edit mode
+  - Fixed by resetting `editedContent` to `null` when switching to read mode
+  - Ensures wikilinks are processed fresh from the original content
+  - Files: `src/components/docs/DocsContentPane.tsx`
+
+- **Docs Viewer Scroll Position** - Following wikilinks now loads target file scrolled to top
+  - Added `scrollContainerRef` to reset scroll position when `filePath` changes
+  - Files: `src/components/docs/DocsContentPane.tsx`
+
+- **Wikilink Path Resolution** - Wikilinks with folder paths now resolve correctly
+  - `[[Knowledge/AI Analysis|AI Analysis]]` was marked as broken because resolver only looked up full path
+  - Added fallback to extract and lookup just the filename when full path doesn't match
+  - Files: `src/lib/docs/wikilink-resolver.ts`
+
+- **Wikilink Implicit Relative Resolution** - Links like `[[subfolder/file]]` now resolve relative to current file
+  - Previously, all wikilinks were resolved from scope root, so `[[Knowledge/index]]` in `Engineering/index.md` would fail to find `Engineering/Knowledge/index.md`
+  - Added implicit relative path resolution (step 3) before global file tree lookup (step 4)
+  - Resolution order: 1) explicit relative (`./`, `../`), 2) absolute (`/`), 3) implicit relative, 4) global filename match
+  - Also improved file map to store files by relative path from scope (e.g., `roadmap/index`) not just filename
+  - Files: `src/lib/docs/wikilink-resolver.ts`
+
+- **Docs Editor Toolbar in Edit Mode** - MDXEditor toolbar now appears when switching to edit mode
+  - Added `key` prop to force remount when `readOnly` changes, ensuring toolbar plugin initializes
+  - Files: `src/components/docs/DocsEditor.tsx`
+
+- **Spurious Save Button in Edit Mode** - Save button no longer appears when simply switching to edit mode
+  - Root cause: MDXEditor normalizes markdown on init, causing content to differ from original file
+  - Added `baselineContent` tracking to capture MDXEditor's normalized output as comparison baseline
+  - `hasUnsavedChanges` now compares against baseline (editor's init state) instead of original file
+  - Also removed redundant "(unsaved)" text indicator - Save button alone is sufficient
+  - Files: `src/hooks/useDocs.ts`, `src/components/docs/DocsContentPane.tsx`
+
+- **Wikilink Syntax Visible in Edit Mode** - Raw `[[wikilink]]` syntax now editable in edit mode
+  - Wikilinks are only converted to clickable links in read mode
+  - In edit mode, users see and can modify the raw syntax
+  - Files: `src/components/docs/DocsEditor.tsx`
+
+### Changed
+
+- **Docs Viewer Typography** - Beautiful document-style rendering using Tailwind Typography defaults
+  - Removed `prose-sm` and tight spacing overrides to let Typography defaults shine
+  - Proper heading hierarchy: H1 (2.25em), H2 (1.5em), H3 (1.25em), body (1em)
+  - 48px horizontal padding for comfortable reading margins
+  - Theme-aware code blocks and table borders
+  - Override MDXEditor's default 12px padding via CSS
+  - Files: `src/components/docs/DocsEditor.tsx`, `src/app/globals.css`
+
 ### Added
 
 - **Turbopack by Default** - Switched from Webpack to Turbopack for faster dev experience

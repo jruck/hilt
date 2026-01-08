@@ -1055,3 +1055,49 @@ body [data-radix-popper-content-wrapper]::after {
   border-radius: 8px !important;
   margin: 0.5rem 0 !important;
 }
+
+/* ============================================
+   Docs Editor Styling
+   ============================================ */
+
+/* Override MDXEditor's default padding for document-style layout */
+.docs-editor-wrapper .mdxeditor-root-contenteditable {
+  padding: 24px 48px !important;
+}
+
+/* ============================================
+   Wikilink Styling
+   ============================================ */
+
+/* Valid wikilinks - styled with accent color and internal link indicator */
+.docs-editor-wrapper a[href^="#wikilink:"] {
+  color: var(--interactive-default) !important;
+  text-decoration: none !important;
+  border-bottom: 1px dashed var(--interactive-default);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.docs-editor-wrapper a[href^="#wikilink:"]:hover {
+  border-bottom-style: solid;
+  color: var(--interactive-hover) !important;
+}
+
+/* Broken wikilinks - red with strikethrough indicator */
+.docs-editor-wrapper a[href^="#wikilink-broken:"] {
+  color: #ef4444 !important;
+  text-decoration: none !important;
+  border-bottom: 1px dashed #ef4444;
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
+.docs-editor-wrapper a[href^="#wikilink-broken:"]:hover {
+  opacity: 1;
+}
+
+/* Dark theme adjustments */
+.dark .docs-editor-wrapper a[href^="#wikilink-broken:"] {
+  color: #f87171 !important;
+  border-bottom-color: #f87171;
+}

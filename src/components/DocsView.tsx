@@ -5,6 +5,7 @@ import * as path from "path";
 import { useDocs } from "@/hooks/useDocs";
 import { DocsFileTree } from "./docs/DocsFileTree";
 import { DocsContentPane } from "./docs/DocsContentPane";
+import type { FileNode } from "@/lib/types";
 
 interface DocsViewProps {
   scopePath: string;
@@ -55,6 +56,32 @@ export function DocsView({ scopePath, onScopeChange }: DocsViewProps) {
     setSelectedPath(filePath);
   }, [setSelectedPath]);
 
+  // Find index.md in a folder node
+  const findIndexFile = useCallback((folderPath: string): string | null => {
+    if (!tree) return null;
+
+    // Find the folder node in the tree
+    const findNode = (node: FileNode, targetPath: string): FileNode | null => {
+      if (node.path === targetPath) return node;
+      if (node.children) {
+        for (const child of node.children) {
+          const found = findNode(child, targetPath);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const folderNode = findNode(tree, folderPath);
+    if (!folderNode?.children) return null;
+
+    const indexFile = folderNode.children.find(
+      child => child.type === "file" &&
+      (child.name === "index.md" || child.name === "index.markdown" || child.name === "index.mdx")
+    );
+    return indexFile?.path || null;
+  }, [tree]);
+
   // Navigate to folder (expand it in tree and optionally change scope)
   const handleNavigateToFolder = useCallback(
     (folderPath: string) => {
@@ -63,14 +90,28 @@ export function DocsView({ scopePath, onScopeChange }: DocsViewProps) {
         if (onScopeChange) {
           onScopeChange(folderPath);
         }
+        // For scope root, still try to find and select index.md
+        if (folderPath === scopePath) {
+          const indexPath = findIndexFile(folderPath);
+          if (indexPath) {
+            setSelectedPath(indexPath);
+            return;
+          }
+        }
       } else {
-        // Just expand the folder in tree
+        // Expand the folder in tree
         expandPath(folderPath);
+        // Auto-select index.md if it exists
+        const indexPath = findIndexFile(folderPath);
+        if (indexPath) {
+          setSelectedPath(indexPath);
+          return;
+        }
       }
-      // Deselect file
+      // Deselect file if no index.md found
       setSelectedPath(null);
     },
-    [scopePath, onScopeChange, expandPath, setSelectedPath]
+    [scopePath, onScopeChange, expandPath, setSelectedPath, findIndexFile]
   );
 
   // Navigate to file from wikilink

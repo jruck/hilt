@@ -44,8 +44,8 @@ interface InboxItem {
   sortOrder: number;
 }
 
-const HOME_DIR_STORAGE_KEY = "claude-kanban-home-dir";
-const VIEW_MODE_STORAGE_KEY = "claude-kanban-view-mode";
+const HOME_DIR_STORAGE_KEY = "hilt-home-dir";
+const VIEW_MODE_STORAGE_KEY = "hilt-view-mode";
 
 export function Board() {
   // Scope path from context - no more router.push, pure client-side state

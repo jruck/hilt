@@ -1,10 +1,22 @@
 # Changelog
 
-All notable changes to Claude Kanban are documented in this file.
+All notable changes to Hilt are documented in this file.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
+
+### Changed
+
+- **App Rename: Claude Kanban → Hilt** - Complete rebrand of the application
+  - Package name: `claude-kanban` → `hilt`
+  - App ID: `com.claude-kanban.app` → `com.hilt.app`
+  - Product name: `Claude Kanban` → `Hilt`
+  - Infrastructure files: `.claude-kanban-ws-port` → `.hilt-ws-port`, `.claude-kanban-server.lock` → `.hilt-server.lock`
+  - localStorage keys: `claude-kanban-*` → `hilt-*`
+  - Favicon/icon: 🧱 (brick) → 🗡️ (dagger)
+  - All documentation updated with new branding
+  - **Note**: Existing localStorage preferences will reset after this update
 
 ### Fixed
 
@@ -70,7 +82,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   - Files: `package.json`
 
 - **Server Process Lock** - Prevents multiple WebSocket server instances
-  - Lock file at `~/.claude-kanban-server.lock` with PID
+  - Lock file at `~/.hilt-server.lock` with PID
   - Detects and cleans up stale locks from crashed processes
   - Clear error message when attempting to start duplicate server
   - Files: `server/ws-server.ts`
@@ -306,7 +318,7 @@ UI polish and live session detection.
 
 ## [0.1.0] - 2024-12-15
 
-Initial release of Claude Kanban.
+Initial release of Hilt.
 
 ### Added
 

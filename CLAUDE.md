@@ -1,4 +1,4 @@
-# Claude Kanban
+# Hilt
 
 Kanban UI for managing Claude Code sessions. See `README.md` for full feature list.
 
@@ -69,7 +69,7 @@ interface Session {
 
 - `/track [type] [description]` - Track bugs, tasks, ideas, decisions
 - `/plan [description]` - Create feature plans
-- `/kanban` - Open the Kanban UI
+- `/hilt` - Open Hilt UI
 
 ## Development
 

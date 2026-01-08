@@ -61,9 +61,9 @@ export interface SessionMetadata {
 // Isolation state for worktree-based sessions
 export interface SessionIsolation {
   enabled: true;
-  workspacePath: string;      // ~/.claude-kanban/workspaces/<id>/workspace
+  workspacePath: string;      // ~/.hilt/workspaces/<id>/workspace
   sourcePath: string;         // Original project path
-  branchName: string;         // claude-kanban/<session-id-short>
+  branchName: string;         // hilt/<session-id-short>
   baseBranch: string;         // Branch we forked from (usually main)
   baseCommit: string;         // Commit SHA we forked from
   createdAt: string;

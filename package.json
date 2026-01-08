@@ -1,5 +1,5 @@
 {
-  "name": "claude-kanban",
+  "name": "hilt",
   "version": "0.1.0",
   "private": true,
   "main": "electron/main.js",
@@ -62,8 +62,8 @@
     "wait-on": "^8.0.0"
   },
   "build": {
-    "appId": "com.claude-kanban.app",
-    "productName": "Claude Kanban",
+    "appId": "com.hilt.app",
+    "productName": "Hilt",
     "directories": {
       "output": "dist"
     },
@@ -92,7 +92,7 @@
       "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "dmg": {
-      "title": "Claude Kanban"
+      "title": "Hilt"
     }
   }
 }

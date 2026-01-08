@@ -6,8 +6,8 @@ import { ptyManager } from "../src/lib/pty-manager";
 import { getSessionById } from "../src/lib/claude-sessions";
 
 const PREFERRED_PORT = parseInt(process.env.WS_PORT || "3001", 10);
-const PORT_FILE = path.join(process.env.HOME || "~", ".claude-kanban-ws-port");
-const LOCK_FILE = path.join(process.env.HOME || "~", ".claude-kanban-server.lock");
+const PORT_FILE = path.join(process.env.HOME || "~", ".hilt-ws-port");
+const LOCK_FILE = path.join(process.env.HOME || "~", ".hilt-server.lock");
 const PLANS_DIR = path.join(process.env.HOME || "~", ".claude", "plans");
 
 /**

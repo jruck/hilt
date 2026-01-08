@@ -10,8 +10,8 @@
 
 ```bash
 # Clone the repo
-git clone https://github.com/yourusername/claude-kanban.git
-cd claude-kanban
+git clone https://github.com/yourusername/hilt.git
+cd hilt
 
 # Install dependencies
 npm install
@@ -67,7 +67,7 @@ Both servers must be running for full functionality:
 ## Directory Structure
 
 ```
-claude-kanban/
+hilt/
 ├── src/
 │   ├── app/                 # Next.js App Router
 │   │   ├── [[...path]]/     # Catch-all route for scopes

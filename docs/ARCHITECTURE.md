@@ -1,6 +1,6 @@
 # Architecture Reference
 
-This document provides a comprehensive architectural overview of Claude Kanban for AI agents and developers working on the codebase.
+This document provides a comprehensive architectural overview of Hilt for AI agents and developers working on the codebase.
 
 ## System Overview
 
@@ -67,7 +67,7 @@ This document provides a comprehensive architectural overview of Claude Kanban f
 ## Directory Structure
 
 ```
-claude-kanban/
+hilt/
 ├── src/
 │   ├── app/                    # Next.js App Router
 │   │   ├── [[...path]]/        # Catch-all route for scope URLs
@@ -111,7 +111,7 @@ claude-kanban/
 │   ├── types.d.ts              # TypeScript declarations
 │   └── tsconfig.json           # Electron-specific config
 ├── build/                      # Build assets
-│   ├── icon.svg                # Source icon (🧱)
+│   ├── icon.svg                # Source icon (🗡️)
 │   ├── icon.icns               # macOS icon
 │   └── entitlements.mac.plist  # Code signing entitlements
 ├── scripts/

@@ -33,6 +33,21 @@ const FILE_ICONS: Record<string, typeof File> = {
   webp: Image,
 };
 
+// Extensions that can be viewed in the docs viewer
+const VIEWABLE_EXTENSIONS = new Set([
+  // Markdown / text
+  "md", "markdown", "mdx", "txt",
+  // Code files
+  "ts", "tsx", "js", "jsx", "py", "rb", "rs", "go", "java", "c", "cpp", "h", "hpp",
+  "html", "css", "scss", "less", "sass",
+  // Data files
+  "json", "yaml", "yml", "toml", "xml", "svg",
+  // Special renderers
+  "csv", "tsv",
+  "png", "jpg", "jpeg", "gif", "webp",
+  "pdf",
+]);
+
 interface DocsTreeItemProps {
   node: FileNode;
   depth: number;
@@ -84,16 +99,19 @@ export function DocsTreeItem({
     IconComponent = FILE_ICONS[node.extension] || File;
   }
 
-  // Determine if it's a markdown file (for styling)
+  // Determine if the file can be viewed
+  const isViewable = isDirectory || (node.extension && VIEWABLE_EXTENSIONS.has(node.extension));
   const isMarkdown = node.extension === "md" || node.extension === "markdown" || node.extension === "mdx";
 
   return (
     <div
       className={`
-        flex items-center gap-1 px-2 py-1 cursor-pointer text-sm
+        flex items-center gap-1 px-2 py-1 text-sm
         transition-colors duration-150
         ${isSelected ? "bg-[var(--bg-tertiary)]" : "hover:bg-[var(--bg-secondary)]"}
-        ${isMarkdown ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]"}
+        ${!isViewable ? "opacity-50" : ""}
+        ${isViewable ? "cursor-pointer" : "cursor-default"}
+        ${isMarkdown ? "text-[var(--text-primary)]" : isViewable ? "text-[var(--text-secondary)]" : "text-[var(--text-tertiary)]"}
       `}
       style={{ paddingLeft: `${indent + 8}px` }}
       onClick={handleClick}
@@ -111,7 +129,7 @@ export function DocsTreeItem({
           )}
         </button>
       ) : (
-        <span className="w-4" />
+        <span className="w-4 flex-shrink-0" />
       )}
 
       {/* Icon */}
@@ -121,6 +139,8 @@ export function DocsTreeItem({
             ? "text-[var(--accent-primary)]"
             : isMarkdown
             ? "text-[var(--text-secondary)]"
+            : isViewable
+            ? "text-[var(--text-tertiary)]"
             : "text-[var(--text-tertiary)]"
         }`}
       />

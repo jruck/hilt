@@ -1,23 +1,28 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
-import * as path from "path";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useDocs } from "@/hooks/useDocs";
 import { DocsFileTree } from "./docs/DocsFileTree";
 import { DocsContentPane } from "./docs/DocsContentPane";
 import type { FileNode } from "@/lib/types";
 
+// Sidebar width constraints
+const MIN_SIDEBAR_WIDTH = 180;
+const MAX_SIDEBAR_WIDTH = 500;
+const DEFAULT_SIDEBAR_WIDTH = 256;
+const STORAGE_KEY = "docs-sidebar-width";
+
 interface DocsViewProps {
   scopePath: string;
   onScopeChange?: (path: string) => void;
+  searchQuery?: string;
 }
 
-export function DocsView({ scopePath, onScopeChange }: DocsViewProps) {
+export function DocsView({ scopePath, onScopeChange, searchQuery }: DocsViewProps) {
   const {
     // Tree
     tree,
     treeLoading,
-    refreshTree,
     expandedPaths,
     toggleExpanded,
     expandPath,
@@ -31,7 +36,6 @@ export function DocsView({ scopePath, onScopeChange }: DocsViewProps) {
     fileLoading,
     fileError,
     fileMeta,
-    refreshFile,
 
     // Edit state
     isEditMode,
@@ -45,11 +49,58 @@ export function DocsView({ scopePath, onScopeChange }: DocsViewProps) {
     isSaving,
   } = useDocs(scopePath);
 
-  // Scope name for display
-  const scopeName = useMemo(() => {
-    if (!scopePath) return "Documents";
-    return path.basename(scopePath);
-  }, [scopePath]);
+  // Sidebar resize state
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    if (typeof window === "undefined") return DEFAULT_SIDEBAR_WIDTH;
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = parseInt(stored, 10);
+      if (!isNaN(parsed) && parsed >= MIN_SIDEBAR_WIDTH && parsed <= MAX_SIDEBAR_WIDTH) {
+        return parsed;
+      }
+    }
+    return DEFAULT_SIDEBAR_WIDTH;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  // Persist sidebar width
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  // Resize handlers
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    resizeRef.current = { startX: e.clientX, startWidth: sidebarWidth };
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizeRef.current) return;
+      const delta = e.clientX - resizeRef.current.startX;
+      const newWidth = Math.min(
+        MAX_SIDEBAR_WIDTH,
+        Math.max(MIN_SIDEBAR_WIDTH, resizeRef.current.startWidth + delta)
+      );
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      resizeRef.current = null;
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isResizing]);
 
   // Handle file selection
   const handleFileSelect = useCallback((filePath: string) => {
@@ -81,6 +132,24 @@ export function DocsView({ scopePath, onScopeChange }: DocsViewProps) {
     );
     return indexFile?.path || null;
   }, [tree]);
+
+  // Auto-select root index.md on initial load (when no file is selected)
+  const hasAutoSelectedRef = useRef(false);
+  useEffect(() => {
+    // Only run once per scope when tree loads and nothing is selected
+    if (tree && !selectedPath && !treeLoading && !hasAutoSelectedRef.current) {
+      hasAutoSelectedRef.current = true;
+      const indexPath = findIndexFile(scopePath);
+      if (indexPath) {
+        setSelectedPath(indexPath);
+      }
+    }
+  }, [tree, selectedPath, treeLoading, scopePath, findIndexFile, setSelectedPath]);
+
+  // Reset auto-selection flag when scope changes
+  useEffect(() => {
+    hasAutoSelectedRef.current = false;
+  }, [scopePath]);
 
   // Navigate to folder (expand it in tree and optionally change scope)
   const handleNavigateToFolder = useCallback(
@@ -141,18 +210,24 @@ export function DocsView({ scopePath, onScopeChange }: DocsViewProps) {
   }
 
   return (
-    <div className="flex-1 flex overflow-hidden">
+    <div className={`flex-1 flex overflow-hidden ${isResizing ? "select-none" : ""}`}>
       {/* File tree sidebar */}
-      <div className="w-64 flex-shrink-0">
+      <div className="flex-shrink-0 relative" style={{ width: sidebarWidth }}>
         <DocsFileTree
           tree={tree}
           expandedPaths={expandedPaths}
           selectedPath={selectedPath}
           onToggleExpand={toggleExpanded}
           onSelect={handleFileSelect}
-          onRefresh={refreshTree}
           isLoading={treeLoading}
-          scopeName={scopeName}
+          searchQuery={searchQuery}
+        />
+        {/* Resize handle */}
+        <div
+          className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-[var(--accent-primary)] transition-colors ${
+            isResizing ? "bg-[var(--accent-primary)]" : "bg-transparent"
+          }`}
+          onMouseDown={handleResizeStart}
         />
       </div>
 

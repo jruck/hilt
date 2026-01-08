@@ -196,7 +196,8 @@ export interface ParsedWikilink {
 }
 
 export function parseWikilinks(content: string): ParsedWikilink[] {
-  const regex = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+  // Match [[...]] but not ![[...]] (images)
+  const regex = /(?<!!)\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
   const links: ParsedWikilink[] = [];
 
   let match;
@@ -214,4 +215,39 @@ export function parseWikilinks(content: string): ParsedWikilink[] {
   }
 
   return links;
+}
+
+/**
+ * Parse image wikilinks from markdown content (![[path]])
+ * Returns array of { start, end, target, altText }
+ */
+export interface ParsedImageWikilink {
+  start: number;
+  end: number;
+  target: string;
+  altText: string;
+  raw: string;
+}
+
+export function parseImageWikilinks(content: string): ParsedImageWikilink[] {
+  // Match ![[...]] with optional |alt text
+  const regex = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+  const images: ParsedImageWikilink[] = [];
+
+  let match;
+  while ((match = regex.exec(content)) !== null) {
+    const target = match[1].trim();
+    // Alt text can be specified with |, otherwise use filename
+    const altText = match[2]?.trim() || target.split("/").pop() || target;
+
+    images.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      target,
+      altText,
+      raw: match[0],
+    });
+  }
+
+  return images;
 }

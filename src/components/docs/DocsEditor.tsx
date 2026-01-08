@@ -1,6 +1,6 @@
 "use client";
 
-import React, { forwardRef, useEffect, useImperativeHandle, useRef, useCallback, useMemo } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useCallback, useMemo } from "react";
 import { useTheme } from "@/hooks/useTheme";
 import {
   MDXEditor,
@@ -15,6 +15,7 @@ import {
   codeBlockPlugin,
   codeMirrorPlugin,
   frontmatterPlugin,
+  imagePlugin,
   toolbarPlugin,
   UndoRedo,
   BoldItalicUnderlineToggles,
@@ -29,7 +30,8 @@ import {
 } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
 import type { FileNode } from "@/lib/types";
-import { resolveWikilink, parseWikilinks } from "@/lib/docs/wikilink-resolver";
+import { resolveWikilink, parseWikilinks, parseImageWikilinks } from "@/lib/docs/wikilink-resolver";
+import * as path from "path";
 
 interface DocsEditorProps {
   markdown: string;
@@ -69,15 +71,43 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
         return markdown;
       }
 
-      const wikilinks = parseWikilinks(markdown);
-      if (wikilinks.length === 0) {
-        return markdown;
+      let result = markdown;
+
+      // Collect all replacements with their positions
+      const replacements: { start: number; end: number; replacement: string }[] = [];
+
+      // Process image wikilinks (![[path]])
+      const imageWikilinks = parseImageWikilinks(markdown);
+      for (const img of imageWikilinks) {
+        // Resolve the image path relative to current file
+        const currentDir = path.dirname(currentFilePath);
+        let imagePath: string;
+
+        if (img.target.startsWith("./") || img.target.startsWith("../")) {
+          // Relative path
+          imagePath = path.resolve(currentDir, img.target);
+        } else if (img.target.startsWith("/")) {
+          // Absolute path within scope
+          imagePath = path.join(scopePath, img.target);
+        } else {
+          // Treat as relative to current file
+          imagePath = path.resolve(currentDir, img.target);
+        }
+
+        // Convert to API URL
+        const imageUrl = `/api/docs/raw?path=${encodeURIComponent(imagePath)}&scope=${encodeURIComponent(scopePath)}`;
+        const markdownImage = `![${img.altText}](${imageUrl})`;
+
+        replacements.push({
+          start: img.start,
+          end: img.end,
+          replacement: markdownImage,
+        });
       }
 
-      // Process in reverse order to preserve indices
-      let result = markdown;
-      for (let i = wikilinks.length - 1; i >= 0; i--) {
-        const link = wikilinks[i];
+      // Process regular wikilinks
+      const wikilinks = parseWikilinks(markdown);
+      for (const link of wikilinks) {
         const resolved = resolveWikilink(link.target, currentFilePath, scopePath, fileTree || null);
 
         // Convert to markdown link format
@@ -87,7 +117,18 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
           : `#wikilink-broken:${encodeURIComponent(link.target)}`;
 
         const markdownLink = `[${link.display}](${linkPath})`;
-        result = result.slice(0, link.start) + markdownLink + result.slice(link.end);
+
+        replacements.push({
+          start: link.start,
+          end: link.end,
+          replacement: markdownLink,
+        });
+      }
+
+      // Sort by start position descending and apply replacements
+      replacements.sort((a, b) => b.start - a.start);
+      for (const r of replacements) {
+        result = result.slice(0, r.start) + r.replacement + result.slice(r.end);
       }
 
       return result;
@@ -157,6 +198,7 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
       linkPlugin(),
       linkDialogPlugin(),
       tablePlugin(),
+      imagePlugin(),
       codeBlockPlugin({ defaultCodeBlockLanguage: "typescript" }),
       codeMirrorPlugin({
         codeBlockLanguages: {

@@ -40,7 +40,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - **View toggle restructured** - Simplified from 4 equal views to hierarchical structure
   - **Primary toggle**: Tasks | Docs | Stack (conceptual categories)
   - **Secondary toggle**: Board | Tree (task view modes, only shown in Tasks)
-  - Filter and Search only shown in Tasks mode (Docs/Stack have their own)
+  - Filter dropdown only shown in Tasks mode
   - Secondary toggle is compact (icon-only) to fit inline with search/filter
   - Switching to Tasks preserves last used view mode (board/tree)
   - Files: `src/components/ViewToggle.tsx`, `src/components/Board.tsx`
@@ -58,6 +58,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   - Files: `src/components/Board.tsx`, `src/components/stack/StackView.tsx`, `src/components/stack/StackFileTree.tsx`
 
 ### Fixed
+
+- **Search visible in all modes** - Search box now appears in Tasks, Docs, and Stack views
+  - Previously was hidden in Docs and Stack modes
+  - Filters sessions in Tasks, files/folders in Docs, config files in Stack
+  - Live filtering as you type
+  - File: `src/components/Board.tsx`
 
 - **Stack viewer error message** - Improved messaging when no configuration is available
   - Shows "Select a project folder to view configuration" when no scope is selected

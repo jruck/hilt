@@ -955,38 +955,36 @@ Proceed autonomously otherwise.`;
           </div>
           )}
 
-          {/* Search - only shown in tasks mode (Docs and Stack have their own) */}
-          {getPrimaryView(viewMode) === "tasks" && (
-            searchQuery ? (
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-tertiary)]" />
-                <input
-                  type="text"
-                  placeholder="Search..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onBlur={(e) => {
-                    if (!e.target.value) setSearchQuery("");
-                  }}
-                  autoFocus
-                  className="w-40 pl-8 pr-7 py-1.5 text-sm bg-[var(--bg-tertiary)] rounded text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none"
-                />
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ) : (
+          {/* Search - visible in all modes, filters sessions/files/folders */}
+          {searchQuery ? (
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-tertiary)]" />
+              <input
+                type="text"
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onBlur={(e) => {
+                  if (!e.target.value) setSearchQuery("");
+                }}
+                autoFocus
+                className="w-40 pl-8 pr-7 py-1.5 text-sm bg-[var(--bg-tertiary)] rounded text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none"
+              />
               <button
-                onClick={() => setSearchQuery(" ")}
-                className="p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
-                title="Search"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
               >
-                <Search className="w-4 h-4" />
+                <X className="w-3.5 h-3.5" />
               </button>
-            )
+            </div>
+          ) : (
+            <button
+              onClick={() => setSearchQuery(" ")}
+              className="p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
+              title="Search"
+            >
+              <Search className="w-4 h-4" />
+            </button>
           )}
 
           {/* View Toggle */}

@@ -44,6 +44,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
+- **Stack View** - New view mode for visualizing and editing Claude Code configuration layers
+  - Four-layer hierarchy: System (enterprise), User (~/.claude/), Project (.claude/), Local (gitignored)
+  - Discovers all config file types: memory (CLAUDE.md), settings, commands, skills, agents, hooks, MCP servers
+  - Three-panel UI: layer navigation, file browser grouped by type, file preview/editor
+  - Create missing local files (CLAUDE.local.md, settings.local.json) with templates
+  - Parse YAML frontmatter from commands/skills, JSON settings
+  - Security: prevents writing to system layer, validates paths
+  - Files: `src/lib/claude-config/`, `src/components/stack/`, `src/app/api/claude-stack/`, `src/hooks/useClaudeStack.ts`
+
 - **Elapsed timer on status badges** - Ticking timer shows time since last activity
   - Displays next to Working, Needs Approval, and Waiting status badges
   - Format progresses: seconds (5s) → minutes (5m) → hours (2h 15m) → days (3d 5h)

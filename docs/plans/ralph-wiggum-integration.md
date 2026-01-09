@@ -294,6 +294,7 @@ Add Ralph-specific message types:
 | `src/components/RalphSetupModal.tsx` | Multi-step wizard modal |
 | `src/components/RalphConfigPanel.tsx` | Configuration form component |
 | `src/app/api/ralph/route.ts` | Plugin status API |
+| `public/images/ralph.png` | Ralph Wiggum emoji for session cards |
 
 ### Modified Files
 
@@ -310,13 +311,16 @@ Add Ralph-specific message types:
 
 ## UI/UX Details
 
-### Icon Choice
+### Icon & Visual Identity
 
-Use `RefreshCw` or `Repeat` from Lucide for the Ralph button - suggests iteration/looping.
+**Button:** Use `RefreshCw` or `Repeat` from Lucide for the Ralph button on InboxCard.
 
-### Color Scheme
+**Session Card:** Display Ralph Wiggum emoji during active loops:
+- Source: `https://slackmojis.com/emojis/2914-ralph/image/1711594978/ralph.png`
+- Store locally in `public/images/ralph.png`
+- Show alongside iteration count (e.g., `🧒 3/10`)
 
-Ralph sessions could use a distinct accent color (amber/orange?) to distinguish from regular sessions.
+**No color change** - Ralph sessions use standard session card styling.
 
 ### Warnings & Guardrails
 
@@ -352,19 +356,20 @@ Create PRD in separate markdown editor before sending to Ralph.
 
 ---
 
+## Decisions Made
+
+1. **PRD Storage:** Yes - save PRDs to `.claude/plans/{slug}-prd.md` for future reference
+
+2. **Scope:** Run in current scope, consistent with all other run methods (Plain, Refine, Reference)
+
+3. **Visual Identity:** No color change; use Ralph Wiggum emoji (`ralph.png`) on session card during active loops
+
 ## Open Questions
 
-1. **PRD Storage:** Should generated PRDs be saved as plan files (`.claude/plans/`)?
-   - Pro: Persists for future reference
-   - Con: Clutters plan namespace
-
-2. **Iteration Tracking:** How reliable is parsing terminal output for iteration count?
+1. **Iteration Tracking:** How reliable is parsing terminal output for iteration count?
    - May need to coordinate with plugin for structured output
 
-3. **Multi-project Loops:** Should Ralph loops respect the current scope, or always run in a specific project?
-   - Probably respect current scope (where inbox item lives)
-
-4. **Cancel Behavior:** What happens to partial work when loop is cancelled?
+2. **Cancel Behavior:** What happens to partial work when loop is cancelled?
    - Files remain as-is (git shows state)
    - Session can be resumed manually
 

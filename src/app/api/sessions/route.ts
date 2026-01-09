@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessions, getRunningSessionIds, getSessionMtime } from "@/lib/claude-sessions";
+import { getSessions, getRunningSessionIds, getSessionMtime, getSessionDerivedState } from "@/lib/claude-sessions";
 import { getAllSessionStatuses, setSessionStatus, archiveSession, unarchiveSession } from "@/lib/db";
 import { Session, SessionStatus } from "@/lib/types";
 import { buildTree, isUnderScope } from "@/lib/tree-utils";
@@ -148,6 +148,11 @@ export async function GET(request: NextRequest) {
           unarchiveSession(session.id).catch(console.error);
         }
 
+        // Derive state for running/active sessions (to detect waiting_for_approval, etc.)
+        const derivedState = (isRunning || shouldShowAsActive || statusData?.status === "active")
+          ? getSessionDerivedState(session.id)
+          : null;
+
         return {
           ...session,
           status: shouldShowAsActive ? "active" : (statusData?.status || "recent"),
@@ -156,6 +161,7 @@ export async function GET(request: NextRequest) {
           archived: isRunning ? false : statusData?.archived || false,  // Running sessions are never archived
           isRunning,
           planSlugs,
+          derivedState: derivedState ?? undefined,
         };
       });
 

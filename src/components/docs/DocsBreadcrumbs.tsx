@@ -1,6 +1,5 @@
 "use client";
 
-import { ChevronRight } from "lucide-react";
 import * as path from "path";
 
 interface DocsBreadcrumbsProps {
@@ -41,20 +40,20 @@ export function DocsBreadcrumbs({ filePath, scopePath, onNavigate }: DocsBreadcr
   });
 
   return (
-    <nav className="flex items-center gap-1 text-sm overflow-x-auto">
+    <nav className="flex items-center gap-0.5 overflow-x-auto">
       {items.map((item, index) => (
-        <span key={item.path} className="flex items-center gap-1 flex-shrink-0">
+        <span key={item.path} className="flex items-center flex-shrink-0">
           {index > 0 && (
-            <ChevronRight className="w-3 h-3 text-[var(--text-tertiary)]" />
+            <span className="text-[var(--text-tertiary)] text-[13px] px-0.5">→</span>
           )}
           {item.isLast ? (
-            <span className="text-[var(--text-primary)] font-medium">
+            <span className="px-2 py-1 text-[13px] font-mono text-[var(--text-secondary)]">
               {item.name}
             </span>
           ) : (
             <button
               onClick={() => onNavigate(item.path)}
-              className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:underline transition-colors"
+              className="px-2 py-1 rounded text-[13px] font-mono transition-colors hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             >
               {item.name}
             </button>

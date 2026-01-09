@@ -4,6 +4,16 @@ import * as fs from "fs";
 import * as http from "http";
 import { ptyManager } from "../src/lib/pty-manager";
 import { getSessionById } from "../src/lib/claude-sessions";
+import { EventServer } from "./event-server";
+import { getSessionWatcher, getScopeWatcher, getInboxWatcher } from "./watchers";
+import type {
+  SessionCreatedEvent,
+  SessionUpdatedEvent,
+  SessionDeletedEvent,
+  TreeChangedEvent,
+  FileChangedEvent,
+  InboxChangedEvent,
+} from "./watchers";
 
 const PREFERRED_PORT = parseInt(process.env.WS_PORT || "3001", 10);
 const PORT_FILE = path.join(process.env.HOME || "~", ".hilt-ws-port");
@@ -183,8 +193,146 @@ async function startServer() {
   const port = await findAvailablePort(PREFERRED_PORT);
   writePortFile(port);
 
-  const wss = new WebSocketServer({ port });
-  console.log(`WebSocket server running on ws://localhost:${port}`);
+  // Create HTTP server for path-based WebSocket routing
+  const httpServer = http.createServer((req, res) => {
+    // Simple health check endpoint
+    if (req.url === "/health") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: "ok", port }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  // Terminal WebSocket server (noServer mode for manual upgrade handling)
+  const wss = new WebSocketServer({ noServer: true });
+  console.log(`Terminal WebSocket server configured for path: /terminal`);
+
+  // Event WebSocket server (noServer mode)
+  const eventServer = new EventServer();
+  console.log(`Event WebSocket server configured for path: /events`);
+
+  // Session watcher for real-time session updates
+  const sessionWatcher = getSessionWatcher();
+
+  // Connect session watcher events to EventServer broadcasts
+  sessionWatcher.on("session:created", (event: SessionCreatedEvent) => {
+    eventServer.broadcast("sessions", "created", {
+      sessionId: event.sessionId,
+      projectFolder: event.projectFolder,
+      derivedStatus: event.derivedStatus,
+    });
+  });
+
+  sessionWatcher.on("session:updated", (event: SessionUpdatedEvent) => {
+    eventServer.broadcast("sessions", "updated", {
+      sessionId: event.sessionId,
+      projectFolder: event.projectFolder,
+      derivedStatus: event.derivedStatus,
+      previousStatus: event.previousStatus,
+    });
+  });
+
+  sessionWatcher.on("session:deleted", (event: SessionDeletedEvent) => {
+    eventServer.broadcast("sessions", "deleted", {
+      sessionId: event.sessionId,
+      projectFolder: event.projectFolder,
+    });
+  });
+
+  // Start watching after server is ready
+  sessionWatcher.start();
+  console.log(`Session watcher started`);
+
+  // Scope watcher for docs tree/file events (per-client subscription)
+  const scopeWatcher = getScopeWatcher();
+
+  // Connect scope watcher events to EventServer broadcasts
+  scopeWatcher.on("tree:changed", (event: TreeChangedEvent) => {
+    // Broadcast to clients subscribed to "tree" channel with matching scope
+    eventServer.broadcast("tree", "changed", {
+      scope: event.scope,
+      type: event.type,
+      path: event.path,
+      relativePath: event.relativePath,
+    }, (params) => params.scope === event.scope);
+  });
+
+  scopeWatcher.on("file:changed", (event: FileChangedEvent) => {
+    // Broadcast to clients subscribed to "file" channel with matching scope
+    eventServer.broadcast("file", "changed", {
+      scope: event.scope,
+      path: event.path,
+      relativePath: event.relativePath,
+    }, (params) => params.scope === event.scope);
+  });
+
+  // Inbox watcher for todo file events (per-client subscription)
+  const inboxWatcher = getInboxWatcher();
+
+  // Connect inbox watcher events to EventServer broadcasts
+  inboxWatcher.on("inbox:changed", (event: InboxChangedEvent) => {
+    // Broadcast to clients subscribed to "inbox" channel with matching scope
+    eventServer.broadcast("inbox", "changed", {
+      scope: event.scope,
+    }, (params) => params.scope === event.scope);
+  });
+
+  // Handle subscription events to start/stop watching scopes
+  eventServer.on("subscription:added", ({ clientId, channel, params }: { clientId: string; channel: string; params: Record<string, unknown> }) => {
+    const scope = params.scope as string | undefined;
+    if (!scope) return;
+
+    if (channel === "tree" || channel === "file") {
+      scopeWatcher.watchScope(scope, clientId);
+    } else if (channel === "inbox") {
+      inboxWatcher.watchInbox(scope, clientId);
+    }
+  });
+
+  eventServer.on("subscription:removed", ({ clientId, channel, params }: { clientId: string; channel: string; params?: Record<string, unknown> }) => {
+    // When a client unsubscribes, we need to find the scope they were watching
+    // Note: params may not be available on unsubscribe, so we let the watcher handle cleanup via removeClient
+    const scope = params?.scope as string | undefined;
+    if (!scope) return;
+
+    if (channel === "tree" || channel === "file") {
+      scopeWatcher.unwatchScope(scope, clientId);
+    } else if (channel === "inbox") {
+      inboxWatcher.unwatchInbox(scope, clientId);
+    }
+  });
+
+  // Clean up watchers when client disconnects
+  eventServer.on("client:disconnected", (clientId: string) => {
+    scopeWatcher.removeClient(clientId);
+    inboxWatcher.removeClient(clientId);
+  });
+
+  console.log(`Scope and inbox watchers configured`);
+
+  // Manually handle WebSocket upgrades and route to appropriate server
+  httpServer.on("upgrade", (request, socket, head) => {
+    const pathname = request.url || "";
+
+    if (pathname === "/terminal" || pathname.startsWith("/terminal?")) {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit("connection", ws, request);
+      });
+    } else if (pathname === "/events" || pathname.startsWith("/events?")) {
+      eventServer.handleUpgrade(request, socket, head);
+    } else {
+      // Unknown path - destroy the socket
+      socket.destroy();
+    }
+  });
+
+  httpServer.listen(port, () => {
+    console.log(`HTTP server listening on port ${port}`);
+    console.log(`  Terminal WebSocket: ws://localhost:${port}/terminal`);
+    console.log(`  Events WebSocket: ws://localhost:${port}/events`);
+  });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let plansWatcher: any = null;
@@ -330,8 +478,14 @@ async function startServer() {
     if (plansWatcher) {
       await plansWatcher.close();
     }
+    sessionWatcher.stop();
+    scopeWatcher.stop();
+    inboxWatcher.stop();
+    eventServer.close();
     wss.close(() => {
-      process.exit(0);
+      httpServer.close(() => {
+        process.exit(0);
+      });
     });
   });
 

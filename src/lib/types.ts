@@ -1,7 +1,29 @@
 import { z } from "zod";
 
-// Status for our kanban board
+// Status for our kanban board (persisted user workflow state)
 export type SessionStatus = "inbox" | "active" | "recent";
+
+// Column IDs for the board (includes virtual "attention" column)
+export type ColumnId = SessionStatus | "attention";
+
+// Derived status from JSONL parsing (real-time session state)
+export type DerivedStatus = "working" | "waiting_for_approval" | "waiting_for_input" | "idle";
+
+// Pending tool use info for approval status
+export interface PendingToolUse {
+  id: string;
+  name: string;
+}
+
+// Derived session state from analyzing JSONL entries
+export interface DerivedSessionState {
+  status: DerivedStatus;
+  pendingToolUses: PendingToolUse[];
+  lastActivityTime: number;  // Unix timestamp (ms)
+  isRunning: boolean;
+  isIdle: boolean;  // True if 5+ minutes since last activity (separate from status)
+  lastMessage: string | null;  // Most recent message (user or assistant text)
+}
 
 // Zod schemas for Claude Code JSONL format
 export const SummaryEntrySchema = z.object({
@@ -54,6 +76,7 @@ export interface SessionMetadata {
   gitBranch: string | null;
   firstPrompt: string | null;
   lastPrompt: string | null;  // Most recent user prompt
+  lastMessage: string | null;  // Most recent message (user or assistant)
   slug: string | null;  // Claude Code's internal session name (e.g., "dynamic-tickling-thunder")
   slugs: string[];      // All slugs used during session (slug can change mid-session, e.g., when entering plan mode)
 }
@@ -84,6 +107,8 @@ export interface Session extends SessionMetadata {
   isolation?: SessionIsolation;
   // Live running indicator (based on file modification time)
   isRunning?: boolean;
+  // Derived state from JSONL analysis (tool_use/tool_result tracking)
+  derivedState?: DerivedSessionState;
   // Slugs that have associated plan files
   planSlugs?: string[];
   // Open in plan mode (resume with plan editing)

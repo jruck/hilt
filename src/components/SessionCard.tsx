@@ -2,7 +2,8 @@
 
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Session } from "@/lib/types";
+import { Session, DerivedStatus } from "@/lib/types";
+import { needsAttention } from "@/lib/session-status";
 import { useState, useEffect, useMemo } from "react";
 import {
   MessageSquare,
@@ -19,10 +20,14 @@ import {
   FileText,
   Archive,
   ArchiveRestore,
+  Loader2,
+  AlertCircle,
+  MessageCircle,
 } from "lucide-react";
 
 interface SessionCardProps {
   session: Session;
+  scopePath?: string;  // Current scope path - hide folder if same as session.projectPath
   onOpen?: (session: Session) => void;
   onOpenPlan?: (session: Session) => void;  // Open session in plan mode
   onDelete?: (session: Session) => void;
@@ -40,6 +45,53 @@ interface SessionCardProps {
 // Duration for the "new" effect to fade (60 seconds)
 const NEW_EFFECT_DURATION_MS = 60_000;
 
+// Status badge configuration for derived states
+const STATUS_BADGE_CONFIG: Record<DerivedStatus, { label: string; icon: React.ReactNode } | null> = {
+  working: {
+    label: "Working",
+    icon: <Loader2 className="w-3 h-3 animate-spin" />,
+  },
+  waiting_for_approval: {
+    label: "Needs Approval",
+    icon: <AlertCircle className="w-3 h-3" />,
+  },
+  waiting_for_input: {
+    label: "Waiting",
+    icon: <MessageCircle className="w-3 h-3" />,
+  },
+  idle: null, // Don't show badge for idle
+};
+
+/**
+ * Format elapsed time as a ticking timer
+ * - Seconds: "5s", "45s"
+ * - Minutes: "1m", "5m 30s", "45m"
+ * - Hours: "1h", "2h 15m"
+ * - Days: "1d", "3d 5h"
+ */
+function formatElapsedTimer(elapsedMs: number): string {
+  // Handle edge case where lastActivityTime is slightly ahead of now
+  if (elapsedMs < 0) return "0s";
+
+  const seconds = Math.floor(elapsedMs / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) {
+    const remainingHours = hours % 24;
+    return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
+  }
+  if (hours > 0) {
+    const remainingMins = minutes % 60;
+    return remainingMins > 0 ? `${hours}h ${remainingMins}m` : `${hours}h`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m`;
+  }
+  return `${seconds}s`;
+}
+
 function formatRelativeTime(date: Date): string {
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -54,25 +106,35 @@ function formatRelativeTime(date: Date): string {
   return date.toLocaleDateString();
 }
 
-export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleStarred, onArchive, onUnarchive, status, firstSeenAt, isSelected, onSelect, isContinuable, disableDrag }: SessionCardProps) {
+export function SessionCard({ session, scopePath, onOpen, onOpenPlan, onDelete, onToggleStarred, onArchive, onUnarchive, status, firstSeenAt, isSelected, onSelect, isContinuable, disableDrag }: SessionCardProps) {
   const [copiedResume, setCopiedResume] = useState(false);
   // Track current time in state - use lazy initializer to avoid setState in effect
   const [now, setNow] = useState(() => Date.now());
 
-  // Update time periodically while the "new" effect is fading
+  // Determine if we need a ticking timer (for status badge elapsed time)
+  const hasStatusTimer = session.derivedState?.status &&
+    STATUS_BADGE_CONFIG[session.derivedState.status] !== null &&
+    session.derivedState.lastActivityTime;
+
+  // Update time periodically:
+  // 1. While the "new" effect is fading (first 60s)
+  // 2. While session has a status badge showing elapsed time
   useEffect(() => {
-    if (!firstSeenAt) return;
+    const needsNewEffect = firstSeenAt && (Date.now() - firstSeenAt < NEW_EFFECT_DURATION_MS);
+
+    if (!needsNewEffect && !hasStatusTimer) return;
 
     const interval = setInterval(() => {
-      const elapsed = Date.now() - firstSeenAt;
-      if (elapsed >= NEW_EFFECT_DURATION_MS) {
+      setNow(Date.now());
+
+      // Stop interval if no longer needed for either purpose
+      const stillNeedsNewEffect = firstSeenAt && (Date.now() - firstSeenAt < NEW_EFFECT_DURATION_MS);
+      if (!stillNeedsNewEffect && !hasStatusTimer) {
         clearInterval(interval);
-      } else {
-        setNow(Date.now());
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [firstSeenAt]);
+  }, [firstSeenAt, hasStatusTimer]);
 
   // Calculate "newness" - how recently this session appeared (0 = not new, 1 = just appeared)
   const newness = useMemo(() => {
@@ -105,14 +167,22 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
     setTimeout(() => setCopiedResume(false), 1500);
   };
 
+  // Check if session needs attention (used for glow and other styling)
+  const sessionNeedsAttention = session.derivedState && needsAttention(session.derivedState.status);
+
   // Compute glow effect style for newly added cards
+  // Use amber glow for cards needing attention, green for normal active cards
+  const glowColor = sessionNeedsAttention
+    ? `rgba(245, 158, 11, ${0.4 * newness})`  // amber-500
+    : `rgba(34, 197, 94, ${0.4 * newness})`;   // emerald-500
   const glowStyle = isNewlyAdded ? {
-    boxShadow: `0 0 ${12 * newness}px ${4 * newness}px rgba(34, 197, 94, ${0.4 * newness})`,
+    boxShadow: `0 0 ${12 * newness}px ${4 * newness}px ${glowColor}`,
   } : {};
 
   // Corner fold color - matches card's border stroke exactly
   const getFoldColor = () => {
     if (isSelected) return "var(--status-todo)";
+    if (sessionNeedsAttention) return "rgb(245 158 11 / 0.5)"; // amber-500/50
     if (session.starred) return "var(--status-starred)";
     if (session.status === "active") return "var(--status-active-border)";
     return "var(--border-default)";
@@ -134,17 +204,19 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
         group relative border rounded-lg p-3 overflow-hidden
         cursor-pointer
         ${isDragging ? "shadow-xl ring-2 ring-[var(--status-active)]" : "shadow-sm"}
-        ${isNewlyAdded
-          ? "border-[var(--status-active)] bg-[var(--status-active-bg)]"
-          : isSelected
-            ? "border-[var(--status-todo)] bg-[var(--status-todo-bg)] hover:border-[var(--status-todo)]"
-            : session.archived
-              ? "border-dashed border-[var(--border-default)] bg-[var(--bg-secondary)] opacity-75 hover:opacity-100"
-              : session.starred
-                ? "border-[var(--status-starred)] bg-[var(--status-starred-bg)] hover:border-[var(--status-starred)]"
-                : session.status === "active"
-                  ? "border-[var(--status-active-border)] bg-[var(--status-active-bg)] hover:border-[var(--status-active)]"
-                  : "border-[var(--border-default)] bg-[var(--bg-tertiary)] hover:border-[var(--border-hover)]"
+        ${sessionNeedsAttention
+          ? "border-amber-500/50 bg-amber-500/5 hover:border-amber-500"
+          : isNewlyAdded
+            ? "border-[var(--status-active)] bg-[var(--status-active-bg)]"
+            : isSelected
+              ? "border-[var(--status-todo)] bg-[var(--status-todo-bg)] hover:border-[var(--status-todo)]"
+              : session.archived
+                ? "border-dashed border-[var(--border-default)] bg-[var(--bg-secondary)] opacity-75 hover:opacity-100"
+                : session.starred
+                  ? "border-[var(--status-starred)] bg-[var(--status-starred-bg)] hover:border-[var(--status-starred)]"
+                  : session.status === "active"
+                    ? "border-[var(--status-active-border)] bg-[var(--status-active-bg)] hover:border-[var(--status-active)]"
+                    : "border-[var(--border-default)] bg-[var(--bg-tertiary)] hover:border-[var(--border-hover)]"
         }
       `}
     >
@@ -159,23 +231,30 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
       )}
       {/* Hover actions - floating toolbar */}
       {(() => {
-        const hoverBg = isNewlyAdded || session.status === "active"
-          ? "hover:bg-[var(--toolbar-hover-emerald)]"
-          : isSelected
-            ? "hover:bg-[var(--toolbar-hover-blue)]"
-            : "hover:bg-[var(--toolbar-hover)]";
+        // Priority: sessionNeedsAttention > isNewlyAdded > isSelected > active > default
+        const hoverBg = sessionNeedsAttention
+          ? "hover:bg-amber-500/20"
+          : isNewlyAdded
+            ? "hover:bg-[var(--toolbar-hover-emerald)]"
+            : isSelected
+              ? "hover:bg-[var(--toolbar-hover-blue)]"
+              : session.status === "active"
+                ? "hover:bg-[var(--toolbar-hover-emerald)]"
+                : "hover:bg-[var(--toolbar-hover)]";
         return (
           <div
             className={`
               absolute top-1.5 right-1.5 flex items-center gap-0.5 px-1 py-0.5
               rounded-md shadow-lg
-              ${isNewlyAdded
-                ? "bg-[var(--toolbar-bg-emerald)] border border-[var(--toolbar-border-emerald)]"
-                : isSelected
-                  ? "bg-[var(--toolbar-bg-blue)] border border-[var(--toolbar-border-blue)]"
-                  : session.status === "active"
-                    ? "bg-[var(--toolbar-bg-emerald)] border border-[var(--toolbar-border-emerald)]"
-                    : "bg-[var(--toolbar-bg)] border border-[var(--toolbar-border)]"
+              ${sessionNeedsAttention
+                ? "bg-amber-500/10 border border-amber-500/30"
+                : isNewlyAdded
+                  ? "bg-[var(--toolbar-bg-emerald)] border border-[var(--toolbar-border-emerald)]"
+                  : isSelected
+                    ? "bg-[var(--toolbar-bg-blue)] border border-[var(--toolbar-border-blue)]"
+                    : session.status === "active"
+                      ? "bg-[var(--toolbar-bg-emerald)] border border-[var(--toolbar-border-emerald)]"
+                      : "bg-[var(--toolbar-bg)] border border-[var(--toolbar-border)]"
               }
               ${isSelected || session.starred ? "opacity-100" : "opacity-0 group-hover:opacity-100"}
               transition-opacity
@@ -239,11 +318,11 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
 
       {/* Title */}
       <div className="flex items-center gap-1.5 pr-20">
-        {/* Live indicator - pulsing dot for running sessions */}
+        {/* Live indicator - pulsing dot for running sessions, color matches card */}
         {session.isRunning && (
           <span className="relative flex h-2 w-2 flex-shrink-0" title="Session is running">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${sessionNeedsAttention ? "bg-amber-400" : "bg-emerald-400"}`}></span>
+            <span className={`relative inline-flex rounded-full h-2 w-2 ${sessionNeedsAttention ? "bg-amber-500" : "bg-emerald-500"}`}></span>
           </span>
         )}
         <h3 className="text-sm font-medium text-[var(--text-primary)] truncate flex-1" title={session.title}>
@@ -254,41 +333,80 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
             <Lock className="w-3 h-3 text-blue-400 flex-shrink-0" />
           </span>
         )}
-        {session.isNew && (
-          <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded flex-shrink-0">
-            NEW
-          </span>
-        )}
       </div>
 
       {/* Status - dynamic terminal title from Claude */}
       {status && (
-        <p className="text-xs text-emerald-400 font-medium truncate mt-1">{status}</p>
+        <p className={`text-xs font-medium truncate mt-1 ${sessionNeedsAttention ? "text-amber-500" : "text-emerald-400"}`}>{status}</p>
       )}
 
-      {/* Last Prompt */}
-      {session.lastPrompt && session.lastPrompt !== session.title && (
-        <p className="text-xs text-[var(--text-secondary)] mt-1 line-clamp-2">
-          {session.lastPrompt}
-        </p>
-      )}
+      {/* Last Message (user or assistant) - prefer live derived state for running sessions */}
+      {(() => {
+        // Use derived lastMessage for running sessions (live updates), fallback to static lastMessage
+        const displayMessage = session.derivedState?.lastMessage || session.lastMessage;
+        if (displayMessage && displayMessage !== session.title) {
+          return (
+            <p className="text-xs text-[var(--text-secondary)] mt-1 line-clamp-2">
+              {displayMessage}
+            </p>
+          );
+        }
+        return null;
+      })()}
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs text-[var(--text-tertiary)]">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            fetch('/api/reveal', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ path: session.projectPath })
-            }).catch(console.error);
-          }}
-          className="flex items-center gap-1 hover:text-[var(--text-secondary)] transition-colors"
-          title="Open in Finder"
-        >
-          <Folder className="w-3 h-3" />
-          {session.project}
-        </button>
+        {/* Status badge with elapsed timer - first item in metadata */}
+        {(() => {
+          // Priority: isNew > derivedState
+          if (session.isNew) {
+            return (
+              <span className="flex items-center gap-1" title="New session">
+                New
+              </span>
+            );
+          }
+          if (session.derivedState) {
+            const config = STATUS_BADGE_CONFIG[session.derivedState.status];
+            if (config) {
+              // Calculate elapsed time from lastActivityTime
+              const lastActivity = session.derivedState.lastActivityTime;
+              const elapsedMs = lastActivity ? now - lastActivity : 0;
+              const elapsedStr = lastActivity ? formatElapsedTimer(elapsedMs) : null;
+
+              return (
+                <span className="flex items-center gap-1" title={config.label}>
+                  {config.icon}
+                  {config.label}
+                  {elapsedStr && (
+                    <span className="text-[var(--text-quaternary)] tabular-nums">
+                      {elapsedStr}
+                    </span>
+                  )}
+                </span>
+              );
+            }
+          }
+          return null;
+        })()}
+
+        {/* Folder - only show if different from current scope */}
+        {(!scopePath || session.projectPath !== scopePath) && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              fetch('/api/reveal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: session.projectPath })
+              }).catch(console.error);
+            }}
+            className="flex items-center gap-1 hover:text-[var(--text-secondary)] transition-colors"
+            title="Open in Finder"
+          >
+            <Folder className="w-3 h-3" />
+            {session.project}
+          </button>
+        )}
 
         <button
           onClick={handleCopyResume}
@@ -318,9 +436,9 @@ export function SessionCard({ session, onOpen, onOpenPlan, onDelete, onToggleSta
           {session.messageCount}
         </span>
 
-        <span className={`flex items-center gap-1 ${isNewlyAdded ? "text-emerald-400 font-medium" : ""}`}>
-          <Clock className={`w-3 h-3 ${isNewlyAdded ? "text-emerald-400" : ""}`} />
-          {isNewlyAdded ? "NEW" : formatRelativeTime(new Date(session.lastActivity))}
+        <span className="flex items-center gap-1">
+          <Clock className="w-3 h-3" />
+          {formatRelativeTime(new Date(session.lastActivity))}
         </span>
       </div>
     </div>

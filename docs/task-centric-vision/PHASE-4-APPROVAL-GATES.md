@@ -2,7 +2,47 @@
 
 > **Goal**: Intercept potentially dangerous operations, pause execution, and require explicit human approval before proceeding. Track different types of approvals distinctly.
 
-> **Status**: Planning — Questions pending
+> **Status**: PARTIALLY IMPLEMENTED — See "What's Already Built" section
+
+---
+
+## What's Already Built (January 2026)
+
+Significant approval detection infrastructure exists:
+
+### Pending Tool Use Tracking ✅
+- `src/lib/session-status.ts` — Parses JSONL to track pending `tool_use` blocks
+- `PendingToolUse` interface tracks tool ID and name
+- Cleared when matching `tool_result` block is received
+- `waiting_for_approval` status derived from pending tool uses
+
+### "Needs Attention" Column ✅
+- Sessions with `waiting_for_approval` status automatically appear in attention column
+- Amber styling distinguishes approval-needed cards
+- Real-time updates via WebSocket events
+
+### Types Defined ✅
+```typescript
+// src/lib/types.ts
+interface PendingToolUse {
+  id: string;
+  name: string;
+}
+
+interface DerivedSessionState {
+  status: DerivedStatus;  // includes 'waiting_for_approval'
+  pendingToolUses: PendingToolUse[];
+  // ...
+}
+```
+
+### What's Still Needed
+- **Approval Response UI** — Rich UI to review and respond to approval requests
+- **Terminal Input Injection** — Send Y/N responses back to Claude
+- **Approval History** — Track what was approved/rejected
+- **Two Approval Types** — Distinguish permission vs decision approvals
+
+---
 
 ## Problem Statement
 

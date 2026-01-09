@@ -2,7 +2,46 @@
 
 > **Goal**: Capture what Claude changed during a task run and present it for human review. Shift from "watch the terminal scroll" to "see the outcomes and approve."
 
-> **Status**: Planning — Questions pending
+> **Status**: PARTIALLY IMPLEMENTED — See "What's Already Built" section
+
+---
+
+## What's Already Built (January 2026)
+
+Foundation for git-based results tracking exists:
+
+### Session Isolation Types ✅
+```typescript
+// src/lib/types.ts
+interface SessionIsolation {
+  enabled: true;
+  workspacePath: string;      // ~/.claude-kanban/workspaces/<id>/workspace
+  sourcePath: string;         // Original project path
+  branchName: string;         // claude-kanban/<session-id-short>
+  baseBranch: string;         // Branch we forked from (usually main)
+  baseCommit: string;         // Commit SHA we forked from ← KEY FOR DIFFING
+  createdAt: string;
+}
+```
+
+This provides the git baseline infrastructure needed for results detection:
+- `baseCommit` — The SHA to diff against
+- `baseBranch` — The branch we started from
+- `branchName` — The work branch
+
+### Last Activity Tracking ✅
+- `DerivedSessionState.lastActivityTime` — Unix timestamp of last JSONL entry
+- `DerivedSessionState.lastMessage` — Most recent message text
+- Real-time updates via session watcher
+
+### What's Still Needed
+- **Results Capture** — Actually compute git diff on session completion
+- **Results Storage** — Store captured results per run
+- **Diff Viewer UI** — Display changes in readable format
+- **Review Actions** — Approve, reject, request changes
+- **Results API** — Endpoints for fetching results
+
+---
 
 ## Problem Statement
 

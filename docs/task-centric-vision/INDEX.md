@@ -23,13 +23,38 @@ The UI taps into what's happening — it doesn't drive what's happening. Tasks r
 
 | Phase | Name | Purpose | Status |
 |-------|------|---------|--------|
-| 0 | [Background Execution](./PHASE-0-BACKGROUND-EXECUTION.md) | Decouple processes from UI lifecycle | Planning |
+| 0 | [Background Execution](./PHASE-0-BACKGROUND-EXECUTION.md) | Decouple processes from UI lifecycle | **Partial** ⚡ |
 | 1 | [Task Layer](./PHASE-1-TASK-LAYER.md) | Task data model, CRUD, session linking | Planning |
-| 2 | [Results & Review](./PHASE-2-RESULTS-REVIEW.md) | Capture what changed, review UI | Planning |
-| 3 | [Notifications](./PHASE-3-NOTIFICATIONS.md) | Core engine + browser push delivery | Planning |
-| 4 | [Approval Gates](./PHASE-4-APPROVAL-GATES.md) | Intercept and approve destructive actions | Planning |
+| 2 | [Results & Review](./PHASE-2-RESULTS-REVIEW.md) | Capture what changed, review UI | **Partial** ⚡ |
+| 3 | [Notifications](./PHASE-3-NOTIFICATIONS.md) | Core engine + browser push delivery | **Partial** ⚡ |
+| 4 | [Approval Gates](./PHASE-4-APPROVAL-GATES.md) | Intercept and approve destructive actions | **Partial** ⚡ |
 | 5 | [MCP Server](./PHASE-5-MCP-SERVER.md) | Expose kanban to Claude Code sessions | Planning |
 | 6 | [Automation](./PHASE-6-AUTOMATION.md) | CI webhooks, task chaining, scheduling | Planning |
+
+### Implementation Progress (January 2026)
+
+Significant infrastructure has been built that advances multiple phases:
+
+**Already Implemented:**
+- ✅ **EventServer** — Channel-based pub/sub WebSocket (`server/event-server.ts`)
+- ✅ **Session Watcher** — JSONL file watching with debouncing (`server/watchers/session-watcher.ts`)
+- ✅ **Status Derivation** — working/waiting_for_approval/waiting_for_input/idle (`src/lib/session-status.ts`)
+- ✅ **Pending Tool Use tracking** — For approval detection (`src/lib/types.ts`)
+- ✅ **"Needs Attention" column** — Virtual column for waiting sessions
+- ✅ **useEventSocket hook** — Auto-reconnect, subscription management
+- ✅ **Session Isolation types** — Worktree infrastructure (`SessionIsolation` in types.ts)
+- ✅ **Scope & Inbox Watchers** — Real-time file/docs updates
+- ✅ **needsAttention() helper** — Status checking for approval state
+
+**Still Needed:**
+- ⏳ ProcessManager (PTY independence from WebSocket)
+- ⏳ Output buffering (reconnection catch-up)
+- ⏳ Browser push notifications delivery
+- ⏳ Approval response UI (respond to tool approval requests)
+- ⏳ Task abstraction layer
+- ⏳ Results capture & diff viewer
+- ⏳ MCP server
+- ⏳ Automation engine
 
 ## Dependencies
 
@@ -134,4 +159,4 @@ Each phase includes a test plan. A feature is not done until:
 ---
 
 *Created: January 8, 2026*
-*Last Updated: January 8, 2026*
+*Last Updated: January 9, 2026*

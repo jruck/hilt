@@ -2,46 +2,61 @@
 
 > **Goal**: Decouple task execution from UI lifecycle. Processes run on the server, survive UI disconnection, and can be reconnected to at any time.
 
-## Problem Statement
+> **Status**: PARTIALLY IMPLEMENTED — See "What's Already Built" section
 
-Currently, terminal sessions are tightly coupled to the browser UI:
+---
 
-1. **WebSocket connection owns the PTY** — When the WebSocket disconnects, the PTY process is orphaned or killed
-2. **No output buffering** — If you disconnect and reconnect, you've lost the output history
-3. **No process persistence** — If the server restarts, all running processes are lost
-4. **UI must be open** — You can't start a task and walk away
+## What's Already Built (January 2026)
 
-This forces synchronous attention: you must keep the browser open and watch the terminal.
+Significant infrastructure has been implemented:
 
-## Current Architecture
+### EventServer & WebSocket Infrastructure ✅
+- `server/event-server.ts` — Channel-based pub/sub WebSocket server
+- `src/hooks/useEventSocket.ts` — React hook with auto-reconnect
+- `src/contexts/EventSocketContext.tsx` — App-wide WebSocket context
+- Path-based routing: `/terminal` for PTY, `/events` for real-time events
 
-```typescript
-// ws-server.ts (simplified)
-wss.on('connection', (ws) => {
-  ws.on('message', (msg) => {
-    if (msg.type === 'spawn') {
-      // PTY created per WebSocket message
-      const pty = spawn('claude', [...]);
+### Session Watchers ✅
+- `server/watchers/session-watcher.ts` — Watches `~/.claude/projects` for JSONL changes
+- `server/watchers/scope-watcher.ts` — Watches directories for file changes
+- `server/watchers/inbox-watcher.ts` — Watches Todo.md files
+- Debounced, incremental parsing with event emission
 
-      pty.onData((data) => {
-        // Output sent directly to this WebSocket
-        ws.send({ type: 'data', data });
-      });
+### Session Status Derivation ✅
+- `src/lib/session-status.ts` — Derives real-time state from JSONL:
+  - `working` — Claude is actively processing
+  - `waiting_for_approval` — Claude used a tool, waiting for approval
+  - `waiting_for_input` — Claude finished, waiting for user input
+  - `idle` — No activity for 5+ minutes
+- Tracks `pendingToolUses` for approval detection
+- `needsAttention()` helper function
 
-      ws.on('close', () => {
-        // Connection closes = PTY orphaned
-        // No way to reconnect
-      });
-    }
-  });
-});
-```
+### "Needs Attention" Column ✅
+- Virtual column showing sessions awaiting approval/input
+- Amber styling for attention cards
+- Real-time updates via WebSocket events
 
-**Problems:**
-- PTY lifecycle tied to WebSocket lifecycle
-- No process registry
-- No output history
-- No reconnection mechanism
+---
+
+## What Still Needs to Be Built
+
+The remaining work is focused on **PTY process independence**:
+
+1. **ProcessManager** — Decouple PTY lifecycle from WebSocket connections
+2. **Output Buffering** — Store output for reconnection catch-up
+3. **Process Registry** — Track running processes independently
+
+---
+
+## Problem Statement (Remaining)
+
+While session *status* is now tracked in real-time, terminal *processes* are still coupled to UI:
+
+1. **WebSocket owns PTY** — Closing browser tab can orphan or kill the PTY
+2. **No output buffer** — Reconnecting loses terminal history
+3. **No process list API** — Can't see what's running from another client
+
+The goal: start a Claude session, close the browser, come back later, reconnect to the still-running session with full output history.
 
 ## Target Architecture
 

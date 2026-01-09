@@ -2,7 +2,37 @@
 
 > **Goal**: Build a notification system that alerts users when tasks need attention, enabling truly asynchronous workflows. Core engine with pluggable delivery mechanisms.
 
-> **Status**: Planning — Questions pending
+> **Status**: PARTIALLY IMPLEMENTED — See "What's Already Built" section
+
+---
+
+## What's Already Built (January 2026)
+
+The detection infrastructure for notifications is complete:
+
+### Status Detection ✅
+- `src/lib/session-status.ts` — Derives real-time session state:
+  - `waiting_for_approval` — Claude used a tool, waiting for permission
+  - `waiting_for_input` — Claude finished, waiting for user input
+  - `idle` — No activity for 5+ minutes
+- `needsAttention()` helper function identifies sessions needing user response
+
+### Real-Time Events ✅
+- `server/event-server.ts` — Channel-based pub/sub WebSocket
+- `server/watchers/session-watcher.ts` — Emits `session:updated` events on status change
+- Events fire immediately when session transitions to waiting state
+
+### UI Indicators ✅
+- "Needs Attention" column with amber styling
+- Sessions awaiting approval/input automatically appear there
+- Elapsed timer shows time since last activity
+
+### What's Still Needed
+- **Browser Push Notifications** — Service worker, push API
+- **Notification Engine** — Queue, preferences, history
+- **Delivery Adapters** — Browser, Electron, future channels
+
+---
 
 ## Problem Statement
 

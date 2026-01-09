@@ -4,7 +4,7 @@ Manual test scenarios to verify the "Needs Attention" column and status badges w
 
 ## Prerequisites
 
-1. Claude Kanban running (`npm run dev:all`)
+1. Hilt running (`npm run dev:all`)
 2. Board view open in browser at http://localhost:3000
 3. A terminal ready to start Claude Code sessions
 

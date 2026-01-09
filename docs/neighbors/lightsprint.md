@@ -34,7 +34,7 @@ Based on website analysis:
 
 **No public codebase available** - appears to be a closed-source commercial product.
 
-## Comparison with Claude Kanban
+## Comparison with Hilt
 
 ### They Have, We Don't
 

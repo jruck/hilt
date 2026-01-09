@@ -26,7 +26,7 @@ Captured: 2025-01-07
 - [x] `npm run dev:all` to ready: **2.19 seconds** (Target: <3s) ✓
 
 ### Lock File Test
-- [x] Lock file created: `~/.claude-kanban-server.lock` with PID ✓
+- [x] Lock file created: `~/.hilt-server.lock` with PID ✓
 - [x] Duplicate server blocked with message ✓
 - [x] Clean shutdown removes lock file ✓
 

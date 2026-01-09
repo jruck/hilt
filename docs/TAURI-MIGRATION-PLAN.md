@@ -1,6 +1,6 @@
 # Tauri Migration Implementation Plan
 
-This document provides a detailed implementation plan for migrating Claude Kanban from a Next.js + WebSocket server architecture to a Tauri native desktop application.
+This document provides a detailed implementation plan for migrating Hilt from a Next.js + WebSocket server architecture to a Tauri native desktop application.
 
 ## Executive Summary
 
@@ -18,7 +18,7 @@ This document provides a detailed implementation plan for migrating Claude Kanba
 
 ## Dev Mode Architecture
 
-Since Claude Kanban users are developers who likely want to customize the app, we should make dev mode a first-class experience with a native macOS menu toggle.
+Since Hilt users are developers who likely want to customize the app, we should make dev mode a first-class experience with a native macOS menu toggle.
 
 ### How Tauri Dev Mode Works
 
@@ -37,7 +37,7 @@ We'll add a **"Developer" menu** to the macOS menu bar with a toggle to switch b
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ Claude Kanban  File  Edit  View  Developer  Window  Help │
+│ Hilt  File  Edit  View  Developer  Window  Help │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -94,7 +94,7 @@ pub fn create_app_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<Wry>>
         .build()?;
 
     // Standard menus
-    let app_menu = SubmenuBuilder::new(app, "Claude Kanban")
+    let app_menu = SubmenuBuilder::new(app, "Hilt")
         .about(None)
         .separator()
         .services()
@@ -286,7 +286,7 @@ fn main() {
 2. Everything works out of the box
 
 **For Developers Customizing the App:**
-1. Clone the repo: `git clone https://github.com/you/claude-kanban`
+1. Clone the repo: `git clone https://github.com/you/hilt`
 2. Install dependencies: `npm install`
 3. Run the app: `npm run tauri:dev` (starts in dev mode)
 4. Edit React components → instant hot-reload
@@ -350,7 +350,7 @@ use std::path::PathBuf;
 fn get_config_path() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_default()
-        .join("claude-kanban")
+        .join("hilt")
         .join("dev-mode.json")
 }
 
@@ -495,7 +495,7 @@ npx tauri init
 **Configuration (`src-tauri/tauri.conf.json`)**:
 ```json
 {
-  "productName": "Claude Kanban",
+  "productName": "Hilt",
   "identifier": "com.claudekanban.app",
   "build": {
     "beforeBuildCommand": "npm run build:tauri",
@@ -505,7 +505,7 @@ npx tauri init
   },
   "app": {
     "windows": [{
-      "title": "Claude Kanban",
+      "title": "Hilt",
       "width": 1400,
       "height": 900,
       "minWidth": 1000,

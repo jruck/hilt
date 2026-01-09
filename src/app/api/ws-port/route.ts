@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import * as fs from "fs";
 import * as path from "path";
 
-const PORT_FILE = path.join(process.env.HOME || "~", ".claude-kanban-ws-port");
+const PORT_FILE = path.join(process.env.HOME || "~", ".hilt-ws-port");
 
 export async function GET() {
   try {

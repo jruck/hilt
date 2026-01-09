@@ -39,7 +39,7 @@ When given a URL to analyze, perform the following research and generate a repor
 ### 2. Analysis Phase
 
 **Feature Comparison:**
-Compare their features against Claude Kanban's capabilities:
+Compare their features against Hilt's capabilities:
 - Session management
 - Task/status tracking
 - Visual organization (board, tree, docs views)
@@ -90,7 +90,7 @@ Generate a markdown file at `/docs/neighbors/[tool-name].md` with this structure
 
 [What they're built with, if known]
 
-## Comparison with Claude Kanban
+## Comparison with Hilt
 
 ### They Have, We Don't
 
@@ -126,7 +126,7 @@ Generate a markdown file at `/docs/neighbors/[tool-name].md` with this structure
 
 ## Our Unique Value
 
-[What makes Claude Kanban distinct from this competitor]
+[What makes Hilt distinct from this competitor]
 
 ## Verdict
 

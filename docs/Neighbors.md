@@ -253,4 +253,4 @@ An evaluation of related open-source projects for managing Claude Code sessions,
 
 **From vibe-kanban:** Their kanban UI is the closest reference for our board design. Study their column layout, card components, and drag-drop interactions.
 
-**From desis123:** Sometimes simple is better. Their zero-config approach (`pip install && run`) is the gold standard for developer tools. We should match this with `npx claude-kanban` or similar.
+**From desis123:** Sometimes simple is better. Their zero-config approach (`pip install && run`) is the gold standard for developer tools. We should match this with `npx hilt` or similar.

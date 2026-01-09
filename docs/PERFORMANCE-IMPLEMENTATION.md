@@ -226,14 +226,14 @@ source ~/.zshrc  # or restart terminal
 
 ```
 [ ] 1. Start server: `npm run ws-server`
-[ ] 2. Verify lock file exists: `cat ~/.claude-kanban-server.lock`
+[ ] 2. Verify lock file exists: `cat ~/.hilt-server.lock`
 [ ] 3. Should show PID number
 [ ] 4. Open new terminal, try: `npm run ws-server`
 [ ] 5. Should see "Server already running (PID X)" and exit
 [ ] 6. Kill original server (Ctrl+C)
-[ ] 7. Verify lock file deleted: `ls ~/.claude-kanban-server.lock` (should not exist)
+[ ] 7. Verify lock file deleted: `ls ~/.hilt-server.lock` (should not exist)
 [ ] 8. Start server again - should work
-[ ] 9. Force kill server: `kill -9 $(cat ~/.claude-kanban-server.lock)`
+[ ] 9. Force kill server: `kill -9 $(cat ~/.hilt-server.lock)`
 [ ] 10. Start server - should detect stale lock and proceed
 ```
 
@@ -278,7 +278,7 @@ source ~/.zshrc  # or restart terminal
 
 ```
 [ ] 1. Stop ws-server
-[ ] 2. Manually create stale port file: `echo "9999" > ~/.claude-kanban-ws-port`
+[ ] 2. Manually create stale port file: `echo "9999" > ~/.hilt-ws-port`
 [ ] 3. Start app (Next.js only, not ws-server)
 [ ] 4. Try to open a terminal
 [ ] 5. BEFORE: Would hang or error immediately

@@ -61,7 +61,7 @@ wrangler.jsonc   - Cloudflare configuration
 - Encrypted credential storage
 - OAuth for Google and GitHub
 
-## Comparison with Claude Kanban
+## Comparison with Hilt
 
 ### They Have, We Don't
 

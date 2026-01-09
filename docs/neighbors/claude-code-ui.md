@@ -61,7 +61,7 @@ Their XState-based approach is more sophisticated than ours:
 - 60 seconds: missing turn-end marker
 - 5 minutes: no activity
 
-## Comparison with Claude Kanban
+## Comparison with Hilt
 
 ### They Have, We Don't
 

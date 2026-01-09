@@ -1,6 +1,6 @@
 # Claude Code Configuration Stack Architecture
 
-This document maps the complete hierarchy of text files that influence Claude Code's behavior, designed to inform the implementation of a "Claude Stack Visualizer" feature in Claude Kanban.
+This document maps the complete hierarchy of text files that influence Claude Code's behavior, designed to inform the implementation of a "Claude Stack Visualizer" feature in Hilt.
 
 ## Overview
 
@@ -350,7 +350,7 @@ For the Claude Stack Visualizer feature, we need to:
 5. **Validation Panel** - Show format errors, conflicts
 6. **Diff View** - Compare layers, see what overrides what
 
-## Integration with Claude Kanban
+## Integration with Hilt
 
 ### New Data Sources
 
@@ -422,7 +422,7 @@ Extend existing ViewToggle to include:
 │  ┌──────┐ │  ┌─────────────────────────────────────────────────────────┐   │
 │  │System│ │  │  Project Memory (CLAUDE.md)                              │   │
 │  └──────┘ │  │                                                          │   │
-│     ↓     │  │  # Claude Kanban                                         │   │
+│     ↓     │  │  # Hilt                                         │   │
 │  ┌──────┐ │  │                                                          │   │
 │  │ User │ │  │  Kanban UI for managing Claude Code sessions.            │   │
 │  └──────┘ │  │                                                          │   │

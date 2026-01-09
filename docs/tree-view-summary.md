@@ -1,6 +1,6 @@
 # Tree View Feature Summary
 
-A comprehensive reference for the fractal workspace "Tree View" feature in Claude Kanban.
+A comprehensive reference for the fractal workspace "Tree View" feature in Hilt.
 
 ---
 

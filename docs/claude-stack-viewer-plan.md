@@ -2,7 +2,7 @@
 
 ## Vision
 
-Transform Claude Kanban from a session management tool into a **complete Claude Code control center** that lets you visualize, understand, and manipulate all the text layers that shape Claude's behavior.
+Transform Hilt from a session management tool into a **complete Claude Code control center** that lets you visualize, understand, and manipulate all the text layers that shape Claude's behavior.
 
 The goal: **Make the invisible visible.** Most users have no idea that their Claude behavior is shaped by 10+ different configuration files across 4+ directories. We expose this, make it explorable, and make it editable.
 

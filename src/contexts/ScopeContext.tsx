@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import { recordScopeVisit } from '@/lib/recent-scopes';
 
-const SCOPE_STORAGE_KEY = "claude-kanban-scope";
+const SCOPE_STORAGE_KEY = "hilt-scope";
 
 interface ScopeContextValue {
   scopePath: string;

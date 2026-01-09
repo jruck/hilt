@@ -2,7 +2,7 @@
 
 ## Overview
 
-Add a scope-aware Documentation Viewer to the Docs tab in Claude Kanban. Features a file tree sidebar, markdown viewer/editor using existing MDXEditor, wikilink navigation, and real-time updates.
+Add a scope-aware Documentation Viewer to the Docs tab in Hilt. Features a file tree sidebar, markdown viewer/editor using existing MDXEditor, wikilink navigation, and real-time updates.
 
 ---
 

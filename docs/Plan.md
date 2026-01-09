@@ -71,7 +71,7 @@ At startup, the app reads `process.cwd()` and filters sessions to those whose de
 ## Core Requirements (validated by neighbor projects)
 
 1. **Session resume via embedded terminal** — click a card, resume in drawer
-2. **Zero-config startup** — `npx claude-kanban` or `npm run dev` just works
+2. **Zero-config startup** — `npx hilt` or `npm run dev` just works
 3. **Syntax-highlighted diffs** — render code changes readably
 4. **Auto-refresh** — detect new/changed sessions without manual reload
 5. **Pagination/virtualization** — handle users with hundreds of sessions
@@ -92,7 +92,7 @@ At startup, the app reads `process.cwd()` and filters sessions to those whose de
 ## File Structure
 
 ```
-claude-kanban/
+hilt/
 ├── package.json
 ├── next.config.js
 ├── tailwind.config.js
@@ -190,7 +190,7 @@ claude-kanban/
 
 ## Key Decisions
 
-1. **Project location**: `~/Work/code/claude-kanban`
+1. **Project location**: `~/Work/code/hilt`
 
 2. **Separate WebSocket server**: Next.js API routes don't support long-lived WebSocket connections well. We'll run a small ws server on a different port (e.g., 3001) that the frontend connects to.
 

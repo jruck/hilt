@@ -2,7 +2,7 @@
 
 ## Overview
 
-Add the ability to choose which folder Claude Kanban operates from. This single choice automatically:
+Add the ability to choose which folder Hilt operates from. This single choice automatically:
 - Filters the board to only show sessions from that folder and its children
 - Scopes new sessions to be created in that folder
 - Persists the choice across browser sessions
@@ -27,7 +27,7 @@ Add the ability to choose which folder Claude Kanban operates from. This single 
 ```typescript
 const [scopePath, setScopePath] = useState<string>(() => {
   if (typeof window !== 'undefined') {
-    return localStorage.getItem('claude-kanban-scope') || process.env.HOME || '/';
+    return localStorage.getItem('hilt-scope') || process.env.HOME || '/';
   }
   return '/';
 });
@@ -89,7 +89,7 @@ Clicking opens a dropdown:
 ┌─────────────────────────────────────────────────────┐
 │ Recent Folders                                      │
 │ ─────────────────────────────────────────────────── │
-│ 📁 /Users/jruck/Work/Code/claude-kanban            │
+│ 📁 /Users/jruck/Work/Code/hilt            │
 │ 📁 /Users/jruck/Bridge                              │
 │ 📁 /Users/jruck                                     │
 │ ─────────────────────────────────────────────────── │

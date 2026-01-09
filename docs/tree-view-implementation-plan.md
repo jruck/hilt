@@ -1,6 +1,6 @@
 # Tree View Implementation Plan
 
-A detailed implementation plan for the fractal workspace "Tree View" feature in Claude Kanban.
+A detailed implementation plan for the fractal workspace "Tree View" feature in Hilt.
 
 ## Overview
 
@@ -1093,7 +1093,7 @@ const { tree, sessions: treeSessions } = useTreeSessions(
 **File: `src/lib/view-preference.ts`** (NEW)
 
 ```typescript
-const STORAGE_KEY = "claude-kanban-view-mode";
+const STORAGE_KEY = "hilt-view-mode";
 
 export function getViewPreference(): "kanban" | "tree" {
   if (typeof window === "undefined") return "kanban";

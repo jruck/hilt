@@ -1,6 +1,6 @@
 # Design Philosophy
 
-This document captures design preferences, principles, and patterns observed while building Claude Kanban. It serves as actionable guidance for AI assistants working on this project to produce designs that align with the user's aesthetic and interaction preferences.
+This document captures design preferences, principles, and patterns observed while building Hilt. It serves as actionable guidance for AI assistants working on this project to produce designs that align with the user's aesthetic and interaction preferences.
 
 **Purpose**: Help future AI assistants design features and interfaces that the user will likely approve without extensive iteration.
 

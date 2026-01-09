@@ -1,6 +1,6 @@
 # Command Feature: Implementation Plan
 
-This document outlines the architecture and implementation plan for the **Command** feature - an AI-powered chat interface embedded in the sidebar that controls Claude Kanban through natural language.
+This document outlines the architecture and implementation plan for the **Command** feature - an AI-powered chat interface embedded in the sidebar that controls Hilt through natural language.
 
 ---
 
@@ -24,7 +24,7 @@ This document outlines the architecture and implementation plan for the **Comman
 │  [Sidebar]                                                    │
 │  ┌────────────────────┐                                       │
 │  │  📌 Pinned         │                                       │
-│  │  ├── claude-kanban │                                       │
+│  │  ├── hilt │                                       │
 │  │  └── obsidian-plug │                                       │
 │  └────────────────────┘                                       │
 │                                                               │
@@ -412,7 +412,7 @@ export async function POST(request: NextRequest) {
 }
 
 function buildSystemPrompt(context: BoardState): string {
-  return `You are a command interface for Claude Kanban, a project management app.
+  return `You are a command interface for Hilt, a project management app.
 
 Your job is to interpret user commands and execute actions in the app.
 Be fast and direct. Don't explain what you're doing - just do it.

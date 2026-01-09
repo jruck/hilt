@@ -48,7 +48,7 @@ Conductor is closed source, distributed as a Mac app, and backed by Y Combinator
 - DesktopCommanderMCP - Terminal/filesystem MCP server
 - Chorus - AI chat app for Mac
 
-## Comparison with Claude Kanban
+## Comparison with Hilt
 
 ### They Have, We Don't
 

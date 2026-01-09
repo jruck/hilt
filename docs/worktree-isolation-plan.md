@@ -44,9 +44,9 @@ When launching a session in a git repository, show a simple toggle:
 └─────────────────────────────────────────────┘
 ```
 
-**No branch name input.** Auto-generate: `claude-kanban/<session-id-short>`
+**No branch name input.** Auto-generate: `hilt/<session-id-short>`
 
-**No path selection.** Auto-manage in `~/.claude-kanban/workspaces/`
+**No path selection.** Auto-manage in `~/.hilt/workspaces/`
 
 ### During the Session
 
@@ -133,7 +133,7 @@ If rebase has conflicts (main diverged significantly):
 ### Directory Structure
 
 ```
-~/.claude-kanban/
+~/.hilt/
 └── workspaces/
     └── <session-id>/
         ├── .source → /Users/jruck/Work/my-app  (symlink for reference)
@@ -150,9 +150,9 @@ If rebase has conflicts (main diverged significantly):
 
 interface SessionIsolation {
   enabled: true;
-  workspacePath: string;      // ~/.claude-kanban/workspaces/<id>/workspace
+  workspacePath: string;      // ~/.hilt/workspaces/<id>/workspace
   sourcePath: string;         // Original project path
-  branchName: string;         // claude-kanban/<session-id-short>
+  branchName: string;         // hilt/<session-id-short>
   baseBranch: string;         // Branch we forked from (usually main)
   baseCommit: string;         // Commit SHA we forked from
   createdAt: string;
@@ -277,7 +277,7 @@ To keep this lightweight:
 1. **Default behavior**: Should isolation be opt-in (default off) or opt-out (default on) for git projects?
    - Recommendation: Opt-in initially, gather feedback
 
-2. **Workspace location**: `~/.claude-kanban/workspaces/` or inside project `.claude-kanban/`?
+2. **Workspace location**: `~/.hilt/workspaces/` or inside project `.hilt/`?
    - Recommendation: Home directory to avoid polluting projects
 
 3. **Session resume**: Does `claude --resume` work correctly when cwd differs from original session?

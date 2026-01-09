@@ -59,7 +59,7 @@ The agent will research the tool and generate a report in this folder.
 ```
                     Local ←————————→ Cloud
                       │                │
-    Session-centric   │  Claude Kanban │  Lightsprint
+    Session-centric   │  Hilt │  Lightsprint
                       │  claude-code-ui│
                       │                │
     Task-centric      │  Conductor     │  Vibe Kanban

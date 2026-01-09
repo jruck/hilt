@@ -1,6 +1,6 @@
 # Data Models Reference
 
-This document describes all data structures used in Claude Kanban.
+This document describes all data structures used in Hilt.
 
 ## Core Types
 
@@ -344,7 +344,7 @@ Browser-side persistence (limited - most preferences now server-side).
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `claude-kanban-home-dir` | `string` | Cached home directory path |
+| `hilt-home-dir` | `string` | Cached home directory path |
 
 **Note**: View mode, recent scopes, pinned folders, sidebar state, and theme are now stored server-side in `data/preferences.json` to persist across Electron rebuilds.
 

@@ -1,10 +1,10 @@
-# Claude Kanban
+# Hilt
 
 A visual dashboard for managing Claude Code sessions. Organize your work with a Kanban board, browse project documentation, and inspect Claude's configuration stack—all from one interface.
 
 ## Core Concepts
 
-Claude Kanban provides three primary views, accessible via the top navigation:
+Hilt provides three primary views, accessible via the top navigation:
 
 | View | Purpose |
 |------|---------|
@@ -91,8 +91,8 @@ Inspect Claude's configuration files across all four layers:
 ### Installation
 
 ```bash
-git clone https://github.com/yourusername/claude-kanban.git
-cd claude-kanban
+git clone https://github.com/yourusername/hilt.git
+cd hilt
 npm install
 ```
 
@@ -178,7 +178,7 @@ Custom slash commands for use within Claude Code sessions:
 
 | Command | Description |
 |---------|-------------|
-| `/kanban` | Open the Kanban UI in your browser |
+| `/hilt` | Open Hilt UI in your browser |
 | `/track [type] [desc]` | Track bugs, tasks, ideas, or decisions |
 | `/plan [description]` | Create a feature plan document |
 | `/commit` | Pre-commit checklist with documentation verification |
@@ -189,7 +189,7 @@ Commands are defined in `.claude/commands/` and work in any Claude Code session 
 ## Project Structure
 
 ```
-claude-kanban/
+hilt/
 ├── src/
 │   ├── app/                    # Next.js App Router
 │   │   ├── [[...path]]/        # URL-based scope routing
@@ -204,7 +204,7 @@ claude-kanban/
 │   ├── preload.ts              # contextBridge API
 │   └── launcher.cjs            # tsx loader for dev
 ├── build/                      # Build assets
-│   ├── icon.svg                # Source icon (🧱)
+│   ├── icon.svg                # Source icon (🗡️)
 │   └── icon.icns               # macOS app icon
 ├── docs/                       # Documentation
 │   ├── ARCHITECTURE.md         # System design

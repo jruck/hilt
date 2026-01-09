@@ -67,7 +67,7 @@ Crystal is worth noting as it's open-source with similar goals:
 - Homebrew: `brew install --cask stravu-crystal`
 - Or download DMG
 
-## Comparison with Claude Kanban
+## Comparison with Hilt
 
 ### They Have, We Don't
 

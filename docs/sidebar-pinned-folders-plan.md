@@ -1,7 +1,7 @@
 # Collapsible Sidebar with Pinned Folders
 
 ## Summary
-Add a left-side collapsible sidebar to Claude Kanban for pinning frequently-used folders. Features: pin current scope from breadcrumbs, show folder name + path + session count + live indicator.
+Add a left-side collapsible sidebar to Hilt for pinning frequently-used folders. Features: pin current scope from breadcrumbs, show folder name + path + session count + live indicator.
 
 ## Files to Create
 
@@ -19,12 +19,12 @@ interface PinnedFolder {
 ### 2. `src/hooks/useSidebarState.ts`
 Hook for sidebar collapsed/expanded state with localStorage persistence
 - Default: expanded (open)
-- Key: `claude-kanban-sidebar-collapsed`
+- Key: `hilt-sidebar-collapsed`
 
 ### 3. `src/hooks/usePinnedFolders.ts`
 Hook for pinned folders CRUD operations
 - `folders`, `pinFolder(path)`, `unpinFolder(id)`, `isPinned(path)`
-- Key: `claude-kanban-pinned-folders`
+- Key: `hilt-pinned-folders`
 
 ### 4. `src/components/sidebar/Sidebar.tsx`
 Main collapsible sidebar container

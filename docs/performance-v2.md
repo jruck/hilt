@@ -1,6 +1,6 @@
 # Performance & Stability Plan (v2)
 
-This document outlines the comprehensive performance and stability audit of Claude Kanban, identifying issues and providing an implementation plan with iterative validation.
+This document outlines the comprehensive performance and stability audit of Hilt, identifying issues and providing an implementation plan with iterative validation.
 
 ## Architecture Overview
 
@@ -11,7 +11,7 @@ This document outlines the comprehensive performance and stability audit of Clau
 | **Next.js Server** | External process via `npm run dev` | Internal: dev uses external, prod embeds standalone |
 | **Terminal Transport** | WebSocket via `ws-server.ts` on port 3001 | IPC via Electron main process |
 | **PTY Manager** | Runs in `ws-server.ts` process | Runs in Electron main process |
-| **Port Discovery** | Reads `~/.claude-kanban-ws-port` file | N/A (uses IPC) |
+| **Port Discovery** | Reads `~/.hilt-ws-port` file | N/A (uses IPC) |
 | **Session Data** | API routes fetch from filesystem | Same API routes (localhost) |
 
 **Key Insight**: In web mode, we run TWO servers (Next.js on 3000, WebSocket on 3001). In Electron mode, we run ONE Next.js server and use IPC for terminals.
@@ -22,7 +22,7 @@ This document outlines the comprehensive performance and stability audit of Clau
 npm run dev:all
 ├── Next.js dev server (port 3000)
 └── WebSocket server (port 3001)
-    ├── Writes port to ~/.claude-kanban-ws-port
+    ├── Writes port to ~/.hilt-ws-port
     ├── Creates PTY processes for terminals
     └── Watches ~/.claude/plans for plan files
 ```
@@ -262,7 +262,7 @@ const sessionsByStatus = useMemo(() => {
 
 **Changes**:
 ```typescript
-const LOCK_FILE = path.join(os.homedir(), '.claude-kanban-server.lock');
+const LOCK_FILE = path.join(os.homedir(), '.hilt-server.lock');
 
 async function acquireLock(): Promise<boolean> {
   try {

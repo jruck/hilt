@@ -1,6 +1,6 @@
 # Theme Toggle Implementation Plan
 
-Add dark/light/system mode toggle to Claude Kanban with a complete light theme variant.
+Add dark/light/system mode toggle to Hilt with a complete light theme variant.
 
 ## Overview
 
@@ -24,7 +24,7 @@ type ResolvedTheme = 'dark' | 'light';
 ```
 
 Responsibilities:
-- Read/write localStorage key `claude-kanban-theme`
+- Read/write localStorage key `hilt-theme`
 - Listen to `prefers-color-scheme` media query changes
 - Resolve 'system' to actual dark/light based on OS preference
 - Apply `dark` or `light` class to `<html>` element

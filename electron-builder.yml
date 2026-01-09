@@ -1,5 +1,5 @@
-appId: com.claude-kanban.app
-productName: Claude Kanban
+appId: com.hilt.app
+productName: Hilt
 
 directories:
   output: dist
@@ -28,7 +28,7 @@ mac:
   gatekeeperAssess: false
 
 dmg:
-  title: Claude Kanban
+  title: Hilt
   contents:
     - x: 130
       y: 220

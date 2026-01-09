@@ -229,7 +229,7 @@ const sessionsByStatus = useMemo(() => {
 **File:** `server/ws-server.ts`
 
 ```typescript
-const LOCK_FILE = path.join(os.homedir(), '.claude-kanban-server.lock');
+const LOCK_FILE = path.join(os.homedir(), '.hilt-server.lock');
 
 async function acquireLock(): Promise<boolean> {
   if (fs.existsSync(LOCK_FILE)) {
@@ -375,9 +375,9 @@ This single change (Turbopack) will give you the biggest improvement in daily de
 
 ---
 
-## Comparison: vibe-kanban vs claude-kanban Performance
+## Comparison: vibe-kanban vs hilt Performance
 
-| Aspect | vibe-kanban | claude-kanban (current) | claude-kanban (after v3) |
+| Aspect | vibe-kanban | hilt (current) | hilt (after v3) |
 |--------|-------------|-------------------------|--------------------------|
 | **Startup** | ~1s (pre-compiled Rust) | ~8-10s | ~2-3s |
 | **HMR** | N/A (compiled) | ~500ms | ~50ms |

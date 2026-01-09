@@ -4,7 +4,7 @@
 set -e
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="Claude Kanban"
+APP_NAME="Hilt"
 APP_PATH="$PROJECT_DIR/dist/$APP_NAME.app"
 
 echo "Creating $APP_NAME.app..."
@@ -24,9 +24,9 @@ cat > "$APP_PATH/Contents/Info.plist" << 'EOF'
     <key>CFBundleIconFile</key>
     <string>icon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.claude-kanban.app</string>
+    <string>com.hilt.app</string>
     <key>CFBundleName</key>
-    <string>Claude Kanban</string>
+    <string>Hilt</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleVersion</key>
@@ -40,7 +40,7 @@ EOF
 # Create launcher script
 cat > "$APP_PATH/Contents/MacOS/launcher" << 'LAUNCHER_EOF'
 #!/bin/bash
-# Claude Kanban Launcher
+# Hilt Launcher
 # Fast startup - skips slow nvm sourcing
 
 PROJECT_DIR="PLACEHOLDER_PROJECT_DIR"
@@ -105,7 +105,7 @@ if [ -z "$DEV_PORT" ]; then
 fi
 
 # Launch Electron
-export CLAUDE_KANBAN_DEV_PORT="$DEV_PORT"
+export HILT_DEV_PORT="$DEV_PORT"
 exec "$PROJECT_DIR/node_modules/.bin/electron" "$PROJECT_DIR/electron/launcher.cjs"
 LAUNCHER_EOF
 
@@ -125,7 +125,7 @@ echo "Drag this app to your Dock for quick access!"
 echo "It will start the dev server if needed and open the Electron app."
 echo ""
 echo "Port handling:"
-echo "  - Checks for existing claude-kanban dev server on ports 3000-3003"
+echo "  - Checks for existing hilt dev server on ports 3000-3003"
 echo "  - If none found, starts new server on first available port"
 echo "  - Remembers port in .dev-port file for faster subsequent launches"
 

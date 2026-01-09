@@ -50,7 +50,7 @@ Their VS Code extension and MCP server integration make it a hub for AI-assisted
 
 **Installation:** `npx vibe-kanban`
 
-## Comparison with Claude Kanban
+## Comparison with Hilt
 
 ### They Have, We Don't
 
@@ -94,7 +94,7 @@ Their VS Code extension and MCP server integration make it a hub for AI-assisted
 1. **MCP Server Integration** (High Priority)
    - Expose our session data via MCP
    - Let Claude Desktop query our board
-   - Enable "check my Claude Kanban" from any MCP client
+   - Enable "check my Hilt" from any MCP client
    - Could be powerful for cross-tool workflows
 
 2. **Agent Switching** (Medium Priority)

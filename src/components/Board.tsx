@@ -21,7 +21,7 @@ import { SessionCard } from "./SessionCard";
 import { TerminalDrawer } from "./TerminalDrawer";
 import { Sidebar } from "./sidebar";
 import { ScopeBreadcrumbs, BrowseButton, RecentScopesButton } from "./scope";
-import { ViewToggle, ViewMode } from "./ViewToggle";
+import { ViewToggle, ViewMode, TaskViewModeToggle, getPrimaryView } from "./ViewToggle";
 import { TreeView } from "./TreeView";
 import { DocsView } from "./DocsView";
 import { StackView } from "./stack";
@@ -899,10 +899,15 @@ Proceed autonomously otherwise.`;
           <BrowseButton onSelect={setScopePath} />
         </div>
 
-        {/* Right side: Filter, Search, View Toggle */}
+        {/* Right side: Task Mode Toggle, Filter, Search, Primary View Toggle */}
         <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          {/* Filter dropdown - hidden in docs and stack modes */}
-          {viewMode !== "docs" && viewMode !== "stack" && (
+          {/* Task view mode toggle (Board/Tree) - only shown in tasks mode */}
+          {getPrimaryView(viewMode) === "tasks" && (
+            <TaskViewModeToggle view={viewMode} onChange={setViewMode} />
+          )}
+
+          {/* Filter dropdown - only shown in tasks mode */}
+          {getPrimaryView(viewMode) === "tasks" && (
           <div className="relative" ref={filterRef}>
             <button
               onClick={() => setIsFilterOpen(!isFilterOpen)}
@@ -943,36 +948,38 @@ Proceed autonomously otherwise.`;
           </div>
           )}
 
-          {/* Search */}
-          {searchQuery ? (
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-tertiary)]" />
-              <input
-                type="text"
-                placeholder="Search..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onBlur={(e) => {
-                  if (!e.target.value) setSearchQuery("");
-                }}
-                autoFocus
-                className="w-40 pl-8 pr-7 py-1.5 text-sm bg-[var(--bg-tertiary)] rounded text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none"
-              />
+          {/* Search - only shown in tasks mode (Docs and Stack have their own) */}
+          {getPrimaryView(viewMode) === "tasks" && (
+            searchQuery ? (
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-tertiary)]" />
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onBlur={(e) => {
+                    if (!e.target.value) setSearchQuery("");
+                  }}
+                  autoFocus
+                  className="w-40 pl-8 pr-7 py-1.5 text-sm bg-[var(--bg-tertiary)] rounded text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none"
+                />
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
               <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                onClick={() => setSearchQuery(" ")}
+                className="p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
+                title="Search"
               >
-                <X className="w-3.5 h-3.5" />
+                <Search className="w-4 h-4" />
               </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setSearchQuery(" ")}
-              className="p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
-              title="Search"
-            >
-              <Search className="w-4 h-4" />
-            </button>
+            )
           )}
 
           {/* View Toggle */}

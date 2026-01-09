@@ -8,6 +8,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
+- **View toggle restructured** - Simplified from 4 equal views to hierarchical structure
+  - **Primary toggle**: Tasks | Docs | Stack (conceptual categories)
+  - **Secondary toggle**: Board | Tree (task view modes, only shown in Tasks)
+  - Filter and Search only shown in Tasks mode (Docs/Stack have their own)
+  - Secondary toggle is compact (icon-only) to fit inline with search/filter
+  - Switching to Tasks preserves last used view mode (board/tree)
+  - Files: `src/components/ViewToggle.tsx`, `src/components/Board.tsx`
+
 - **Development startup simplified** - `npm run dev:all` now starts all three servers (Next.js, WebSocket, Event)
   - Added `event-server` npm script for the real-time event server
   - Updated `dev:all` to run all servers concurrently

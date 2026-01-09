@@ -120,7 +120,7 @@ export function Board() {
           .then((res) => res.json())
           .then((data) => {
             if (!data.valid) {
-              setScopePath("");
+              setScopePath(homeDir);
             }
           })
           .catch(console.error);
@@ -140,13 +140,20 @@ export function Board() {
           const validateRes = await fetch(`/api/folders?validate=${encodeURIComponent(scopePath)}`);
           const validateData = await validateRes.json();
           if (!validateData.valid) {
-            setScopePath("");
+            setScopePath(data.homeDir);
           }
         }
       })
       .catch(console.error);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isHydrated]);
+
+  // Default to home directory when at root URL
+  useEffect(() => {
+    if (isHydrated && homeDir && !scopePath) {
+      setScopePath(homeDir);
+    }
+  }, [isHydrated, homeDir, scopePath, setScopePath]);
 
   // Filter state for showing archived sessions
   const [showArchived, setShowArchived] = useState(false);

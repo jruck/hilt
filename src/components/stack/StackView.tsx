@@ -108,10 +108,28 @@ export function StackView({ scopePath, searchQuery = "" }: StackViewProps) {
     );
   }
 
-  if (isError || !stack) {
+  // No scope selected - show helpful message
+  if (!scopePath) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-[var(--text-tertiary)]">Select a project folder to view configuration</div>
+      </div>
+    );
+  }
+
+  if (isError) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-red-500">Failed to load configuration</div>
+      </div>
+    );
+  }
+
+  // Stack loaded but might be empty (e.g., system level with no managed settings)
+  if (!stack) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-[var(--text-tertiary)]">No configuration available</div>
       </div>
     );
   }

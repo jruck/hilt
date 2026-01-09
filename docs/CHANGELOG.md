@@ -59,6 +59,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
+- **Stack viewer error message** - Improved messaging when no configuration is available
+  - Shows "Select a project folder to view configuration" when no scope is selected
+  - Shows "No configuration available" for empty stacks (e.g., system level)
+  - Only shows "Failed to load configuration" for actual API errors
+  - File: `src/components/stack/StackView.tsx`
+
+- **Default scope at root URL** - App now defaults to home folder instead of system/root
+  - When visiting root URL (`localhost:3000`), automatically redirects to home folder
+  - Invalid scope paths also redirect to home folder instead of root
+  - File: `src/components/Board.tsx`
+
 - **Sidebar pin icon behavior** - Pin icon now properly spaced and clickable when collapsed
   - Spacing from top matches bottom icons (consistent padding)
   - Clicking pin icon when collapsed now expands the sidebar

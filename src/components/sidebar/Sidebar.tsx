@@ -132,12 +132,13 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarP
       }}
     >
       {/* Pinned Folders Section */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden pt-3">
+      <div className={`flex-1 overflow-y-auto overflow-x-hidden ${effectiveCollapsed ? "py-2" : "pt-3"}`}>
         <SidebarSection
           title="Pinned"
           icon={Pin}
           defaultExpanded={true}
           isCollapsed={effectiveCollapsed}
+          onExpandSidebar={toggle}
         >
           {folders.length === 0 ? (
             <div className="px-2 py-4 text-xs text-[var(--text-tertiary)] text-center">

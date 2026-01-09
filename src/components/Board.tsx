@@ -21,19 +21,20 @@ import { SessionCard } from "./SessionCard";
 import { TerminalDrawer } from "./TerminalDrawer";
 import { Sidebar } from "./sidebar";
 import { ScopeBreadcrumbs, BrowseButton, RecentScopesButton } from "./scope";
-import { ViewToggle, ViewMode } from "./ViewToggle";
+import { ViewToggle, ViewMode, TaskViewModeToggle, getPrimaryView } from "./ViewToggle";
 import { TreeView } from "./TreeView";
 import { DocsView } from "./DocsView";
+import { StackView } from "./stack";
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
-import { X, Inbox, Loader2 as InProgressIcon, Clock, Search, Filter, FileText, Check, Archive, AlertCircle } from "lucide-react";
+import { X, Inbox, Play, Clock, Search, Filter, FileText, Check, Archive, Eye, CheckCircle } from "lucide-react";
 
 const COLUMNS: ColumnId[] = ["inbox", "active", "attention", "recent"];
 
 const COLUMN_CONFIG: Record<ColumnId, { label: string; icon: React.ReactNode }> = {
   inbox: { label: "To Do", icon: <Inbox className="w-4 h-4" /> },
-  attention: { label: "Needs Attention", icon: <AlertCircle className="w-4 h-4" /> },
-  active: { label: "Active", icon: <InProgressIcon className="w-4 h-4" /> },
-  recent: { label: "Recent", icon: <Clock className="w-4 h-4" /> },
+  attention: { label: "Review", icon: <Eye className="w-4 h-4" /> },
+  active: { label: "Active", icon: <Play className="w-4 h-4" /> },
+  recent: { label: "Done", icon: <CheckCircle className="w-4 h-4" /> },
 };
 
 interface InboxItem {
@@ -72,7 +73,7 @@ export function Board() {
     fetch("/api/preferences?key=viewMode")
       .then((res) => res.json())
       .then((data) => {
-        if (data.value === "board" || data.value === "tree" || data.value === "docs") {
+        if (data.value === "board" || data.value === "tree" || data.value === "docs" || data.value === "stack") {
           setViewMode(data.value);
         }
       })
@@ -85,6 +86,8 @@ export function Board() {
           setViewMode("tree");
         } else if (cachedViewMode === "docs") {
           setViewMode("docs");
+        } else if (cachedViewMode === "stack") {
+          setViewMode("stack");
         }
       })
       .finally(() => {
@@ -896,10 +899,15 @@ Proceed autonomously otherwise.`;
           <BrowseButton onSelect={setScopePath} />
         </div>
 
-        {/* Right side: Filter, Search, View Toggle */}
+        {/* Right side: Task Mode Toggle, Filter, Search, Primary View Toggle */}
         <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          {/* Filter dropdown - hidden in docs mode */}
-          {viewMode !== "docs" && (
+          {/* Task view mode toggle (Board/Tree) - only shown in tasks mode */}
+          {getPrimaryView(viewMode) === "tasks" && (
+            <TaskViewModeToggle view={viewMode} onChange={setViewMode} />
+          )}
+
+          {/* Filter dropdown - only shown in tasks mode */}
+          {getPrimaryView(viewMode) === "tasks" && (
           <div className="relative" ref={filterRef}>
             <button
               onClick={() => setIsFilterOpen(!isFilterOpen)}
@@ -940,36 +948,38 @@ Proceed autonomously otherwise.`;
           </div>
           )}
 
-          {/* Search */}
-          {searchQuery ? (
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-tertiary)]" />
-              <input
-                type="text"
-                placeholder="Search..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onBlur={(e) => {
-                  if (!e.target.value) setSearchQuery("");
-                }}
-                autoFocus
-                className="w-40 pl-8 pr-7 py-1.5 text-sm bg-[var(--bg-tertiary)] rounded text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none"
-              />
+          {/* Search - only shown in tasks mode (Docs and Stack have their own) */}
+          {getPrimaryView(viewMode) === "tasks" && (
+            searchQuery ? (
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-tertiary)]" />
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onBlur={(e) => {
+                    if (!e.target.value) setSearchQuery("");
+                  }}
+                  autoFocus
+                  className="w-40 pl-8 pr-7 py-1.5 text-sm bg-[var(--bg-tertiary)] rounded text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none"
+                />
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
               <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                onClick={() => setSearchQuery(" ")}
+                className="p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
+                title="Search"
               >
-                <X className="w-3.5 h-3.5" />
+                <Search className="w-4 h-4" />
               </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setSearchQuery(" ")}
-              className="p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
-              title="Search"
-            >
-              <Search className="w-4 h-4" />
-            </button>
+            )
           )}
 
           {/* View Toggle */}
@@ -985,13 +995,17 @@ Proceed autonomously otherwise.`;
           pinnedFolders={pinnedFolders}
         />
 
-        {/* Conditional View: Docs, Tree, or Board */}
+        {/* Conditional View: Docs, Tree, Stack, or Board */}
         {viewMode === "docs" ? (
           <DocsView
             scopePath={scopePath}
             onScopeChange={setScopePath}
             searchQuery={searchQuery}
           />
+        ) : viewMode === "stack" ? (
+          <div className="flex-1 overflow-hidden">
+            <StackView scopePath={scopePath} searchQuery={searchQuery} />
+          </div>
         ) : viewMode === "tree" ? (
           <div
             className="flex-1 flex flex-col p-4 transition-[padding] duration-300"

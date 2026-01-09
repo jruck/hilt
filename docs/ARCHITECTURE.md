@@ -508,7 +508,8 @@ Claude's session files contain these entry types:
 ### 7. Ports
 - Next.js: 3000 (configurable via PORT)
 - WebSocket: 3001 (configurable via WS_PORT)
-- Both must be available
+- Event Server: 3002 (for real-time file change events)
+- All servers start together via `npm run dev:all`
 
 ### 8. Electron IPC Transport
 - Native desktop app with IPC-based PTY communication

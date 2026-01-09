@@ -18,7 +18,58 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   - All documentation updated with new branding
   - **Note**: Existing localStorage preferences will reset after this update
 
+- **README updated for public audience** - Restructured to explain core concepts (Tasks/Docs/Stack views)
+  - Added "Core Concepts" section explaining the three primary views
+  - Reorganized features by view type for better discoverability
+  - Updated from outdated "Three-Column Board" to current "Four Columns"
+  - Documented Docs View and Stack View features
+  - File: `README.md`
+
+- **TaskViewModeToggle simplified** - Changed from toggle UI to single button
+  - Icon shows target mode (what you'll switch TO), not current mode
+  - Uses `Columns3` for board icon, `Network` for tree icon
+  - More compact inline with search/filter controls
+  - File: `src/components/ViewToggle.tsx`
+
+- **Stack content viewers simplified** - Removed Parsed Metadata section from JSON files
+  - JSON files now show only CodeViewer (no redundant parsed view)
+  - Shell files (.sh) and other non-markdown files use CodeViewer
+  - Only markdown files use DocsEditor
+  - File: `src/components/stack/StackContentPane.tsx`
+
+- **View toggle restructured** - Simplified from 4 equal views to hierarchical structure
+  - **Primary toggle**: Tasks | Docs | Stack (conceptual categories)
+  - **Secondary toggle**: Board | Tree (task view modes, only shown in Tasks)
+  - Filter and Search only shown in Tasks mode (Docs/Stack have their own)
+  - Secondary toggle is compact (icon-only) to fit inline with search/filter
+  - Switching to Tasks preserves last used view mode (board/tree)
+  - Files: `src/components/ViewToggle.tsx`, `src/components/Board.tsx`
+
+- **Development startup simplified** - `npm run dev:all` now starts all three servers (Next.js, WebSocket, Event)
+  - Added `event-server` npm script for the real-time event server
+  - Updated `dev:all` to run all servers concurrently
+  - Updated README.md, DEVELOPMENT.md, ARCHITECTURE.md to reflect this as the standard dev workflow
+  - File: `package.json`
+
+- **Stack View search** - Search box now filters files in Stack sidebar
+  - Filters file names across all layers (like Docs mode)
+  - Summary/filter-by-type section remains unaffected by search
+  - Filter button hidden in Stack mode (like Docs mode)
+  - Files: `src/components/Board.tsx`, `src/components/stack/StackView.tsx`, `src/components/stack/StackFileTree.tsx`
+
 ### Fixed
+
+- **Sidebar pin icon behavior** - Pin icon now properly spaced and clickable when collapsed
+  - Spacing from top matches bottom icons (consistent padding)
+  - Clicking pin icon when collapsed now expands the sidebar
+  - Added `onExpandSidebar` callback to `SidebarSection` component
+  - Files: `src/components/sidebar/SidebarSection.tsx`, `src/components/sidebar/Sidebar.tsx`
+
+- **WebSocket error noise reduced** - `useEventSocket` no longer spams console when event server isn't running
+  - Changed from `console.error` with empty object to single `console.warn` on first failure
+  - Removed verbose connection/reconnection logging
+  - Silently retries in background with exponential backoff
+  - File: `src/hooks/useEventSocket.ts`
 
 - **Session status detection bug** - Sessions waiting for tool approval now correctly appear in "Needs Attention" column
   - Bug: `turn_duration` JSONL entries were incorrectly clearing `pendingToolUses` array
@@ -49,12 +100,31 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
+- **Stack View redesigned** - Now matches Docs Viewer polish and layout
+  - Two-panel layout: resizable sidebar (180-500px) + content pane
+  - Unified view showing all layers (Local, Project, User, System) with dividers
+  - Collapsible layer sections with file counts
+  - Breadcrumb navigation showing Layer → Type → File
+  - Proper content viewers: CodeViewer for JSON, DocsEditor for markdown
+  - Fixed CSS variables (`--border-primary` → `--border-default`)
+  - Sidebar width persists to localStorage
+  - Files: `src/components/stack/StackView.tsx`, `StackFileTree.tsx`, `StackContentPane.tsx`
+
 - **Needs Attention column simplified** - Removed WAITING/IDLE section separators
   - Sessions are now just sorted by recency (most recent first)
   - Cleaner UI without unnecessary grouping dividers
   - File: `src/components/Column.tsx`
 
 ### Added
+
+- **Stack View** - New view mode for visualizing and editing Claude Code configuration layers
+  - Four-layer hierarchy: System (enterprise), User (~/.claude/), Project (.claude/), Local (gitignored)
+  - Discovers all config file types: memory (CLAUDE.md), settings, commands, skills, agents, hooks, MCP servers
+  - Three-panel UI: layer navigation, file browser grouped by type, file preview/editor
+  - Create missing local files (CLAUDE.local.md, settings.local.json) with templates
+  - Parse YAML frontmatter from commands/skills, JSON settings
+  - Security: prevents writing to system layer, validates paths
+  - Files: `src/lib/claude-config/`, `src/components/stack/`, `src/app/api/claude-stack/`, `src/hooks/useClaudeStack.ts`
 
 - **Elapsed timer on status badges** - Ticking timer shows time since last activity
   - Displays next to Working, Needs Approval, and Waiting status badges

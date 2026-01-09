@@ -25,7 +25,7 @@ import { InboxCard } from "./InboxCard";
 import { NewDraftCard } from "./NewDraftCard";
 import {
   Inbox,
-  Loader2,
+  Play,
   Clock,
   Plus,
   ChevronDown,
@@ -34,7 +34,8 @@ import {
   Terminal,
   FolderOpen,
   Star,
-  AlertCircle,
+  Eye,
+  CheckCircle,
 } from "lucide-react";
 
 interface InboxItem {
@@ -151,18 +152,18 @@ const columnConfig: Record<
     color: "text-blue-400",
   },
   attention: {
-    title: "Needs Attention",
-    icon: <AlertCircle className="w-4 h-4" />,
+    title: "Review",
+    icon: <Eye className="w-4 h-4" />,
     color: "text-amber-400",
   },
   active: {
     title: "Active",
-    icon: <Loader2 className="w-4 h-4" />,
+    icon: <Play className="w-4 h-4" />,
     color: "text-emerald-400",
   },
   recent: {
-    title: "Recent",
-    icon: <Clock className="w-4 h-4" />,
+    title: "Done",
+    icon: <CheckCircle className="w-4 h-4" />,
     color: "text-[var(--text-tertiary)]",
   },
 };

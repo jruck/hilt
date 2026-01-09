@@ -144,7 +144,8 @@ export function SessionCard({ session, scopePath, onOpen, onOpenPlan, onDelete, 
     return 1 - (elapsed / NEW_EFFECT_DURATION_MS);
   }, [firstSeenAt, now]);
 
-  const isNewlyAdded = newness > 0;
+  // Don't show "newly added" effects for cards in Recent column
+  const isNewlyAdded = session.status !== "recent" && newness > 0;
   const {
     attributes,
     listeners,
@@ -168,7 +169,11 @@ export function SessionCard({ session, scopePath, onOpen, onOpenPlan, onDelete, 
   };
 
   // Check if session needs attention (used for glow and other styling)
-  const sessionNeedsAttention = session.derivedState && needsAttention(session.derivedState.status);
+  // Don't show attention styling for cards in Recent column - they've been "completed"
+  const sessionNeedsAttention = session.status !== "recent" && session.derivedState && needsAttention(session.derivedState.status);
+
+  // Don't show running indicator for cards in Recent column
+  const showRunningIndicator = session.status !== "recent" && session.isRunning;
 
   // Compute glow effect style for newly added cards
   // Use amber glow for cards needing attention, green for normal active cards
@@ -319,7 +324,7 @@ export function SessionCard({ session, scopePath, onOpen, onOpenPlan, onDelete, 
       {/* Title */}
       <div className="flex items-center gap-1.5 pr-20">
         {/* Live indicator - pulsing dot for running sessions, color matches card */}
-        {session.isRunning && (
+        {showRunningIndicator && (
           <span className="relative flex h-2 w-2 flex-shrink-0" title="Session is running">
             <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${sessionNeedsAttention ? "bg-amber-400" : "bg-emerald-400"}`}></span>
             <span className={`relative inline-flex rounded-full h-2 w-2 ${sessionNeedsAttention ? "bg-amber-500" : "bg-emerald-500"}`}></span>
@@ -346,7 +351,7 @@ export function SessionCard({ session, scopePath, onOpen, onOpenPlan, onDelete, 
         const displayMessage = session.derivedState?.lastMessage || session.lastMessage;
         if (displayMessage && displayMessage !== session.title) {
           return (
-            <p className="text-xs text-[var(--text-secondary)] mt-1 line-clamp-2">
+            <p className="text-[11px] text-[var(--text-secondary)] mt-1 line-clamp-2 font-mono">
               {displayMessage}
             </p>
           );
@@ -356,7 +361,8 @@ export function SessionCard({ session, scopePath, onOpen, onOpenPlan, onDelete, 
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs text-[var(--text-tertiary)]">
         {/* Status badge with elapsed timer - first item in metadata */}
-        {(() => {
+        {/* Don't show status badges for Recent cards - they're "completed" */}
+        {session.status !== "recent" && (() => {
           // Priority: isNew > derivedState
           if (session.isNew) {
             return (

@@ -138,6 +138,20 @@ Every action should have visible feedback:
 
 This section tracks design decisions and refinements over time. Each entry should note what was tried, what was rejected, and why.
 
+### 2026-01-09: Hierarchical View Toggle
+
+**Change**: Restructured view toggle from 4 equal options to a hierarchical system.
+
+**Pattern established**:
+- **Primary toggle** for conceptually different areas (Tasks, Docs, Stack)
+- **Secondary toggle** for view modes within an area (Board vs Tree for Tasks)
+- Secondary toggles are compact/icon-only to reduce visual weight
+- Contextual controls (Filter, Search) hidden when not applicable
+
+**Rationale**: Tree and Board views are both task-related, showing the same data differently. Docs and Stack are separate domains. Grouping related views reduces cognitive load and clarifies the app's mental model.
+
+**Implementation note**: Single underlying `viewMode` state preserves backwards compatibility. Primary/secondary views derived from it, avoiding state migration.
+
 ### 2025-01-06: Initial Documentation
 
 **Established patterns**:

@@ -27,34 +27,35 @@ open http://localhost:3000
 
 | Script | Command | Description |
 |--------|---------|-------------|
-| `dev:all` | `npm run dev:all` | Start both Next.js and WebSocket servers |
-| `dev` | `npm run dev` | Start Next.js dev server only |
-| `ws-server` | `npm run ws-server` | Start WebSocket server only |
+| `dev:all` | `npm run dev:all` | **Start development** (Next.js + WebSocket + Event servers) |
 | `build` | `npm run build` | Production build |
 | `start` | `npm run start` | Start production server |
 | `lint` | `npm run lint` | Run ESLint |
 
+> **Note**: Always use `dev:all` for development. Running servers individually is only for debugging.
+
 ## Architecture
 
 ```
-┌─────────────────┐     ┌─────────────────┐
-│  Next.js Dev    │     │  WebSocket      │
-│  Server         │     │  Server         │
-│  port 3000      │     │  port 3001      │
-└─────────────────┘     └─────────────────┘
-        │                       │
-        │ HTTP/REST             │ WebSocket
-        │                       │
-        ▼                       ▼
-┌─────────────────────────────────────────┐
-│              Browser                     │
-│  React App + xterm.js                    │
-└─────────────────────────────────────────┘
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│  Next.js Dev    │  │  WebSocket      │  │  Event Server   │
+│  Server         │  │  Server         │  │  (optional)     │
+│  port 3000      │  │  port 3001      │  │  port 3002      │
+└─────────────────┘  └─────────────────┘  └─────────────────┘
+        │                    │                    │
+        │ HTTP/REST          │ WebSocket          │ WebSocket
+        │                    │                    │
+        ▼                    ▼                    ▼
+┌────────────────────────────────────────────────────────────┐
+│                        Browser                              │
+│  React App + xterm.js + Real-time Events                    │
+└────────────────────────────────────────────────────────────┘
 ```
 
-Both servers must be running for full functionality:
+All servers are started together with `npm run dev:all`:
 - **Next.js** handles the UI and REST API
 - **WebSocket** handles terminal PTY connections
+- **Event Server** handles real-time file change notifications
 
 ## Environment Variables
 
@@ -331,12 +332,7 @@ kill -9 <PID>
 
 ### WebSocket connection refused
 
-Check that the WebSocket server is running:
-
-```bash
-# In separate terminal
-npm run ws-server
-```
+Make sure you're using `npm run dev:all` instead of `npm run dev`. The WebSocket server must be running for terminal features.
 
 ### TypeScript errors
 

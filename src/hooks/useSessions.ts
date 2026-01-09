@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import useSWR from "swr";
-import { Session, SessionStatus, SessionsResponse } from "@/lib/types";
+import { SessionStatus, SessionsResponse } from "@/lib/types";
+import type { DerivedSessionState } from "@/lib/types";
+import { useEventSocketContext } from "@/contexts/EventSocketContext";
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
@@ -20,7 +22,13 @@ function useVisibilityAwareInterval(activeInterval: number, hiddenInterval: numb
 }
 
 export function useSessions(scopePath?: string, page = 1, pageSize = 100, showArchived = false) {
-  const refreshInterval = useVisibilityAwareInterval(5000, 30000); // 5s visible, 30s hidden
+  const { connected, subscribe, unsubscribe, on } = useEventSocketContext();
+
+  // No polling when connected - rely entirely on WebSocket events
+  // Fallback to polling only when WebSocket is disconnected
+  const fallbackInterval = useVisibilityAwareInterval(5000, 30000); // 5s visible, 30s hidden
+  const refreshInterval = connected ? 0 : fallbackInterval;
+
   const scopeParam = scopePath ? `&scope=${encodeURIComponent(scopePath)}` : '';
   const archivedParam = showArchived ? '&showArchived=true' : '';
   const { data, error, isLoading, mutate } = useSWR<SessionsResponse>(
@@ -32,6 +40,85 @@ export function useSessions(scopePath?: string, page = 1, pageSize = 100, showAr
       keepPreviousData: true, // Prevent loading flash on scope change
     }
   );
+
+  // Subscribe to session events and update data when events arrive
+  useEffect(() => {
+    if (!connected) return;
+
+    // Subscribe to sessions channel with optional scope filter
+    subscribe("sessions", scopePath ? { scope: scopePath } : {});
+
+    // Handle session created events
+    const unsubCreated = on("sessions", "created", (eventData: unknown) => {
+      const event = eventData as {
+        sessionId: string;
+        projectFolder: string;
+        derivedStatus: DerivedSessionState;
+      };
+      console.log("[useSessions] Session created event:", event.sessionId);
+      // Trigger SWR refetch to get the new session
+      mutate();
+    });
+
+    // Handle session updated events
+    const unsubUpdated = on("sessions", "updated", (eventData: unknown) => {
+      const event = eventData as {
+        sessionId: string;
+        projectFolder: string;
+        derivedStatus: DerivedSessionState;
+        previousStatus?: DerivedSessionState;
+      };
+      console.log("[useSessions] Session updated event:", event.sessionId, event.derivedStatus.status);
+
+      // Optimistically update the derived state for the session
+      if (data) {
+        const sessionExists = data.sessions.some((s) => s.id === event.sessionId);
+        if (sessionExists) {
+          const updatedSessions = data.sessions.map((s) =>
+            s.id === event.sessionId
+              ? { ...s, derivedState: event.derivedStatus, isRunning: event.derivedStatus.isRunning }
+              : s
+          );
+          mutate({ ...data, sessions: updatedSessions }, false);
+        } else {
+          // Session not in our data yet (new session, refetch pending) - trigger refetch
+          console.log("[useSessions] Session not found, triggering refetch");
+          mutate();
+        }
+      } else {
+        // No data yet, trigger refetch
+        mutate();
+      }
+    });
+
+    // Handle session deleted events
+    const unsubDeleted = on("sessions", "deleted", (eventData: unknown) => {
+      const event = eventData as {
+        sessionId: string;
+        projectFolder: string;
+      };
+      console.log("[useSessions] Session deleted event:", event.sessionId);
+      // Trigger SWR refetch to remove the deleted session
+      mutate();
+    });
+
+    return () => {
+      unsubscribe("sessions");
+      unsubCreated();
+      unsubUpdated();
+      unsubDeleted();
+    };
+  }, [connected, scopePath, subscribe, unsubscribe, on, mutate, data]);
+
+  // Re-fetch data when WebSocket reconnects (connected goes from false to true)
+  const wasConnectedRef = useRef(connected);
+  useEffect(() => {
+    if (connected && !wasConnectedRef.current) {
+      console.log("[useSessions] WebSocket reconnected, re-fetching data");
+      mutate();
+    }
+    wasConnectedRef.current = connected;
+  }, [connected, mutate]);
 
   const updateStatus = async (
     sessionId: string,
@@ -158,7 +245,13 @@ export function useSessions(scopePath?: string, page = 1, pageSize = 100, showAr
 }
 
 export function useInboxItems(scopePath?: string) {
-  const refreshInterval = useVisibilityAwareInterval(5000, 30000); // 5s visible, 30s hidden
+  const { connected, subscribe, unsubscribe, on } = useEventSocketContext();
+
+  // No polling when connected - rely entirely on WebSocket events
+  // Fallback to polling only when WebSocket is disconnected
+  const fallbackInterval = useVisibilityAwareInterval(5000, 30000); // 5s visible, 30s hidden
+  const refreshInterval = connected ? 0 : fallbackInterval;
+
   const scopeParam = scopePath ? `?scope=${encodeURIComponent(scopePath)}` : '';
   const { data, error, isLoading, mutate } = useSWR<{
     items: Array<{
@@ -176,9 +269,38 @@ export function useInboxItems(scopePath?: string) {
     }>;
     lastModTime: number | null;
   }>(`/api/inbox${scopeParam}`, fetcher, {
-    refreshInterval, // Match session polling - 5s visible, 30s hidden
+    refreshInterval,
+    revalidateOnFocus: true, // Refresh when tab becomes active
     keepPreviousData: true, // Prevent loading flash on scope change
   });
+
+  // Subscribe to WebSocket events for real-time updates
+  useEffect(() => {
+    if (!connected || !scopePath) return;
+
+    // Subscribe to inbox change events for this scope
+    subscribe("inbox", { scope: scopePath });
+
+    // Handle inbox changes - refresh the data
+    const unsub = on("inbox", "changed", () => {
+      mutate();
+    });
+
+    return () => {
+      unsub();
+      unsubscribe("inbox");
+    };
+  }, [connected, scopePath, subscribe, unsubscribe, on, mutate]);
+
+  // Re-fetch data when WebSocket reconnects
+  const wasConnectedRef = useRef(connected);
+  useEffect(() => {
+    if (connected && !wasConnectedRef.current) {
+      console.log("[useInboxItems] WebSocket reconnected, re-fetching data");
+      mutate();
+    }
+    wasConnectedRef.current = connected;
+  }, [connected, mutate]);
 
   const createItem = async (prompt: string, section?: string | null) => {
     const response = await fetch("/api/inbox", {

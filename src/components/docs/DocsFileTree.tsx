@@ -1,6 +1,6 @@
 "use client";
 
-import { RefreshCw } from "lucide-react";
+import { useMemo } from "react";
 import type { FileNode } from "@/lib/types";
 import { DocsTreeItem } from "./DocsTreeItem";
 
@@ -10,9 +10,40 @@ interface DocsFileTreeProps {
   selectedPath: string | null;
   onToggleExpand: (path: string) => void;
   onSelect: (path: string) => void;
-  onRefresh: () => void;
-  isLoading: boolean;
-  scopeName: string;
+  isLoading?: boolean;
+  searchQuery?: string;
+}
+
+// Recursively filter file tree based on search query
+// Returns null if no matches in this node or its children
+function filterFileTree(node: FileNode, query: string): FileNode | null {
+  const lowerQuery = query.toLowerCase();
+  const nameMatches = node.name.toLowerCase().includes(lowerQuery);
+
+  if (node.type === "file") {
+    return nameMatches ? node : null;
+  }
+
+  // Directory: check children
+  const filteredChildren: FileNode[] = [];
+  if (node.children) {
+    for (const child of node.children) {
+      const filtered = filterFileTree(child, query);
+      if (filtered) {
+        filteredChildren.push(filtered);
+      }
+    }
+  }
+
+  // Keep directory if name matches OR has matching children
+  if (nameMatches || filteredChildren.length > 0) {
+    return {
+      ...node,
+      children: filteredChildren.length > 0 ? filteredChildren : node.children,
+    };
+  }
+
+  return null;
 }
 
 function TreeItems({
@@ -73,41 +104,32 @@ export function DocsFileTree({
   selectedPath,
   onToggleExpand,
   onSelect,
-  onRefresh,
   isLoading,
-  scopeName,
+  searchQuery,
 }: DocsFileTreeProps) {
+  // Filter tree if search query is active
+  const displayTree = useMemo(() => {
+    if (!tree || !searchQuery?.trim()) {
+      return tree;
+    }
+    return filterFileTree(tree, searchQuery.trim());
+  }, [tree, searchQuery]);
+
   return (
     <div className="flex flex-col h-full bg-[var(--bg-primary)] border-r border-[var(--border-default)]">
-      {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border-default)]">
-        <span className="text-sm font-medium text-[var(--text-primary)] truncate">
-          {scopeName}
-        </span>
-        <button
-          onClick={onRefresh}
-          className={`p-1 rounded hover:bg-[var(--bg-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ${
-            isLoading ? "animate-spin" : ""
-          }`}
-          title="Refresh"
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
-      </div>
-
       {/* Tree content */}
       <div className="flex-1 overflow-auto py-1">
-        {!tree ? (
+        {!displayTree ? (
           <div className="flex items-center justify-center h-full text-[var(--text-tertiary)] text-sm">
-            {isLoading ? "Loading..." : "Select a scope to browse files"}
+            {isLoading ? "Loading..." : searchQuery?.trim() ? "No matching files" : "Select a scope to browse files"}
           </div>
-        ) : tree.children?.length === 0 ? (
+        ) : displayTree.children?.length === 0 ? (
           <div className="flex items-center justify-center h-full text-[var(--text-tertiary)] text-sm">
-            No files in this folder
+            {searchQuery?.trim() ? "No matching files" : "No files in this folder"}
           </div>
         ) : (
           <TreeItems
-            node={tree}
+            node={displayTree}
             depth={-1}
             expandedPaths={expandedPaths}
             selectedPath={selectedPath}

@@ -11,7 +11,8 @@ import {
   useSensors,
   DragOverlay,
 } from "@dnd-kit/core";
-import { Session, SessionStatus } from "@/lib/types";
+import { Session, SessionStatus, ColumnId } from "@/lib/types";
+import { needsAttention } from "@/lib/session-status";
 import { useSessions, useInboxItems } from "@/hooks/useSessions";
 import { useTreeSessions } from "@/hooks/useTreeSessions";
 import { useScope } from "@/contexts/ScopeContext";
@@ -24,13 +25,14 @@ import { ViewToggle, ViewMode } from "./ViewToggle";
 import { TreeView } from "./TreeView";
 import { DocsView } from "./DocsView";
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
-import { X, Inbox, Loader2 as InProgressIcon, Clock, Search, Filter, FileText, Check, Archive } from "lucide-react";
+import { X, Inbox, Loader2 as InProgressIcon, Clock, Search, Filter, FileText, Check, Archive, AlertCircle } from "lucide-react";
 
-const COLUMNS: SessionStatus[] = ["inbox", "active", "recent"];
+const COLUMNS: ColumnId[] = ["inbox", "active", "attention", "recent"];
 
-const COLUMN_CONFIG: Record<SessionStatus, { label: string; icon: React.ReactNode }> = {
+const COLUMN_CONFIG: Record<ColumnId, { label: string; icon: React.ReactNode }> = {
   inbox: { label: "To Do", icon: <Inbox className="w-4 h-4" /> },
-  active: { label: "In Progress", icon: <InProgressIcon className="w-4 h-4" /> },
+  attention: { label: "Needs Attention", icon: <AlertCircle className="w-4 h-4" /> },
+  active: { label: "Active", icon: <InProgressIcon className="w-4 h-4" /> },
   recent: { label: "Recent", icon: <Clock className="w-4 h-4" /> },
 };
 
@@ -351,9 +353,50 @@ export function Board() {
   // Check if any filters are active
   const hasActiveFilters = filters.hasPlan || showArchived;
 
-  const getSessionsByStatus = useCallback(
-    (status: SessionStatus) => {
-      let realSessions = sessions.filter((s) => s.status === status);
+  const getSessionsByColumn = useCallback(
+    (columnId: ColumnId) => {
+      // Helper to check if a session needs attention (based on derived state)
+      const sessionNeedsAttention = (s: Session) =>
+        s.derivedState && needsAttention(s.derivedState.status);
+
+      // For "attention" column: show active sessions that need attention
+      if (columnId === "attention") {
+        let attentionSessions = sessions.filter(
+          (s) => s.status === "active" && sessionNeedsAttention(s)
+        );
+
+        // Apply search filter
+        if (searchQuery.trim()) {
+          attentionSessions = attentionSessions.filter((s) =>
+            matchesSearch(s.title) ||
+            matchesSearch(s.firstPrompt) ||
+            matchesSearch(s.slug) ||
+            matchesSearch(s.project) ||
+            matchesSearch(s.gitBranch)
+          );
+        }
+
+        // Apply filters
+        if (filters.hasPlan) {
+          attentionSessions = attentionSessions.filter((s) => s.planSlugs && s.planSlugs.length > 0);
+        }
+
+        // Deduplicate by ID
+        const seen = new Set<string>();
+        return attentionSessions.filter((s) => {
+          if (seen.has(s.id)) return false;
+          seen.add(s.id);
+          return true;
+        });
+      }
+
+      // For other columns: use the status field, but filter out attention sessions from active
+      let realSessions = sessions.filter((s) => s.status === columnId);
+
+      // For "active" column, exclude sessions that should be in attention column
+      if (columnId === "active") {
+        realSessions = realSessions.filter((s) => !sessionNeedsAttention(s));
+      }
 
       // Apply search filter
       if (searchQuery.trim()) {
@@ -372,7 +415,7 @@ export function Board() {
       }
 
       // Include pending "new" sessions in Active column
-      if (status === "active") {
+      if (columnId === "active") {
         let newSessions = openSessions.filter(
           (s) => s.isNew && !sessions.find((rs) => rs.id === s.id)
         );
@@ -425,8 +468,12 @@ export function Board() {
     const sessionId = active.id as string;
     const overId = over.id as string;
 
-    // Check if dropped on a column
-    if (COLUMNS.includes(overId as SessionStatus)) {
+    // Can't drop on "attention" column - it's auto-populated
+    if (overId === "attention") return;
+
+    // Check if dropped on a column (must be a valid SessionStatus)
+    const validStatuses: SessionStatus[] = ["inbox", "active", "recent"];
+    if (validStatuses.includes(overId as SessionStatus)) {
       const newStatus = overId as SessionStatus;
       const session = sessions.find((s) => s.id === sessionId);
       if (session && session.status !== newStatus) {
@@ -542,6 +589,7 @@ export function Board() {
       title: prompt.slice(0, 50) + (prompt.length > 50 ? "..." : ""),
       firstPrompt: prompt,
       lastPrompt: prompt,
+      lastMessage: prompt,
       project: projectName,
       projectPath,
       messageCount: 0,
@@ -592,6 +640,7 @@ export function Board() {
       title: item.prompt.slice(0, 50) + (item.prompt.length > 50 ? "..." : ""),
       firstPrompt: item.prompt,
       lastPrompt: item.prompt,
+      lastMessage: item.prompt,
       project: projectName,
       projectPath,
       messageCount: 0,
@@ -643,6 +692,7 @@ IMPORTANT: Do NOT begin implementing or writing code yet. This is a refinement p
       title: `Refining: ${item.prompt.slice(0, 40)}${item.prompt.length > 40 ? "..." : ""}`,
       firstPrompt: refinementPrompt,
       lastPrompt: refinementPrompt,
+      lastMessage: refinementPrompt,
       project: projectName,
       projectPath,
       messageCount: 0,
@@ -744,6 +794,7 @@ Proceed autonomously otherwise.`;
       title: `Reference: ${extractDomain(item.prompt)}`,
       firstPrompt: referencePrompt,
       lastPrompt: referencePrompt,
+      lastMessage: referencePrompt,
       project: "Process",
       projectPath,
       messageCount: 0,
@@ -847,7 +898,8 @@ Proceed autonomously otherwise.`;
 
         {/* Right side: Filter, Search, View Toggle */}
         <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          {/* Filter dropdown */}
+          {/* Filter dropdown - hidden in docs mode */}
+          {viewMode !== "docs" && (
           <div className="relative" ref={filterRef}>
             <button
               onClick={() => setIsFilterOpen(!isFilterOpen)}
@@ -886,6 +938,7 @@ Proceed autonomously otherwise.`;
               </div>
             )}
           </div>
+          )}
 
           {/* Search */}
           {searchQuery ? (
@@ -937,6 +990,7 @@ Proceed autonomously otherwise.`;
           <DocsView
             scopePath={scopePath}
             onScopeChange={setScopePath}
+            searchQuery={searchQuery}
           />
         ) : viewMode === "tree" ? (
           <div
@@ -949,6 +1003,8 @@ Proceed autonomously otherwise.`;
               onNavigate={setScopePath}
               onOpenSession={handleOpenSession}
               isLoading={isTreeLoading}
+              searchQuery={searchQuery}
+              filters={filters}
               onSelectSession={handleSelectSession}
               onDeleteSession={handleDeleteSession}
               onArchiveSession={handleArchiveSession}
@@ -974,30 +1030,34 @@ Proceed autonomously otherwise.`;
                 }
               }}
             >
-              {COLUMNS.map((status) => {
-                const filteredSessions = getSessionsByStatus(status);
+              {COLUMNS.map((columnId) => {
+                const filteredSessions = getSessionsByColumn(columnId);
                 // Use filtered count when filters are active, otherwise use API count
-                const displayCount = hasActiveFilters ? filteredSessions.length : counts[status];
+                // "attention" column doesn't have API count, always use filtered
+                const displayCount = columnId === "attention" || hasActiveFilters
+                  ? filteredSessions.length
+                  : counts[columnId as SessionStatus];
                 return (
                 <Column
-                  key={status}
-                  status={status}
+                  key={columnId}
+                  columnId={columnId}
                   sessions={filteredSessions}
                   totalCount={displayCount}
                   isLoading={isLoading}
-                  inboxItems={status === "inbox" ? filteredInboxItems : undefined}
-                  todoSections={status === "inbox" ? todoSections : undefined}
-                  scopePath={status === "inbox" ? scopePath : undefined}
-                  onReorderSections={status === "inbox" ? reorderSections : undefined}
-                  onReorderItem={status === "inbox" ? reorderItem : undefined}
+                  locked={columnId === "attention"}
+                  inboxItems={columnId === "inbox" ? filteredInboxItems : undefined}
+                  todoSections={columnId === "inbox" ? todoSections : undefined}
+                  scopePath={scopePath}
+                  onReorderSections={columnId === "inbox" ? reorderSections : undefined}
+                  onReorderItem={columnId === "inbox" ? reorderItem : undefined}
                   onOpenSession={handleOpenSession}
                   onOpenPlan={handleOpenPlan}
                   onDeleteSession={handleDeleteSession}
                   onToggleStarred={toggleStarred}
-                  onArchiveSession={status === "recent" ? handleArchiveSession : undefined}
-                  onUnarchiveSession={status === "recent" && showArchived ? handleUnarchiveSession : undefined}
-                  onCreateInboxItem={status === "inbox" ? handleCreateInboxItem : undefined}
-                  onCreateAndRunInboxItem={status === "inbox" ? handleCreateAndRunInboxItem : undefined}
+                  onArchiveSession={columnId === "recent" ? handleArchiveSession : undefined}
+                  onUnarchiveSession={columnId === "recent" && showArchived ? handleUnarchiveSession : undefined}
+                  onCreateInboxItem={columnId === "inbox" ? handleCreateInboxItem : undefined}
+                  onCreateAndRunInboxItem={columnId === "inbox" ? handleCreateAndRunInboxItem : undefined}
                   onUpdateInboxItem={handleUpdateInboxItem}
                   onDeleteInboxItem={handleDeleteInboxItem}
                   onStartInboxItem={handleStartInboxItem}
@@ -1009,9 +1069,9 @@ Proceed autonomously otherwise.`;
                   onSelectSession={handleSelectSession}
                   onSelectInboxItem={handleSelectInboxItem}
                   onBackgroundClick={() => isDrawerOpen && setIsDrawerOpen(false)}
-                  openSessionCount={status === "active" ? openSessions.length : undefined}
-                  isDrawerOpen={status === "active" ? isDrawerOpen : undefined}
-                  onToggleDrawer={status === "active" ? () => setIsDrawerOpen(!isDrawerOpen) : undefined}
+                  openSessionCount={columnId === "active" ? openSessions.length : undefined}
+                  isDrawerOpen={columnId === "active" ? isDrawerOpen : undefined}
+                  onToggleDrawer={columnId === "active" ? () => setIsDrawerOpen(!isDrawerOpen) : undefined}
                   continuableSessionId={continuableSessionId}
                 />
                 );
@@ -1065,7 +1125,8 @@ Proceed autonomously otherwise.`;
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-[var(--interactive-default)] mr-2">Move to:</span>
-            {COLUMNS.map((status) => (
+            {/* Only show moveable columns (not attention which is auto-populated) */}
+            {(["inbox", "active", "recent"] as const).map((status) => (
               <button
                 key={status}
                 onClick={() => moveSelectedTo(status)}

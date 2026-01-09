@@ -175,11 +175,6 @@ function SessionLevel1({ session }: { session: Session }) {
           <div className="font-medium text-[var(--text-primary)] line-clamp-2">
             {session.title || session.slug || "Untitled"}
           </div>
-          {session.slug && session.title && (
-            <div className="text-xs text-[var(--text-tertiary)] truncate mt-0.5">
-              {session.slug}
-            </div>
-          )}
         </div>
       </div>
 

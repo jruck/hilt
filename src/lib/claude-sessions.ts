@@ -2,8 +2,9 @@ import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
 import type { FSWatcher } from "chokidar";
-import { SessionMetadata, SummaryEntry, SummaryEntrySchema } from "./types";
+import { SessionMetadata, SummaryEntry, SummaryEntrySchema, DerivedSessionState } from "./types";
 import { getCachedSessions, setCachedSessions } from "./session-cache";
+import { parseJSONLEntries, deriveSessionState } from "./session-status";
 
 const CLAUDE_PROJECTS_DIR = path.join(
   process.env.HOME || "~",
@@ -79,6 +80,7 @@ async function parseSessionFile(
   let customTitle: string | null = null;  // From /rename command
   let firstPrompt: string | null = null;
   let lastPrompt: string | null = null;
+  let lastMessage: string | null = null;  // Most recent message (user or assistant)
   let lastTimestamp: Date | null = null;
   let messageCount = 0;
   let gitBranch: string | null = null;
@@ -169,6 +171,21 @@ async function parseSessionFile(
                 firstPrompt = promptText;
               }
               lastPrompt = promptText;  // Always update to get the most recent
+              lastMessage = promptText;  // Track as last message (user or assistant)
+            }
+          }
+
+          // Get assistant text for lastMessage
+          if (entry.type === "assistant" && entry.message?.content) {
+            const content = entry.message.content;
+            if (Array.isArray(content)) {
+              // Find text blocks in assistant response
+              const textBlock = content.find(
+                (block: { type?: string; text?: string }) => block.type === "text" && block.text
+              );
+              if (textBlock?.text) {
+                lastMessage = textBlock.text.slice(0, 200);
+              }
             }
           }
         }
@@ -192,6 +209,7 @@ async function parseSessionFile(
       gitBranch,
       firstPrompt,
       lastPrompt,
+      lastMessage,
       slug,
       slugs: Array.from(slugs),
     };
@@ -448,6 +466,37 @@ export function getSessionMtime(sessionId: string): number | null {
     if (fs.existsSync(filePath)) {
       const stats = fs.statSync(filePath);
       return stats.mtime.getTime();
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Get derived state for a session by reading its JSONL file
+ * Only call this for running/active sessions to avoid performance issues
+ */
+export function getSessionDerivedState(sessionId: string): DerivedSessionState | null {
+  if (!fs.existsSync(CLAUDE_PROJECTS_DIR)) {
+    return null;
+  }
+
+  const projectFolders = fs.readdirSync(CLAUDE_PROJECTS_DIR);
+
+  for (const folder of projectFolders) {
+    if (folder.startsWith(".")) continue;
+
+    const projectDir = path.join(CLAUDE_PROJECTS_DIR, folder);
+    const filePath = path.join(projectDir, `${sessionId}.jsonl`);
+
+    if (fs.existsSync(filePath)) {
+      try {
+        const content = fs.readFileSync(filePath, "utf-8");
+        const entries = parseJSONLEntries(content);
+        return deriveSessionState(entries);
+      } catch {
+        return null;
+      }
     }
   }
 

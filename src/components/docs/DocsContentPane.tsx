@@ -2,11 +2,36 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Save, Loader2, AlertCircle } from "lucide-react";
+import { Save, Loader2, AlertCircle, Copy, FolderOpen, Check, ExternalLink } from "lucide-react";
 import { DocsBreadcrumbs } from "./DocsBreadcrumbs";
 import { DocsEditToggle } from "./DocsEditToggle";
 import { DocsFallbackView } from "./DocsFallbackView";
+import { ImageViewer } from "./ImageViewer";
+import { PDFViewer } from "./PDFViewer";
+import { CSVTableViewer } from "./CSVTableViewer";
+import { CodeViewer } from "./CodeViewer";
 import type { FileNode } from "@/lib/types";
+
+// File extensions by type
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp"]);
+const PDF_EXTENSIONS = new Set(["pdf"]);
+const CSV_EXTENSIONS = new Set(["csv", "tsv"]);
+const CODE_EXTENSIONS = new Set([
+  // JavaScript/TypeScript
+  "js", "jsx", "ts", "tsx", "mjs", "cjs", "mts", "cts",
+  // Python
+  "py", "pyw", "pyi",
+  // Web
+  "html", "htm", "css", "scss", "less", "sass",
+  // Data
+  "json", "jsonc", "xml", "xsl", "xslt", "yaml", "yml", "toml",
+  // Systems
+  "rs", "go", "java", "c", "h", "cpp", "cc", "cxx", "hpp", "hxx",
+  // Other
+  "sql", "php", "rb", "sh", "bash", "zsh", "fish",
+  // Config
+  "env", "gitignore", "dockerignore", "editorconfig",
+]);
 
 // Dynamic import for MDXEditor (no SSR)
 const DocsEditor = dynamic(
@@ -65,6 +90,7 @@ export function DocsContentPane({
   fileTree,
 }: DocsContentPaneProps) {
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Reset scroll position and clear save error when file changes
@@ -117,6 +143,60 @@ export function DocsContentPane({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [hasUnsavedChanges, handleSave]);
 
+  // Copy file path to clipboard
+  const handleCopyPath = useCallback(async () => {
+    if (!filePath) return;
+    await navigator.clipboard.writeText(filePath);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, [filePath]);
+
+  // Reveal file in Finder
+  const handleRevealInFinder = useCallback(async () => {
+    if (!filePath) return;
+    await fetch("/api/reveal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: filePath }),
+    });
+  }, [filePath]);
+
+  // Open file in new browser tab (for PDFs and images)
+  const handleOpenInNewTab = useCallback(() => {
+    if (!filePath || !scopePath) return;
+    const url = `/api/docs/raw?path=${encodeURIComponent(filePath)}&scope=${encodeURIComponent(scopePath)}`;
+    window.open(url, "_blank");
+  }, [filePath, scopePath]);
+
+  // File action buttons component for consistent UI across all file types
+  const FileActionButtons = useCallback(({ showNewTab = false }: { showNewTab?: boolean }) => (
+    <>
+      <button
+        onClick={handleCopyPath}
+        className="p-1.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+        title="Copy path"
+      >
+        {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+      </button>
+      <button
+        onClick={handleRevealInFinder}
+        className="p-1.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+        title="Reveal in Finder"
+      >
+        <FolderOpen className="w-4 h-4" />
+      </button>
+      {showNewTab && (
+        <button
+          onClick={handleOpenInNewTab}
+          className="p-1.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+          title="Open in new tab"
+        >
+          <ExternalLink className="w-4 h-4" />
+        </button>
+      )}
+    </>
+  ), [copied, handleCopyPath, handleRevealInFinder, handleOpenInNewTab]);
+
   // Handle breadcrumb navigation
   const handleBreadcrumbNavigate = useCallback(
     (path: string) => {
@@ -140,6 +220,9 @@ export function DocsContentPane({
     );
   }
 
+  // Get file extension for type detection
+  const extension = filePath.split(".").pop()?.toLowerCase() || "";
+
   // Loading
   if (isLoading && !content) {
     return (
@@ -159,17 +242,124 @@ export function DocsContentPane({
     );
   }
 
-  // Binary or non-viewable file
-  if (fileMeta && (!fileMeta.isViewable || fileMeta.isBinary)) {
+  // Image files
+  if (IMAGE_EXTENSIONS.has(extension)) {
     return (
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] min-h-[44px]">
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
           <DocsBreadcrumbs
             filePath={filePath}
             scopePath={scopePath}
             onNavigate={handleBreadcrumbNavigate}
           />
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <FileActionButtons showNewTab />
+          </div>
+        </div>
+        <ImageViewer filePath={filePath} scopePath={scopePath} />
+      </div>
+    );
+  }
+
+  // PDF files
+  if (PDF_EXTENSIONS.has(extension)) {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
+          <DocsBreadcrumbs
+            filePath={filePath}
+            scopePath={scopePath}
+            onNavigate={handleBreadcrumbNavigate}
+          />
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <FileActionButtons showNewTab />
+          </div>
+        </div>
+        <PDFViewer filePath={filePath} scopePath={scopePath} />
+      </div>
+    );
+  }
+
+  // CSV files
+  if (CSV_EXTENSIONS.has(extension) && content !== null) {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
+          <DocsBreadcrumbs
+            filePath={filePath}
+            scopePath={scopePath}
+            onNavigate={handleBreadcrumbNavigate}
+          />
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <FileActionButtons />
+          </div>
+        </div>
+        <CSVTableViewer filePath={filePath} content={content} />
+      </div>
+    );
+  }
+
+  // Code files
+  if (CODE_EXTENSIONS.has(extension) && content !== null) {
+    const displayContent = editedContent !== null ? editedContent : content;
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
+          <DocsBreadcrumbs
+            filePath={filePath}
+            scopePath={scopePath}
+            onNavigate={handleBreadcrumbNavigate}
+          />
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <FileActionButtons />
+            {/* Save button */}
+            {hasUnsavedChanges && (
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 text-xs font-medium transition-colors"
+              >
+                {isSaving ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Save className="w-3.5 h-3.5" />
+                )}
+                Save
+              </button>
+            )}
+            {saveError && (
+              <span className="text-xs text-red-500">{saveError}</span>
+            )}
+            <DocsEditToggle
+              isEditMode={isEditMode}
+              onToggle={handleModeToggle}
+            />
+          </div>
+        </div>
+        <CodeViewer
+          filePath={filePath}
+          content={displayContent}
+          readOnly={!isEditMode}
+          onChange={isEditMode ? (newContent) => onContentChange(newContent) : undefined}
+        />
+      </div>
+    );
+  }
+
+  // Binary or non-viewable file
+  if (fileMeta && (!fileMeta.isViewable || fileMeta.isBinary)) {
+    return (
+      <div className="flex-1 flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
+          <DocsBreadcrumbs
+            filePath={filePath}
+            scopePath={scopePath}
+            onNavigate={handleBreadcrumbNavigate}
+          />
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <FileActionButtons />
+          </div>
         </div>
 
         <DocsFallbackView
@@ -196,6 +386,8 @@ export function DocsContentPane({
         />
 
         <div className="flex items-center gap-2 flex-shrink-0">
+          <FileActionButtons />
+
           {/* Save button - shown when there are unsaved changes */}
           {hasUnsavedChanges && (
             <button

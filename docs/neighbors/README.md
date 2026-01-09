@@ -40,6 +40,7 @@ The agent will research the tool and generate a report in this folder.
 | [Weft](weft.md) | AI Automation | Cloud-hosted, multi-domain; different category |
 | [Conductor](conductor.md) | Mac Agent Runner | VC-backed, closed-source; one-click launch is key feature |
 | [Nimbalyst](nimbalyst.md) | Editor + Sessions | Document-centric; we're simpler, workflow-focused |
+| [Kuato](kuato.md) | Session Recall/Search | Complementary search tool; consider skill/MCP integration |
 
 ## Summary Insights
 

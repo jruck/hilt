@@ -9,6 +9,7 @@ interface SidebarSectionProps {
   children: ReactNode;
   defaultExpanded?: boolean;
   isCollapsed?: boolean;
+  onExpandSidebar?: () => void;
 }
 
 /**
@@ -20,16 +21,21 @@ export function SidebarSection({
   children,
   defaultExpanded = true,
   isCollapsed = false,
+  onExpandSidebar,
 }: SidebarSectionProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
-  // When sidebar is collapsed, just show the icon
+  // When sidebar is collapsed, show clickable icon that expands sidebar
   if (isCollapsed) {
     return (
-      <div className="flex flex-col items-center py-2">
-        <div className="p-2 text-[var(--text-secondary)]" title={title}>
+      <div className="flex flex-col items-center">
+        <button
+          onClick={onExpandSidebar}
+          className="p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] rounded transition-colors"
+          title={`Expand sidebar - ${title}`}
+        >
           <Icon className="w-4 h-4" />
-        </div>
+        </button>
       </div>
     );
   }

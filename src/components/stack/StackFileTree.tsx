@@ -26,6 +26,7 @@ interface StackFileTreeProps {
   onSelectFile: (file: ConfigFile, layer: ConfigLayer) => void;
   onCreateFile?: (file: ConfigFile, layer: ConfigLayer) => void;
   typeFilter?: ConfigFileType | null;
+  searchQuery?: string;
 }
 
 const LAYER_CONFIG: Record<ConfigLayer, { label: string; icon: typeof Lock; description: string }> = {
@@ -54,7 +55,11 @@ export function StackFileTree({
   onSelectFile,
   onCreateFile,
   typeFilter,
+  searchQuery = "",
 }: StackFileTreeProps) {
+  // Normalize search query for filtering
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+
   // Track expanded layers
   const [expandedLayers, setExpandedLayers] = useState<Set<ConfigLayer>>(() => {
     // Start with layers that have existing files expanded
@@ -87,10 +92,16 @@ export function StackFileTree({
         const LayerIcon = layerConfig.icon;
         const files = layers[layer];
 
-        // Apply type filter
-        const filteredFiles = typeFilter
-          ? files.filter((f) => f.type === typeFilter)
-          : files;
+        // Apply type filter and search filter
+        let filteredFiles = files;
+        if (typeFilter) {
+          filteredFiles = filteredFiles.filter((f) => f.type === typeFilter);
+        }
+        if (normalizedSearch) {
+          filteredFiles = filteredFiles.filter((f) =>
+            f.name.toLowerCase().includes(normalizedSearch)
+          );
+        }
 
         const existingFiles = filteredFiles.filter((f) => f.exists);
         const isExpanded = expandedLayers.has(layer);
@@ -137,7 +148,7 @@ export function StackFileTree({
             {/* Files in this layer */}
             {isExpanded && (
               <>
-                {existingFiles.length === 0 && (!isLocalLayer || typeFilter) ? (
+                {existingFiles.length === 0 && (!isLocalLayer || typeFilter || normalizedSearch) ? (
                   <div
                     className="flex items-center gap-1 px-2 py-1 text-sm text-[var(--text-tertiary)] italic"
                     style={{ paddingLeft: "24px" }}
@@ -145,7 +156,7 @@ export function StackFileTree({
                     {/* Spacer to align with chevron + icon */}
                     <span className="w-4 flex-shrink-0" />
                     <span className="w-4 flex-shrink-0" />
-                    {typeFilter ? "No matching files" : "No files"}
+                    {typeFilter || normalizedSearch ? "No matching files" : "No files"}
                   </div>
                 ) : (
                   (Object.keys(TYPE_CONFIG) as ConfigFileType[]).map((type) => {

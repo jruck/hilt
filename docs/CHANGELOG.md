@@ -14,6 +14,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   - Updated README.md, DEVELOPMENT.md, ARCHITECTURE.md to reflect this as the standard dev workflow
   - File: `package.json`
 
+- **Stack View search** - Search box now filters files in Stack sidebar
+  - Filters file names across all layers (like Docs mode)
+  - Summary/filter-by-type section remains unaffected by search
+  - Filter button hidden in Stack mode (like Docs mode)
+  - Files: `src/components/Board.tsx`, `src/components/stack/StackView.tsx`, `src/components/stack/StackFileTree.tsx`
+
 ### Fixed
 
 - **WebSocket error noise reduced** - `useEventSocket` no longer spams console when event server isn't running

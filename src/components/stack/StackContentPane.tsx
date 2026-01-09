@@ -410,7 +410,6 @@ export function StackContentPane({
   const displayContent = isEditMode ? editContent : (fileContent.content || "");
   const extension = file.name.split(".").pop()?.toLowerCase() || "";
   const isMarkdown = extension === "md";
-  const isJson = extension === "json";
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -481,47 +480,15 @@ export function StackContentPane({
             fileTree={null}
             onNavigateToFile={() => {}}
           />
-        ) : isJson ? (
+        ) : (
           <CodeViewer
             filePath={file.path}
             content={displayContent}
             readOnly={!isEditMode}
             onChange={isEditMode ? handleContentChange : undefined}
           />
-        ) : (
-          // Fallback for other file types
-          <div className="p-4">
-            {isEditMode ? (
-              <textarea
-                value={editContent}
-                onChange={(e) => handleContentChange(e.target.value)}
-                className="w-full h-[calc(100vh-200px)] font-mono text-sm bg-[var(--bg-secondary)] rounded-lg p-3 resize-none focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
-                spellCheck={false}
-              />
-            ) : displayContent ? (
-              <pre className="font-mono text-sm whitespace-pre-wrap break-words">
-                {displayContent}
-              </pre>
-            ) : (
-              <div className="text-[var(--text-secondary)] text-sm">No content</div>
-            )}
-          </div>
         )}
       </div>
-
-      {/* Parsed frontmatter info (for commands/skills) */}
-      {fileContent.parsed?.frontmatter &&
-        Object.keys(fileContent.parsed.frontmatter).length > 0 &&
-        !isEditMode && (
-          <div className="border-t border-[var(--border-default)] p-4 flex-shrink-0">
-            <div className="text-xs font-semibold text-[var(--text-secondary)] uppercase mb-2">
-              Parsed Metadata
-            </div>
-            <div className="text-sm font-mono bg-[var(--bg-secondary)] rounded p-2 overflow-auto max-h-40">
-              <pre>{JSON.stringify(fileContent.parsed.frontmatter, null, 2)}</pre>
-            </div>
-          </div>
-        )}
     </div>
   );
 }

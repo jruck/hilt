@@ -901,8 +901,8 @@ Proceed autonomously otherwise.`;
 
         {/* Right side: Filter, Search, View Toggle */}
         <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          {/* Filter dropdown - hidden in docs mode */}
-          {viewMode !== "docs" && (
+          {/* Filter dropdown - hidden in docs and stack modes */}
+          {viewMode !== "docs" && viewMode !== "stack" && (
           <div className="relative" ref={filterRef}>
             <button
               onClick={() => setIsFilterOpen(!isFilterOpen)}
@@ -997,7 +997,7 @@ Proceed autonomously otherwise.`;
           />
         ) : viewMode === "stack" ? (
           <div className="flex-1 overflow-hidden">
-            <StackView scopePath={scopePath} />
+            <StackView scopePath={scopePath} searchQuery={searchQuery} />
           </div>
         ) : viewMode === "tree" ? (
           <div

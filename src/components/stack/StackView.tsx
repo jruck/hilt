@@ -15,9 +15,10 @@ const STORAGE_KEY = "stack-sidebar-width";
 
 interface StackViewProps {
   scopePath: string;
+  searchQuery?: string;
 }
 
-export function StackView({ scopePath }: StackViewProps) {
+export function StackView({ scopePath, searchQuery = "" }: StackViewProps) {
   const { stack, isLoading, isError, mutate } = useClaudeStack(scopePath);
   const [selectedFile, setSelectedFile] = useState<{ file: ConfigFile; layer: ConfigLayer } | null>(null);
   const [creatingFile, setCreatingFile] = useState<{ file: ConfigFile; layer: ConfigLayer } | null>(null);
@@ -127,6 +128,7 @@ export function StackView({ scopePath }: StackViewProps) {
             onSelectFile={handleSelectFile}
             onCreateFile={handleCreateFile}
             typeFilter={typeFilter}
+            searchQuery={searchQuery}
           />
         </div>
 

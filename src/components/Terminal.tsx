@@ -65,6 +65,13 @@ interface PlanEvent {
   content: string;
 }
 
+interface RalphEvent {
+  event: "iteration" | "complete";
+  current?: number;
+  max?: number;
+  success?: boolean;
+}
+
 interface TerminalProps {
   terminalId: string;
   sessionId: string;
@@ -78,6 +85,7 @@ interface TerminalProps {
   onTitleChange?: (sessionId: string, title: string) => void;
   onContextProgress?: (sessionId: string, progress: number) => void;
   onPlanEvent?: (plan: PlanEvent) => void;
+  onRalphEvent?: (sessionId: string, ralph: RalphEvent) => void;
 }
 
 /**
@@ -87,7 +95,7 @@ function isElectron(): boolean {
   return typeof window !== "undefined" && window.electronAPI?.isElectron === true;
 }
 
-export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, initialPrompt, isActive = true, isDrawerOpen = true, onExit, onTitleChange, onContextProgress, onPlanEvent }: TerminalProps) {
+export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, initialPrompt, isActive = true, isDrawerOpen = true, onExit, onTitleChange, onContextProgress, onPlanEvent, onRalphEvent }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -107,6 +115,7 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
   const onTitleChangeRef = useRef(onTitleChange);
   const onContextProgressRef = useRef(onContextProgress);
   const onPlanEventRef = useRef(onPlanEvent);
+  const onRalphEventRef = useRef(onRalphEvent);
 
   // Sync refs with props - must be in effect, not during render
   useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
@@ -116,6 +125,7 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
   useEffect(() => { onTitleChangeRef.current = onTitleChange; }, [onTitleChange]);
   useEffect(() => { onContextProgressRef.current = onContextProgress; }, [onContextProgress]);
   useEffect(() => { onPlanEventRef.current = onPlanEvent; }, [onPlanEvent]);
+  useEffect(() => { onRalphEventRef.current = onRalphEvent; }, [onRalphEvent]);
 
   // Send message function - works for both Electron IPC and WebSocket
   const sendMessage = useCallback((type: string, data: Record<string, unknown>) => {
@@ -350,6 +360,14 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
               content: msg.content,
             });
             break;
+          case "ralph":
+            onRalphEventRef.current?.(sessionIdRef.current, {
+              event: msg.event,
+              current: msg.current,
+              max: msg.max,
+              success: msg.success,
+            });
+            break;
         }
       } catch (err) {
         console.error("Error parsing WS message:", err);
@@ -446,6 +464,14 @@ export function Terminal({ terminalId, sessionId, projectPath, wsUrl, isNew, ini
                 slug: msg.slug,
                 path: msg.path,
                 content: msg.content,
+              });
+              break;
+            case "ralph":
+              onRalphEventRef.current?.(sessionIdRef.current, {
+                event: msg.event,
+                current: msg.current,
+                max: msg.max,
+                success: msg.success,
               });
               break;
           }

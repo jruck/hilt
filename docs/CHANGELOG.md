@@ -6,6 +6,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Added
+
+- **Ralph Wiggum Integration** - New run method for inbox items enabling iterative AI development loops
+  - New button on inbox cards (RefreshCw icon) opens Ralph setup wizard
+  - Multi-step modal guides users through PRD creation or direct configuration
+  - Plugin detection API (`/api/ralph`) checks if Ralph Wiggum plugin is installed
+  - Configuration UI for max iterations and completion promise
+  - PRD refinement flow helps create structured requirements with testable success criteria
+  - Session cards show Ralph emoji with iteration progress (e.g., "3/10") during active loops
+  - Terminal output parsing detects iteration changes and loop completion
+  - WebSocket events broadcast Ralph progress to all connected clients
+  - Files: `src/lib/ralph.ts`, `src/components/RalphSetupModal.tsx`, `src/app/api/ralph/route.ts`, `src/lib/types.ts`
+  - Modified: `Board.tsx`, `Column.tsx`, `InboxCard.tsx`, `SessionCard.tsx`, `Terminal.tsx`, `server/ws-server.ts`
+
 ### Changed
 
 - **App Rename: Claude Kanban → Hilt** - Complete rebrand of the application

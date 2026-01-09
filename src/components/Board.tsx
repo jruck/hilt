@@ -11,7 +11,7 @@ import {
   useSensors,
   DragOverlay,
 } from "@dnd-kit/core";
-import { Session, SessionStatus, ColumnId } from "@/lib/types";
+import { Session, SessionStatus, ColumnId, RalphConfig } from "@/lib/types";
 import { needsAttention } from "@/lib/session-status";
 import { useSessions, useInboxItems } from "@/hooks/useSessions";
 import { useTreeSessions } from "@/hooks/useTreeSessions";
@@ -25,7 +25,9 @@ import { ViewToggle, ViewMode, TaskViewModeToggle, getPrimaryView } from "./View
 import { TreeView } from "./TreeView";
 import { DocsView } from "./DocsView";
 import { StackView } from "./stack";
+import { RalphSetupModal } from "./RalphSetupModal";
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
+import { generatePrdPrompt, generateRalphCommand } from "@/lib/ralph";
 import { X, Inbox, Play, Clock, Search, Filter, FileText, Check, Archive, Eye, CheckCircle } from "lucide-react";
 
 const COLUMNS: ColumnId[] = ["inbox", "active", "attention", "recent"];
@@ -190,6 +192,11 @@ export function Board() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   // Filter state
   const [filters, setFilters] = useState<{ hasPlan: boolean }>({ hasPlan: false });
+
+  // Ralph Wiggum loop state
+  const [isRalphModalOpen, setIsRalphModalOpen] = useState(false);
+  const [ralphSeedPrompt, setRalphSeedPrompt] = useState("");
+  const [pendingRalphItemId, setPendingRalphItemId] = useState<string | null>(null);
 
   // Handlers for archive/unarchive
   const handleArchiveSession = async (sessionId: string) => {
@@ -830,6 +837,107 @@ Proceed autonomously otherwise.`;
     await deleteItem(item.id);
   };
 
+  // Ralph Wiggum loop handlers
+  const handleRalphInboxItem = (item: { id: string; prompt: string }) => {
+    setRalphSeedPrompt(item.prompt);
+    setPendingRalphItemId(item.id);
+    setIsRalphModalOpen(true);
+  };
+
+  const handleRalphStartPrdRefinement = async (seedPrompt: string) => {
+    // Generate the PRD refinement prompt
+    const prdPrompt = generatePrdPrompt(seedPrompt);
+
+    // Create a temporary session for PRD refinement
+    const now = Date.now();
+    const tempId = `new-${now}`;
+    const projectName = scopePath ? scopePath.split("/").pop() || "New Session" : "New Session";
+    const projectPath = scopePath || "/";
+    const newSession: Session = {
+      id: tempId,
+      title: `PRD: ${seedPrompt.slice(0, 40)}${seedPrompt.length > 40 ? "..." : ""}`,
+      firstPrompt: prdPrompt,
+      lastPrompt: prdPrompt,
+      lastMessage: prdPrompt,
+      project: projectName,
+      projectPath,
+      messageCount: 0,
+      lastActivity: new Date(),
+      status: "active",
+      isNew: true,
+      initialPrompt: prdPrompt,
+      terminalId: tempId,
+      slug: null,
+      slugs: [],
+      gitBranch: null,
+    };
+
+    // Track temp session for matching with real session later
+    tempSessionInfo.current[tempId] = { createdAt: now, projectPath };
+
+    // Add to open sessions and open the drawer
+    setOpenSessions((prev) => [...prev, newSession]);
+    setActiveSession(newSession);
+    setIsDrawerOpen(true);
+
+    // Delete the inbox item since we're starting a session
+    if (pendingRalphItemId) {
+      await deleteItem(pendingRalphItemId);
+      setPendingRalphItemId(null);
+    }
+  };
+
+  const handleRalphStartLoop = async (config: RalphConfig) => {
+    // Generate the Ralph loop command
+    const ralphCommand = generateRalphCommand(config);
+
+    // Create a temporary session that will run the Ralph loop
+    const now = Date.now();
+    const tempId = `new-${now}`;
+    const projectName = scopePath ? scopePath.split("/").pop() || "New Session" : "New Session";
+    const projectPath = scopePath || "/";
+    const newSession: Session = {
+      id: tempId,
+      title: `Ralph: ${config.prompt.slice(0, 35)}${config.prompt.length > 35 ? "..." : ""}`,
+      firstPrompt: ralphCommand,
+      lastPrompt: ralphCommand,
+      lastMessage: ralphCommand,
+      project: projectName,
+      projectPath,
+      messageCount: 0,
+      lastActivity: new Date(),
+      status: "active",
+      isNew: true,
+      initialPrompt: ralphCommand,
+      terminalId: tempId,
+      slug: null,
+      slugs: [],
+      gitBranch: null,
+      // Mark as Ralph loop session
+      ralphLoop: {
+        active: true,
+        currentIteration: 0,
+        maxIterations: config.maxIterations,
+        completionPromise: config.completionPromise,
+        startedAt: new Date().toISOString(),
+      },
+    };
+
+    // Track temp session for matching with real session later
+    tempSessionInfo.current[tempId] = { createdAt: now, projectPath };
+
+    // Add to open sessions and open the drawer
+    setOpenSessions((prev) => [...prev, newSession]);
+    setActiveSession(newSession);
+    setIsDrawerOpen(true);
+
+    // Delete the inbox item since we're starting a session
+    if (pendingRalphItemId) {
+      await deleteItem(pendingRalphItemId);
+      setPendingRalphItemId(null);
+    }
+  };
+
   // Selection handlers
   const handleSelectSession = useCallback((session: Session, selected: boolean) => {
     setSelectedIds((prev) => {
@@ -1082,6 +1190,7 @@ Proceed autonomously otherwise.`;
                   onStartInboxItem={handleStartInboxItem}
                   onRefineInboxItem={handleRefineInboxItem}
                   onProcessReference={handleProcessReference}
+                  onRalphInboxItem={handleRalphInboxItem}
                   sessionStatuses={sessionStatuses}
                   firstSeenAt={firstSeenAt}
                   selectedIds={selectedIds}
@@ -1159,6 +1268,17 @@ Proceed autonomously otherwise.`;
         </div>
       )}
 
+      {/* Ralph Wiggum Setup Modal */}
+      <RalphSetupModal
+        isOpen={isRalphModalOpen}
+        onClose={() => {
+          setIsRalphModalOpen(false);
+          setPendingRalphItemId(null);
+        }}
+        seedPrompt={ralphSeedPrompt}
+        onStartLoop={handleRalphStartLoop}
+        onStartPrdRefinement={handleRalphStartPrdRefinement}
+      />
     </div>
   );
 }

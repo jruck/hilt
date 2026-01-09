@@ -8,6 +8,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
+- **README rewritten for AI agents** - Complete restructure targeting AI assistants as primary audience
+  - Frames Hilt as "personalized AI software" (reference implementation, not traditional software to clone)
+  - Added "For AI Agents Reading This Repository" section explaining document purpose
+  - New "Why This Exists" table mapping Claude Code gaps to Hilt features
+  - "Core Concepts" section: data sources, session JSONL format, running detection algorithm
+  - "Feature Inventory" with implementation details for each major feature:
+    - Kanban board with status overlay pattern
+    - Draft prompts with prompt injection technique
+    - Tree view with heat score algorithm
+    - Terminal integration with WebSocket protocol
+    - Plan editor, scope navigation, stack viewer, docs browser
+  - "Design Decisions" section explaining architectural trade-offs (JSON vs SQLite, polling vs real-time, three servers)
+  - "If You're Building Your Own" guidance for extracting features
+  - Removed redundant sections (moved to detailed docs)
+  - File: `README.md`
+
 - **App Rename: Claude Kanban → Hilt** - Complete rebrand of the application
   - Package name: `claude-kanban` → `hilt`
   - App ID: `com.claude-kanban.app` → `com.hilt.app`

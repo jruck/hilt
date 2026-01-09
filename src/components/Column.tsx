@@ -34,7 +34,7 @@ import {
   Terminal,
   FolderOpen,
   Star,
-  AlertCircle,
+  Eye,
   CheckCircle,
 } from "lucide-react";
 
@@ -153,7 +153,7 @@ const columnConfig: Record<
   },
   attention: {
     title: "Review",
-    icon: <AlertCircle className="w-4 h-4" />,
+    icon: <Eye className="w-4 h-4" />,
     color: "text-amber-400",
   },
   active: {

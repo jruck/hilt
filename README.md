@@ -1,53 +1,79 @@
 # Claude Kanban
 
-A Kanban-style board for managing Claude Code sessions. Visualize, organize, and run your Claude Code sessions from a clean, drag-and-drop interface.
+A visual dashboard for managing Claude Code sessions. Organize your work with a Kanban board, browse project documentation, and inspect Claude's configuration stack—all from one interface.
+
+## Core Concepts
+
+Claude Kanban provides three primary views, accessible via the top navigation:
+
+| View | Purpose |
+|------|---------|
+| **Tasks** | Kanban board or tree view for organizing Claude Code sessions |
+| **Docs** | Browse and edit markdown files in your project |
+| **Stack** | Inspect Claude's configuration hierarchy (System → User → Project → Local) |
 
 ## Features
 
-### Session Management
-- **Three-Column Board** - Organize sessions across To Do (drafts), In Progress (active), and Recent (completed)
-- **Tree View** - Fractal workspace visualization with heat-score based sizing
+### Tasks View
+
+The Tasks view has two modes, toggled with the icon button next to the view selector:
+
+**Board Mode (Kanban)**
+- **Four Columns** - To Do (drafts), Active (in progress), Review (needs attention), Done (completed)
 - **Drag & Drop** - Move sessions between columns with smooth animations
-- **Multi-Select** - Batch move multiple sessions at once
-- **Session Starring** - Pin important sessions to the top of Recent
+- **Multi-Select** - Batch move multiple sessions with Cmd/Ctrl+Click
+- **Draft Prompts** - Queue prompts in the To Do column before starting sessions
+- **Session Starring** - Pin important sessions to the top of Done
+
+**Tree Mode**
+- **Fractal Visualization** - See sessions as nested rectangles sized by activity
+- **Heat Scoring** - More active projects appear larger
+- **Hierarchical Navigation** - Click into folders to zoom in on project areas
+
+### Docs View
+
+Browse and edit your project's markdown documentation without leaving the app:
+
+- **File Tree Sidebar** - Navigate your project's file structure
+- **Markdown Editor** - Edit files with syntax highlighting and live preview
+- **Code Viewer** - View non-markdown files with syntax highlighting
+- **Wikilinks Support** - Click `[[links]]` to navigate between docs
+- **Resizable Panels** - Drag the sidebar edge to resize
+
+### Stack View
+
+Inspect Claude's configuration files across all four layers:
+
+- **Layer Tabs** - Switch between System, User, Project, and Local configs
+- **File Browser** - See all config files (CLAUDE.md, settings.json, hooks, commands)
+- **Inline Editing** - Edit configuration files directly in the app
+- **Search Filtering** - Filter files by name in the sidebar
 
 ### Live Session Detection
 - **Running Indicator** - Pulsing green dot shows when a session is actively running
-- **Auto-Promote** - Running sessions automatically move to In Progress
-- **New Session Glow** - Green highlight effect for newly discovered sessions
-- **Real-Time Updates** - Board refreshes every 5 seconds to detect new sessions
-
-### Draft Prompts (To Do Column)
-- **Queue Prompts** - Write prompts before starting sessions
-- **Section Organization** - Group drafts with markdown headers in Todo.md
-- **Quick Start** - Launch a new session from any draft with one click
-- **In-Card Editing** - Edit and delete drafts without leaving the board
+- **Auto-Promote** - Running sessions automatically move to Active
+- **New Session Glow** - Green highlight for newly discovered sessions
+- **Real-Time Updates** - Board refreshes to detect new sessions and file changes
 
 ### Terminal Integration
-- **Resizable Drawer** - Terminal panel slides in from the right (400-1200px)
+- **Resizable Drawer** - Terminal panel slides in from the right
 - **Multiple Tabs** - Open and switch between multiple sessions simultaneously
 - **Live Output** - Real-time terminal emulation via xterm.js
 - **Status Extraction** - Displays Claude's current task from terminal title
 - **Context Tracking** - Shows Claude's context window usage percentage
 
 ### Plan Mode
-- **Plan Detection** - Automatically detects when Claude creates plans
-- **Rich Editor** - MDXEditor with full markdown support (tables, code blocks, syntax highlighting)
+- **Plan Detection** - Automatically detects when Claude creates plan files
+- **Rich Editor** - Full markdown support (tables, code blocks, syntax highlighting)
 - **Plan-Only View** - Review plans without starting a terminal session
 - **Multi-Plan Support** - Sessions with multiple plans show badge count
-- **Unsaved Changes** - Visual indicator when plan has unsaved edits
 
-### Scope Navigation
+### Navigation & Filtering
 - **Breadcrumb Nav** - Click path segments to navigate project hierarchy
-- **All Projects View** - Root "/" shows sessions across all projects
-- **Collapsible Sidebar** - Pin frequently used folders for quick access
-- **Recent Scopes** - Quick access to frequently visited folders
-- **URL-Based State** - Scope persisted in URL for bookmarking/sharing
-
-### Search & Filtering
+- **Pinned Folders** - Pin frequently used folders to the sidebar
 - **Global Search** - Filter by title, prompt, slug, project, or git branch
 - **Plan Filter** - Show only sessions with associated plan files
-- **Time Groupings** - Recent column groups by Today, Yesterday, This Week, etc.
+- **URL-Based State** - Scope persisted in URL for bookmarking/sharing
 
 ### Native Desktop App
 - **Electron Wrapper** - Run as a native macOS application

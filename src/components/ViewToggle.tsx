@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutGrid, Network, FileText, Layers, CheckSquare } from "lucide-react";
+import { Columns3, Network, FileText, Layers, CheckSquare } from "lucide-react";
 
 // The underlying view mode stored in state/preferences
 export type ViewMode = "tree" | "board" | "docs" | "stack";
@@ -83,38 +83,25 @@ interface TaskViewModeToggleProps {
   onChange: (view: ViewMode) => void;
 }
 
-const TASK_VIEW_CONFIG = [
-  { id: "board" as const, icon: LayoutGrid, title: "Kanban board" },
-  { id: "tree" as const, icon: Network, title: "Tree view" },
-];
-
 /**
- * Secondary toggle for task view mode: Board | Tree
- * Compact, icon-only design to fit inline with search/filter
+ * Single button toggle for task view mode: Board <-> Tree
+ * Clicking switches between modes, icon shows the mode it will switch TO
  */
 export function TaskViewModeToggle({ view, onChange }: TaskViewModeToggleProps) {
   const currentMode = getTaskViewMode(view);
+  // Show the icon for the mode we're switching TO
+  const Icon = currentMode === "board" ? Network : Columns3;
+  const nextMode = currentMode === "board" ? "tree" : "board";
+  const title = currentMode === "board" ? "Switch to Tree view" : "Switch to Board view";
 
   return (
-    <div className="flex items-center bg-[var(--bg-tertiary)] rounded p-0.5">
-      {TASK_VIEW_CONFIG.map(({ id, icon: Icon, title }) => (
-        <button
-          key={id}
-          onClick={() => onChange(id)}
-          className={`
-            p-1.5 rounded transition-colors
-            ${
-              currentMode === id
-                ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm"
-                : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-            }
-          `}
-          title={title}
-        >
-          <Icon className="w-3.5 h-3.5" />
-        </button>
-      ))}
-    </div>
+    <button
+      onClick={() => onChange(nextMode)}
+      className="p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
+      title={title}
+    >
+      <Icon className="w-4 h-4" />
+    </button>
   );
 }
 

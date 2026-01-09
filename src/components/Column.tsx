@@ -151,7 +151,7 @@ const columnConfig: Record<
     color: "text-blue-400",
   },
   attention: {
-    title: "Needs Attention",
+    title: "Review",
     icon: <AlertCircle className="w-4 h-4" />,
     color: "text-amber-400",
   },

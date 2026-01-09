@@ -31,7 +31,7 @@ const COLUMNS: ColumnId[] = ["inbox", "active", "attention", "recent"];
 
 const COLUMN_CONFIG: Record<ColumnId, { label: string; icon: React.ReactNode }> = {
   inbox: { label: "To Do", icon: <Inbox className="w-4 h-4" /> },
-  attention: { label: "Needs Attention", icon: <AlertCircle className="w-4 h-4" /> },
+  attention: { label: "Review", icon: <AlertCircle className="w-4 h-4" /> },
   active: { label: "Active", icon: <InProgressIcon className="w-4 h-4" /> },
   recent: { label: "Recent", icon: <Clock className="w-4 h-4" /> },
 };

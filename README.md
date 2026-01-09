@@ -114,20 +114,20 @@ Detailed documentation is available in the [`docs/`](docs/) folder:
 │  │  Board • Columns • SessionCards • Terminal • PlanEditor    │  │
 │  └───────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
-                    │                           │
-                    ▼                           ▼
-         ┌──────────────────┐        ┌──────────────────┐
-         │   Next.js API    │        │  WebSocket Server │
-         │   port 3000      │        │   port 3001       │
-         └──────────────────┘        └──────────────────┘
-                    │                           │
-          ┌─────────┴─────────┐                 │
-          ▼                   ▼                 ▼
-┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
-│  Session Data    │ │   Plan Files     │ │   PTY Manager    │
-│  ~/.claude/      │ │  ~/.claude/plans │ │  Claude Code CLI │
-│  projects/*.jsonl│ │  /{slug}.md      │ │                  │
-└──────────────────┘ └──────────────────┘ └──────────────────┘
+              │                    │                    │
+              ▼                    ▼                    ▼
+   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
+   │  Next.js API     │  │  WebSocket       │  │  Event Server    │
+   │  port 3000       │  │  port 3001       │  │  port 3002       │
+   └──────────────────┘  └──────────────────┘  └──────────────────┘
+              │                    │                    │
+    ┌─────────┴────────┐           │           ┌───────┴───────┐
+    ▼                  ▼           ▼           ▼               ▼
+┌────────────┐  ┌────────────┐  ┌────────────┐  ┌──────────────────┐
+│ Session    │  │ Plan Files │  │ PTY Mgr    │  │ File Watchers    │
+│ ~/.claude/ │  │ ~/.claude/ │  │ claude CLI │  │ Real-time events │
+│ projects/  │  │ plans/     │  │            │  │                  │
+└────────────┘  └────────────┘  └────────────┘  └──────────────────┘
 ```
 
 For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -201,9 +201,7 @@ For detailed file descriptions, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev:all` | Start Next.js and WebSocket servers |
-| `npm run dev` | Start Next.js dev server only |
-| `npm run ws-server` | Start WebSocket server only |
+| `npm run dev:all` | **Start development** (Next.js + WebSocket + Event servers) |
 | `npm run build` | Production build |
 | `npm run lint` | Run ESLint |
 | `npm run electron:dev` | Start Electron app in dev mode |

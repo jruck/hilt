@@ -83,7 +83,6 @@ export function useEventSocket() {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const url = `${protocol}//localhost:${port}/events`;
 
-    console.log("[useEventSocket] Connecting to:", url);
     const ws = new WebSocket(url);
 
     ws.onopen = () => {
@@ -91,7 +90,6 @@ export function useEventSocket() {
         ws.close();
         return;
       }
-      console.log("[useEventSocket] Connected");
       reconnectAttempts.current = 0;
       setState((s) => ({ ...s, connected: true }));
 
@@ -118,20 +116,23 @@ export function useEventSocket() {
       }
     };
 
-    ws.onerror = (err) => {
-      console.error("[useEventSocket] WebSocket error:", err);
+    ws.onerror = () => {
+      // WebSocket errors in browsers don't contain useful details
+      // The actual error reason will be in the onclose event
+      // Only log once to avoid spam
+      if (reconnectAttempts.current === 0) {
+        console.warn("[useEventSocket] Connection failed - event server may not be running");
+      }
     };
 
     ws.onclose = () => {
       if (!mountedRef.current) return;
 
-      console.log("[useEventSocket] Disconnected");
       setState({ connected: false, clientId: null });
 
-      // Exponential backoff reconnect
+      // Exponential backoff reconnect (silently after first attempt)
       const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
       reconnectAttempts.current++;
-      console.log(`[useEventSocket] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current})`);
       reconnectTimeoutRef.current = setTimeout(connect, delay);
     };
 

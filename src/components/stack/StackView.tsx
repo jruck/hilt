@@ -1,13 +1,17 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useClaudeStack } from "@/hooks/useClaudeStack";
-import { LayerPanel } from "./LayerPanel";
-import { ConfigFileList } from "./ConfigFileList";
-import { ConfigPreview } from "./ConfigPreview";
+import { StackFileTree } from "./StackFileTree";
+import { StackContentPane } from "./StackContentPane";
 import { StackSummary } from "./StackSummary";
-import { CreateFileDialog } from "./CreateFileDialog";
-import type { ConfigLayer, ConfigFile } from "@/lib/claude-config/types";
+import type { ConfigLayer, ConfigFile, ConfigFileType } from "@/lib/claude-config/types";
+
+// Sidebar width constraints
+const MIN_SIDEBAR_WIDTH = 180;
+const MAX_SIDEBAR_WIDTH = 500;
+const DEFAULT_SIDEBAR_WIDTH = 280;
+const STORAGE_KEY = "stack-sidebar-width";
 
 interface StackViewProps {
   scopePath: string;
@@ -15,22 +19,85 @@ interface StackViewProps {
 
 export function StackView({ scopePath }: StackViewProps) {
   const { stack, isLoading, isError, mutate } = useClaudeStack(scopePath);
-  const [selectedLayer, setSelectedLayer] = useState<ConfigLayer>("project");
-  const [selectedFile, setSelectedFile] = useState<ConfigFile | null>(null);
-  const [createDialogFile, setCreateDialogFile] = useState<ConfigFile | null>(null);
+  const [selectedFile, setSelectedFile] = useState<{ file: ConfigFile; layer: ConfigLayer } | null>(null);
+  const [creatingFile, setCreatingFile] = useState<{ file: ConfigFile; layer: ConfigLayer } | null>(null);
+  const [typeFilter, setTypeFilter] = useState<ConfigFileType | null>(null);
+
+  // Sidebar resize state
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    if (typeof window === "undefined") return DEFAULT_SIDEBAR_WIDTH;
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = parseInt(stored, 10);
+      if (!isNaN(parsed) && parsed >= MIN_SIDEBAR_WIDTH && parsed <= MAX_SIDEBAR_WIDTH) {
+        return parsed;
+      }
+    }
+    return DEFAULT_SIDEBAR_WIDTH;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  // Persist sidebar width
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  // Resize handlers
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    resizeRef.current = { startX: e.clientX, startWidth: sidebarWidth };
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizeRef.current) return;
+      const delta = e.clientX - resizeRef.current.startX;
+      const newWidth = Math.min(
+        MAX_SIDEBAR_WIDTH,
+        Math.max(MIN_SIDEBAR_WIDTH, resizeRef.current.startWidth + delta)
+      );
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      resizeRef.current = null;
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isResizing]);
 
   const handleFileUpdated = useCallback(() => {
     mutate();
   }, [mutate]);
 
-  const handleCreateFile = useCallback((file: ConfigFile) => {
-    setCreateDialogFile(file);
+  const handleCreateFile = useCallback((file: ConfigFile, layer: ConfigLayer) => {
+    setCreatingFile({ file, layer });
+    setSelectedFile(null);
   }, []);
 
   const handleCreateComplete = useCallback(() => {
-    setCreateDialogFile(null);
+    setCreatingFile(null);
     mutate();
   }, [mutate]);
+
+  const handleCancelCreate = useCallback(() => {
+    setCreatingFile(null);
+  }, []);
+
+  const handleSelectFile = useCallback((file: ConfigFile, layer: ConfigLayer) => {
+    setSelectedFile({ file, layer });
+    setCreatingFile(null);
+  }, []);
 
   if (isLoading) {
     return (
@@ -48,62 +115,51 @@ export function StackView({ scopePath }: StackViewProps) {
     );
   }
 
-  const layerFiles = stack.layers[selectedLayer];
-
   return (
-    <div className="flex h-full">
-      {/* Left sidebar - Layer navigation + Summary */}
-      <div className="w-48 border-r border-[var(--border-primary)] flex flex-col flex-shrink-0">
-        <LayerPanel
-          layers={stack.layers}
-          selectedLayer={selectedLayer}
-          onSelectLayer={(layer) => {
-            setSelectedLayer(layer);
-            setSelectedFile(null);
-          }}
-        />
-        <div className="border-t border-[var(--border-primary)] mt-auto">
-          <StackSummary summary={stack.summary} />
-        </div>
-      </div>
-
-      {/* Middle - File list */}
-      <div className="w-64 border-r border-[var(--border-primary)] overflow-y-auto flex-shrink-0">
-        <ConfigFileList
-          files={layerFiles}
-          layer={selectedLayer}
-          selectedFile={selectedFile}
-          onSelectFile={setSelectedFile}
-          onCreateFile={handleCreateFile}
-        />
-      </div>
-
-      {/* Right - Preview/Editor */}
-      <div className="flex-1 overflow-hidden">
-        {selectedFile ? (
-          <ConfigPreview
-            file={selectedFile}
-            scopePath={scopePath}
-            onFileUpdated={handleFileUpdated}
+    <div className={`flex h-full ${isResizing ? "select-none" : ""}`}>
+      {/* Sidebar - All layers with dividers */}
+      <div className="flex-shrink-0 flex flex-col relative border-r border-[var(--border-default)]" style={{ width: sidebarWidth }}>
+        {/* Unified file tree for all layers */}
+        <div className="flex-1 overflow-y-auto pt-1.5 pb-1">
+          <StackFileTree
+            layers={stack.layers}
+            selectedFile={selectedFile?.file || null}
+            onSelectFile={handleSelectFile}
+            onCreateFile={handleCreateFile}
+            typeFilter={typeFilter}
           />
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full text-[var(--text-secondary)]">
-            <div className="text-lg mb-2">Select a file to preview</div>
-            <div className="text-sm">
-              Choose a configuration file from the list to view or edit its contents
-            </div>
-          </div>
-        )}
+        </div>
+
+        {/* Summary with filter */}
+        <div className="border-t border-[var(--border-default)] flex-shrink-0">
+          <StackSummary
+            summary={stack.summary}
+            activeFilter={typeFilter}
+            onFilterChange={setTypeFilter}
+          />
+        </div>
+
+        {/* Resize handle */}
+        <div
+          className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-[var(--accent-primary)] transition-colors ${
+            isResizing ? "bg-[var(--accent-primary)]" : "bg-transparent"
+          }`}
+          onMouseDown={handleResizeStart}
+        />
       </div>
 
-      {/* Create file dialog */}
-      {createDialogFile && (
-        <CreateFileDialog
-          file={createDialogFile}
-          onClose={() => setCreateDialogFile(null)}
-          onCreated={handleCreateComplete}
+      {/* Content pane */}
+      <div className="flex-1 overflow-hidden">
+        <StackContentPane
+          file={creatingFile?.file || selectedFile?.file || null}
+          layer={creatingFile?.layer || selectedFile?.layer || "project"}
+          scopePath={scopePath}
+          onFileUpdated={handleFileUpdated}
+          isCreating={!!creatingFile}
+          onCreateComplete={handleCreateComplete}
+          onCancelCreate={handleCancelCreate}
         />
-      )}
+      </div>
     </div>
   );
 }

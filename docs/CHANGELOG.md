@@ -6,7 +6,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Changed
+
+- **Development startup simplified** - `npm run dev:all` now starts all three servers (Next.js, WebSocket, Event)
+  - Added `event-server` npm script for the real-time event server
+  - Updated `dev:all` to run all servers concurrently
+  - Updated README.md, DEVELOPMENT.md, ARCHITECTURE.md to reflect this as the standard dev workflow
+  - File: `package.json`
+
 ### Fixed
+
+- **WebSocket error noise reduced** - `useEventSocket` no longer spams console when event server isn't running
+  - Changed from `console.error` with empty object to single `console.warn` on first failure
+  - Removed verbose connection/reconnection logging
+  - Silently retries in background with exponential backoff
+  - File: `src/hooks/useEventSocket.ts`
 
 - **Session status detection bug** - Sessions waiting for tool approval now correctly appear in "Needs Attention" column
   - Bug: `turn_duration` JSONL entries were incorrectly clearing `pendingToolUses` array
@@ -36,6 +50,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   - File: `server/watchers/session-watcher.ts`, `src/hooks/useSessions.ts`
 
 ### Changed
+
+- **Stack View redesigned** - Now matches Docs Viewer polish and layout
+  - Two-panel layout: resizable sidebar (180-500px) + content pane
+  - Unified view showing all layers (Local, Project, User, System) with dividers
+  - Collapsible layer sections with file counts
+  - Breadcrumb navigation showing Layer → Type → File
+  - Proper content viewers: CodeViewer for JSON, DocsEditor for markdown
+  - Fixed CSS variables (`--border-primary` → `--border-default`)
+  - Sidebar width persists to localStorage
+  - Files: `src/components/stack/StackView.tsx`, `StackFileTree.tsx`, `StackContentPane.tsx`
 
 - **Needs Attention column simplified** - Removed WAITING/IDLE section separators
   - Sessions are now just sorted by recency (most recent first)

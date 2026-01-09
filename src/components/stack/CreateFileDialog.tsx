@@ -118,7 +118,7 @@ export function CreateFileDialog({ file, onClose, onCreated }: CreateFileDialogP
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-[var(--bg-primary)] rounded-lg shadow-xl w-[600px] max-h-[80vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-primary)]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-default)]">
           <div>
             <div className="font-medium">Create {file.name}</div>
             <div className="text-xs text-[var(--text-secondary)]">{file.relativePath}</div>
@@ -148,7 +148,7 @@ export function CreateFileDialog({ file, onClose, onCreated }: CreateFileDialogP
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--border-primary)]">
+        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--border-default)]">
           <button
             onClick={onClose}
             className="px-3 py-1.5 rounded text-sm hover:bg-[var(--bg-secondary)]"

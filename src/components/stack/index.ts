@@ -1,6 +1,4 @@
 export { StackView } from "./StackView";
-export { LayerPanel } from "./LayerPanel";
-export { ConfigFileList } from "./ConfigFileList";
-export { ConfigPreview } from "./ConfigPreview";
+export { StackFileTree } from "./StackFileTree";
+export { StackContentPane } from "./StackContentPane";
 export { StackSummary } from "./StackSummary";
-export { CreateFileDialog } from "./CreateFileDialog";

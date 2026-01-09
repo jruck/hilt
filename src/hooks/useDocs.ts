@@ -1,6 +1,7 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import useSWR from "swr";
 import type { DocsTreeResponse, DocsFileResponse, FileNode } from "@/lib/types";
+import { useEventSocketContext } from "@/contexts/EventSocketContext";
 
 const fetcher = async (url: string) => {
   const res = await fetch(url);
@@ -10,19 +11,6 @@ const fetcher = async (url: string) => {
   }
   return res.json();
 };
-
-// Visibility-aware refresh interval
-function useVisibilityAwareInterval(activeInterval: number, hiddenInterval: number) {
-  const [isVisible, setIsVisible] = useState(true);
-
-  useEffect(() => {
-    const handleVisibility = () => setIsVisible(!document.hidden);
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, []);
-
-  return isVisible ? activeInterval : hiddenInterval;
-}
 
 // localStorage keys for expanded paths
 const EXPANDED_PATHS_KEY = "docs-expanded-paths";
@@ -95,10 +83,13 @@ export interface UseDocsResult {
 }
 
 export function useDocs(scopePath: string | null): UseDocsResult {
-  // Visibility-aware polling: 5s active, 30s hidden
-  const treeRefreshInterval = useVisibilityAwareInterval(5000, 30000);
+  // Event socket for real-time updates
+  const { connected, subscribe, unsubscribe, on } = useEventSocketContext();
 
-  // Tree data
+  // Track selected path in ref for event handler (avoids stale closure)
+  const selectedPathRef = useRef<string | null>(null);
+
+  // Tree data - no polling, updated via WebSocket events
   const {
     data: treeData,
     error: treeError,
@@ -107,7 +98,7 @@ export function useDocs(scopePath: string | null): UseDocsResult {
   } = useSWR<DocsTreeResponse>(
     scopePath ? `/api/docs/tree?scope=${encodeURIComponent(scopePath)}` : null,
     fetcher,
-    { refreshInterval: treeRefreshInterval, keepPreviousData: true }
+    { keepPreviousData: true }
   );
 
   // Expanded paths state
@@ -153,8 +144,59 @@ export function useDocs(scopePath: string | null): UseDocsResult {
     });
   }, []);
 
-  // Selected file
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  // Selected file - initialize from URL if present
+  const [selectedPath, setSelectedPathInternal] = useState<string | null>(() => {
+    if (typeof window === "undefined" || !scopePath) return null;
+    const params = new URLSearchParams(window.location.search);
+    const docParam = params.get("doc");
+    return docParam ? `${scopePath}/${docParam}` : null;
+  });
+
+  // Wrapper that also updates URL
+  const setSelectedPath = useCallback(
+    (path: string | null) => {
+      setSelectedPathInternal(path);
+      if (typeof window === "undefined" || !scopePath) return;
+
+      const url = new URL(window.location.href);
+      if (path && path.startsWith(scopePath)) {
+        const relativePath = path.slice(scopePath.length + 1); // +1 for the trailing /
+        url.searchParams.set("doc", relativePath);
+      } else {
+        url.searchParams.delete("doc");
+      }
+      window.history.pushState({ doc: path }, "", url.toString());
+    },
+    [scopePath]
+  );
+
+  // Handle browser back/forward
+  useEffect(() => {
+    const handlePopState = () => {
+      if (!scopePath) return;
+      const params = new URLSearchParams(window.location.search);
+      const docParam = params.get("doc");
+      setSelectedPathInternal(docParam ? `${scopePath}/${docParam}` : null);
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [scopePath]);
+
+  // Re-initialize from URL when scope changes
+  useEffect(() => {
+    if (typeof window === "undefined" || !scopePath) {
+      setSelectedPathInternal(null);
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    const docParam = params.get("doc");
+    setSelectedPathInternal(docParam ? `${scopePath}/${docParam}` : null);
+  }, [scopePath]);
+
+  // Keep selectedPathRef in sync for event handler
+  useEffect(() => {
+    selectedPathRef.current = selectedPath;
+  }, [selectedPath]);
 
   // Edit mode
   const [isEditMode, setEditMode] = useState(false);
@@ -163,8 +205,7 @@ export function useDocs(scopePath: string | null): UseDocsResult {
   const [baselineContent, setBaselineContent] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  // File content - only poll when not in edit mode
-  const fileRefreshInterval = useVisibilityAwareInterval(5000, 30000);
+  // File content - no polling, updated via WebSocket events (unless in edit mode)
   const {
     data: fileData,
     error: fileError,
@@ -175,11 +216,57 @@ export function useDocs(scopePath: string | null): UseDocsResult {
       ? `/api/docs/file?path=${encodeURIComponent(selectedPath)}&scope=${encodeURIComponent(scopePath)}`
       : null,
     fetcher,
-    {
-      refreshInterval: isEditMode ? 0 : fileRefreshInterval, // Don't poll while editing
-      keepPreviousData: true,
-    }
+    { keepPreviousData: true }
   );
+
+  // Track edit mode in ref to avoid stale closures
+  const isEditModeRef = useRef(isEditMode);
+  useEffect(() => {
+    isEditModeRef.current = isEditMode;
+  }, [isEditMode]);
+
+  // Subscribe to WebSocket events for real-time updates
+  useEffect(() => {
+    if (!connected || !scopePath) return;
+
+    // Subscribe to tree and file change events for this scope
+    subscribe("tree", { scope: scopePath });
+    subscribe("file", { scope: scopePath });
+
+    // Handle tree changes - refresh the file tree
+    const unsubTree = on("tree", "changed", () => {
+      mutateTree();
+    });
+
+    // Handle file changes - refresh if it's the selected file (and not in edit mode)
+    const unsubFile = on("file", "changed", (data) => {
+      const event = data as { path: string };
+      // Only refresh if it's the currently selected file and not editing
+      if (event.path === selectedPathRef.current && !isEditModeRef.current) {
+        mutateFile();
+      }
+    });
+
+    return () => {
+      unsubTree();
+      unsubFile();
+      unsubscribe("tree");
+      unsubscribe("file");
+    };
+  }, [connected, scopePath, subscribe, unsubscribe, on, mutateTree, mutateFile]);
+
+  // Re-fetch data when WebSocket reconnects (connected goes from false to true)
+  const wasConnectedRef = useRef(connected);
+  useEffect(() => {
+    if (connected && !wasConnectedRef.current) {
+      console.log("[useDocs] WebSocket reconnected, re-fetching data");
+      mutateTree();
+      if (selectedPathRef.current && !isEditModeRef.current) {
+        mutateFile();
+      }
+    }
+    wasConnectedRef.current = connected;
+  }, [connected, mutateTree, mutateFile]);
 
   // Reset edit state when file changes
   useEffect(() => {

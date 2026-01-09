@@ -644,7 +644,7 @@ export function TerminalDrawer({
                     terminalId={stableTerminalId}
                     sessionId={session.id}
                     projectPath={session.projectPath}
-                    wsUrl={wsPort ? `ws://localhost:${wsPort}` : undefined}
+                    wsUrl={wsPort ? `ws://localhost:${wsPort}/terminal` : undefined}
                     isNew={session.isNew}
                     initialPrompt={session.initialPrompt}
                     isActive={session.id === activeSession?.id}

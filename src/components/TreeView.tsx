@@ -12,12 +12,85 @@ import { TreeNodeCard } from "./TreeNodeCard";
 import { TreeSessionCard } from "./TreeSessionCard";
 import { Loader2 } from "lucide-react";
 
+// Filter a session based on search query and filters
+function sessionMatchesFilters(
+  session: Session,
+  searchQuery: string | undefined,
+  filters: { hasPlan: boolean } | undefined
+): boolean {
+  // Apply hasPlan filter
+  if (filters?.hasPlan && (!session.planSlugs || session.planSlugs.length === 0)) {
+    return false;
+  }
+
+  // Apply search filter
+  if (searchQuery?.trim()) {
+    const query = searchQuery.toLowerCase();
+    const matchesSearch = (text: string | null | undefined) =>
+      text?.toLowerCase().includes(query);
+
+    if (
+      !matchesSearch(session.title) &&
+      !matchesSearch(session.firstPrompt) &&
+      !matchesSearch(session.slug) &&
+      !matchesSearch(session.project) &&
+      !matchesSearch(session.gitBranch)
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// Recursively filter a tree node, keeping only sessions that match filters
+// Returns null if the node has no matching sessions (direct or in children)
+function filterTreeNode(
+  node: TreeNode,
+  searchQuery: string | undefined,
+  filters: { hasPlan: boolean } | undefined
+): TreeNode | null {
+  // Filter direct sessions
+  const filteredSessions = node.sessions.filter((s) =>
+    sessionMatchesFilters(s, searchQuery, filters)
+  );
+
+  // Recursively filter children
+  const filteredChildren: TreeNode[] = [];
+  for (const child of node.children) {
+    const filteredChild = filterTreeNode(child, searchQuery, filters);
+    if (filteredChild) {
+      filteredChildren.push(filteredChild);
+    }
+  }
+
+  // If no matching sessions and no matching children, exclude this node
+  if (filteredSessions.length === 0 && filteredChildren.length === 0) {
+    return null;
+  }
+
+  // Return filtered node with updated metrics
+  return {
+    ...node,
+    sessions: filteredSessions,
+    children: filteredChildren,
+    metrics: {
+      ...node.metrics,
+      totalSessions: filteredSessions.length + filteredChildren.reduce((sum, c) => sum + c.metrics.totalSessions, 0),
+      directSessions: filteredSessions.length,
+    },
+  };
+}
+
 interface TreeViewProps {
   tree: TreeNode | null;
   scopePath: string;
   onNavigate: (path: string) => void;
   onOpenSession: (session: Session) => void;
   isLoading?: boolean;
+  // Search and filter
+  searchQuery?: string;
+  filters?: { hasPlan: boolean };
   // Session action callbacks
   onSelectSession?: (session: Session, selected: boolean) => void;
   onDeleteSession?: (session: Session) => void;
@@ -32,6 +105,8 @@ export function TreeView({
   onNavigate,
   onOpenSession,
   isLoading,
+  searchQuery,
+  filters,
   onSelectSession,
   onDeleteSession,
   onArchiveSession,
@@ -54,14 +129,27 @@ export function TreeView({
     return () => observer.disconnect();
   }, []);
 
+  // Check if any filters are active
+  const hasActiveFilters = searchQuery?.trim() || filters?.hasPlan;
+
   // Calculate layout when dimensions or tree changes
   const rects = useMemo(() => {
     if (!tree || dimensions.width === 0 || dimensions.height === 0) {
       return [];
     }
 
+    // Apply search and filter if active
+    let treeToLayout = tree;
+    if (hasActiveFilters) {
+      const filtered = filterTreeNode(tree, searchQuery, filters);
+      if (!filtered) {
+        return []; // No matching sessions
+      }
+      treeToLayout = filtered;
+    }
+
     // Prepare items for layout (child folders + direct sessions)
-    const itemsToLayout = prepareLayoutItems(tree);
+    const itemsToLayout = prepareLayoutItems(treeToLayout);
 
     if (itemsToLayout.length === 0) {
       return [];
@@ -74,7 +162,7 @@ export function TreeView({
       minWidth: 60,
       minHeight: 40,
     });
-  }, [tree, dimensions.width, dimensions.height]);
+  }, [tree, dimensions.width, dimensions.height, searchQuery, filters, hasActiveFilters]);
 
   // Handle click on a rectangle
   const handleRectClick = (rect: TreemapRect) => {

@@ -19,7 +19,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { SessionStatus, Session } from "@/lib/types";
+import { Session, ColumnId } from "@/lib/types";
 import { SessionCard } from "./SessionCard";
 import { InboxCard } from "./InboxCard";
 import { NewDraftCard } from "./NewDraftCard";
@@ -34,6 +34,7 @@ import {
   Terminal,
   FolderOpen,
   Star,
+  AlertCircle,
 } from "lucide-react";
 
 interface InboxItem {
@@ -92,10 +93,11 @@ interface TodoSection {
 }
 
 interface ColumnProps {
-  status: SessionStatus;
+  columnId: ColumnId;
   sessions: Session[];
   totalCount?: number;  // True total count from API (may differ from sessions.length due to pagination)
   isLoading?: boolean;  // Show skeleton cards while loading
+  locked?: boolean;     // Prevent drag/drop (for auto-populated columns like "attention")
   inboxItems?: InboxItem[];
   todoSections?: TodoSection[];
   scopePath?: string;  // For opening todo file
@@ -140,7 +142,7 @@ function SkeletonCard() {
 }
 
 const columnConfig: Record<
-  SessionStatus,
+  ColumnId,
   { title: string; icon: React.ReactNode; color: string }
 > = {
   inbox: {
@@ -148,8 +150,13 @@ const columnConfig: Record<
     icon: <Inbox className="w-4 h-4" />,
     color: "text-blue-400",
   },
+  attention: {
+    title: "Needs Attention",
+    icon: <AlertCircle className="w-4 h-4" />,
+    color: "text-amber-400",
+  },
   active: {
-    title: "In Progress",
+    title: "Active",
     icon: <Loader2 className="w-4 h-4" />,
     color: "text-emerald-400",
   },
@@ -256,10 +263,11 @@ function SortableSectionHeader({
 }
 
 export function Column({
-  status,
+  columnId,
   sessions,
   totalCount,
   isLoading = false,
+  locked = false,
   inboxItems = [],
   todoSections = [],
   scopePath,
@@ -294,8 +302,9 @@ export function Column({
   const [selectedSection, setSelectedSection] = useState<string | null>("New");
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const [collapsedTimeGroups, setCollapsedTimeGroups] = useState<Set<string>>(new Set());
-  const { setNodeRef, isOver } = useDroppable({ id: status });
-  const config = columnConfig[status];
+  // Use columnId for droppable - disabled for locked columns
+  const { setNodeRef, isOver } = useDroppable({ id: columnId, disabled: locked });
+  const config = columnConfig[columnId];
 
   // Sensors for section drag and drop
   const sectionSensors = useSensors(
@@ -406,7 +415,7 @@ export function Column({
   }
 
   // Sort sessions for recent column: starred first, then by lastActivity
-  const sortedSessions = status === "recent"
+  const sortedSessions = columnId === "recent"
     ? [...sessions].sort((a, b) => {
         // Starred items first
         if (a.starred && !b.starred) return -1;
@@ -466,7 +475,7 @@ export function Column({
           <span className={config.color}>{config.icon}</span>
           <h2 className="font-semibold text-[var(--text-primary)]">{config.title}</h2>
           <span className="text-xs text-[var(--text-tertiary)] bg-[var(--bg-tertiary)] px-2 py-0.5 rounded-full">
-            {status === "inbox"
+            {columnId === "inbox"
               ? inboxItems.length + (totalCount ?? sessions.length)
               : (totalCount ?? sessions.length)}
           </span>
@@ -474,7 +483,7 @@ export function Column({
 
         <div className="flex items-center gap-1">
           {/* Inbox: Add button and open todo.md button */}
-          {status === "inbox" && (
+          {columnId === "inbox" && (
             <>
               {onCreateInboxItem && (
                 <button
@@ -505,7 +514,7 @@ export function Column({
           )}
 
           {/* Active: Drawer toggle */}
-          {status === "active" && openSessionCount > 0 && onToggleDrawer && (
+          {columnId === "active" && openSessionCount > 0 && onToggleDrawer && (
             <button
               onClick={onToggleDrawer}
               className={`flex items-center gap-1.5 px-2 py-1 rounded text-sm transition-colors ${
@@ -533,7 +542,7 @@ export function Column({
         }}
       >
         {/* New draft card being created */}
-        {status === "inbox" && isCreatingNew && (
+        {columnId === "inbox" && isCreatingNew && (
           <div className="space-y-2">
             <select
               value={selectedSection || ""}
@@ -561,7 +570,7 @@ export function Column({
         )}
 
         {/* Inbox items with unified drag-and-drop for sections and items */}
-        {status === "inbox" && (
+        {columnId === "inbox" && (
           <DndContext
             sensors={sectionSensors}
             collisionDetection={closestCenter}
@@ -636,7 +645,7 @@ export function Column({
         <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
 
           {/* Sessions */}
-          {status === "recent" ? (
+          {columnId === "recent" ? (
             // Group sessions by time for Recent column
             (() => {
               const groups: { group: TimeGroup; sessions: typeof sortedSessions }[] = [];
@@ -691,6 +700,7 @@ export function Column({
                         <SessionCard
                           key={session.id}
                           session={session}
+                          scopePath={scopePath}
                           onOpen={onOpenSession}
                           onOpenPlan={onOpenPlan}
                           onDelete={onDeleteSession}
@@ -750,6 +760,7 @@ export function Column({
               <SessionCard
                 key={session.id}
                 session={session}
+                scopePath={scopePath}
                 onOpen={onOpenSession}
                 onOpenPlan={onOpenPlan}
                 onDelete={onDeleteSession}
@@ -771,17 +782,19 @@ export function Column({
           <div className="space-y-2">
             <SkeletonCard />
             <SkeletonCard />
-            {status === "recent" && <SkeletonCard />}
+            {columnId === "recent" && <SkeletonCard />}
           </div>
         )}
 
         {/* Empty state - only show when not loading */}
         {!isLoading && sessions.length === 0 && inboxItems.length === 0 && !isCreatingNew && (
           <div className="text-center text-[var(--text-tertiary)] text-sm py-8">
-            {status === "inbox"
+            {columnId === "inbox"
               ? "No items"
-              : status === "recent"
+              : columnId === "recent"
               ? "No recent sessions"
+              : columnId === "attention"
+              ? "All clear"
               : "No sessions"}
           </div>
         )}

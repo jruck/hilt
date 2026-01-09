@@ -8,6 +8,148 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
+- **Session status detection bug** - Sessions waiting for tool approval now correctly appear in "Needs Attention" column
+  - Bug: `turn_duration` JSONL entries were incorrectly clearing `pendingToolUses` array
+  - This caused `waiting_for_approval` status to never be detected (always showed as `waiting_for_input`)
+  - Fix: Removed premature clearing in `deriveSessionState()` - only `tool_result` entries should clear pending tools
+  - File: `src/lib/session-status.ts`
+
+- **Card styling priority** - Sessions needing attention now always show amber styling
+  - Bug: `isNewlyAdded` check took precedence over `needsAttention`, so new sessions waiting for approval showed green instead of amber
+  - Fix: Reordered conditions so `sessionNeedsAttention` is checked first
+  - File: `src/components/SessionCard.tsx`
+
+- **Card glow color** - "Newly added" glow effect now uses amber for cards needing attention
+  - Bug: Glow was always green (emerald) regardless of card state
+  - Fix: Glow color now matches card palette - amber for attention, green for normal active
+  - File: `src/components/SessionCard.tsx`
+
+- **Action toolbar color** - Hover toolbar now uses amber for cards needing attention
+  - Bug: Toolbar was green when card was newly added, even if it needed attention
+  - Fix: Reordered styling priority so `sessionNeedsAttention` takes precedence over `isNewlyAdded`
+  - File: `src/components/SessionCard.tsx`
+
+- **Event propagation delay** - Reduced delay for session status updates appearing in UI
+  - Reduced SessionWatcher debounce from 200ms to 50ms
+  - Reduced Chokidar stability threshold from 100ms to 50ms, poll interval from 50ms to 25ms
+  - Added fallback refetch when session:updated event references unknown session
+  - File: `server/watchers/session-watcher.ts`, `src/hooks/useSessions.ts`
+
+### Changed
+
+- **Needs Attention column simplified** - Removed WAITING/IDLE section separators
+  - Sessions are now just sorted by recency (most recent first)
+  - Cleaner UI without unnecessary grouping dividers
+  - File: `src/components/Column.tsx`
+
+### Added
+
+- **Elapsed timer on status badges** - Ticking timer shows time since last activity
+  - Displays next to Working, Needs Approval, and Waiting status badges
+  - Format progresses: seconds (5s) → minutes (5m) → hours (2h 15m) → days (3d 5h)
+  - Updates every second for accurate real-time tracking
+  - File: `src/components/SessionCard.tsx`
+
+- **Event-Driven Architecture (Phase 1)** - WebSocket infrastructure for real-time updates
+  - New EventServer class for channel-based subscriptions and event broadcasting
+  - `useEventSocket` hook for client-side WebSocket connection with auto-reconnect
+  - `EventSocketProvider` context for app-wide WebSocket access
+  - Path-based WebSocket routing: `/terminal` for PTY, `/events` for real-time events
+  - Manual upgrade handling for multiple WebSocket servers on same HTTP server
+  - Unit test scaffolding for EventServer and useEventSocket
+  - Files: `server/event-server.ts`, `src/hooks/useEventSocket.ts`, `src/contexts/EventSocketContext.tsx`, `server/ws-server.ts`
+
+- **Event-Driven Architecture (Phase 2)** - Session file watching and status derivation
+  - SessionWatcher class using Chokidar to watch `~/.claude/projects` for JSONL changes
+  - Real-time status derivation from JSONL entries: `working`, `waiting_for_approval`, `waiting_for_input`, `idle`
+  - Detects pending tool uses by tracking `tool_use` and `tool_result` blocks
+  - 5-minute idle threshold for marking inactive sessions
+  - Broadcasts `session:created`, `session:updated`, `session:deleted` events via EventServer
+  - `useSessions` hook subscribes to session events for real-time UI updates
+  - Optimistic updates when session status changes
+  - Reduced polling interval (30s) when WebSocket connected, fallback to 5s otherwise
+  - Unit test coverage for status derivation logic
+  - Files: `server/watchers/session-watcher.ts`, `src/lib/session-status.ts`, `src/lib/types.ts`, `src/hooks/useSessions.ts`
+
+- **Event-Driven Architecture (Phase 3)** - Needs Attention column and status badges
+  - New "Needs Attention" column for sessions awaiting tool approval or user input
+  - Column auto-populates based on `derivedState.status` (waiting_for_approval, waiting_for_input)
+  - Virtual column - sessions aren't persisted with "attention" status, just filtered there
+  - Locked column - prevents drag-and-drop in/out (uses `useDroppable({ disabled })`)
+  - "All clear" empty state when no sessions need attention
+  - Renamed "In Progress" column to "Active"
+  - Added `ColumnId` type as union of `SessionStatus | "attention"`
+  - Added `needsAttention()` helper function for status checking
+  - **Amber card styling** - Cards needing attention have amber border/background to match column icon
+  - **Unified CardBadge component** - All status badges (New, Working, Needs Approval, Waiting) use same component
+  - Badge colors match card state (amber for attention, emerald for active)
+  - Pulsing "running" dot color changes to amber when card needs attention
+  - **isIdle separation** - `DerivedSessionState.isIdle` is now separate from status
+    - Sessions waiting for input/approval remain in attention column even when idle (5+ min inactive)
+    - Allows proper grouping: actively waiting vs abandoned/idle waiting
+  - **Waiting/Idle dividers** - Attention column groups sessions with collapsible headers
+    - "Waiting" section: Sessions actively awaiting response (not idle)
+    - "Idle" section: Sessions needing attention but idle for 5+ minutes
+  - **derivedState API integration** - Sessions API now populates derivedState
+    - New `getSessionDerivedState()` in claude-sessions.ts reads and parses JSONL
+    - Only computed for running/active sessions to minimize overhead
+  - Files: `src/lib/types.ts`, `src/lib/session-status.ts`, `src/lib/claude-sessions.ts`, `src/app/api/sessions/route.ts`, `src/components/Board.tsx`, `src/components/Column.tsx`, `src/components/SessionCard.tsx`
+
+- **Event-Driven Architecture (Phase 4)** - Docs and Inbox real-time updates
+  - ScopeWatcher class using Chokidar to watch scope directories for file changes
+    - Emits `tree:changed` events when files/directories are added/removed
+    - Emits `file:changed` events when file content changes
+    - Per-client subscription with ref counting (shared watchers between clients)
+    - Ignores common non-content paths: node_modules, .git, .DS_Store, etc.
+  - InboxWatcher class to watch Todo.md files for inbox changes
+    - Watches `{scopePath}/docs/Todo.md` for each subscribed scope
+    - Emits `inbox:changed` events on file modifications
+    - Same ref counting pattern as ScopeWatcher
+  - Updated `useDocs` hook to use WebSocket events instead of polling
+    - Subscribes to `tree` and `file` channels on connection
+    - Triggers SWR mutate on events for instant UI updates
+    - Skips file refresh when in edit mode to prevent losing changes
+    - Removed 5s/30s polling interval (now event-driven)
+  - Updated `useInboxItems` hook to use WebSocket events
+    - Subscribes to `inbox` channel on connection
+    - Reduced polling to 30s fallback when connected
+  - Wired subscription handlers in ws-server.ts
+    - Starts/stops watchers based on client subscriptions
+    - Cleans up watchers on client disconnect
+  - Files: `server/watchers/scope-watcher.ts`, `server/watchers/inbox-watcher.ts`, `server/watchers/index.ts`, `server/ws-server.ts`, `src/hooks/useDocs.ts`, `src/hooks/useSessions.ts`
+
+- **Event-Driven Architecture (Phase 5)** - Remove polling, rely on WebSocket events
+  - Polling completely disabled when WebSocket is connected
+    - `useSessions`: No polling when connected, 5s/30s fallback when disconnected
+    - `useInboxItems`: No polling when connected, 5s/30s fallback when disconnected
+    - `useTreeSessions`: No polling when connected, 5s/30s fallback when disconnected
+    - `useDocs`: No polling at all, fully event-driven
+  - Reconnection re-fetch logic for all hooks
+    - Tracks previous connection state with `useRef`
+    - When WebSocket reconnects (false → true), triggers SWR mutate
+    - Ensures data is fresh after network interruptions
+  - Visibility-aware polling intervals for disconnected state
+    - 5 seconds when tab is visible
+    - 30 seconds when tab is hidden
+    - Reduces resource usage when not actively viewing
+  - Files: `src/hooks/useSessions.ts`, `src/hooks/useTreeSessions.ts`, `src/hooks/useDocs.ts`
+
+- **Code File Viewer/Editor** - Code files now render with syntax highlighting in docs panel
+  - Uses CodeMirror 6 for viewing and editing code files
+  - Supports 30+ file extensions: JS/TS/JSX/TSX, Python, HTML/CSS, JSON/YAML/XML, Rust, Go, Java, C/C++, SQL, PHP, shell scripts, and config files
+  - Full edit mode with Save button and unsaved changes detection
+  - Dark/light theme support matching app theme
+  - Line numbers, code folding, bracket matching, search
+  - Files: `src/components/docs/CodeViewer.tsx`, `src/components/docs/DocsContentPane.tsx`
+
+### Fixed
+
+- **Root Folder Auto-Select index.md** - Opening docs panel now auto-selects root index.md
+  - Previously, opening docs for a scope showed "select a file to view" even if root had index.md
+  - Added useEffect to auto-select root's index.md when tree loads and no file is selected
+  - Respects URL params - if `?doc=` is present, uses that instead
+  - Files: `src/components/DocsView.tsx`
+
 - **Folder Click Auto-Select index.md** - Clicking on a folder in the docs tree now auto-selects index.md
   - When clicking on a folder row (not the chevron), the folder expands AND its index.md is auto-selected
   - Also works for breadcrumb navigation - clicking a folder navigates and selects index.md
@@ -62,6 +204,46 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   - Files: `src/components/docs/DocsEditor.tsx`, `src/app/globals.css`
 
 ### Added
+
+- **Mode-Aware Search Filtering** - Search now filters content across all view modes
+  - Board mode: Filters session cards (existing behavior)
+  - Tree mode: Filters sessions in tree hierarchy
+  - Docs mode: Filters files/folders in file tree
+  - Search query persists when switching between modes
+  - Files: `src/components/Board.tsx`, `src/components/TreeView.tsx`, `src/components/docs/DocsFileTree.tsx`
+
+- **Extended File Type Rendering** - Docs viewer now renders images, PDFs, and CSVs
+  - ImageViewer: Displays images with zoom controls (100%, zoom in/out, reset)
+  - PDFViewer: Embeds PDFs with "Open in Finder" and "New Tab" buttons
+  - CSVTableViewer: Parses CSV and displays as HTML table with sticky headers
+  - Files: `src/components/docs/ImageViewer.tsx`, `src/components/docs/PDFViewer.tsx`, `src/components/docs/CSVTableViewer.tsx`, `src/components/docs/DocsContentPane.tsx`, `src/app/api/docs/raw/route.ts`
+
+- **File Viewability Styling** - Non-viewable files are now visually distinguished
+  - Viewable files (md, ts, js, json, images, etc.) shown in normal color
+  - Non-viewable files (mjs, etc.) shown greyed out with 50% opacity
+  - Files: `src/components/docs/DocsTreeItem.tsx`
+
+- **URL Document Selection** - Document selection persists in URL for browser navigation
+  - URL format: `/path/to/scope?doc=relative/path/to/file.md`
+  - Browser back/forward navigation works with file selections
+  - Direct linking to specific files supported
+  - Files: `src/hooks/useDocs.ts`
+
+### Changed
+
+- **DocsBreadcrumbs Styling** - Now matches ScopeBreadcrumbs visual style
+  - Uses monospace font (`font-mono`)
+  - Arrow separators (`→`) instead of chevrons
+  - Consistent button styling with hover background
+  - Files: `src/components/docs/DocsBreadcrumbs.tsx`
+
+- **DocsFileTree Simplified** - Removed redundant header bar
+  - Scope name and refresh button removed (redundant with main breadcrumbs)
+  - Cleaner interface with just the file tree
+  - Files: `src/components/docs/DocsFileTree.tsx`, `src/components/DocsView.tsx`
+
+- **Filter Button in Docs Mode** - Hidden when in docs view (no filter equivalent)
+  - Files: `src/components/Board.tsx`
 
 - **Turbopack by Default** - Switched from Webpack to Turbopack for faster dev experience
   - Initial compile: 585ms (was ~1000ms with Webpack)

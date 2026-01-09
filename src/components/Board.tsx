@@ -24,6 +24,7 @@ import { ScopeBreadcrumbs, BrowseButton, RecentScopesButton } from "./scope";
 import { ViewToggle, ViewMode } from "./ViewToggle";
 import { TreeView } from "./TreeView";
 import { DocsView } from "./DocsView";
+import { StackView } from "./stack";
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
 import { X, Inbox, Play, Clock, Search, Filter, FileText, Check, Archive, Eye, CheckCircle } from "lucide-react";
 
@@ -72,7 +73,7 @@ export function Board() {
     fetch("/api/preferences?key=viewMode")
       .then((res) => res.json())
       .then((data) => {
-        if (data.value === "board" || data.value === "tree" || data.value === "docs") {
+        if (data.value === "board" || data.value === "tree" || data.value === "docs" || data.value === "stack") {
           setViewMode(data.value);
         }
       })
@@ -85,6 +86,8 @@ export function Board() {
           setViewMode("tree");
         } else if (cachedViewMode === "docs") {
           setViewMode("docs");
+        } else if (cachedViewMode === "stack") {
+          setViewMode("stack");
         }
       })
       .finally(() => {
@@ -985,13 +988,17 @@ Proceed autonomously otherwise.`;
           pinnedFolders={pinnedFolders}
         />
 
-        {/* Conditional View: Docs, Tree, or Board */}
+        {/* Conditional View: Docs, Tree, Stack, or Board */}
         {viewMode === "docs" ? (
           <DocsView
             scopePath={scopePath}
             onScopeChange={setScopePath}
             searchQuery={searchQuery}
           />
+        ) : viewMode === "stack" ? (
+          <div className="flex-1 overflow-hidden">
+            <StackView scopePath={scopePath} />
+          </div>
         ) : viewMode === "tree" ? (
           <div
             className="flex-1 flex flex-col p-4 transition-[padding] duration-300"

@@ -351,7 +351,7 @@ export function SessionCard({ session, scopePath, onOpen, onOpenPlan, onDelete, 
         const displayMessage = session.derivedState?.lastMessage || session.lastMessage;
         if (displayMessage && displayMessage !== session.title) {
           return (
-            <p className="text-xs text-[var(--text-secondary)] mt-1 line-clamp-2 font-mono">
+            <p className="text-[11px] text-[var(--text-secondary)] mt-1 line-clamp-2 font-mono">
               {displayMessage}
             </p>
           );

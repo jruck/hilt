@@ -35,6 +35,7 @@ import {
   FolderOpen,
   Star,
   AlertCircle,
+  CheckCircle,
 } from "lucide-react";
 
 interface InboxItem {
@@ -161,8 +162,8 @@ const columnConfig: Record<
     color: "text-emerald-400",
   },
   recent: {
-    title: "Recent",
-    icon: <Clock className="w-4 h-4" />,
+    title: "Done",
+    icon: <CheckCircle className="w-4 h-4" />,
     color: "text-[var(--text-tertiary)]",
   },
 };

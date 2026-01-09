@@ -472,7 +472,7 @@ export function TerminalDrawer({
                     e.stopPropagation();
                     onCloseSession(session.id);
                   }}
-                  className="p-0.5 text-[var(--text-tertiary)] hover:text-emerald-400 rounded flex-shrink-0 transition-colors"
+                  className="p-0.5 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] rounded flex-shrink-0 transition-colors"
                   title="Mark as done"
                 >
                   <CheckCircle className="w-3.5 h-3.5" />

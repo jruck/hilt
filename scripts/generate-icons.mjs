@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Generate proper macOS app icons with the 🧱 emoji
+ * Generate proper macOS app icons with the 🗡️ dagger emoji
  * Creates a squircle-shaped icon with black background and centered emoji
  *
- * Uses PyObjC to access macOS Core Graphics for proper emoji rendering
+ * Uses Swift/AppKit to access macOS Core Graphics for proper emoji rendering
  */
 
 import { execSync } from "child_process";
@@ -18,7 +18,7 @@ const iconsetDir = join(buildDir, "icon.iconset");
 const icnsPath = join(buildDir, "icon.icns");
 
 async function main() {
-  console.log("Generating macOS app icons with 🧱 emoji...");
+  console.log("Generating macOS app icons with 🗡️ dagger emoji...");
   console.log("");
 
   // Create iconset directory
@@ -92,7 +92,7 @@ func createIcon(size: Int, outputPath: String) -> Bool {
     squircle.fill()
 
     // Draw emoji centered within the squircle
-    let emoji = "🧱"
+    let emoji = "🗡️"
     // Emoji size relative to squircle (not canvas) - 70% fills it nicely
     let fontSize = iconSize * 0.70
 

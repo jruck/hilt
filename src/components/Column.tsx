@@ -25,7 +25,7 @@ import { InboxCard } from "./InboxCard";
 import { NewDraftCard } from "./NewDraftCard";
 import {
   Inbox,
-  Loader2,
+  Play,
   Clock,
   Plus,
   ChevronDown,
@@ -158,7 +158,7 @@ const columnConfig: Record<
   },
   active: {
     title: "Active",
-    icon: <Loader2 className="w-4 h-4" />,
+    icon: <Play className="w-4 h-4" />,
     color: "text-emerald-400",
   },
   recent: {

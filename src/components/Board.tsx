@@ -25,14 +25,14 @@ import { ViewToggle, ViewMode } from "./ViewToggle";
 import { TreeView } from "./TreeView";
 import { DocsView } from "./DocsView";
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
-import { X, Inbox, Loader2 as InProgressIcon, Clock, Search, Filter, FileText, Check, Archive, Eye, CheckCircle } from "lucide-react";
+import { X, Inbox, Play, Clock, Search, Filter, FileText, Check, Archive, Eye, CheckCircle } from "lucide-react";
 
 const COLUMNS: ColumnId[] = ["inbox", "active", "attention", "recent"];
 
 const COLUMN_CONFIG: Record<ColumnId, { label: string; icon: React.ReactNode }> = {
   inbox: { label: "To Do", icon: <Inbox className="w-4 h-4" /> },
   attention: { label: "Review", icon: <Eye className="w-4 h-4" /> },
-  active: { label: "Active", icon: <InProgressIcon className="w-4 h-4" /> },
+  active: { label: "Active", icon: <Play className="w-4 h-4" /> },
   recent: { label: "Done", icon: <CheckCircle className="w-4 h-4" /> },
 };
 

@@ -13,7 +13,7 @@ Two consecutive draft sessions must:
 ## Test Flow
 
 ### Setup
-1. Navigate to Claude Kanban at `http://localhost:3000`
+1. Navigate to Hilt at `http://localhost:3000`
 2. Take initial snapshot to understand UI structure
 
 ### Test Loop (repeat until 2 consecutive successes)

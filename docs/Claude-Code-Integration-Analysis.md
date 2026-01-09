@@ -1,14 +1,14 @@
-# Claude Kanban: Claude Code Integration Analysis
+# Hilt: Claude Code Integration Analysis
 
 *Analysis Date: January 2026*
 
-This document analyzes Claude Kanban's current functionality, Claude Code's architecture and features, and identifies opportunities to better surface Claude Code capabilities through the UI.
+This document analyzes Hilt's current functionality, Claude Code's architecture and features, and identifies opportunities to better surface Claude Code capabilities through the UI.
 
 ---
 
 ## Table of Contents
 
-1. [Current Claude Kanban Functionality](#1-current-claude-kanban-functionality)
+1. [Current Hilt Functionality](#1-current-hilt-functionality)
 2. [Claude Code Architecture & Features](#2-claude-code-architecture--features)
 3. [Session Management Deep Dive](#3-session-management-deep-dive)
 4. [Gap Analysis: Untapped Data & Features](#4-gap-analysis-untapped-data--features)
@@ -17,7 +17,7 @@ This document analyzes Claude Kanban's current functionality, Claude Code's arch
 
 ---
 
-## 1. Current Claude Kanban Functionality
+## 1. Current Hilt Functionality
 
 ### 1.1 Data Sources We Currently Use
 
@@ -518,7 +518,7 @@ View and modify permissions:
 ## Appendix A: JSONL Entry Type Reference
 
 ```
-Entry Type Distribution (from claude-kanban project):
+Entry Type Distribution (from hilt project):
 ────────────────────────────────────────────────────
 assistant              6357   ████████████████████
 tool_result            1455   █████

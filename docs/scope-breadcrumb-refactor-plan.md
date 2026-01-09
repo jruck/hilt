@@ -21,7 +21,7 @@ Board.tsx (toolbar)
 ## UI Layout
 
 ```
-[~] / [Work] / [Code] / [claude-kanban v]   [Clock]  [Browse]  [Filter...]
+[~] / [Work] / [Code] / [hilt v]   [Clock]  [Browse]  [Filter...]
  ^      ^        ^           ^                 ^        ^
  |      |        |           |                 |        └── Opens Finder
  |      |        |           |                 └── Recent scopes dropdown
@@ -66,7 +66,7 @@ Board.tsx (toolbar)
    - `getRecentScopes(): RecentScope[]`
    - `recordScopeVisit(path: string): void`
    - Max 10 entries, sorted by lastVisited
-   - localStorage key: `claude-kanban-recent-scopes`
+   - localStorage key: `hilt-recent-scopes`
 
 ### Phase 2: Integrate into Board.tsx
 
@@ -90,7 +90,7 @@ interface RecentScope {
   lastVisited: string;  // ISO timestamp
   visitCount: number;
 }
-// Key: claude-kanban-recent-scopes
+// Key: hilt-recent-scopes
 // Max 10 entries
 ```
 

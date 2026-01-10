@@ -8,6 +8,7 @@ export interface PinnedFolder {
   path: string;
   name: string;
   pinnedAt: number;
+  emoji?: string;
 }
 
 const CACHE_KEY = "/api/preferences?key=pinnedFolders";
@@ -126,6 +127,38 @@ export function usePinnedFolders() {
     mutate(CACHE_KEY);
   }, []);
 
+  const setEmoji = useCallback(
+    async (id: string, emoji: string | null): Promise<void> => {
+      // Optimistically update the cache
+      mutate(
+        CACHE_KEY,
+        (current: PinnedFolder[] | undefined) => {
+          if (!current) return [];
+          return current.map((f) =>
+            f.id === id
+              ? { ...f, emoji: emoji === null ? undefined : emoji }
+              : f
+          );
+        },
+        false
+      );
+
+      await fetch("/api/preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "setFolderEmoji",
+          id,
+          emoji,
+        }),
+      });
+
+      // Revalidate
+      mutate(CACHE_KEY);
+    },
+    []
+  );
+
   return {
     folders,
     pinFolder,
@@ -134,6 +167,7 @@ export function usePinnedFolders() {
     togglePin,
     reorderFolders,
     refreshFolders,
+    setEmoji,
     isHydrated,
     isLoading,
     error,

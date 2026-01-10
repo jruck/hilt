@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Added
+
+- **Custom emoji for pinned folders** - Click the folder icon to set a custom emoji
+  - Emoji replaces the folder icon in the sidebar
+  - Use native OS emoji picker (⌘⌃Space on macOS) or type/paste directly
+  - Emoji persists across unpin/re-pin (stored separately by path in `folderEmojis`)
+  - Files: `src/components/sidebar/SortablePinnedFolderItem.tsx`, `src/lib/db.ts`, `src/hooks/usePinnedFolders.ts`
+
 ### Changed
 
 - **App Rename: Claude Kanban → Hilt** - Complete rebrand of the application

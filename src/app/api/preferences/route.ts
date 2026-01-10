@@ -5,6 +5,7 @@ import {
   pinFolder,
   unpinFolder,
   reorderPinnedFolders,
+  setFolderEmoji,
   getSidebarCollapsed,
   setSidebarCollapsed,
   getTheme,
@@ -112,6 +113,23 @@ export async function PATCH(request: NextRequest) {
       }
       const folders = await reorderPinnedFolders(params.activeId, params.overId);
       return NextResponse.json(folders);
+    }
+
+    if (action === "setFolderEmoji") {
+      if (!params.id) {
+        return NextResponse.json(
+          { error: "id is required" },
+          { status: 400 }
+        );
+      }
+      const folder = await setFolderEmoji(params.id, params.emoji ?? null);
+      if (!folder) {
+        return NextResponse.json(
+          { error: "Folder not found" },
+          { status: 404 }
+        );
+      }
+      return NextResponse.json(folder);
     }
 
     // Handle simple key-value updates

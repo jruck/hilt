@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useRef, useEffect } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Folder, X } from "lucide-react";
@@ -14,6 +15,7 @@ interface SortablePinnedFolderItemProps {
   isActive: boolean;
   onClick: () => void;
   onUnpin: () => void;
+  onSetEmoji: (emoji: string | null) => void;
 }
 
 /**
@@ -27,7 +29,13 @@ export function SortablePinnedFolderItem({
   isActive,
   onClick,
   onUnpin,
+  onSetEmoji,
 }: SortablePinnedFolderItemProps) {
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [emojiInput, setEmojiInput] = useState(folder.emoji || "");
+  const emojiInputRef = useRef<HTMLInputElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
   const {
     attributes,
     listeners,
@@ -36,6 +44,50 @@ export function SortablePinnedFolderItem({
     transition,
     isDragging,
   } = useSortable({ id: folder.id });
+
+  // Focus input when picker opens
+  useEffect(() => {
+    if (showEmojiPicker && emojiInputRef.current) {
+      emojiInputRef.current.focus();
+    }
+  }, [showEmojiPicker]);
+
+  // Close on outside click
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
+        setShowEmojiPicker(false);
+      }
+    }
+    if (showEmojiPicker) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showEmojiPicker]);
+
+  const handleEmojiSubmit = () => {
+    const trimmed = emojiInput.trim();
+    if (trimmed !== (folder.emoji || "")) {
+      onSetEmoji(trimmed || null);
+    }
+    setShowEmojiPicker(false);
+  };
+
+  const handleEmojiKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleEmojiSubmit();
+    } else if (e.key === "Escape") {
+      setEmojiInput(folder.emoji || "");
+      setShowEmojiPicker(false);
+    }
+  };
+
+  const handleIconClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEmojiInput(folder.emoji || "");
+    setShowEmojiPicker(true);
+  };
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -91,7 +143,40 @@ export function SortablePinnedFolderItem({
         onClick={onClick}
         title={folder.path}
       >
-        <Folder className="w-4 h-4 flex-shrink-0" />
+        {/* Icon/emoji with picker */}
+        <div className="relative" ref={pickerRef}>
+          <button
+            onClick={handleIconClick}
+            className="w-5 h-5 flex items-center justify-center flex-shrink-0 rounded hover:bg-[var(--bg-elevated)] transition-colors"
+            title="Click to set emoji"
+          >
+            {folder.emoji ? (
+              <span className="text-sm leading-none">{folder.emoji}</span>
+            ) : (
+              <Folder className="w-4 h-4" />
+            )}
+          </button>
+
+          {/* Emoji picker popover */}
+          {showEmojiPicker && (
+            <div className="absolute left-0 top-full mt-1 z-50 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg shadow-lg p-2">
+              <input
+                ref={emojiInputRef}
+                type="text"
+                value={emojiInput}
+                onChange={(e) => setEmojiInput(e.target.value)}
+                onKeyDown={handleEmojiKeyDown}
+                onBlur={handleEmojiSubmit}
+                placeholder="🗂️"
+                className="w-16 px-2 py-1 text-center text-lg bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded focus:outline-none focus:ring-1 focus:ring-[var(--interactive-default)]"
+                maxLength={4}
+              />
+              <div className="text-[10px] text-[var(--text-tertiary)] mt-1 text-center whitespace-nowrap">
+                ⌘⌃Space for picker
+              </div>
+            </div>
+          )}
+        </div>
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">

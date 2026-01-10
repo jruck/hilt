@@ -10,4 +10,5 @@ export interface PinnedFolder {
   path: string;
   name: string;
   pinnedAt: number;
+  emoji?: string;
 }

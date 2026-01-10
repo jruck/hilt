@@ -8,6 +8,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
+- **Agent-Native Architecture Plan** - Comprehensive roadmap for making Hilt agent-native
+  - Parity audit: mapped 11 UI actions to agent capabilities (currently 36% parity)
+  - Five-phase implementation plan: file-based state, slash commands, context injection, explicit completion, capability discovery
+  - Key changes: move state to `~/.hilt/`, create management commands, generate `context.md`
+  - Anti-patterns documented: workflow-shaped tools, orphan UI actions, context starvation
+  - File: `docs/AGENT-NATIVE-PLAN.md`
+
 - **Custom emoji for pinned folders** - Click the folder icon to set a custom emoji
   - Emoji replaces the folder icon in the sidebar
   - Use native OS emoji picker (⌘⌃Space on macOS) or type/paste directly

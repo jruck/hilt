@@ -35,6 +35,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
+- **Ralph setup skips plugin check** - Modal now goes directly to configuration step
+  - Removed the initial plugin detection check that blocked users
+  - The Claude CLI handles plugin installation prompts if needed
+  - Simplified modal flow: opens straight to "config" step instead of "check" step
+  - Files: `src/components/RalphSetupModal.tsx`
+
 - **App Rename: Claude Kanban → Hilt** - Complete rebrand of the application
   - Package name: `claude-kanban` → `hilt`
   - App ID: `com.claude-kanban.app` → `com.hilt.app`

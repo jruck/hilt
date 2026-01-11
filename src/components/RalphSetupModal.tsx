@@ -1,17 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { X, RefreshCw, AlertTriangle, Copy, Check, ChevronRight, Play, Settings } from "lucide-react";
+import { useState, useEffect } from "react";
+import { X, RefreshCw, AlertTriangle, ChevronRight, Play, Settings } from "lucide-react";
 import { RalphConfig, RALPH_DEFAULTS, generateRalphCommand } from "@/lib/ralph";
 
-type SetupStep = "check" | "config" | "ready";
-
-interface RalphPluginStatus {
-  installed: boolean;
-  pluginPath?: string;
-  version?: string;
-  installCommand: string;
-}
+type SetupStep = "config" | "ready";
 
 interface RalphSetupModalProps {
   isOpen: boolean;
@@ -28,54 +21,20 @@ export function RalphSetupModal({
   onStartLoop,
   onStartPrdRefinement,
 }: RalphSetupModalProps) {
-  const [step, setStep] = useState<SetupStep>("check");
-  const [pluginStatus, setPluginStatus] = useState<RalphPluginStatus | null>(null);
-  const [isChecking, setIsChecking] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [step, setStep] = useState<SetupStep>("config");
 
   // Config state
   const [prompt, setPrompt] = useState(seedPrompt);
   const [maxIterations, setMaxIterations] = useState(RALPH_DEFAULTS.maxIterations);
   const [completionPromise, setCompletionPromise] = useState(RALPH_DEFAULTS.completionPromise);
 
-  // Check plugin status on mount
-  useEffect(() => {
-    if (isOpen) {
-      checkPlugin();
-    }
-  }, [isOpen]);
-
   // Reset state when modal opens with new prompt
   useEffect(() => {
     if (isOpen) {
       setPrompt(seedPrompt);
-      setStep("check");
+      setStep("config");
     }
   }, [isOpen, seedPrompt]);
-
-  const checkPlugin = async () => {
-    setIsChecking(true);
-    try {
-      const res = await fetch("/api/ralph");
-      const status = await res.json();
-      setPluginStatus(status);
-      if (status.installed) {
-        setStep("config");
-      }
-    } catch (error) {
-      console.error("Failed to check Ralph plugin:", error);
-    } finally {
-      setIsChecking(false);
-    }
-  };
-
-  const handleCopyCommand = useCallback(() => {
-    if (pluginStatus?.installCommand) {
-      navigator.clipboard.writeText(pluginStatus.installCommand);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  }, [pluginStatus]);
 
   const handleStartPrd = () => {
     // Start a refinement session to create the PRD
@@ -130,80 +89,6 @@ export function RalphSetupModal({
 
         {/* Content */}
         <div className="p-5">
-          {/* Step: Plugin Check */}
-          {step === "check" && (
-            <div className="space-y-4">
-              {isChecking ? (
-                <div className="flex items-center justify-center py-8">
-                  <RefreshCw className="w-6 h-6 text-[var(--text-tertiary)] animate-spin" />
-                  <span className="ml-2 text-[var(--text-secondary)]">
-                    Checking for Ralph Wiggum plugin...
-                  </span>
-                </div>
-              ) : pluginStatus && !pluginStatus.installed ? (
-                <div className="space-y-4">
-                  <div className="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-                    <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-sm font-medium text-amber-200">
-                        Ralph Wiggum plugin not installed
-                      </p>
-                      <p className="text-xs text-amber-200/70 mt-1">
-                        Install the plugin to use iterative loops
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <p className="text-sm text-[var(--text-secondary)]">
-                      Run this command in your terminal:
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 px-3 py-2 text-sm bg-[var(--bg-tertiary)] rounded-lg font-mono text-[var(--text-primary)]">
-                        {pluginStatus.installCommand}
-                      </code>
-                      <button
-                        onClick={handleCopyCommand}
-                        className="p-2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors"
-                        title="Copy command"
-                      >
-                        {copied ? (
-                          <Check className="w-4 h-4 text-green-400" />
-                        ) : (
-                          <Copy className="w-4 h-4" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      onClick={checkPlugin}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-[var(--bg-tertiary)] hover:bg-[var(--surface-card-hover)] text-[var(--text-primary)] rounded-lg transition-colors"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                      Check Again
-                    </button>
-                    <button
-                      onClick={() => setStep("config")}
-                      className="px-4 py-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors"
-                    >
-                      Skip
-                    </button>
-                  </div>
-                </div>
-              ) : pluginStatus?.installed ? (
-                <div className="flex items-center justify-center py-4">
-                  <Check className="w-5 h-5 text-green-400 mr-2" />
-                  <span className="text-[var(--text-secondary)]">
-                    Plugin installed
-                    {pluginStatus.version && ` (v${pluginStatus.version})`}
-                  </span>
-                </div>
-              ) : null}
-            </div>
-          )}
-
           {/* Step: Configuration */}
           {step === "config" && (
             <div className="space-y-5">

@@ -176,13 +176,21 @@ export function RalphSetupModal({
                     </div>
                   </div>
 
-                  <button
-                    onClick={checkPlugin}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[var(--bg-tertiary)] hover:bg-[var(--surface-card-hover)] text-[var(--text-primary)] rounded-lg transition-colors"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                    Check Again
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={checkPlugin}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-[var(--bg-tertiary)] hover:bg-[var(--surface-card-hover)] text-[var(--text-primary)] rounded-lg transition-colors"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      Check Again
+                    </button>
+                    <button
+                      onClick={() => setStep("config")}
+                      className="px-4 py-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors"
+                    >
+                      Skip
+                    </button>
+                  </div>
                 </div>
               ) : pluginStatus?.installed ? (
                 <div className="flex items-center justify-center py-4">

@@ -44,12 +44,31 @@ export const RALPH_DEFAULTS = {
  */
 export function checkRalphPlugin(): RalphPluginStatus {
   const homeDir = os.homedir();
+  const pluginsDir = path.join(homeDir, ".claude", "plugins");
 
   // Check common plugin locations
   const pluginPaths = [
-    path.join(homeDir, ".claude", "plugins", "ralph-wiggum"),
-    path.join(homeDir, ".claude", "plugins", "anthropics-ralph-wiggum"),
+    path.join(pluginsDir, "ralph-wiggum"),
+    path.join(pluginsDir, "anthropics-ralph-wiggum"),
+    path.join(pluginsDir, "anthropics", "ralph-wiggum"),
   ];
+
+  // Also scan the plugins directory for any folder containing "ralph"
+  try {
+    if (fs.existsSync(pluginsDir)) {
+      const entries = fs.readdirSync(pluginsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory() && entry.name.toLowerCase().includes("ralph")) {
+          const fullPath = path.join(pluginsDir, entry.name);
+          if (!pluginPaths.includes(fullPath)) {
+            pluginPaths.push(fullPath);
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore scan errors
+  }
 
   for (const pluginPath of pluginPaths) {
     if (fs.existsSync(pluginPath)) {

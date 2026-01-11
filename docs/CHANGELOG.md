@@ -14,6 +14,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   - Emoji persists across unpin/re-pin (stored separately by path in `folderEmojis`)
   - Files: `src/components/sidebar/SortablePinnedFolderItem.tsx`, `src/lib/db.ts`, `src/hooks/usePinnedFolders.ts`
 
+- **One-command install script** - `./install.sh` handles full setup
+  - Checks Node.js ≥18.18 and build tools (Xcode CLI / build-essential)
+  - Installs dependencies with proper env vars for node-pty compilation
+  - Creates `~/.hilt/data` directory
+  - Optionally adds `hilt` shell alias to .zshrc/.bashrc
+  - Files: `install.sh`, `.nvmrc`, `README.md` (Quick Install + Troubleshooting sections)
+
 ### Changed
 
 - **App Rename: Claude Kanban → Hilt** - Complete rebrand of the application

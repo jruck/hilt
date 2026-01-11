@@ -116,6 +116,7 @@ interface ColumnProps {
   onStartInboxItem?: (item: { id: string; prompt: string }) => void;
   onRefineInboxItem?: (item: { id: string; prompt: string }) => void;
   onProcessReference?: (item: { id: string; prompt: string }) => void;
+  onRalphInboxItem?: (item: { id: string; prompt: string }) => void;
   onReorderSections?: (sectionOrder: string[]) => void;
   onReorderItem?: (itemId: string, targetSection: string | null, targetIndex: number) => void;
   sessionStatuses?: Record<string, string>;
@@ -285,6 +286,7 @@ export function Column({
   onStartInboxItem,
   onRefineInboxItem,
   onProcessReference,
+  onRalphInboxItem,
   onReorderSections,
   onReorderItem,
   sessionStatuses = {},
@@ -590,6 +592,7 @@ export function Column({
                   onStart={() => onStartInboxItem?.(item)}
                   onRefine={() => onRefineInboxItem?.(item)}
                   onProcessReference={() => onProcessReference?.(item)}
+                  onRalph={() => onRalphInboxItem?.(item)}
                   onUpdate={(prompt) => onUpdateInboxItem?.(item.id, prompt)}
                   isSelected={selectedIds.has(`inbox-${item.id}`)}
                   onSelect={onSelectInboxItem}
@@ -631,6 +634,7 @@ export function Column({
                         onStart={() => onStartInboxItem?.(item)}
                         onRefine={() => onRefineInboxItem?.(item)}
                         onProcessReference={() => onProcessReference?.(item)}
+                        onRalph={() => onRalphInboxItem?.(item)}
                         onUpdate={(prompt) => onUpdateInboxItem?.(item.id, prompt)}
                         isSelected={selectedIds.has(`inbox-${item.id}`)}
                         onSelect={onSelectInboxItem}

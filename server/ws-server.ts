@@ -123,6 +123,8 @@ const terminalToWs = new Map<string, Set<WebSocket>>();
 const terminalTitles = new Map<string, string>();
 // Track last known context progress per terminal (0-100)
 const terminalContextProgress = new Map<string, number>();
+// Track Ralph loop iteration per terminal
+const terminalRalphIteration = new Map<string, { current: number; max: number }>();
 
 /**
  * Parse OSC sequences to extract terminal title changes
@@ -182,6 +184,39 @@ function extractContextProgress(data: string): number | null {
     }
   }
   return null;
+}
+
+/**
+ * Extract Ralph Wiggum loop iteration from terminal output
+ * Returns [current, max] or null if not found
+ */
+function extractRalphIteration(data: string): { current: number; max: number } | null {
+  // Common patterns Ralph might output
+  const patterns = [
+    /iteration\s+(\d+)\s*\/\s*(\d+)/i,
+    /loop\s+(\d+)\s*of\s*(\d+)/i,
+    /\[(\d+)\/(\d+)\]/,
+    /ralph.*?(\d+)\s*\/\s*(\d+)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = data.match(pattern);
+    if (match) {
+      const current = parseInt(match[1], 10);
+      const max = parseInt(match[2], 10);
+      if (current > 0 && max > 0 && current <= max) {
+        return { current, max };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Check if output indicates Ralph loop completion
+ */
+function isRalphComplete(data: string): boolean {
+  return data.includes("RALPH_COMPLETE:");
 }
 
 async function startServer() {
@@ -442,6 +477,43 @@ async function startServer() {
       });
     }
 
+    // Check for Ralph loop iteration changes
+    const ralphIteration = extractRalphIteration(data);
+    if (ralphIteration) {
+      const lastIteration = terminalRalphIteration.get(terminalId);
+      if (!lastIteration || lastIteration.current !== ralphIteration.current || lastIteration.max !== ralphIteration.max) {
+        terminalRalphIteration.set(terminalId, ralphIteration);
+        const ralphMsg = JSON.stringify({
+          type: "ralph",
+          terminalId,
+          event: "iteration",
+          current: ralphIteration.current,
+          max: ralphIteration.max,
+        });
+        wsSet.forEach((ws) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(ralphMsg);
+          }
+        });
+      }
+    }
+
+    // Check for Ralph loop completion
+    if (isRalphComplete(data)) {
+      terminalRalphIteration.delete(terminalId);
+      const completeMsg = JSON.stringify({
+        type: "ralph",
+        terminalId,
+        event: "complete",
+        success: true,
+      });
+      wsSet.forEach((ws) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(completeMsg);
+        }
+      });
+    }
+
     // Forward the data
     const msg = JSON.stringify({ type: "data", terminalId, data });
     wsSet.forEach((ws) => {
@@ -465,6 +537,7 @@ async function startServer() {
     terminalToWs.delete(terminalId);
     terminalTitles.delete(terminalId);
     terminalContextProgress.delete(terminalId);
+    terminalRalphIteration.delete(terminalId);
   });
 
   // Handle graceful shutdown

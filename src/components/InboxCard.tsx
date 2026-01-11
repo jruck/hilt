@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Trash2, Play, Square, CheckSquare, Pencil, Brain, Bookmark, Check, X } from "lucide-react";
+import { Trash2, Play, Square, CheckSquare, Pencil, Brain, Bookmark, Check, X, RefreshCw } from "lucide-react";
 
 /**
  * Extract a display title from todo content.
@@ -55,6 +55,7 @@ interface InboxCardProps {
   onStart?: () => void;
   onRefine?: () => void;
   onProcessReference?: () => void;
+  onRalph?: () => void;
   onUpdate?: (prompt: string) => void;
   isSelected?: boolean;
   onSelect?: (item: InboxItem, selected: boolean) => void;
@@ -68,6 +69,7 @@ export function InboxCard({
   onStart,
   onRefine,
   onProcessReference,
+  onRalph,
   onUpdate,
   isSelected,
   onSelect,
@@ -331,6 +333,13 @@ export function InboxCard({
           title="Process as reference"
         >
           <Bookmark className="w-4 h-4" />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onRalph?.(); }}
+          className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--toolbar-hover-blue)] rounded transition-colors"
+          title="Ralph loop (iterative AI)"
+        >
+          <RefreshCw className="w-4 h-4" />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onStart?.(); }}

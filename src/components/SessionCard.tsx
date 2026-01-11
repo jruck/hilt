@@ -23,7 +23,9 @@ import {
   Loader2,
   AlertCircle,
   MessageCircle,
+  RefreshCw,
 } from "lucide-react";
+import Image from "next/image";
 
 interface SessionCardProps {
   session: Session;
@@ -336,6 +338,20 @@ export function SessionCard({ session, scopePath, onOpen, onOpenPlan, onDelete, 
         {session.isolation?.enabled && (
           <span title="Isolated session">
             <Lock className="w-3 h-3 text-blue-400 flex-shrink-0" />
+          </span>
+        )}
+        {session.ralphLoop?.active && (
+          <span className="flex items-center gap-1 flex-shrink-0" title={`Ralph loop: ${session.ralphLoop.currentIteration}/${session.ralphLoop.maxIterations}`}>
+            <Image
+              src="/images/ralph.png"
+              alt="Ralph"
+              width={16}
+              height={16}
+              className="rounded-sm"
+            />
+            <span className="text-[10px] text-amber-400 font-medium tabular-nums">
+              {session.ralphLoop.currentIteration}/{session.ralphLoop.maxIterations}
+            </span>
           </span>
         )}
       </div>

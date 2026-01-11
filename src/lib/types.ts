@@ -113,6 +113,8 @@ export interface Session extends SessionMetadata {
   planSlugs?: string[];
   // Open in plan mode (resume with plan editing)
   planMode?: boolean;
+  // Ralph Wiggum loop state
+  ralphLoop?: RalphLoopState;
 }
 
 // Inbox item (draft prompt)
@@ -220,4 +222,22 @@ export interface DocsSaveResponse {
   success: boolean;
   modTime: number;
   error?: string;
+}
+
+// ============ Ralph Wiggum Loop Types ============
+
+// Ralph loop configuration
+export interface RalphConfig {
+  prompt: string;
+  maxIterations: number;
+  completionPromise: string;
+}
+
+// Ralph loop state for active sessions
+export interface RalphLoopState {
+  active: boolean;
+  currentIteration: number;
+  maxIterations: number;
+  completionPromise: string;
+  startedAt: string;
 }

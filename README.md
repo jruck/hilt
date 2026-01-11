@@ -83,17 +83,37 @@ Inspect Claude's configuration files across all four layers:
 
 ## Getting Started
 
-### Prerequisites
-
-- Node.js 20+
-- Claude Code CLI installed (`claude` command available)
-
-### Installation
+### Quick Install
 
 ```bash
-git clone https://github.com/yourusername/hilt.git
+git clone https://github.com/jruck/hilt.git
+cd hilt
+./install.sh
+```
+
+The install script will:
+- Check for Node.js 18.18+ and build tools
+- Install dependencies (including native module compilation)
+- Create the `~/.hilt/data` directory
+- Optionally add a `hilt` command to your shell
+
+### Prerequisites
+
+- **Node.js 18.18+** - [Download](https://nodejs.org/) or use [nvm](https://github.com/nvm-sh/nvm)
+- **Build tools** - Required for native module compilation:
+  - macOS: Xcode Command Line Tools (`xcode-select --install`)
+  - Linux: `sudo apt-get install build-essential python3`
+- **Claude Code CLI** - The `claude` command should be available
+
+### Manual Installation
+
+If you prefer not to use the install script:
+
+```bash
+git clone https://github.com/jruck/hilt.git
 cd hilt
 npm install
+mkdir -p ~/.hilt/data
 ```
 
 ### Running the App
@@ -103,6 +123,7 @@ npm install
 npm run dev:all
 ```
 Open [http://localhost:3000](http://localhost:3000) in your browser.
+(If port 3000 is busy, check the terminal output for the actual port)
 
 **Native macOS App:**
 ```bash
@@ -255,6 +276,41 @@ After completing work:
 3. **For UI work**: Update [docs/DESIGN-PHILOSOPHY.md](docs/DESIGN-PHILOSOPHY.md) if new patterns or preferences were learned
 
 See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for detailed development guidelines.
+
+## Troubleshooting
+
+### Installation Issues
+
+**node-pty compilation fails**
+```bash
+# macOS: Reinstall Xcode CLI tools
+sudo rm -rf /Library/Developer/CommandLineTools
+xcode-select --install
+
+# Then retry
+rm -rf node_modules
+npm install
+```
+
+**Permission errors on npm install**
+```bash
+# Fix npm permissions (don't use sudo with npm install)
+sudo chown -R $(whoami) ~/.npm
+```
+
+**Port 3000 already in use**
+
+Hilt auto-increments to the next available port. Check the terminal output for the actual URL.
+
+### Runtime Issues
+
+**Sessions not appearing**
+
+Ensure Claude Code has been used in the scoped directory. Sessions are read from `~/.claude/projects/`.
+
+**Terminal not connecting**
+
+The WebSocket server runs on port 3001. Check that it started successfully in the terminal output.
 
 ## License
 

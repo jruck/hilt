@@ -276,6 +276,7 @@ interface PinnedFolder {
   path: string;
   name: string;
   pinnedAt: number;
+  emoji?: string;
 }
 
 interface UserPreferences {
@@ -284,6 +285,8 @@ interface UserPreferences {
   theme: "light" | "dark" | "system";
   recentScopes: string[];
   viewMode: "board" | "tree" | "docs";
+  // Separate storage for folder emojis by path - persists across unpin/re-pin
+  folderEmojis?: Record<string, string>;
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
@@ -292,6 +295,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   theme: "system",
   recentScopes: [],
   viewMode: "board",
+  folderEmojis: {},
 };
 
 function readPreferencesFile(): UserPreferences {
@@ -333,11 +337,15 @@ export async function pinFolder(path: string): Promise<PinnedFolder> {
   // Extract name from path
   const name = path.split("/").filter(Boolean).pop() || path;
 
+  // Restore emoji if previously set for this path
+  const savedEmoji = prefs.folderEmojis?.[path];
+
   const newFolder: PinnedFolder = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     path,
     name,
     pinnedAt: Date.now(),
+    ...(savedEmoji && { emoji: savedEmoji }),
   };
 
   prefs.pinnedFolders.push(newFolder);
@@ -377,6 +385,32 @@ export async function reorderPinnedFolders(activeId: string, overId: string): Pr
   writePreferencesFile(prefs);
 
   return folders;
+}
+
+export async function setFolderEmoji(id: string, emoji: string | null): Promise<PinnedFolder | null> {
+  const prefs = readPreferencesFile();
+  const folder = prefs.pinnedFolders.find(f => f.id === id);
+
+  if (!folder) {
+    return null;
+  }
+
+  // Initialize folderEmojis if needed
+  if (!prefs.folderEmojis) {
+    prefs.folderEmojis = {};
+  }
+
+  if (emoji === null || emoji === "") {
+    delete folder.emoji;
+    delete prefs.folderEmojis[folder.path];
+  } else {
+    folder.emoji = emoji;
+    // Also save by path so it persists across unpin/re-pin
+    prefs.folderEmojis[folder.path] = emoji;
+  }
+
+  writePreferencesFile(prefs);
+  return folder;
 }
 
 // Sidebar state

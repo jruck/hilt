@@ -29,6 +29,7 @@ interface PinnedFoldersHook {
   folders: PinnedFolder[];
   unpinFolder: (id: string) => void;
   reorderFolders: (activeId: string, overId: string) => void;
+  setEmoji: (id: string, emoji: string | null) => Promise<void>;
   isHydrated: boolean;
 }
 
@@ -44,7 +45,7 @@ interface SidebarProps {
  */
 export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarProps) {
   const { isCollapsed, toggle, isHydrated: sidebarHydrated } = useSidebarState();
-  const { folders, unpinFolder, reorderFolders, isHydrated: foldersHydrated } = pinnedFolders;
+  const { folders, unpinFolder, reorderFolders, setEmoji, isHydrated: foldersHydrated } = pinnedFolders;
 
   // Fetch ALL sessions (no scope filter) so we can count across all pinned folders
   // Use longer refresh interval (10s) since sidebar counts are less time-critical
@@ -166,6 +167,7 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarP
                       isActive={currentScope === folder.path}
                       onClick={() => onScopeChange(folder.path)}
                       onUnpin={() => unpinFolder(folder.id)}
+                      onSetEmoji={(emoji) => setEmoji(folder.id, emoji)}
                     />
                   );
                 })}

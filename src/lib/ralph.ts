@@ -35,7 +35,8 @@ export interface RalphPluginStatus {
 // Default values
 export const RALPH_DEFAULTS = {
   maxIterations: 10,
-  completionPromise: "RALPH_COMPLETE: All tasks finished successfully",
+  // The completion promise is the text inside <promise> tags
+  completionPromise: "TASK_COMPLETE",
 };
 
 /**
@@ -95,10 +96,20 @@ function escapeForShell(str: string): string {
 
 /**
  * Generate the /ralph-loop command string
+ *
+ * The prompt should instruct Claude to output <promise>TEXT</promise> when done.
+ * The --completion-promise flag specifies what TEXT to look for.
  */
 export function generateRalphCommand(config: RalphConfig): string {
-  const escapedPrompt = escapeForShell(config.prompt);
   const escapedPromise = escapeForShell(config.completionPromise);
+
+  // Append the promise instruction to the prompt if not already present
+  let fullPrompt = config.prompt;
+  if (!fullPrompt.includes("<promise>")) {
+    fullPrompt += `\n\nWhen the task is fully complete and verified, output: <promise>${config.completionPromise}</promise>`;
+  }
+
+  const escapedPrompt = escapeForShell(fullPrompt);
 
   return `/ralph-loop "${escapedPrompt}" --max-iterations ${config.maxIterations} --completion-promise "${escapedPromise}"`;
 }
@@ -119,13 +130,14 @@ Help me create a proper PRD (Product Requirements Document) for this task. We ne
 2. **Success Criteria**: Specific, testable conditions (e.g., tests must pass, linter clean, feature works as specified)
 3. **Scope Boundaries**: What's in scope, what's explicitly out of scope
 4. **Technical Approach**: High-level implementation strategy
-5. **Completion Promise**: A specific string I should output ONLY when the task is truly complete
+5. **Completion Promise**: A short identifier that signals the task is done
 
 IMPORTANT GUIDELINES:
 - Success criteria should be automatically verifiable (tests, builds, linter checks)
-- The completion promise should follow this pattern:
-  - "RALPH_COMPLETE: All tests passing"
-  - "RALPH_COMPLETE: Feature X implemented and documented"
+- The completion promise should be a short, unique identifier like:
+  - "TESTS_PASSING"
+  - "FEATURE_COMPLETE"
+  - "REFACTOR_DONE"
 - Be specific - vague requirements lead to infinite loops
 
 Ask me clarifying questions if needed to ensure the PRD is complete and unambiguous.
@@ -155,8 +167,10 @@ When the PRD is finalized, output it in this exact format:
 [High-level approach]
 
 ## Completion Promise
-RALPH_COMPLETE: [specific completion text]
-\`\`\``;
+[SHORT_IDENTIFIER]
+\`\`\`
+
+Note: The completion promise will be wrapped in \`<promise>IDENTIFIER</promise>\` tags when running the loop.`;
 }
 
 /**
@@ -209,9 +223,30 @@ export function parseIterationProgress(output: string): [number, number] | null 
 
 /**
  * Check if output indicates Ralph loop completion
+ * Looks for <promise>TEXT</promise> pattern
  */
 export function isRalphComplete(output: string, completionPromise: string): boolean {
+  // Check for the promise tag format
+  const promiseTagPattern = new RegExp(`<promise>\\s*${escapeRegex(completionPromise)}\\s*</promise>`, "i");
+  if (promiseTagPattern.test(output)) {
+    return true;
+  }
+  // Fallback to raw text match
   return output.includes(completionPromise);
+}
+
+/**
+ * Escape special regex characters
+ */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Generate the /cancel-ralph command
+ */
+export function generateCancelCommand(): string {
+  return "/cancel-ralph";
 }
 
 /**

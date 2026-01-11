@@ -301,11 +301,17 @@ export function RalphSetupModal({
                   type="text"
                   value={completionPromise}
                   onChange={(e) => setCompletionPromise(e.target.value)}
-                  className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-default)] rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none focus:border-[var(--interactive-default)]"
-                  placeholder="RALPH_COMPLETE: All tests passing"
+                  className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-default)] rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none focus:border-[var(--interactive-default)] font-mono"
+                  placeholder="TASK_COMPLETE"
                 />
                 <p className="text-xs text-[var(--text-tertiary)]">
-                  Exact text Claude must output to signal completion
+                  Short identifier that signals completion. Claude will output{" "}
+                  <code className="px-1 py-0.5 bg-[var(--bg-secondary)] rounded font-mono">
+                    {"<promise>"}
+                    {completionPromise || "..."}
+                    {"</promise>"}
+                  </code>{" "}
+                  when done.
                 </p>
               </div>
 

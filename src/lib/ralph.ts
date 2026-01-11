@@ -1,12 +1,10 @@
-import * as fs from "fs";
-import * as path from "path";
-import * as os from "os";
-
 /**
  * Ralph Wiggum Plugin Integration
  *
- * Utilities for detecting the Ralph Wiggum plugin and generating
- * loop commands for iterative AI development workflows.
+ * Client-safe utilities for generating loop commands
+ * for iterative AI development workflows.
+ *
+ * NOTE: Plugin detection is in ralph-server.ts (server-side only)
  */
 
 // Ralph loop configuration
@@ -38,68 +36,6 @@ export const RALPH_DEFAULTS = {
   // The completion promise is the text inside <promise> tags
   completionPromise: "TASK_COMPLETE",
 };
-
-/**
- * Check if Ralph Wiggum plugin is installed
- */
-export function checkRalphPlugin(): RalphPluginStatus {
-  const homeDir = os.homedir();
-  const pluginsDir = path.join(homeDir, ".claude", "plugins");
-
-  // Check common plugin locations
-  const pluginPaths = [
-    path.join(pluginsDir, "ralph-wiggum"),
-    path.join(pluginsDir, "anthropics-ralph-wiggum"),
-    path.join(pluginsDir, "anthropics", "ralph-wiggum"),
-  ];
-
-  // Also scan the plugins directory for any folder containing "ralph"
-  try {
-    if (fs.existsSync(pluginsDir)) {
-      const entries = fs.readdirSync(pluginsDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory() && entry.name.toLowerCase().includes("ralph")) {
-          const fullPath = path.join(pluginsDir, entry.name);
-          if (!pluginPaths.includes(fullPath)) {
-            pluginPaths.push(fullPath);
-          }
-        }
-      }
-    }
-  } catch {
-    // Ignore scan errors
-  }
-
-  for (const pluginPath of pluginPaths) {
-    if (fs.existsSync(pluginPath)) {
-      // Try to read version from package.json or manifest
-      const manifestPath = path.join(pluginPath, ".claude-plugin", "manifest.json");
-      const packagePath = path.join(pluginPath, "package.json");
-
-      let version: string | undefined;
-
-      try {
-        if (fs.existsSync(manifestPath)) {
-          const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
-          version = manifest.version;
-        } else if (fs.existsSync(packagePath)) {
-          const pkg = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
-          version = pkg.version;
-        }
-      } catch {
-        // Ignore version read errors
-      }
-
-      return {
-        installed: true,
-        pluginPath,
-        version,
-      };
-    }
-  }
-
-  return { installed: false };
-}
 
 /**
  * Escape a prompt string for use in shell command
@@ -241,6 +177,13 @@ export function parseIterationProgress(output: string): [number, number] | null 
 }
 
 /**
+ * Escape special regex characters
+ */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
  * Check if output indicates Ralph loop completion
  * Looks for <promise>TEXT</promise> pattern
  */
@@ -252,13 +195,6 @@ export function isRalphComplete(output: string, completionPromise: string): bool
   }
   // Fallback to raw text match
   return output.includes(completionPromise);
-}
-
-/**
- * Escape special regex characters
- */
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**

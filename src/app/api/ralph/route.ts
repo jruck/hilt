@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { checkRalphPlugin, RALPH_INSTALL_COMMAND } from "@/lib/ralph";
+import { checkRalphPlugin } from "@/lib/ralph-server";
+import { RALPH_INSTALL_COMMAND } from "@/lib/ralph";
 
 /**
  * GET /api/ralph

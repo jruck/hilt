@@ -42,6 +42,8 @@ export interface ClaudeStack {
     project: ConfigFile[];
     local: ConfigFile[];
   };
+  mcpServers: MCPServerConfig[]; // All discovered MCP servers
+  plugins: PluginConfig[]; // All installed plugins
   summary: {
     memoryFiles: number;
     settingsFiles: number;
@@ -50,6 +52,7 @@ export interface ClaudeStack {
     agents: number;
     hooks: number;
     mcpServers: number;
+    plugins: number;
     envFiles: number;
   };
 }
@@ -101,12 +104,102 @@ export interface HookConfig {
   source: string; // Which settings file defines this
 }
 
+// MCP Server types
+export type MCPServerType = "stdio" | "http";
+
+// Auth status for MCP servers
+export type AuthStatus =
+  | "authenticated" // Has valid token, not expired
+  | "expired" // Token exists but expiresAt < now
+  | "needs-reauth" // Token expired AND no refreshToken
+  | "not-configured" // No credentials entry for this server
+  | "not-required"; // Server doesn't use OAuth (stdio without auth)
+
 export interface MCPServerConfig {
   name: string;
-  command: string;
+  type: MCPServerType;
+  enabled: boolean;
+  layer: ConfigLayer;
+  source: string; // Which config file defines this (path)
+
+  // Plugin info (if from a plugin)
+  pluginId?: string; // e.g., "github@claude-plugins-official"
+  pluginMetadata?: PluginMetadata;
+
+  // Stdio servers
+  command?: string;
   args?: string[];
   env?: Record<string, string>;
-  source: string; // Which config file defines this
+
+  // HTTP servers
+  url?: string;
+  headers?: Record<string, string>;
+
+  // Auth status (populated from credentials file)
+  authStatus?: AuthStatus;
+  authExpiresAt?: number; // Unix timestamp ms
+}
+
+export interface PluginMetadata {
+  name: string;
+  description?: string;
+  version?: string;
+  author?: {
+    name?: string;
+    email?: string;
+    url?: string;
+  };
+  homepage?: string;
+  repository?: string;
+  license?: string;
+  keywords?: string[];
+}
+
+/**
+ * Plugin configuration for display in Stack view
+ * Aggregates data from installed_plugins.json, settings.json, and plugin.json
+ */
+export interface PluginConfig {
+  id: string; // e.g., "github@claude-plugins-official"
+  name: string; // e.g., "github"
+  marketplace: string; // e.g., "claude-plugins-official"
+  scope: "user" | "project"; // Scope determines which layer the plugin belongs to
+  enabled: boolean;
+  version: string;
+  installPath: string;
+  installedAt?: string;
+  lastUpdated?: string;
+  gitCommitSha?: string;
+
+  // From plugin.json metadata
+  description?: string;
+  author?: { name?: string; email?: string; url?: string };
+  homepage?: string;
+  repository?: string;
+  license?: string;
+  keywords?: string[];
+
+  // Relationships
+  mcpServerNames: string[]; // Names of MCP servers this plugin provides
+  skillNames: string[]; // Names of skills this plugin provides
+  agentNames: string[]; // Names of agents this plugin provides
+}
+
+export interface InstalledPlugin {
+  id: string; // e.g., "github@claude-plugins-official"
+  name: string; // e.g., "github"
+  marketplace: string; // e.g., "claude-plugins-official"
+  scope: "user" | "project";
+  installPath: string;
+  version: string;
+  installedAt?: string;
+  lastUpdated?: string;
+  gitCommitSha?: string;
+}
+
+export interface PluginRegistry {
+  version: number;
+  plugins: Record<string, InstalledPlugin[]>;
 }
 
 export interface SettingsConfig {

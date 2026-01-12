@@ -1,7 +1,9 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { homedir } from "os";
-import { ConfigFile, ConfigFileType, ConfigLayer, ClaudeStack } from "./types";
+import { ConfigFile, ConfigFileType, ConfigLayer, ClaudeStack, MCPServerConfig, PluginConfig } from "./types";
+import { discoverMCPServers } from "./mcp-discovery";
+import { discoverPlugins } from "./plugin-discovery";
 
 // Platform-specific paths for managed settings
 const SYSTEM_PATHS: Record<string, string> = {
@@ -13,18 +15,24 @@ const SYSTEM_PATHS: Record<string, string> = {
 export async function discoverStack(projectPath: string): Promise<ClaudeStack> {
   const homePath = homedir();
 
-  const [system, user, project, local] = await Promise.all([
+  const [system, user, project, local, mcpServers] = await Promise.all([
     discoverSystemLayer(),
     discoverUserLayer(homePath),
     discoverProjectLayer(projectPath),
     discoverLocalLayer(projectPath),
+    discoverMCPServers(homePath, projectPath),
   ]);
+
+  // Discover plugins (depends on mcpServers for linking)
+  const plugins = await discoverPlugins(homePath, mcpServers);
 
   return {
     projectPath,
     homePath,
     layers: { system, user, project, local },
-    summary: computeSummary({ system, user, project, local }),
+    mcpServers,
+    plugins,
+    summary: computeSummary({ system, user, project, local }, mcpServers, plugins),
   };
 }
 
@@ -206,19 +214,30 @@ async function discoverSkills(skillsDir: string, layer: ConfigLayer): Promise<Co
   }
 }
 
-function computeSummary(layers: ClaudeStack["layers"]): ClaudeStack["summary"] {
+function computeSummary(
+  layers: ClaudeStack["layers"],
+  mcpServers: MCPServerConfig[],
+  plugins: PluginConfig[]
+): ClaudeStack["summary"] {
   const all = [...layers.system, ...layers.user, ...layers.project, ...layers.local].filter(
     (f) => f.exists
   );
+
+  // Count skills and agents from both layer files and plugins
+  const layerSkills = all.filter((f) => f.type === "skill").length;
+  const layerAgents = all.filter((f) => f.type === "agent").length;
+  const pluginSkills = plugins.reduce((sum, p) => sum + (p.skillNames?.length || 0), 0);
+  const pluginAgents = plugins.reduce((sum, p) => sum + (p.agentNames?.length || 0), 0);
 
   return {
     memoryFiles: all.filter((f) => f.type === "memory").length,
     settingsFiles: all.filter((f) => f.type === "settings").length,
     commands: all.filter((f) => f.type === "command").length,
-    skills: all.filter((f) => f.type === "skill").length,
-    agents: all.filter((f) => f.type === "agent").length,
+    skills: layerSkills + pluginSkills,
+    agents: layerAgents + pluginAgents,
     hooks: all.filter((f) => f.type === "hook").length,
-    mcpServers: 0, // Computed from parsed settings later
+    mcpServers: mcpServers.length,
+    plugins: plugins.length,
     envFiles: all.filter((f) => f.type === "env").length,
   };
 }

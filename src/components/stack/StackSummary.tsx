@@ -1,16 +1,18 @@
 "use client";
 
-import { FileText, Terminal, Sparkles, Bot, Webhook, Server, Settings, Key, ExternalLink } from "lucide-react";
+import { FileText, Terminal, Sparkles, Bot, Webhook, Server, Settings, Key, ExternalLink, Puzzle } from "lucide-react";
 import type { ClaudeStack, ConfigFileType } from "@/lib/claude-config/types";
+import type { StackFilterType } from "./StackFileTree";
 
 interface StackSummaryProps {
   summary: ClaudeStack["summary"];
-  activeFilter: ConfigFileType | null;
-  onFilterChange: (type: ConfigFileType | null) => void;
+  activeFilter: StackFilterType | null;
+  onFilterChange: (type: StackFilterType | null) => void;
 }
 
+// Colors spread across spectrum: blue → indigo → violet → rose → orange → amber → cyan → emerald → gray
 const SUMMARY_ITEMS: Array<{
-  type: ConfigFileType;
+  type: StackFilterType;
   icon: typeof FileText;
   label: string;
   color: string;
@@ -31,16 +33,16 @@ const SUMMARY_ITEMS: Array<{
     type: "settings",
     icon: Settings,
     label: "Settings",
-    color: "text-purple-500",
+    color: "text-indigo-500",
     description: "JSON configuration for permissions, model preferences, and behavior settings. Controls what Claude can and cannot do.",
     docsUrl: "https://docs.anthropic.com/en/docs/claude-code/settings",
-    summaryKey: "memoryFiles",
+    summaryKey: "settingsFiles",
   },
   {
     type: "command",
     icon: Terminal,
     label: "Commands",
-    color: "text-green-500",
+    color: "text-violet-500",
     description: "Custom slash commands (e.g., /deploy, /test). Markdown files with YAML frontmatter defining reusable workflows.",
     docsUrl: "https://docs.anthropic.com/en/docs/claude-code/slash-commands",
     summaryKey: "commands",
@@ -49,7 +51,7 @@ const SUMMARY_ITEMS: Array<{
     type: "skill",
     icon: Sparkles,
     label: "Skills",
-    color: "text-yellow-500",
+    color: "text-rose-500",
     description: "Teaching files that give Claude specialized knowledge or capabilities. Loaded automatically based on context.",
     docsUrl: "https://docs.anthropic.com/en/docs/claude-code/skills",
     summaryKey: "skills",
@@ -67,7 +69,7 @@ const SUMMARY_ITEMS: Array<{
     type: "hook",
     icon: Webhook,
     label: "Hooks",
-    color: "text-red-500",
+    color: "text-amber-500",
     description: "Shell commands that run automatically on events (e.g., before commit, after file edit). For validation and automation.",
     docsUrl: "https://docs.anthropic.com/en/docs/claude-code/hooks",
     summaryKey: "hooks",
@@ -82,13 +84,22 @@ const SUMMARY_ITEMS: Array<{
     summaryKey: "mcpServers",
   },
   {
+    type: "plugins",
+    icon: Puzzle,
+    label: "Plugins",
+    color: "text-emerald-500",
+    description: "Installed plugins that extend Claude Code with skills, agents, and MCP servers. Managed via /install-plugin.",
+    docsUrl: "https://docs.anthropic.com/en/docs/claude-code/plugins",
+    summaryKey: "plugins",
+  },
+  {
     type: "env",
     icon: Key,
     label: "Environment",
     color: "text-gray-500",
     description: "Environment variables (.env files) for API keys and secrets. Never committed to git.",
     docsUrl: "https://docs.anthropic.com/en/docs/claude-code/settings#environment-variables",
-    summaryKey: "mcpServers",
+    summaryKey: "envFiles",
   },
 ];
 

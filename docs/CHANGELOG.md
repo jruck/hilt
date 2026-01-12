@@ -21,6 +21,52 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   - Files: `src/components/QuickAddButton.tsx`, `src/components/QuickAddModal.tsx`, `src/hooks/useInboxPath.ts`, `src/app/api/suggest-destination/route.ts`
   - Modified: `src/lib/db.ts`, `src/app/api/preferences/route.ts`, `src/components/sidebar/Sidebar.tsx`, `src/components/Board.tsx`
 
+- **MCP Server Display in Stack View** - Full visibility and control of MCP servers
+  - MCP servers now appear in StackFileTree grouped by layer (user/project)
+  - New `MCPServerDetail` panel shows complete server info: description, connection type, command/URL, env vars
+  - Plugin metadata displayed: author, version, license, homepage, repository, keywords
+  - Enable/disable toggle for plugin-based MCP servers (updates `~/.claude/settings.json`)
+  - Edit JSON config for user-defined servers (non-plugin) with Save/Cancel UI
+  - Enabled/disabled status shown as colored dot indicator in tree view
+  - Filter by MCP type to see only MCP servers
+  - Discovers servers from: `~/.claude/.mcp.json`, project `.mcp.json`, and plugin system
+  - Fixed duplication bug when scope is home directory (both user and project discovery read same file)
+  - Files: `src/lib/claude-config/mcp-discovery.ts` (new), `src/components/stack/MCPServerDetail.tsx` (new), `src/app/api/claude-stack/mcp/route.ts` (new)
+  - Modified: `types.ts`, `discovery.ts`, `StackFileTree.tsx`, `StackView.tsx`
+
+- **Plugin Display in Stack View** - First-class plugin support in Stack view
+  - Plugins appear nested within their scope layer (user/project), not in a separate section
+  - **Collapsible plugin containers** - Plugins with children (MCP servers, skills, agents) are collapsible
+    - Expanded by default for browsing, can collapse to reduce visual clutter
+    - Chevron indicator shows expand/collapse state
+  - **Nested MCP servers** - MCP servers from plugins appear nested under their parent plugin
+    - Plugin-origin servers no longer appear at the top level with standalone servers
+    - Clicking a nested MCP server still opens the full MCPServerDetail panel
+  - **Nested skills and agents** - Skills and agents from plugins appear nested under their parent plugin
+    - Skills show with rose Sparkles icon
+    - Agents show with orange Bot icon and category:name format (e.g., `review:dhh-rails-reviewer`)
+  - **Filter counts include plugin children** - Skills and Agents filter counts now include items from plugins
+  - New `PluginDetail` panel shows complete plugin info: description, version, author, install path
+  - Lists MCP servers, skills, and agents provided by plugin (also visible in tree view nested under plugin)
+  - Enable/disable toggle updates `~/.claude/settings.json` enabledPlugins
+  - Shows installation metadata: installedAt, lastUpdated, gitCommitSha
+  - Links to homepage and repository
+  - Filter by plugins type to see only plugins (across all layers)
+  - Search filters plugins by name
+  - Files: `src/lib/claude-config/plugin-discovery.ts` (new), `src/components/stack/PluginDetail.tsx` (new)
+  - Modified: `types.ts`, `discovery.ts`, `StackFileTree.tsx`, `StackSummary.tsx`, `StackView.tsx`
+
+- **MCP Auth Status Display** - OAuth authentication status visibility
+  - Auth status indicator (colored dot) shown next to MCP servers in tree view
+  - Blue dot = authenticated, yellow = token expired (will auto-refresh), red = needs re-auth, gray = not configured
+  - Servers that don't require auth show no indicator
+  - New "Authentication" section in MCPServerDetail with detailed status
+  - Shows token expiration time for authenticated servers
+  - Helpful guidance messages for each auth state
+  - Reads OAuth credentials from `~/.claude/.credentials.json`
+  - Credential matching supports various formats: plugin:server:name|hash, server|hash, etc.
+  - Modified: `mcp-discovery.ts` (enrichWithAuthStatus), `StackFileTree.tsx` (getAuthIndicator), `MCPServerDetail.tsx`, `types.ts` (AuthStatus type)
+
 - **Ralph Wiggum Integration** - New run method for inbox items enabling iterative AI development loops
   - New button on inbox cards (RefreshCw icon) opens Ralph setup wizard
   - Multi-step modal guides users through PRD creation or direct configuration
@@ -46,7 +92,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   - Optionally adds `hilt` shell alias to .zshrc/.bashrc
   - Files: `install.sh`, `.nvmrc`, `README.md` (Quick Install + Troubleshooting sections)
 
+- **Hidden macOS system folders in file browser** - Prevent file descriptor exhaustion and reduce clutter
+  - macOS home folders completely hidden: Applications, Library, Movies, Music, Pictures, Downloads, Documents, Desktop, Public
+  - Cloud sync folders use **partial matching** (case-insensitive) to catch variations:
+    - OneDrive, Google Drive, My Drive, Creative Cloud, Dropbox, iCloud Drive, Box Sync
+    - Examples: "My Drive (user@email.com)", "Priceless Misc Dropbox", "Creative Cloud Files Company Account"
+  - Both docs tree API and scope watcher skip these entirely (prevents EMFILE errors, faster tree loading)
+  - Files: `src/app/api/docs/tree/route.ts`, `server/watchers/scope-watcher.ts`
+
 ### Changed
+
+- **Wider resizable Stack sidebar** - Better readability for long plugin/skill names
+  - Default width increased from 280px to 360px
+  - Max width increased from 500px to 600px
+  - Files: `src/components/stack/StackView.tsx`
 
 - **Ralph setup skips plugin check** - Modal now goes directly to configuration step
   - Removed the initial plugin detection check that blocked users

@@ -194,6 +194,7 @@ export interface FileNode {
   extension?: string;     // e.g., "md", "ts", "png"
   size?: number;          // File size in bytes
   modTime: number;        // Unix timestamp (ms)
+  ignored?: boolean;      // True for macOS system folders, cloud sync, etc.
 }
 
 export interface DocsTreeResponse {

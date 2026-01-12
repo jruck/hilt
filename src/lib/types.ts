@@ -117,12 +117,14 @@ export interface Session extends SessionMetadata {
   ralphLoop?: RalphLoopState;
 }
 
-// Inbox item (draft prompt)
+// Inbox item (draft prompt from Todo.md)
 export interface InboxItem {
   id: string;
   prompt: string;
+  completed: boolean;
+  section: string | null;
   projectPath: string | null;
-  createdAt: Date;
+  createdAt: string; // ISO string from API
   sortOrder: number;
 }
 

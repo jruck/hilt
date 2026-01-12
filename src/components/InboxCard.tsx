@@ -5,7 +5,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Trash2, Play, Square, CheckSquare, Pencil, Check, X } from "lucide-react";
 import { SkillDropdownCompact } from "./SkillDropdown";
-import type { SkillInfo } from "@/lib/types";
+import type { SkillInfo, InboxItem } from "@/lib/types";
 
 /**
  * Extract a display title from todo content.
@@ -39,16 +39,6 @@ function extractDisplayTitle(text: string): { title: string; hasStructure: boole
   const isMultiLine = lines.filter(l => l.trim().length > 0).length > 1;
 
   return { title: firstLine.trim(), hasStructure: isMultiLine };
-}
-
-interface InboxItem {
-  id: string;
-  prompt: string;
-  completed: boolean;
-  section: string | null;
-  projectPath: string | null;
-  createdAt: string;
-  sortOrder: number;
 }
 
 interface InboxCardProps {

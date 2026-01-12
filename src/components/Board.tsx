@@ -11,7 +11,7 @@ import {
   useSensors,
   DragOverlay,
 } from "@dnd-kit/core";
-import { Session, SessionStatus, ColumnId, RalphConfig, SkillInfo } from "@/lib/types";
+import { Session, SessionStatus, ColumnId, RalphConfig, SkillInfo, InboxItem } from "@/lib/types";
 import { fetchSkillContent } from "@/hooks/useSkills";
 import { getSkillModalName, injectSkillParams } from "@/lib/skill-modals";
 import { needsAttention } from "@/lib/session-status";
@@ -42,16 +42,6 @@ const COLUMN_CONFIG: Record<ColumnId, { label: string; icon: React.ReactNode }> 
   active: { label: "Active", icon: <Play className="w-4 h-4" /> },
   recent: { label: "Done", icon: <CheckCircle className="w-4 h-4" /> },
 };
-
-interface InboxItem {
-  id: string;
-  prompt: string;
-  completed: boolean;
-  section: string | null;
-  projectPath: string | null;
-  createdAt: string;
-  sortOrder: number;
-}
 
 const HOME_DIR_STORAGE_KEY = "hilt-home-dir";
 const VIEW_MODE_STORAGE_KEY = "hilt-view-mode";
@@ -1166,7 +1156,7 @@ ${item.prompt}`;
     setIsDrawerOpen(true);
 
     // Delete the inbox item since we're starting a session
-    deleteInboxItem(item.id);
+    handleDeleteInboxItem(item.id);
   };
 
   // Ralph Wiggum loop handlers

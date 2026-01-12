@@ -19,7 +19,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Session, ColumnId, SkillInfo } from "@/lib/types";
+import { Session, ColumnId, SkillInfo, InboxItem } from "@/lib/types";
 import { SessionCard } from "./SessionCard";
 import { InboxCard } from "./InboxCard";
 import { NewDraftCard } from "./NewDraftCard";
@@ -36,16 +36,6 @@ import {
   Eye,
   CheckCircle,
 } from "lucide-react";
-
-interface InboxItem {
-  id: string;
-  prompt: string;
-  completed: boolean;
-  section: string | null;
-  projectPath: string | null;
-  createdAt: string;
-  sortOrder: number;
-}
 
 // Time groups for Recent column dividers
 type TimeGroup = "today" | "yesterday" | "thisWeek" | "lastWeek" | "thisMonth" | "older";

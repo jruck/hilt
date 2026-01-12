@@ -30,6 +30,7 @@ import { QuickAddModal } from "./QuickAddModal";
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
 import { useInboxPath } from "@/hooks/useInboxPath";
 import { generatePrdPrompt, generateRalphCommand } from "@/lib/ralph";
+import { useStartup } from "@/contexts/StartupContext";
 import { X, Inbox, Play, Clock, Search, Filter, FileText, Check, Archive, Eye, CheckCircle, Terminal } from "lucide-react";
 
 const COLUMNS: ColumnId[] = ["inbox", "active", "attention", "recent"];
@@ -167,11 +168,85 @@ export function Board() {
   // Filter state for showing archived sessions
   const [showArchived, setShowArchived] = useState(false);
 
-  const { sessions, counts, isLoading, updateStatus, toggleStarred, archiveSession, unarchiveSession } = useSessions(scopePath || undefined, 1, 100, showArchived);
-  const { items: inboxItems, sections: todoSections, createItem, updateItem, deleteItem, reorderSections, reorderItem } = useInboxItems(scopePath || undefined);
-  const { tree, isLoading: isTreeLoading } = useTreeSessions(scopePath, showArchived);
+  const { sessions, counts, isLoading, isError: sessionsError, updateStatus, toggleStarred, archiveSession, unarchiveSession } = useSessions(scopePath || undefined, 1, 100, showArchived);
+  const { items: inboxItems, sections: todoSections, isLoading: isInboxLoading, isError: inboxError, createItem, updateItem, deleteItem, reorderSections, reorderItem } = useInboxItems(scopePath || undefined);
+  const { tree, isLoading: isTreeLoading, isError: treeError } = useTreeSessions(scopePath, showArchived);
   const pinnedFolders = usePinnedFolders();
   const { inboxPath, setInboxPath } = useInboxPath();
+
+  // Startup tracking
+  const { registerActivity, startActivity, updateActivity, completeActivity, errorActivity, fatalError } = useStartup();
+  const startupTrackedRef = useRef({
+    preferences: false,
+    sessions: false,
+    inbox: false,
+    tree: false,
+  });
+
+  // Register and track startup activities
+  useEffect(() => {
+    // Register all activities on mount
+    registerActivity({ id: "preferences", label: "Loading preferences", phase: "bootstrap" });
+    registerActivity({ id: "sessions", label: "Loading sessions", phase: "data" });
+    registerActivity({ id: "inbox", label: "Loading inbox items", phase: "data" });
+    registerActivity({ id: "tree", label: "Building tree view", phase: "data" });
+
+    // Start preferences immediately (they load first)
+    startActivity("preferences");
+  }, [registerActivity, startActivity]);
+
+  // Track preferences loading (tied to isHydrated)
+  useEffect(() => {
+    if (isHydrated && !startupTrackedRef.current.preferences) {
+      startupTrackedRef.current.preferences = true;
+      completeActivity("preferences", `viewMode: ${viewMode}`);
+      // Start data loading activities
+      startActivity("sessions");
+      startActivity("inbox");
+      startActivity("tree");
+    }
+  }, [isHydrated, viewMode, completeActivity, startActivity]);
+
+  // Track sessions loading
+  useEffect(() => {
+    if (!startupTrackedRef.current.preferences) return; // Wait for preferences
+
+    if (sessionsError && !startupTrackedRef.current.sessions) {
+      startupTrackedRef.current.sessions = true;
+      errorActivity("sessions", "Failed to load sessions");
+      fatalError("Failed to load sessions. Check server connection.");
+    } else if (!isLoading && sessions && !startupTrackedRef.current.sessions) {
+      startupTrackedRef.current.sessions = true;
+      completeActivity("sessions", `${sessions.length.toLocaleString()} sessions`);
+    }
+  }, [isLoading, sessions, sessionsError, completeActivity, errorActivity, fatalError]);
+
+  // Track inbox loading
+  useEffect(() => {
+    if (!startupTrackedRef.current.preferences) return;
+
+    if (inboxError && !startupTrackedRef.current.inbox) {
+      startupTrackedRef.current.inbox = true;
+      errorActivity("inbox", "Failed to load inbox");
+    } else if (!isInboxLoading && inboxItems && !startupTrackedRef.current.inbox) {
+      startupTrackedRef.current.inbox = true;
+      completeActivity("inbox", `${inboxItems.length} items`);
+    }
+  }, [isInboxLoading, inboxItems, inboxError, completeActivity, errorActivity]);
+
+  // Track tree loading
+  useEffect(() => {
+    if (!startupTrackedRef.current.preferences) return;
+
+    if (treeError && !startupTrackedRef.current.tree) {
+      startupTrackedRef.current.tree = true;
+      errorActivity("tree", "Failed to build tree");
+    } else if (!isTreeLoading && tree && !startupTrackedRef.current.tree) {
+      startupTrackedRef.current.tree = true;
+      const folderCount = Object.keys(tree).length;
+      completeActivity("tree", `${folderCount} folders`);
+    }
+  }, [isTreeLoading, tree, treeError, completeActivity, errorActivity]);
 
   // The most recent session would be resumed by `claude --continue`
   const continuableSessionId = useMemo(() => {

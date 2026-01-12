@@ -52,6 +52,15 @@ interface PtyPlanEvent {
   content: string;
 }
 
+// Startup activity types
+interface StartupActivityEvent {
+  id: string;
+  label: string;
+  status: "pending" | "active" | "complete" | "error";
+  detail?: string;
+  error?: string;
+}
+
 // Store cleanup functions for each listener
 const cleanupFunctions = new Map<string, () => void>();
 
@@ -128,6 +137,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
       };
     },
   },
+
+  // Startup activity events (for loading screen)
+  onStartupActivity: (callback: (event: StartupActivityEvent) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, data: StartupActivityEvent) => callback(data);
+    ipcRenderer.on("startup:activity", handler);
+
+    return () => {
+      ipcRenderer.removeListener("startup:activity", handler);
+    };
+  },
 });
 
 // Type declaration for the exposed API
@@ -136,14 +155,15 @@ export type ElectronAPI = typeof electronAPI;
 const electronAPI = {
   isElectron: true as const,
   pty: {
-    spawn: async (options: PtySpawnOptions) => ({ success: true, terminalId: options.terminalId }),
-    write: async (options: PtyWriteOptions) => ({ success: true }),
-    resize: async (options: PtyResizeOptions) => ({ success: true }),
-    kill: async (options: PtyKillOptions) => ({ success: true }),
-    onData: (callback: (event: PtyDataEvent) => void) => () => {},
-    onExit: (callback: (event: PtyExitEvent) => void) => () => {},
-    onTitle: (callback: (event: PtyTitleEvent) => void) => () => {},
-    onContext: (callback: (event: PtyContextEvent) => void) => () => {},
-    onPlan: (callback: (event: PtyPlanEvent) => void) => () => {},
+    spawn: async (_options: PtySpawnOptions) => ({ success: true, terminalId: _options.terminalId }),
+    write: async (_options: PtyWriteOptions) => ({ success: true }),
+    resize: async (_options: PtyResizeOptions) => ({ success: true }),
+    kill: async (_options: PtyKillOptions) => ({ success: true }),
+    onData: (_callback: (event: PtyDataEvent) => void) => () => {},
+    onExit: (_callback: (event: PtyExitEvent) => void) => () => {},
+    onTitle: (_callback: (event: PtyTitleEvent) => void) => () => {},
+    onContext: (_callback: (event: PtyContextEvent) => void) => () => {},
+    onPlan: (_callback: (event: PtyPlanEvent) => void) => () => {},
   },
+  onStartupActivity: (_callback: (event: StartupActivityEvent) => void) => () => {},
 };

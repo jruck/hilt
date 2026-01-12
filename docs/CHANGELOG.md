@@ -6,7 +6,47 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Changed
+
+- **Electron dev launcher redesign** - Server management now handled entirely by Electron main process
+  - **No more Terminal.app** - Dev server runs as background child process instead of opening a visible Terminal window
+  - **Single app experience** - Only the Electron app appears in dock/cmd-tab, no separate Terminal
+  - **Auto-cleanup** - Server automatically terminates when app quits (child process dies with parent)
+  - **Warm start support** - Detects existing dev server on ports 3000-3004 and connects to it instead of starting a new one
+  - **Logs available** - Server output written to `~/Library/Application Support/Electron/logs/dev-server.log`
+  - Files modified: `electron/main.ts`, `scripts/create-dev-app.sh`, `dist/Hilt.app/Contents/MacOS/launcher`
+
+### Fixed
+
+- **Terminal not loading in Electron app** - Fixed race condition where React component remounting caused double PTY spawns
+  - Root cause: Terminal component unmount/remount triggered two rapid spawn calls; second spawn killed the first before initialization
+  - Added 500ms debounce window for spawn requests with same terminalId - returns existing terminal instead of killing/re-creating
+  - Fix applied to both development (`src/lib/pty-manager.ts`) and production (`electron/main.ts`) PtyManager implementations
+  - Files modified: `src/lib/pty-manager.ts`, `electron/main.ts`
+
+- **Port conflicts in Electron dev mode** - Added dynamic port detection script
+  - New `scripts/electron-dev.sh` finds an available port before starting Next.js and Electron
+  - Eliminates conflicts when running both browser and Electron dev modes simultaneously
+  - Environment variable `CLAUDE_KANBAN_DEV_PORT` communicates port to Electron main process
+  - Files added: `scripts/electron-dev.sh`
+  - Files modified: `package.json` (`electron:dev` script)
+
 ### Added
+
+- **Startup Loading Screen** - Technical progress display during app initialization
+  - **Progress bar** with overall percentage
+  - **Activity list** with circular progress rings for each task:
+    - Green checkmark ring when complete
+    - Spinning blue ring when active/loading
+    - Faded gray ring outline when pending
+  - **Verbose details** - Shows specifics like "(viewMode: board)" for preferences, session counts when loaded
+  - **Smooth transition** - 300ms fade-out when loading completes
+  - **Error handling** - Fatal errors block the app with retry button
+  - **Electron integration** - Shows server startup activities (checking for dev server, starting server, loading modules, creating window)
+  - **Web mode** - Skips server phase, shows only data loading activities; instant if server is warm
+  - **State machine architecture** - StartupContext manages phases: server → bootstrap → data → complete
+  - Files: `src/contexts/StartupContext.tsx` (new), `src/components/StartupScreen.tsx` (new)
+  - Modified: `src/app/layout.tsx`, `src/components/Board.tsx`, `electron/main.ts`, `electron/preload.ts`
 
 - **Global Inbox System** - Quick capture workflow with two-step modal for tasks from anywhere in the app
   - **Quick Add button** in sidebar footer opens capture modal

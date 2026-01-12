@@ -287,6 +287,8 @@ interface UserPreferences {
   viewMode: "board" | "tree" | "docs";
   // Separate storage for folder emojis by path - persists across unpin/re-pin
   folderEmojis?: Record<string, string>;
+  // Global inbox folder path for quick capture
+  inboxPath?: string;
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
@@ -470,4 +472,20 @@ export async function setViewMode(mode: "board" | "tree" | "docs"): Promise<void
 // Get all preferences at once (for initial load)
 export async function getAllPreferences(): Promise<UserPreferences> {
   return readPreferencesFile();
+}
+
+// Inbox path
+export async function getInboxPath(): Promise<string | undefined> {
+  const prefs = readPreferencesFile();
+  return prefs.inboxPath;
+}
+
+export async function setInboxPath(path: string | null): Promise<void> {
+  const prefs = readPreferencesFile();
+  if (path === null) {
+    delete prefs.inboxPath;
+  } else {
+    prefs.inboxPath = path;
+  }
+  writePreferencesFile(prefs);
 }

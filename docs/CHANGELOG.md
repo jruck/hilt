@@ -8,6 +8,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
+- **Global Inbox System** - Quick capture workflow with two-step modal for tasks from anywhere in the app
+  - **Quick Add button** in sidebar footer opens capture modal
+  - **Keyboard shortcut**: `Cmd/Ctrl+I` opens Quick Add from anywhere
+  - **Two-step flow**: First capture your idea, then choose destination
+  - **Smart suggestions**: Matches task text against pinned folder names and CLAUDE.md content
+  - **Inbox folder**: Set a default destination for quick captures (persists in preferences)
+  - **Destination options**: Inbox (default), Suggested matches, Pinned folders, or Browse for any folder
+  - **Draft persistence**: Auto-saves to localStorage while typing, survives modal dismiss
+  - **Action buttons**: Save (to Todo.md), Run, Refine, or Process Reference
+  - **Navigation**: After action, navigates to destination folder to see task in context
+  - Files: `src/components/QuickAddButton.tsx`, `src/components/QuickAddModal.tsx`, `src/hooks/useInboxPath.ts`, `src/app/api/suggest-destination/route.ts`
+  - Modified: `src/lib/db.ts`, `src/app/api/preferences/route.ts`, `src/components/sidebar/Sidebar.tsx`, `src/components/Board.tsx`
+
 - **MCP Server Display in Stack View** - Full visibility and control of MCP servers
   - MCP servers now appear in StackFileTree grouped by layer (user/project)
   - New `MCPServerDetail` panel shows complete server info: description, connection type, command/URL, env vars

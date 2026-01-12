@@ -26,7 +26,9 @@ import { TreeView } from "./TreeView";
 import { DocsView } from "./DocsView";
 import { StackView } from "./stack";
 import { RalphSetupModal } from "./RalphSetupModal";
+import { QuickAddModal } from "./QuickAddModal";
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
+import { useInboxPath } from "@/hooks/useInboxPath";
 import { generatePrdPrompt, generateRalphCommand } from "@/lib/ralph";
 import { X, Inbox, Play, Clock, Search, Filter, FileText, Check, Archive, Eye, CheckCircle } from "lucide-react";
 
@@ -164,6 +166,7 @@ export function Board() {
   const { items: inboxItems, sections: todoSections, createItem, updateItem, deleteItem, reorderSections, reorderItem } = useInboxItems(scopePath || undefined);
   const { tree, isLoading: isTreeLoading } = useTreeSessions(scopePath, showArchived);
   const pinnedFolders = usePinnedFolders();
+  const { inboxPath, setInboxPath } = useInboxPath();
 
   // The most recent session would be resumed by `claude --continue`
   const continuableSessionId = useMemo(() => {
@@ -198,6 +201,9 @@ export function Board() {
   const [ralphSeedPrompt, setRalphSeedPrompt] = useState("");
   const [pendingRalphItemId, setPendingRalphItemId] = useState<string | null>(null);
 
+  // QuickAdd modal state
+  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
+
   // Handlers for archive/unarchive
   const handleArchiveSession = async (sessionId: string) => {
     await archiveSession(sessionId);
@@ -230,8 +236,18 @@ export function Board() {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // QuickAdd shortcut: Cmd/Ctrl+I
+      if ((e.metaKey || e.ctrlKey) && e.key === "i") {
+        e.preventDefault();
+        setIsQuickAddOpen(true);
+        return;
+      }
+
       if (e.key === "Escape") {
-        if (isFilterOpen) {
+        if (isQuickAddOpen) {
+          // Let the modal handle its own escape
+          return;
+        } else if (isFilterOpen) {
           setIsFilterOpen(false);
         } else if (selectedIds.size > 0) {
           setSelectedIds(new Set());
@@ -242,7 +258,7 @@ export function Board() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isDrawerOpen, selectedIds.size, isFilterOpen]);
+  }, [isDrawerOpen, selectedIds.size, isFilterOpen, isQuickAddOpen]);
 
   // Click outside to close filter dropdown
   useEffect(() => {
@@ -837,6 +853,178 @@ Proceed autonomously otherwise.`;
     await deleteItem(item.id);
   };
 
+  // QuickAdd handlers - save/run items to a destination folder
+  const handleQuickAddSave = async (prompt: string, destinationPath: string) => {
+    // Save to the destination folder's Todo.md via /api/inbox
+    const response = await fetch("/api/inbox", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        section: "New",
+        scope: destinationPath,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to save: ${response.statusText}`);
+    }
+
+    // Navigate to the destination folder
+    if (destinationPath !== scopePath) {
+      setScopePath(destinationPath);
+    }
+  };
+
+  const handleQuickAddRun = async (prompt: string, destinationPath: string) => {
+    // Create a session in the destination folder
+    const now = Date.now();
+    const tempId = `new-${now}`;
+    const projectName = destinationPath.split("/").pop() || "New Session";
+    const newSession: Session = {
+      id: tempId,
+      title: prompt.slice(0, 50) + (prompt.length > 50 ? "..." : ""),
+      firstPrompt: prompt,
+      lastPrompt: prompt,
+      lastMessage: prompt,
+      project: projectName,
+      projectPath: destinationPath,
+      messageCount: 0,
+      lastActivity: new Date(),
+      status: "active",
+      isNew: true,
+      initialPrompt: prompt,
+      terminalId: tempId,
+      slug: null,
+      slugs: [],
+      gitBranch: null,
+    };
+
+    tempSessionInfo.current[tempId] = { createdAt: now, projectPath: destinationPath };
+
+    setOpenSessions((prev) => [...prev, newSession]);
+    setActiveSession(newSession);
+    setIsDrawerOpen(true);
+
+    // Navigate to the destination folder
+    if (destinationPath !== scopePath) {
+      setScopePath(destinationPath);
+    }
+  };
+
+  const handleQuickAddRefine = async (prompt: string, destinationPath: string) => {
+    const refinementPrompt = `I have a rough idea that needs refinement before implementation:
+
+---
+${prompt}
+---
+
+Please help me refine this by:
+1. Understanding what I'm trying to accomplish
+2. Identifying any ambiguities or missing context
+3. Suggesting 2-3 possible directions we could take
+4. Asking clarifying questions to help narrow down the approach
+
+IMPORTANT: Do NOT begin implementing or writing code yet. This is a refinement phase - wait for my direction before any implementation.`;
+
+    const now = Date.now();
+    const tempId = `new-${now}`;
+    const projectName = destinationPath.split("/").pop() || "New Session";
+    const newSession: Session = {
+      id: tempId,
+      title: `Refining: ${prompt.slice(0, 40)}${prompt.length > 40 ? "..." : ""}`,
+      firstPrompt: refinementPrompt,
+      lastPrompt: refinementPrompt,
+      lastMessage: refinementPrompt,
+      project: projectName,
+      projectPath: destinationPath,
+      messageCount: 0,
+      lastActivity: new Date(),
+      status: "active",
+      isNew: true,
+      initialPrompt: refinementPrompt,
+      terminalId: tempId,
+      slug: null,
+      slugs: [],
+      gitBranch: null,
+    };
+
+    tempSessionInfo.current[tempId] = { createdAt: now, projectPath: destinationPath };
+
+    setOpenSessions((prev) => [...prev, newSession]);
+    setActiveSession(newSession);
+    setIsDrawerOpen(true);
+
+    // Navigate to the destination folder
+    if (destinationPath !== scopePath) {
+      setScopePath(destinationPath);
+    }
+  };
+
+  const handleQuickAddReference = async (prompt: string, destinationPath: string) => {
+    const isYouTube = isYouTubeUrl(prompt);
+
+    const fetchStrategy = isYouTube
+      ? `FETCH STRATEGY (YouTube video):
+1. First, fetch the transcript using: http://localhost:3000/api/youtube-transcript?url=VIDEO_URL
+   - This returns the full transcript text and timestamped segments
+   - If transcript fails, proceed to fallback options below
+2. Use WebFetch on the video page to get title, description, channel info
+3. If both fail, ask me to choose a fallback method`
+      : `FETCH STRATEGY:
+1. Use WebFetch tool first to get the content
+2. If WebFetch fails (paywall, blocked, incomplete), ask me to choose a fallback method`;
+
+    const referencePrompt = `Process this as a reference for the knowledge base.
+
+SOURCE:
+---
+${prompt}
+---
+
+${fetchStrategy}
+
+PROCESSING:
+- Create appropriate reference file with metadata and summary
+- Extract key insights and implications
+
+MINIMAL INTERACTION:
+Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
+
+    const now = Date.now();
+    const tempId = `new-${now}`;
+    const projectName = destinationPath.split("/").pop() || "New Session";
+    const newSession: Session = {
+      id: tempId,
+      title: `Reference: ${extractDomain(prompt)}`,
+      firstPrompt: referencePrompt,
+      lastPrompt: referencePrompt,
+      lastMessage: referencePrompt,
+      project: projectName,
+      projectPath: destinationPath,
+      messageCount: 0,
+      lastActivity: new Date(),
+      status: "active",
+      isNew: true,
+      initialPrompt: referencePrompt,
+      terminalId: tempId,
+      slug: null,
+      slugs: [],
+      gitBranch: null,
+    };
+
+    tempSessionInfo.current[tempId] = { createdAt: now, projectPath: destinationPath };
+
+    setOpenSessions((prev) => [...prev, newSession]);
+    setActiveSession(newSession);
+    setIsDrawerOpen(true);
+
+    // Navigate to the destination folder
+    if (destinationPath !== scopePath) {
+      setScopePath(destinationPath);
+    }
+  };
+
   // Ralph Wiggum loop handlers
   const handleRalphInboxItem = (item: { id: string; prompt: string }) => {
     setRalphSeedPrompt(item.prompt);
@@ -1106,6 +1294,7 @@ Proceed autonomously otherwise.`;
           currentScope={scopePath}
           onScopeChange={setScopePath}
           pinnedFolders={pinnedFolders}
+          onQuickAdd={() => setIsQuickAddOpen(true)}
         />
 
         {/* Conditional View: Docs, Tree, Stack, or Board */}
@@ -1278,6 +1467,19 @@ Proceed autonomously otherwise.`;
         seedPrompt={ralphSeedPrompt}
         onStartLoop={handleRalphStartLoop}
         onStartPrdRefinement={handleRalphStartPrdRefinement}
+      />
+
+      {/* QuickAdd Modal */}
+      <QuickAddModal
+        isOpen={isQuickAddOpen}
+        onClose={() => setIsQuickAddOpen(false)}
+        inboxPath={inboxPath}
+        pinnedFolders={pinnedFolders.folders}
+        onSetInboxPath={setInboxPath}
+        onSave={handleQuickAddSave}
+        onSaveAndRun={handleQuickAddRun}
+        onRefine={handleQuickAddRefine}
+        onProcessReference={handleQuickAddReference}
       />
     </div>
   );

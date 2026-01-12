@@ -22,6 +22,7 @@ import { SidebarToggle } from "./SidebarToggle";
 import { ThemeToggle } from "../ThemeToggle";
 import { SidebarSection } from "./SidebarSection";
 import { SortablePinnedFolderItem } from "./SortablePinnedFolderItem";
+import { QuickAddButton } from "../QuickAddButton";
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
@@ -37,13 +38,14 @@ interface SidebarProps {
   currentScope: string;
   onScopeChange: (path: string) => void;
   pinnedFolders: PinnedFoldersHook;
+  onQuickAdd?: () => void;
 }
 
 /**
  * Main collapsible sidebar with pinned folders
  * Fetches its own session data (unscoped) to compute counts across all pinned folders
  */
-export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarProps) {
+export function Sidebar({ currentScope, onScopeChange, pinnedFolders, onQuickAdd }: SidebarProps) {
   const { isCollapsed, toggle, isHydrated: sidebarHydrated } = useSidebarState();
   const { folders, unpinFolder, reorderFolders, setEmoji, isHydrated: foldersHydrated } = pinnedFolders;
 
@@ -177,7 +179,7 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarP
         </SidebarSection>
       </div>
 
-      {/* Footer with theme toggle and sidebar toggle */}
+      {/* Footer with quick add, theme toggle, and sidebar toggle */}
       <div
         className={`border-t border-[var(--border-default)] ${
           effectiveCollapsed
@@ -185,6 +187,9 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarP
             : "flex items-center justify-between px-2 h-11"
         }`}
       >
+        {onQuickAdd && (
+          <QuickAddButton onClick={onQuickAdd} isCollapsed={effectiveCollapsed} />
+        )}
         <ThemeToggle />
         <SidebarToggle isCollapsed={effectiveCollapsed} onToggle={toggle} />
       </div>

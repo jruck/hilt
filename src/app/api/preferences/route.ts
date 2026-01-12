@@ -14,6 +14,8 @@ import {
   addRecentScope,
   getViewMode,
   setViewMode,
+  getInboxPath,
+  setInboxPath,
 } from "@/lib/db";
 
 // GET all preferences or specific preference
@@ -40,6 +42,8 @@ export async function GET(request: NextRequest) {
         return NextResponse.json(await getRecentScopes());
       case "viewMode":
         return NextResponse.json({ value: await getViewMode() });
+      case "inboxPath":
+        return NextResponse.json({ value: await getInboxPath() });
       default:
         return NextResponse.json(
           { error: `Unknown preference key: ${key}` },
@@ -149,6 +153,9 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ success: true });
       case "viewMode":
         await setViewMode(value);
+        return NextResponse.json({ success: true });
+      case "inboxPath":
+        await setInboxPath(value);
         return NextResponse.json({ success: true });
       default:
         return NextResponse.json(

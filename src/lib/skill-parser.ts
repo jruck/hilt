@@ -52,13 +52,27 @@ function parseFrontmatter(yaml: string): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   const lines = yaml.split("\n");
 
-  let currentKey: string | null = null;
-  let currentIndent = 0;
-  let arrayItems: unknown[] = [];
-  let inArray = false;
-  let objectStack: { key: string; obj: Record<string, unknown>; indent: number }[] = [];
+  // Stack to track nested objects: [{key, obj, indent}]
+  const objectStack: { key: string; obj: Record<string, unknown>; indent: number }[] = [];
 
-  for (const line of lines) {
+  // For tracking arrays (can be nested in objects)
+  let currentArrayKey: string | null = null;
+  let currentArrayIndent = 0;
+  let currentArrayParent: Record<string, unknown> | null = null;
+  let arrayItems: unknown[] = [];
+  let currentArrayItemObj: Record<string, unknown> | null = null;
+  let currentArrayItemIndent = 0;
+
+  // Helper to get current target object
+  const getCurrentTarget = (): Record<string, unknown> => {
+    return objectStack.length > 0
+      ? objectStack[objectStack.length - 1].obj
+      : result;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
     // Skip empty lines
     if (!line.trim()) continue;
 
@@ -66,9 +80,43 @@ function parseFrontmatter(yaml: string): Record<string, unknown> {
     const indent = line.search(/\S/);
     const content = line.trim();
 
+    // Close array if we've dedented past it
+    if (currentArrayKey && indent <= currentArrayIndent) {
+      // Save current array item if any
+      if (currentArrayItemObj) {
+        arrayItems.push(currentArrayItemObj);
+        currentArrayItemObj = null;
+      }
+      // Attach array to its parent
+      if (currentArrayParent) {
+        currentArrayParent[currentArrayKey] = arrayItems;
+      } else {
+        result[currentArrayKey] = arrayItems;
+      }
+      currentArrayKey = null;
+      currentArrayParent = null;
+      arrayItems = [];
+    }
+
+    // Pop object stack if we've dedented (but only if not in array)
+    while (objectStack.length > 0 && indent <= objectStack[objectStack.length - 1].indent && !currentArrayKey) {
+      const popped = objectStack.pop()!;
+      // Attach completed object to parent or result
+      if (objectStack.length > 0) {
+        objectStack[objectStack.length - 1].obj[popped.key] = popped.obj;
+      } else {
+        result[popped.key] = popped.obj;
+      }
+    }
+
     // Array item (starts with -)
     if (content.startsWith("- ")) {
       const itemContent = content.slice(2).trim();
+
+      // Save previous array item if exists
+      if (currentArrayItemObj) {
+        arrayItems.push(currentArrayItemObj);
+      }
 
       // Check if it's a simple value or start of object
       if (itemContent.includes(":")) {
@@ -77,18 +125,13 @@ function parseFrontmatter(yaml: string): Record<string, unknown> {
         const key = itemContent.slice(0, colonIdx).trim();
         const value = itemContent.slice(colonIdx + 1).trim();
 
-        if (inArray && currentKey) {
-          // Start new object in array
-          const obj: Record<string, unknown> = {};
-          obj[key] = value ? parseYamlValue(value) : "";
-          arrayItems.push(obj);
-          objectStack = [{ key: currentKey, obj, indent }];
-        }
-      } else {
+        currentArrayItemObj = {};
+        currentArrayItemObj[key] = value ? parseYamlValue(value) : "";
+        currentArrayItemIndent = indent;
+      } else if (itemContent) {
         // Simple array item
-        if (inArray) {
-          arrayItems.push(parseYamlValue(itemContent));
-        }
+        arrayItems.push(parseYamlValue(itemContent));
+        currentArrayItemObj = null;
       }
       continue;
     }
@@ -99,55 +142,59 @@ function parseFrontmatter(yaml: string): Record<string, unknown> {
       const key = content.slice(0, colonIdx).trim();
       const value = content.slice(colonIdx + 1).trim();
 
-      // Check if we need to close array
-      if (inArray && currentKey && indent <= currentIndent) {
-        result[currentKey] = arrayItems;
-        inArray = false;
-        arrayItems = [];
-      }
-
-      // Check if we're inside an object in array
-      if (objectStack.length > 0 && indent > objectStack[objectStack.length - 1].indent) {
-        const parentObj = objectStack[objectStack.length - 1].obj;
-        parentObj[key] = value ? parseYamlValue(value) : "";
+      // Check if we're continuing an array item object (properties after first line)
+      if (currentArrayItemObj && indent > currentArrayItemIndent) {
+        currentArrayItemObj[key] = value ? parseYamlValue(value) : "";
         continue;
-      }
-
-      // Pop object stack if we've dedented
-      while (objectStack.length > 0 && indent <= objectStack[objectStack.length - 1].indent) {
-        objectStack.pop();
       }
 
       if (value === "") {
         // Could be start of nested object or array
-        currentKey = key;
-        currentIndent = indent;
-        // Check next line to determine if array
-        const nextLineIdx = lines.indexOf(line) + 1;
+        // Check next line to determine which
+        const nextLineIdx = i + 1;
         if (nextLineIdx < lines.length) {
           const nextLine = lines[nextLineIdx].trim();
           if (nextLine.startsWith("-")) {
-            inArray = true;
+            // Start of array - track which object owns it
+            currentArrayKey = key;
+            currentArrayIndent = indent;
+            currentArrayParent = getCurrentTarget();
             arrayItems = [];
           } else {
-            // Nested object
-            result[key] = {};
+            // Nested object - push onto stack
+            const newObj: Record<string, unknown> = {};
+            objectStack.push({ key, obj: newObj, indent });
           }
         }
       } else {
-        // Simple key: value
-        if (objectStack.length > 0) {
-          objectStack[objectStack.length - 1].obj[key] = parseYamlValue(value);
-        } else {
-          result[key] = parseYamlValue(value);
-        }
+        // Simple key: value - add to current context
+        getCurrentTarget()[key] = parseYamlValue(value);
       }
     }
   }
 
+  // Close any remaining array items
+  if (currentArrayItemObj) {
+    arrayItems.push(currentArrayItemObj);
+  }
+
   // Close any open array
-  if (inArray && currentKey) {
-    result[currentKey] = arrayItems;
+  if (currentArrayKey) {
+    if (currentArrayParent) {
+      currentArrayParent[currentArrayKey] = arrayItems;
+    } else {
+      result[currentArrayKey] = arrayItems;
+    }
+  }
+
+  // Close any remaining objects on stack
+  while (objectStack.length > 0) {
+    const popped = objectStack.pop()!;
+    if (objectStack.length > 0) {
+      objectStack[objectStack.length - 1].obj[popped.key] = popped.obj;
+    } else {
+      result[popped.key] = popped.obj;
+    }
   }
 
   return result;

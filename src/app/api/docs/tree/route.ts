@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { FileNode, DocsTreeResponse } from "@/lib/types";
 
-// Directories to skip
+// Directories to completely skip (dev tooling)
 const SKIP_DIRS = new Set([
   "node_modules",
   ".git",
@@ -18,6 +18,42 @@ const SKIP_DIRS = new Set([
   "coverage",
   ".nyc_output",
 ]);
+
+// Exact directory names to show dimmed/unclickable (macOS system)
+const IGNORED_DIRS_EXACT = new Set([
+  // macOS home directory folders (avoid file descriptor exhaustion)
+  "Applications",
+  "Library",
+  "System",
+  "Movies",
+  "Music",
+  "Pictures",
+  "Downloads",
+  "Documents",
+  "Desktop",
+  "Public",
+]);
+
+// Partial matches for cloud sync folders (case-insensitive)
+const IGNORED_DIRS_PATTERNS = [
+  "onedrive",
+  "google drive",
+  "my drive",
+  "creative cloud",
+  "dropbox",
+  "icloud drive",
+  "box sync",
+];
+
+// Check if a directory name should be ignored
+function isIgnoredDir(name: string): boolean {
+  // Exact match for macOS system folders
+  if (IGNORED_DIRS_EXACT.has(name)) return true;
+
+  // Partial match for cloud sync folders (case-insensitive)
+  const lowerName = name.toLowerCase();
+  return IGNORED_DIRS_PATTERNS.some(pattern => lowerName.includes(pattern));
+}
 
 // Max recursion depth
 const MAX_DEPTH = 15;
@@ -61,7 +97,7 @@ function buildFileTree(
       // Skip hidden files and directories
       if (entry.name.startsWith(".")) continue;
 
-      // Skip known problematic directories
+      // Skip known problematic directories (dev tooling)
       if (SKIP_DIRS.has(entry.name)) continue;
 
       // Limit files per directory
@@ -71,6 +107,9 @@ function buildFileTree(
 
       try {
         if (entry.isDirectory()) {
+          // Skip ignored directories entirely (macOS system, cloud sync)
+          if (isIgnoredDir(entry.name)) continue;
+
           const result = buildFileTree(fullPath, depth + 1);
           children.push(result.node);
           maxModTime = Math.max(maxModTime, result.maxModTime);

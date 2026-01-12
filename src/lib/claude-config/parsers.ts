@@ -167,6 +167,11 @@ export function extractHooks(settings: SettingsConfig, source: string): HookConf
   return hooks;
 }
 
+/**
+ * @deprecated Use discoverMCPServers from mcp-discovery.ts instead.
+ * This function is kept for backwards compatibility but MCP servers
+ * are now discovered from .mcp.json files, not settings.json.
+ */
 export function extractMCPServers(settings: SettingsConfig, source: string): MCPServerConfig[] {
   const servers: MCPServerConfig[] = [];
   const rawServers = settings.mcp?.servers;
@@ -176,6 +181,9 @@ export function extractMCPServers(settings: SettingsConfig, source: string): MCP
   for (const [name, config] of Object.entries(rawServers)) {
     servers.push({
       name,
+      type: "stdio", // Legacy format only supported stdio
+      enabled: true,
+      layer: "user",
       command: config.command,
       args: config.args,
       env: config.env,

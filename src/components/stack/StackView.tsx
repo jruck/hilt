@@ -2,15 +2,17 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useClaudeStack } from "@/hooks/useClaudeStack";
-import { StackFileTree } from "./StackFileTree";
+import { StackFileTree, type StackFilterType } from "./StackFileTree";
 import { StackContentPane } from "./StackContentPane";
 import { StackSummary } from "./StackSummary";
-import type { ConfigLayer, ConfigFile, ConfigFileType } from "@/lib/claude-config/types";
+import { MCPServerDetail } from "./MCPServerDetail";
+import { PluginDetail } from "./PluginDetail";
+import type { ConfigLayer, ConfigFile, MCPServerConfig, PluginConfig } from "@/lib/claude-config/types";
 
 // Sidebar width constraints
-const MIN_SIDEBAR_WIDTH = 180;
-const MAX_SIDEBAR_WIDTH = 500;
-const DEFAULT_SIDEBAR_WIDTH = 280;
+const MIN_SIDEBAR_WIDTH = 200;
+const MAX_SIDEBAR_WIDTH = 600;
+const DEFAULT_SIDEBAR_WIDTH = 360;
 const STORAGE_KEY = "stack-sidebar-width";
 
 interface StackViewProps {
@@ -21,8 +23,10 @@ interface StackViewProps {
 export function StackView({ scopePath, searchQuery = "" }: StackViewProps) {
   const { stack, isLoading, isError, mutate } = useClaudeStack(scopePath);
   const [selectedFile, setSelectedFile] = useState<{ file: ConfigFile; layer: ConfigLayer } | null>(null);
+  const [selectedMCPServer, setSelectedMCPServer] = useState<MCPServerConfig | null>(null);
+  const [selectedPlugin, setSelectedPlugin] = useState<PluginConfig | null>(null);
   const [creatingFile, setCreatingFile] = useState<{ file: ConfigFile; layer: ConfigLayer } | null>(null);
-  const [typeFilter, setTypeFilter] = useState<ConfigFileType | null>(null);
+  const [typeFilter, setTypeFilter] = useState<StackFilterType | null>(null);
 
   // Sidebar resize state
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -97,8 +101,83 @@ export function StackView({ scopePath, searchQuery = "" }: StackViewProps) {
 
   const handleSelectFile = useCallback((file: ConfigFile, layer: ConfigLayer) => {
     setSelectedFile({ file, layer });
+    setSelectedMCPServer(null);
+    setSelectedPlugin(null);
     setCreatingFile(null);
   }, []);
+
+  const handleSelectMCPServer = useCallback((server: MCPServerConfig) => {
+    setSelectedMCPServer(server);
+    setSelectedFile(null);
+    setSelectedPlugin(null);
+    setCreatingFile(null);
+  }, []);
+
+  const handleSelectPlugin = useCallback((plugin: PluginConfig) => {
+    setSelectedPlugin(plugin);
+    setSelectedFile(null);
+    setSelectedMCPServer(null);
+    setCreatingFile(null);
+  }, []);
+
+  const handleToggleMCPServer = useCallback(async (server: MCPServerConfig, enabled: boolean) => {
+    if (!server.pluginId) {
+      // User-defined servers can't be toggled via this mechanism
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/claude-stack/mcp", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pluginId: server.pluginId, enabled }),
+      });
+
+      if (response.ok) {
+        // Update local state
+        setSelectedMCPServer((prev) =>
+          prev && prev.name === server.name && prev.source === server.source
+            ? { ...prev, enabled }
+            : prev
+        );
+        // Refresh the stack
+        mutate();
+      }
+    } catch (error) {
+      console.error("Failed to toggle MCP server:", error);
+    }
+  }, [mutate]);
+
+  const handleTogglePlugin = useCallback(async (plugin: PluginConfig, enabled: boolean) => {
+    try {
+      const response = await fetch("/api/claude-stack/mcp", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pluginId: plugin.id, enabled }),
+      });
+
+      if (response.ok) {
+        // Update local state
+        setSelectedPlugin((prev) =>
+          prev && prev.id === plugin.id
+            ? { ...prev, enabled }
+            : prev
+        );
+        // Refresh the stack
+        mutate();
+      }
+    } catch (error) {
+      console.error("Failed to toggle plugin:", error);
+    }
+  }, [mutate]);
+
+  // Navigate from plugin detail to MCP server detail
+  const handlePluginMCPServerClick = useCallback((serverName: string) => {
+    const server = stack?.mcpServers.find((s) => s.name === serverName);
+    if (server) {
+      handleSelectMCPServer(server);
+    }
+  }, [stack?.mcpServers, handleSelectMCPServer]);
 
   if (isLoading) {
     return (
@@ -142,8 +221,14 @@ export function StackView({ scopePath, searchQuery = "" }: StackViewProps) {
         <div className="flex-1 overflow-y-auto pt-1.5 pb-1">
           <StackFileTree
             layers={stack.layers}
+            mcpServers={stack.mcpServers}
+            plugins={stack.plugins}
             selectedFile={selectedFile?.file || null}
+            selectedMCPServer={selectedMCPServer}
+            selectedPlugin={selectedPlugin}
             onSelectFile={handleSelectFile}
+            onSelectMCPServer={handleSelectMCPServer}
+            onSelectPlugin={handleSelectPlugin}
             onCreateFile={handleCreateFile}
             typeFilter={typeFilter}
             searchQuery={searchQuery}
@@ -170,15 +255,29 @@ export function StackView({ scopePath, searchQuery = "" }: StackViewProps) {
 
       {/* Content pane */}
       <div className="flex-1 overflow-hidden">
-        <StackContentPane
-          file={creatingFile?.file || selectedFile?.file || null}
-          layer={creatingFile?.layer || selectedFile?.layer || "project"}
-          scopePath={scopePath}
-          onFileUpdated={handleFileUpdated}
-          isCreating={!!creatingFile}
-          onCreateComplete={handleCreateComplete}
-          onCancelCreate={handleCancelCreate}
-        />
+        {selectedPlugin ? (
+          <PluginDetail
+            plugin={selectedPlugin}
+            onToggleEnabled={handleTogglePlugin}
+            onMCPServerClick={handlePluginMCPServerClick}
+          />
+        ) : selectedMCPServer ? (
+          <MCPServerDetail
+            server={selectedMCPServer}
+            onToggleEnabled={selectedMCPServer.pluginId ? handleToggleMCPServer : undefined}
+            onServerUpdated={handleFileUpdated}
+          />
+        ) : (
+          <StackContentPane
+            file={creatingFile?.file || selectedFile?.file || null}
+            layer={creatingFile?.layer || selectedFile?.layer || "project"}
+            scopePath={scopePath}
+            onFileUpdated={handleFileUpdated}
+            isCreating={!!creatingFile}
+            onCreateComplete={handleCreateComplete}
+            onCancelCreate={handleCancelCreate}
+          />
+        )}
       </div>
     </div>
   );

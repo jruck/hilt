@@ -66,9 +66,13 @@ export function DocsTreeItem({
   onSelect,
 }: DocsTreeItemProps) {
   const isDirectory = node.type === "directory";
+  const isIgnored = node.ignored === true;
   const indent = depth * 16;
 
   const handleClick = () => {
+    // Ignored directories are not interactive
+    if (isIgnored) return;
+
     if (isDirectory) {
       onToggleExpand(node.path);
       // Auto-select index.md if it exists in this folder
@@ -86,6 +90,9 @@ export function DocsTreeItem({
 
   const handleChevronClick = (e: React.MouseEvent) => {
     e.stopPropagation();
+    // Ignored directories are not interactive
+    if (isIgnored) return;
+
     if (isDirectory) {
       onToggleExpand(node.path);
     }
@@ -100,7 +107,7 @@ export function DocsTreeItem({
   }
 
   // Determine if the file can be viewed
-  const isViewable = isDirectory || (node.extension && VIEWABLE_EXTENSIONS.has(node.extension));
+  const isViewable = !isIgnored && (isDirectory || (node.extension && VIEWABLE_EXTENSIONS.has(node.extension)));
   const isMarkdown = node.extension === "md" || node.extension === "markdown" || node.extension === "mdx";
 
   return (
@@ -108,16 +115,17 @@ export function DocsTreeItem({
       className={`
         flex items-center gap-1 px-2 py-1 text-sm
         transition-colors duration-150
-        ${isSelected ? "bg-[var(--bg-tertiary)]" : "hover:bg-[var(--bg-secondary)]"}
-        ${!isViewable ? "opacity-50" : ""}
-        ${isViewable ? "cursor-pointer" : "cursor-default"}
-        ${isMarkdown ? "text-[var(--text-primary)]" : isViewable ? "text-[var(--text-secondary)]" : "text-[var(--text-tertiary)]"}
+        ${isSelected && !isIgnored ? "bg-[var(--bg-tertiary)]" : isIgnored ? "" : "hover:bg-[var(--bg-secondary)]"}
+        ${isIgnored ? "opacity-30" : !isViewable ? "opacity-50" : ""}
+        ${isIgnored ? "cursor-not-allowed" : isViewable ? "cursor-pointer" : "cursor-default"}
+        ${isIgnored ? "text-[var(--text-tertiary)]" : isMarkdown ? "text-[var(--text-primary)]" : isViewable ? "text-[var(--text-secondary)]" : "text-[var(--text-tertiary)]"}
       `}
       style={{ paddingLeft: `${indent + 8}px` }}
       onClick={handleClick}
+      title={isIgnored ? "System folder (not browseable)" : undefined}
     >
       {/* Chevron for directories */}
-      {isDirectory ? (
+      {isDirectory && !isIgnored ? (
         <button
           onClick={handleChevronClick}
           className="flex-shrink-0 w-4 h-4 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
@@ -135,7 +143,9 @@ export function DocsTreeItem({
       {/* Icon */}
       <IconComponent
         className={`w-4 h-4 flex-shrink-0 ${
-          isDirectory
+          isIgnored
+            ? "text-[var(--text-tertiary)]"
+            : isDirectory
             ? "text-[var(--accent-primary)]"
             : isMarkdown
             ? "text-[var(--text-secondary)]"

@@ -855,15 +855,15 @@ Proceed autonomously otherwise.`;
 
   // QuickAdd handlers - save/run items to a destination folder
   const handleQuickAddSave = async (prompt: string, destinationPath: string) => {
-    // Save to the destination folder's Todo.md
+    // Save to the destination folder's Todo.md via /api/inbox
     try {
-      await fetch("/api/todos", {
+      await fetch("/api/inbox", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          text: prompt,
+          prompt,
           section: "New",
-          scopePath: destinationPath,
+          scope: destinationPath,
         }),
       });
       // Navigate to the destination folder

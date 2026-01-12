@@ -47,8 +47,9 @@ export function QuickAddModal({
   const [settingInbox, setSettingInbox] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Filter to only show folders (not files) in pinned items
-  const pinnedFoldersOnly = pinnedFolders.filter(f => !f.path.includes("."));
+  // Pinned items are already folders (come from folder picker), use directly
+  // No filtering needed - the PinnedFolder type ensures these are directories
+  const pinnedFoldersOnly = pinnedFolders;
 
   // Load draft from localStorage on mount
   useEffect(() => {

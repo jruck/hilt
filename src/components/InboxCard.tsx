@@ -3,7 +3,9 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Trash2, Play, Square, CheckSquare, Pencil, Brain, Bookmark, Check, X, RefreshCw } from "lucide-react";
+import { Trash2, Play, Square, CheckSquare, Pencil, Check, X } from "lucide-react";
+import { SkillDropdownCompact } from "./SkillDropdown";
+import type { SkillInfo } from "@/lib/types";
 
 /**
  * Extract a display title from todo content.
@@ -51,11 +53,10 @@ interface InboxItem {
 
 interface InboxCardProps {
   item: InboxItem;
+  scope?: string; // For skill discovery
   onDelete?: () => void;
   onStart?: () => void;
-  onRefine?: () => void;
-  onProcessReference?: () => void;
-  onRalph?: () => void;
+  onRunWithSkill?: (skill: SkillInfo) => void;
   onUpdate?: (prompt: string) => void;
   isSelected?: boolean;
   onSelect?: (item: InboxItem, selected: boolean) => void;
@@ -65,11 +66,10 @@ interface InboxCardProps {
 
 export function InboxCard({
   item,
+  scope,
   onDelete,
   onStart,
-  onRefine,
-  onProcessReference,
-  onRalph,
+  onRunWithSkill,
   onUpdate,
   isSelected,
   onSelect,
@@ -174,27 +174,16 @@ export function InboxCard({
     onStart?.();
   }, [editValue, item.prompt, onUpdate, onEditingChange, onStart]);
 
-  // Save and then refine
-  const handleSaveAndRefine = useCallback(() => {
+  // Save and then run with a specific skill
+  const handleSaveAndRunWithSkill = useCallback((skill: SkillInfo) => {
     const trimmed = editValue.trim();
     if (trimmed && trimmed !== item.prompt) {
       onUpdate?.(trimmed);
     }
     setInternalIsEditing(false);
     onEditingChange?.(false);
-    onRefine?.();
-  }, [editValue, item.prompt, onUpdate, onEditingChange, onRefine]);
-
-  // Save and then process as reference
-  const handleSaveAndProcessRef = useCallback(() => {
-    const trimmed = editValue.trim();
-    if (trimmed && trimmed !== item.prompt) {
-      onUpdate?.(trimmed);
-    }
-    setInternalIsEditing(false);
-    onEditingChange?.(false);
-    onProcessReference?.();
-  }, [editValue, item.prompt, onUpdate, onEditingChange, onProcessReference]);
+    onRunWithSkill?.(skill);
+  }, [editValue, item.prompt, onUpdate, onEditingChange, onRunWithSkill]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -246,23 +235,12 @@ export function InboxCard({
           </button>
           {/* Actions on right */}
           <div className="flex items-center gap-1">
-            {onRefine && (
-              <button
-                onMouseDown={(e) => { e.preventDefault(); handleSaveAndRefine(); }}
-                className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] rounded transition-colors"
-                title="Refine"
-              >
-                <Brain className="w-4 h-4" />
-              </button>
-            )}
-            {onProcessReference && (
-              <button
-                onMouseDown={(e) => { e.preventDefault(); handleSaveAndProcessRef(); }}
-                className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] rounded transition-colors"
-                title="Process as reference"
-              >
-                <Bookmark className="w-4 h-4" />
-              </button>
+            {onRunWithSkill && (
+              <SkillDropdownCompact
+                scope={scope}
+                prompt={editValue}
+                onSelect={(skill) => skill && handleSaveAndRunWithSkill(skill)}
+              />
             )}
             {onStart && (
               <button
@@ -320,27 +298,15 @@ export function InboxCard({
         >
           <Pencil className="w-4 h-4" />
         </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); onRefine?.(); }}
-          className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--toolbar-hover-blue)] rounded transition-colors"
-          title="Refine this idea before implementing"
-        >
-          <Brain className="w-4 h-4" />
-        </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); onProcessReference?.(); }}
-          className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--toolbar-hover-blue)] rounded transition-colors"
-          title="Process as reference"
-        >
-          <Bookmark className="w-4 h-4" />
-        </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); onRalph?.(); }}
-          className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--toolbar-hover-blue)] rounded transition-colors"
-          title="Ralph loop (iterative AI)"
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
+        {onRunWithSkill && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <SkillDropdownCompact
+              scope={scope}
+              prompt={item.prompt}
+              onSelect={(skill) => skill && onRunWithSkill(skill)}
+            />
+          </div>
+        )}
         <button
           onClick={(e) => { e.stopPropagation(); onStart?.(); }}
           className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--toolbar-hover-blue)] rounded transition-colors"

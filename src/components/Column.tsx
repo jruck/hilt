@@ -19,7 +19,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Session, ColumnId } from "@/lib/types";
+import { Session, ColumnId, SkillInfo } from "@/lib/types";
 import { SessionCard } from "./SessionCard";
 import { InboxCard } from "./InboxCard";
 import { NewDraftCard } from "./NewDraftCard";
@@ -113,9 +113,7 @@ interface ColumnProps {
   onMoveItemToSection?: (id: string, section: string | null) => void;
   onDeleteInboxItem?: (id: string) => void;
   onStartInboxItem?: (item: { id: string; prompt: string }) => void;
-  onRefineInboxItem?: (item: { id: string; prompt: string }) => void;
-  onProcessReference?: (item: { id: string; prompt: string }) => void;
-  onRalphInboxItem?: (item: { id: string; prompt: string }) => void;
+  onRunInboxItemWithSkill?: (item: { id: string; prompt: string }, skill: SkillInfo) => void;
   onReorderSections?: (sectionOrder: string[]) => void;
   onReorderItem?: (itemId: string, targetSection: string | null, targetIndex: number) => void;
   sessionStatuses?: Record<string, string>;
@@ -279,9 +277,7 @@ export function Column({
   onUpdateInboxItem,
   onDeleteInboxItem,
   onStartInboxItem,
-  onRefineInboxItem,
-  onProcessReference,
-  onRalphInboxItem,
+  onRunInboxItemWithSkill,
   onReorderSections,
   onReorderItem,
   sessionStatuses = {},
@@ -438,18 +434,6 @@ export function Column({
     setSelectedSection(null);
   };
 
-  const handleRefine = (prompt: string) => {
-    onRefineInboxItem?.({ id: `draft-${Date.now()}`, prompt });
-    setIsCreatingNew(false);
-    setSelectedSection(null);
-  };
-
-  const handleProcessRef = (prompt: string) => {
-    onProcessReference?.({ id: `draft-${Date.now()}`, prompt });
-    setIsCreatingNew(false);
-    setSelectedSection(null);
-  };
-
   const handleCancelCreate = () => {
     setIsCreatingNew(false);
     setSelectedSection(null);
@@ -543,8 +527,6 @@ export function Column({
               onSave={handleCreate}
               onCancel={handleCancelCreate}
               onSaveAndRun={onCreateAndRunInboxItem ? handleCreateAndRun : undefined}
-              onRefine={onRefineInboxItem ? handleRefine : undefined}
-              onProcessReference={onProcessReference ? handleProcessRef : undefined}
             />
           </div>
         )}
@@ -565,11 +547,10 @@ export function Column({
                 <InboxCard
                   key={item.id}
                   item={item}
+                  scope={scopePath}
                   onDelete={() => onDeleteInboxItem?.(item.id)}
                   onStart={() => onStartInboxItem?.(item)}
-                  onRefine={() => onRefineInboxItem?.(item)}
-                  onProcessReference={() => onProcessReference?.(item)}
-                  onRalph={() => onRalphInboxItem?.(item)}
+                  onRunWithSkill={(skill) => onRunInboxItemWithSkill?.(item, skill)}
                   onUpdate={(prompt) => onUpdateInboxItem?.(item.id, prompt)}
                   isSelected={selectedIds.has(`inbox-${item.id}`)}
                   onSelect={onSelectInboxItem}
@@ -607,11 +588,10 @@ export function Column({
                       <InboxCard
                         key={item.id}
                         item={item}
+                        scope={scopePath}
                         onDelete={() => onDeleteInboxItem?.(item.id)}
                         onStart={() => onStartInboxItem?.(item)}
-                        onRefine={() => onRefineInboxItem?.(item)}
-                        onProcessReference={() => onProcessReference?.(item)}
-                        onRalph={() => onRalphInboxItem?.(item)}
+                        onRunWithSkill={(skill) => onRunInboxItemWithSkill?.(item, skill)}
                         onUpdate={(prompt) => onUpdateInboxItem?.(item.id, prompt)}
                         isSelected={selectedIds.has(`inbox-${item.id}`)}
                         onSelect={onSelectInboxItem}

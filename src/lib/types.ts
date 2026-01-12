@@ -242,3 +242,42 @@ export interface RalphLoopState {
   completionPromise: string;
   startedAt: string;
 }
+
+// ============ Skill Types ============
+
+// Parameter definition for skill configuration
+export interface SkillParamDef {
+  name: string;
+  type: "text" | "number" | "boolean";
+  default?: unknown;
+  required?: boolean;
+  label?: string;
+  placeholder?: string;
+}
+
+// Hilt-specific extensions in skill frontmatter
+export interface SkillHiltConfig {
+  modal?: string;           // e.g., "RalphSetupModal"
+  params?: SkillParamDef[]; // Parameters for modal/config
+  api?: string;             // e.g., "youtube-transcript"
+}
+
+// Skill info parsed from .claude/skills/*.md files
+export interface SkillInfo {
+  name: string;
+  description: string;
+  path: string;             // Full path to skill file
+  source: "global" | "project";
+  hilt?: SkillHiltConfig;   // Parsed from frontmatter
+}
+
+// API response for skills endpoint
+export interface SkillsResponse {
+  skills: SkillInfo[];
+}
+
+// API response for single skill content
+export interface SkillContentResponse {
+  skill: SkillInfo;
+  content: string;          // Full markdown content (for injection into prompt)
+}

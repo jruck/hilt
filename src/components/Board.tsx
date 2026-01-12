@@ -11,7 +11,9 @@ import {
   useSensors,
   DragOverlay,
 } from "@dnd-kit/core";
-import { Session, SessionStatus, ColumnId, RalphConfig } from "@/lib/types";
+import { Session, SessionStatus, ColumnId, RalphConfig, SkillInfo } from "@/lib/types";
+import { fetchSkillContent } from "@/hooks/useSkills";
+import { getSkillModalName, injectSkillParams } from "@/lib/skill-modals";
 import { needsAttention } from "@/lib/session-status";
 import { useSessions, useInboxItems } from "@/hooks/useSessions";
 import { useTreeSessions } from "@/hooks/useTreeSessions";
@@ -1030,6 +1032,143 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
     }
   };
 
+  // Skill-based quick add handler
+  const handleQuickAddRunWithSkill = async (
+    prompt: string,
+    destinationPath: string,
+    skill: SkillInfo
+  ) => {
+    // Check if skill requires a modal
+    const modalName = getSkillModalName(skill);
+
+    if (modalName === "RalphSetupModal") {
+      // Use existing Ralph flow
+      setRalphSeedPrompt(prompt);
+      setIsRalphModalOpen(true);
+      return;
+    }
+
+    // For non-modal skills, fetch content and create session
+    const skillData = await fetchSkillContent(skill.name, destinationPath);
+    if (!skillData) {
+      console.error(`Failed to fetch skill content for '${skill.name}'`);
+      // Fall back to plain run
+      handleQuickAddRun(prompt, destinationPath);
+      return;
+    }
+
+    // Combine prompt with skill instructions
+    const combinedPrompt = `${skillData.content}
+
+---
+
+USER REQUEST:
+${prompt}`;
+
+    // Create a temporary session
+    const now = Date.now();
+    const tempId = `new-${now}`;
+    const projectName = destinationPath.split("/").pop() || "New Session";
+    const newSession: Session = {
+      id: tempId,
+      title: `${skill.name}: ${prompt.slice(0, 30)}${prompt.length > 30 ? "..." : ""}`,
+      firstPrompt: combinedPrompt,
+      lastPrompt: combinedPrompt,
+      lastMessage: combinedPrompt,
+      project: projectName,
+      projectPath: destinationPath,
+      messageCount: 0,
+      lastActivity: new Date(),
+      status: "active",
+      isNew: true,
+      initialPrompt: combinedPrompt,
+      terminalId: tempId,
+      slug: null,
+      slugs: [],
+      gitBranch: null,
+    };
+
+    tempSessionInfo.current[tempId] = { createdAt: now, projectPath: destinationPath };
+
+    setOpenSessions((prev) => [...prev, newSession]);
+    setActiveSession(newSession);
+    setIsDrawerOpen(true);
+
+    // Navigate to the destination folder
+    if (destinationPath !== scopePath) {
+      setScopePath(destinationPath);
+    }
+  };
+
+  // Skill-based run handler
+  const handleRunInboxItemWithSkill = async (
+    item: { id: string; prompt: string },
+    skill: SkillInfo
+  ) => {
+    // Check if skill requires a modal
+    const modalName = getSkillModalName(skill);
+
+    if (modalName === "RalphSetupModal") {
+      // Use existing Ralph flow
+      setRalphSeedPrompt(item.prompt);
+      setPendingRalphItemId(item.id);
+      setIsRalphModalOpen(true);
+      return;
+    }
+
+    // For non-modal skills, fetch content and create session
+    const skillData = await fetchSkillContent(skill.name, scopePath || "/");
+    if (!skillData) {
+      console.error(`Failed to fetch skill content for '${skill.name}'`);
+      // Fall back to plain run
+      handleStartInboxItem(item);
+      return;
+    }
+
+    // Combine prompt with skill instructions
+    const combinedPrompt = `${skillData.content}
+
+---
+
+USER REQUEST:
+${item.prompt}`;
+
+    // Create a temporary session
+    const now = Date.now();
+    const tempId = `new-${now}`;
+    const projectName = scopePath ? scopePath.split("/").pop() || "New Session" : "New Session";
+    const projectPath = scopePath || "/";
+    const newSession: Session = {
+      id: tempId,
+      title: `${skill.name}: ${item.prompt.slice(0, 30)}${item.prompt.length > 30 ? "..." : ""}`,
+      firstPrompt: combinedPrompt,
+      lastPrompt: combinedPrompt,
+      lastMessage: combinedPrompt,
+      project: projectName,
+      projectPath,
+      messageCount: 0,
+      lastActivity: new Date(),
+      status: "active",
+      isNew: true,
+      initialPrompt: combinedPrompt,
+      terminalId: tempId,
+      slug: null,
+      slugs: [],
+      gitBranch: null,
+    };
+
+    // Track temp session for matching with real session later
+    tempSessionInfo.current[tempId] = { createdAt: now, projectPath };
+
+    // Add to open sessions and open the drawer
+    setOpenSessions((prev) => [...prev, newSession]);
+    setActiveSession(newSession);
+    setIsDrawerOpen(true);
+
+    // Delete the inbox item since we're starting a session
+    deleteInboxItem(item.id);
+  };
+
   // Ralph Wiggum loop handlers
   const handleRalphInboxItem = (item: { id: string; prompt: string }) => {
     setRalphSeedPrompt(item.prompt);
@@ -1398,9 +1537,7 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
                   onUpdateInboxItem={handleUpdateInboxItem}
                   onDeleteInboxItem={handleDeleteInboxItem}
                   onStartInboxItem={handleStartInboxItem}
-                  onRefineInboxItem={handleRefineInboxItem}
-                  onProcessReference={handleProcessReference}
-                  onRalphInboxItem={handleRalphInboxItem}
+                  onRunInboxItemWithSkill={handleRunInboxItemWithSkill}
                   sessionStatuses={sessionStatuses}
                   firstSeenAt={firstSeenAt}
                   selectedIds={selectedIds}
@@ -1496,8 +1633,7 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
         onSetInboxPath={setInboxPath}
         onSave={handleQuickAddSave}
         onSaveAndRun={handleQuickAddRun}
-        onRefine={handleQuickAddRefine}
-        onProcessReference={handleQuickAddReference}
+        onRunWithSkill={handleQuickAddRunWithSkill}
       />
     </div>
   );

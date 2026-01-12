@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { X, ChevronRight, Folder, FolderOpen, Inbox, Sparkles, Check, Play, Brain, Bookmark, Loader2, AlertCircle } from "lucide-react";
+import { X, ChevronRight, Folder, FolderOpen, Inbox, Sparkles, Check, Play, Loader2, AlertCircle } from "lucide-react";
 import { PinnedFolder } from "@/lib/pinned-folders";
+import { SkillDropdown } from "./SkillDropdown";
+import type { SkillInfo } from "@/lib/types";
 
 const DRAFT_STORAGE_KEY = "quick-add-draft";
 
@@ -24,8 +26,7 @@ interface QuickAddModalProps {
   onSetInboxPath: (path: string) => Promise<void>;
   onSave: (prompt: string, destinationPath: string) => Promise<void>;
   onSaveAndRun: (prompt: string, destinationPath: string) => void;
-  onRefine: (prompt: string, destinationPath: string) => void;
-  onProcessReference: (prompt: string, destinationPath: string) => void;
+  onRunWithSkill: (prompt: string, destinationPath: string, skill: SkillInfo) => void;
 }
 
 export function QuickAddModal({
@@ -36,12 +37,12 @@ export function QuickAddModal({
   onSetInboxPath,
   onSave,
   onSaveAndRun,
-  onRefine,
-  onProcessReference,
+  onRunWithSkill,
 }: QuickAddModalProps) {
   const [step, setStep] = useState<Step>("input");
   const [text, setText] = useState("");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [selectedSkill, setSelectedSkill] = useState<SkillInfo | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [settingInbox, setSettingInbox] = useState(false);
@@ -63,6 +64,7 @@ export function QuickAddModal({
       }
       setStep("input");
       setSelectedPath(null);
+      setSelectedSkill(null);
       setSuggestions([]);
       setSettingInbox(false);
       setIsSaving(false);
@@ -162,7 +164,7 @@ export function QuickAddModal({
     }
   };
 
-  const handleAction = async (action: "save" | "run" | "refine" | "reference") => {
+  const handleAction = async (action: "save" | "run" | "runWithSkill") => {
     if (!text.trim() || !selectedPath || isSaving) return;
 
     setError(null);
@@ -176,11 +178,10 @@ export function QuickAddModal({
         case "run":
           onSaveAndRun(text.trim(), selectedPath);
           break;
-        case "refine":
-          onRefine(text.trim(), selectedPath);
-          break;
-        case "reference":
-          onProcessReference(text.trim(), selectedPath);
+        case "runWithSkill":
+          if (selectedSkill) {
+            onRunWithSkill(text.trim(), selectedPath, selectedSkill);
+          }
           break;
       }
       // Clear draft on successful action
@@ -494,22 +495,18 @@ export function QuickAddModal({
                 </button>
 
                 <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => handleAction("reference")}
+                  <SkillDropdown
+                    scope={selectedPath || undefined}
+                    prompt={text}
+                    selectedSkill={selectedSkill}
+                    onSelect={(skill) => {
+                      setSelectedSkill(skill);
+                      if (skill) {
+                        handleAction("runWithSkill");
+                      }
+                    }}
                     disabled={!selectedPath || isSaving}
-                    className="p-2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] disabled:opacity-50 rounded transition-colors"
-                    title="Process as reference"
-                  >
-                    <Bookmark className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleAction("refine")}
-                    disabled={!selectedPath || isSaving}
-                    className="p-2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] disabled:opacity-50 rounded transition-colors"
-                    title="Refine"
-                  >
-                    <Brain className="w-4 h-4" />
-                  </button>
+                  />
                   <button
                     onClick={() => handleAction("run")}
                     disabled={!selectedPath || isSaving}

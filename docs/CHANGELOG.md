@@ -8,6 +8,45 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
+- **Claude Skills Integration** - Run inbox items with configurable skills for folder-specific processing rules
+  - **Skills Discovery API**: `GET /api/skills?scope={path}` returns merged global + project skills
+  - **Skills Content API**: `GET /api/skills/{name}?scope={path}` returns skill content for prompt injection
+  - **SkillDropdown component**: Full-featured dropdown with skill selection state
+  - **SkillDropdownCompact**: Inline version for card toolbars (sparkles icon)
+  - **Auto-selection**: Matches prompt content to suggest appropriate skill
+    - URL detected → process-reference skill
+    - Keywords like "refine", "discuss", "plan" → refine skill
+  - **Hilt frontmatter extensions**: Skills can declare `hilt:` requirements
+    - `modal`: Specify modal component (e.g., RalphSetupModal)
+    - `params`: Define modal parameters with types, defaults, labels
+    - `api`: Declare Hilt API dependencies (e.g., youtube-transcript)
+  - **Graceful fallbacks**: Skills include fallback instructions for non-Hilt environments
+  - **Three default skills created**:
+    - `refine.md`: Discussion/planning mode without implementation
+    - `process-reference.md`: Process URLs/YouTube as knowledge base references
+    - `ralph-loop.md`: Iterative refinement with Ralph Wiggum plugin
+  - Files: `src/lib/skill-parser.ts`, `src/lib/skill-matcher.ts`, `src/lib/skill-modals.ts`, `src/hooks/useSkills.ts`, `src/components/SkillDropdown.tsx`, `src/app/api/skills/route.ts`, `src/app/api/skills/[name]/route.ts`, `src/lib/types.ts`
+
+### Changed
+
+- **InboxCard actions consolidated** - Replaced individual action buttons with unified skill dropdown
+  - Removed: Brain (Refine), Bookmark (Process Reference), RefreshCw (Ralph) buttons
+  - Added: SkillDropdownCompact for "Run with Skill" functionality
+  - Actions are now: Select, Edit, Run with Skill (dropdown), Run, Delete
+  - Files: `src/components/InboxCard.tsx`, `src/components/Column.tsx`
+
+- **QuickAddModal skill support** - Added skill selection to the quick add flow
+  - New SkillDropdown in destination step for skill selection
+  - Auto-selects skill based on prompt content
+  - "Run with Skill" executes with selected skill instructions
+  - Files: `src/components/QuickAddModal.tsx`
+
+- **Board handlers updated** - New skill-aware run handlers
+  - `handleRunInboxItemWithSkill`: Runs inbox item with skill (checks for modal, fetches skill content)
+  - `handleQuickAddRunWithSkill`: Runs quick add with skill
+  - Modal skills (like Ralph) open their configuration modal before running
+  - Files: `src/components/Board.tsx`
+
 - **Global Inbox System** - Quick capture workflow with two-step modal for tasks from anywhere in the app
   - **Quick Add button** in sidebar footer opens capture modal
   - **Keyboard shortcut**: `Cmd/Ctrl+I` opens Quick Add from anywhere

@@ -856,22 +856,23 @@ Proceed autonomously otherwise.`;
   // QuickAdd handlers - save/run items to a destination folder
   const handleQuickAddSave = async (prompt: string, destinationPath: string) => {
     // Save to the destination folder's Todo.md via /api/inbox
-    try {
-      await fetch("/api/inbox", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt,
-          section: "New",
-          scope: destinationPath,
-        }),
-      });
-      // Navigate to the destination folder
-      if (destinationPath !== scopePath) {
-        setScopePath(destinationPath);
-      }
-    } catch (error) {
-      console.error("Failed to save quick add item:", error);
+    const response = await fetch("/api/inbox", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        section: "New",
+        scope: destinationPath,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to save: ${response.statusText}`);
+    }
+
+    // Navigate to the destination folder
+    if (destinationPath !== scopePath) {
+      setScopePath(destinationPath);
     }
   };
 

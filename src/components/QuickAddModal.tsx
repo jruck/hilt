@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { X, ChevronRight, Folder, FolderOpen, Inbox, Sparkles, Check, Play, Brain, Bookmark } from "lucide-react";
+import { X, ChevronRight, Folder, FolderOpen, Inbox, Sparkles, Check, Play, Brain, Bookmark, Loader2, AlertCircle } from "lucide-react";
 import { PinnedFolder } from "@/lib/pinned-folders";
 
 const DRAFT_STORAGE_KEY = "quick-add-draft";
@@ -22,7 +22,7 @@ interface QuickAddModalProps {
   inboxPath?: string;
   pinnedFolders: PinnedFolder[];
   onSetInboxPath: (path: string) => Promise<void>;
-  onSave: (prompt: string, destinationPath: string) => void;
+  onSave: (prompt: string, destinationPath: string) => Promise<void>;
   onSaveAndRun: (prompt: string, destinationPath: string) => void;
   onRefine: (prompt: string, destinationPath: string) => void;
   onProcessReference: (prompt: string, destinationPath: string) => void;
@@ -45,6 +45,9 @@ export function QuickAddModal({
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [settingInbox, setSettingInbox] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [inboxError, setInboxError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Pinned items are already folders (come from folder picker), use directly
@@ -62,6 +65,9 @@ export function QuickAddModal({
       setSelectedPath(null);
       setSuggestions([]);
       setSettingInbox(false);
+      setIsSaving(false);
+      setError(null);
+      setInboxError(null);
     }
   }, [isOpen]);
 
@@ -128,11 +134,19 @@ export function QuickAddModal({
   };
 
   const handleBrowseFolder = async () => {
+    setInboxError(null);
     try {
       const res = await fetch("/api/folders", { method: "POST" });
       const data = await res.json();
       if (!data.cancelled && data.path) {
         if (settingInbox) {
+          // Validate that the selected path is a valid directory
+          const validateRes = await fetch(`/api/folders?validate=${encodeURIComponent(data.path)}`);
+          const validateData = await validateRes.json();
+          if (!validateData.valid) {
+            setInboxError("Selected path is not a valid folder");
+            return;
+          }
           await onSetInboxPath(data.path);
           setSettingInbox(false);
           setSelectedPath(data.path);
@@ -140,32 +154,44 @@ export function QuickAddModal({
           setSelectedPath(data.path);
         }
       }
-    } catch (error) {
-      console.error("Failed to open folder picker:", error);
+    } catch (err) {
+      console.error("Failed to open folder picker:", err);
+      if (settingInbox) {
+        setInboxError("Failed to set inbox folder");
+      }
     }
   };
 
-  const handleAction = (action: "save" | "run" | "refine" | "reference") => {
-    if (!text.trim() || !selectedPath) return;
+  const handleAction = async (action: "save" | "run" | "refine" | "reference") => {
+    if (!text.trim() || !selectedPath || isSaving) return;
 
-    // Clear draft on successful action
-    localStorage.removeItem(DRAFT_STORAGE_KEY);
+    setError(null);
+    setIsSaving(true);
 
-    switch (action) {
-      case "save":
-        onSave(text.trim(), selectedPath);
-        break;
-      case "run":
-        onSaveAndRun(text.trim(), selectedPath);
-        break;
-      case "refine":
-        onRefine(text.trim(), selectedPath);
-        break;
-      case "reference":
-        onProcessReference(text.trim(), selectedPath);
-        break;
+    try {
+      switch (action) {
+        case "save":
+          await onSave(text.trim(), selectedPath);
+          break;
+        case "run":
+          onSaveAndRun(text.trim(), selectedPath);
+          break;
+        case "refine":
+          onRefine(text.trim(), selectedPath);
+          break;
+        case "reference":
+          onProcessReference(text.trim(), selectedPath);
+          break;
+      }
+      // Clear draft on successful action
+      localStorage.removeItem(DRAFT_STORAGE_KEY);
+      onClose();
+    } catch (err) {
+      console.error("Action failed:", err);
+      setError(action === "save" ? "Failed to save. Please try again." : "Action failed. Please try again.");
+    } finally {
+      setIsSaving(false);
     }
-    onClose();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -326,12 +352,21 @@ export function QuickAddModal({
                       </span>
                     </button>
                     <button
-                      onClick={() => setSettingInbox(false)}
+                      onClick={() => {
+                        setSettingInbox(false);
+                        setInboxError(null);
+                      }}
                       className="p-3 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
+                  {inboxError && (
+                    <div className="flex items-center gap-2 text-xs text-red-400">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      {inboxError}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -440,11 +475,20 @@ export function QuickAddModal({
                 </button>
               </div>
 
+              {/* Error message */}
+              {error && (
+                <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                  <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                  <p className="text-xs text-red-400">{error}</p>
+                </div>
+              )}
+
               {/* Actions */}
               <div className="flex items-center justify-between pt-2 border-t border-[var(--border-default)]">
                 <button
                   onClick={handleBack}
-                  className="px-3 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                  disabled={isSaving}
+                  className="px-3 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50 transition-colors"
                 >
                   Back
                 </button>
@@ -452,7 +496,7 @@ export function QuickAddModal({
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => handleAction("reference")}
-                    disabled={!selectedPath}
+                    disabled={!selectedPath || isSaving}
                     className="p-2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] disabled:opacity-50 rounded transition-colors"
                     title="Process as reference"
                   >
@@ -460,7 +504,7 @@ export function QuickAddModal({
                   </button>
                   <button
                     onClick={() => handleAction("refine")}
-                    disabled={!selectedPath}
+                    disabled={!selectedPath || isSaving}
                     className="p-2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] disabled:opacity-50 rounded transition-colors"
                     title="Refine"
                   >
@@ -468,7 +512,7 @@ export function QuickAddModal({
                   </button>
                   <button
                     onClick={() => handleAction("run")}
-                    disabled={!selectedPath}
+                    disabled={!selectedPath || isSaving}
                     className="p-2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] disabled:opacity-50 rounded transition-colors"
                     title="Run (Cmd+Enter)"
                   >
@@ -476,12 +520,16 @@ export function QuickAddModal({
                   </button>
                   <button
                     onClick={() => handleAction("save")}
-                    disabled={!selectedPath}
+                    disabled={!selectedPath || isSaving}
                     className="flex items-center gap-2 px-4 py-2 bg-[var(--interactive-default)] hover:bg-[var(--interactive-hover)] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-medium"
                     title="Save (Enter)"
                   >
-                    <Check className="w-4 h-4" />
-                    Save
+                    {isSaving ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Check className="w-4 h-4" />
+                    )}
+                    {isSaving ? "Saving..." : "Save"}
                   </button>
                 </div>
               </div>

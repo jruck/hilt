@@ -11,6 +11,7 @@ interface SortablePinnedFolderItemProps {
   folder: PinnedFolder;
   inboxCount: number;
   activeCount: number;
+  reviewCount: number;
   hasRunning: boolean;
   isActive: boolean;
   onClick: () => void;
@@ -25,6 +26,7 @@ export function SortablePinnedFolderItem({
   folder,
   inboxCount,
   activeCount,
+  reviewCount,
   hasRunning,
   isActive,
   onClick,
@@ -188,20 +190,29 @@ export function SortablePinnedFolderItem({
       </div>
 
       {/* Right side: count badges and unpin button */}
-      <div className="flex items-center gap-1 flex-shrink-0">
-        {/* Inbox (To Do) count - blue (matches column header) */}
+      <div className="flex items-center gap-0.5 flex-shrink-0">
+        {/* Inbox (To Do) count - blue */}
         {inboxCount > 0 && (
           <span
-            className="text-xs text-[var(--status-todo)] bg-[var(--status-todo-bg)] px-1.5 py-0.5 rounded"
+            className="text-[10px] text-[var(--status-todo)] bg-[var(--status-todo-bg)] px-1 py-px rounded min-w-[16px] text-center"
             title={`${inboxCount} in To Do`}
           >
             {inboxCount}
           </span>
         )}
-        {/* Active (In Progress) count - green (matches column header) */}
+        {/* Review count - amber */}
+        {reviewCount > 0 && (
+          <span
+            className="text-[10px] text-amber-400 bg-amber-400/10 px-1 py-px rounded min-w-[16px] text-center"
+            title={`${reviewCount} needs review`}
+          >
+            {reviewCount}
+          </span>
+        )}
+        {/* Active (In Progress) count - green */}
         {activeCount > 0 && (
           <span
-            className="text-xs text-[var(--status-active)] bg-[var(--status-active-bg)] px-1.5 py-0.5 rounded"
+            className="text-[10px] text-[var(--status-active)] bg-[var(--status-active-bg)] px-1 py-px rounded min-w-[16px] text-center"
             title={`${activeCount} in progress`}
           >
             {activeCount}

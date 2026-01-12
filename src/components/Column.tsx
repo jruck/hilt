@@ -31,7 +31,6 @@ import {
   ChevronDown,
   ChevronRight,
   GripVertical,
-  Terminal,
   FolderOpen,
   Star,
   Eye,
@@ -125,10 +124,6 @@ interface ColumnProps {
   onSelectSession?: (session: Session, selected: boolean) => void;
   onSelectInboxItem?: (item: InboxItem, selected: boolean) => void;
   onBackgroundClick?: () => void;
-  // Drawer toggle for active column
-  openSessionCount?: number;
-  isDrawerOpen?: boolean;
-  onToggleDrawer?: () => void;
   // ID of session that would be resumed by `claude --continue`
   continuableSessionId?: string;
 }
@@ -295,9 +290,6 @@ export function Column({
   onSelectSession,
   onSelectInboxItem,
   onBackgroundClick,
-  openSessionCount = 0,
-  isDrawerOpen = false,
-  onToggleDrawer,
   continuableSessionId,
 }: ColumnProps) {
   const [isCreatingNew, setIsCreatingNew] = useState(false);
@@ -516,21 +508,6 @@ export function Column({
             </>
           )}
 
-          {/* Active: Drawer toggle */}
-          {columnId === "active" && openSessionCount > 0 && onToggleDrawer && (
-            <button
-              onClick={onToggleDrawer}
-              className={`flex items-center gap-1.5 px-2 py-1 rounded text-sm transition-colors ${
-                isDrawerOpen
-                  ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
-                  : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
-              }`}
-              title={isDrawerOpen ? 'Hide terminal drawer' : 'Show terminal drawer'}
-            >
-              <Terminal className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="text-xs">{openSessionCount}</span>
-            </button>
-          )}
         </div>
       </div>
 

@@ -18,6 +18,7 @@ import {
 import { useSidebarState } from "@/hooks/useSidebarState";
 import { SessionsResponse } from "@/lib/types";
 import { PinnedFolder } from "@/lib/pinned-folders";
+import { needsAttention } from "@/lib/session-status";
 import { SidebarToggle } from "./SidebarToggle";
 import { ThemeToggle } from "../ThemeToggle";
 import { SidebarSection } from "./SidebarSection";
@@ -77,19 +78,27 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders, onQuickAdd
 
   // Compute counts per pinned folder from ALL sessions + inbox counts
   // - inboxCount: from batch API for each folder's Todo.md
-  // - activeCount: sessions with status "active" (In Progress)
+  // - activeCount: sessions with status "active" that don't need attention
+  // - reviewCount: sessions with status "active" that need attention (Review column)
   // - hasRunning: any running sessions in this folder
   const folderStats = useMemo(() => {
-    const stats: Record<string, { inboxCount: number; activeCount: number; hasRunning: boolean }> = {};
+    const stats: Record<string, { inboxCount: number; activeCount: number; reviewCount: number; hasRunning: boolean }> = {};
 
     for (const folder of folders) {
       let activeCount = 0;
+      let reviewCount = 0;
       let hasRunning = false;
 
       // Count active sessions in this exact folder (not subfolders)
       for (const session of allSessions) {
         if (session.projectPath === folder.path && session.status === "active") {
-          activeCount++;
+          // Check if session needs attention (goes in Review column)
+          const sessionNeedsAttention = session.derivedState && needsAttention(session.derivedState.status);
+          if (sessionNeedsAttention) {
+            reviewCount++;
+          } else {
+            activeCount++;
+          }
           if (session.isRunning) {
             hasRunning = true;
           }
@@ -99,7 +108,7 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders, onQuickAdd
       // Get inbox count from batch API response
       const inboxCount = inboxCounts[folder.path] ?? 0;
 
-      stats[folder.id] = { inboxCount, activeCount, hasRunning };
+      stats[folder.id] = { inboxCount, activeCount, reviewCount, hasRunning };
     }
 
     return stats;
@@ -158,13 +167,14 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders, onQuickAdd
                 strategy={verticalListSortingStrategy}
               >
                 {folders.map((folder) => {
-                  const stats = folderStats[folder.id] || { inboxCount: 0, activeCount: 0, hasRunning: false };
+                  const stats = folderStats[folder.id] || { inboxCount: 0, activeCount: 0, reviewCount: 0, hasRunning: false };
                   return (
                     <SortablePinnedFolderItem
                       key={folder.id}
                       folder={folder}
                       inboxCount={stats.inboxCount}
                       activeCount={stats.activeCount}
+                      reviewCount={stats.reviewCount}
                       hasRunning={stats.hasRunning}
                       isActive={currentScope === folder.path}
                       onClick={() => onScopeChange(folder.path)}

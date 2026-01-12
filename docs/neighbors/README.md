@@ -40,6 +40,7 @@ The agent will research the tool and generate a report in this folder.
 | [Weft](weft.md) | AI Automation | Cloud-hosted, multi-domain; different category |
 | [Conductor](conductor.md) | Mac Agent Runner | VC-backed, closed-source; one-click launch is key feature |
 | [Nimbalyst](nimbalyst.md) | Editor + Sessions | Document-centric; we're simpler, workflow-focused |
+| [PersonalOS](personal-os.md) | AI Task Framework | MCP-powered task dedup; adjacent (planning) vs our space (execution) |
 
 ## Summary Insights
 
@@ -59,10 +60,11 @@ The agent will research the tool and generate a report in this folder.
 ```
                     Local ←————————→ Cloud
                       │                │
-    Session-centric   │  Hilt │  Lightsprint
+    Session-centric   │  Hilt          │  Lightsprint
                       │  claude-code-ui│
                       │                │
     Task-centric      │  Conductor     │  Vibe Kanban
                       │  Nimbalyst     │  Weft
+                      │  PersonalOS    │
                       │  Crystal       │
 ```

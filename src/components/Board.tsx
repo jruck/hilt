@@ -30,7 +30,7 @@ import { QuickAddModal } from "./QuickAddModal";
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
 import { useInboxPath } from "@/hooks/useInboxPath";
 import { generatePrdPrompt, generateRalphCommand } from "@/lib/ralph";
-import { X, Inbox, Play, Clock, Search, Filter, FileText, Check, Archive, Eye, CheckCircle } from "lucide-react";
+import { X, Inbox, Play, Clock, Search, Filter, FileText, Check, Archive, Eye, CheckCircle, Terminal } from "lucide-react";
 
 const COLUMNS: ColumnId[] = ["inbox", "active", "attention", "recent"];
 
@@ -152,9 +152,14 @@ export function Board() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isHydrated]);
 
-  // Default to home directory when at root URL
+  // Track if we've done the initial redirect (to prevent re-redirecting when user navigates to root)
+  const hasInitialRedirected = useRef(false);
+
+  // Default to home directory only on initial load when at root URL
   useEffect(() => {
-    if (isHydrated && homeDir && !scopePath) {
+    // Only redirect once, on initial hydration, if URL is at root
+    if (isHydrated && homeDir && !scopePath && !hasInitialRedirected.current) {
+      hasInitialRedirected.current = true;
       setScopePath(homeDir);
     }
   }, [isHydrated, homeDir, scopePath, setScopePath]);
@@ -1283,6 +1288,22 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
             </button>
           )}
 
+          {/* Terminal Drawer Toggle - visible across all modes when sessions are open */}
+          {openSessions.length > 0 && (
+            <button
+              onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                isDrawerOpen
+                  ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+              title={isDrawerOpen ? 'Hide terminal drawer' : 'Show terminal drawer'}
+            >
+              <Terminal className="w-4 h-4 text-emerald-400" />
+              <span>{openSessions.length}</span>
+            </button>
+          )}
+
           {/* View Toggle */}
           <ViewToggle view={viewMode} onChange={setViewMode} />
         </div>
@@ -1386,9 +1407,6 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
                   onSelectSession={handleSelectSession}
                   onSelectInboxItem={handleSelectInboxItem}
                   onBackgroundClick={() => isDrawerOpen && setIsDrawerOpen(false)}
-                  openSessionCount={columnId === "active" ? openSessions.length : undefined}
-                  isDrawerOpen={columnId === "active" ? isDrawerOpen : undefined}
-                  onToggleDrawer={columnId === "active" ? () => setIsDrawerOpen(!isDrawerOpen) : undefined}
                   continuableSessionId={continuableSessionId}
                 />
                 );

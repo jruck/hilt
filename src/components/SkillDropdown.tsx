@@ -244,7 +244,7 @@ export function SkillDropdownCompact({
 
       {isOpen && !isLoading && (
         <div
-          className="absolute right-0 top-full mt-1 z-50 min-w-[200px] max-w-[280px]
+          className="absolute left-0 top-full mt-1 z-50 min-w-[200px] max-w-[280px]
                       bg-[var(--bg-elevated)] border border-[var(--border-default)]
                       rounded-lg shadow-lg overflow-hidden"
         >

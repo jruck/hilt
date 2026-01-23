@@ -18,6 +18,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
+- **Wikilinks broken in markdown tables** - Fixed escaped pipe characters causing link resolution failures
+  - Root cause: Wikilinks in markdown tables use `\|` to escape the pipe separator, but the regex captured the trailing backslash as part of the target path (e.g., `index\` instead of `index`)
+  - Fix: Strip trailing backslash from captured target in `parseWikilinks()` before resolution
+  - File modified: `src/lib/docs/wikilink-resolver.ts`
+
 - **Terminal not loading in Electron app** - Fixed race condition where React component remounting caused double PTY spawns
   - Root cause: Terminal component unmount/remount triggered two rapid spawn calls; second spawn killed the first before initialization
   - Added 500ms debounce window for spawn requests with same terminalId - returns existing terminal instead of killing/re-creating

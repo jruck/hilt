@@ -202,7 +202,8 @@ export function parseWikilinks(content: string): ParsedWikilink[] {
 
   let match;
   while ((match = regex.exec(content)) !== null) {
-    const target = match[1].trim();
+    // Remove trailing backslash from escaped pipes in markdown tables (e.g., [[path\|display]])
+    const target = match[1].trim().replace(/\\$/, '');
     const display = match[2]?.trim() || target;
 
     links.push({

@@ -64,8 +64,8 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
 
     // Process markdown to convert wikilinks to standard markdown links for display
     // Only process in read mode - in edit mode, show raw [[wikilink]] syntax
+    // (processing in edit mode causes MDXEditor to save expanded URLs back to files)
     const processedMarkdown = useMemo(() => {
-      // In edit mode, don't process wikilinks - let user edit the raw syntax
       if (readOnly === false) {
         return markdown;
       }
@@ -82,19 +82,24 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
       // Process image wikilinks (![[path]])
       const imageWikilinks = parseImageWikilinks(markdown);
       for (const img of imageWikilinks) {
-        // Resolve the image path relative to current file
-        const currentDir = path.dirname(currentFilePath);
+        // Use the same resolver as regular wikilinks to support Obsidian-style filename search
+        const resolved = resolveWikilink(img.target, currentFilePath, scopePath, fileTree || null);
         let imagePath: string;
 
-        if (img.target.startsWith("./") || img.target.startsWith("../")) {
-          // Relative path
-          imagePath = path.resolve(currentDir, img.target);
-        } else if (img.target.startsWith("/")) {
-          // Absolute path within scope
-          imagePath = path.join(scopePath, img.target);
+        if (resolved.exists && resolved.absolutePath) {
+          imagePath = resolved.absolutePath;
         } else {
-          // Treat as relative to current file
-          imagePath = path.resolve(currentDir, img.target);
+          // Fallback: try media/ subfolder (Obsidian attachmentFolderPath: "./media"),
+          // then relative to current file
+          const currentDir = path.dirname(currentFilePath);
+          if (img.target.startsWith("/")) {
+            imagePath = path.join(scopePath, img.target);
+          } else if (!img.target.includes("/")) {
+            // Bare filename — check media/ subfolder first
+            imagePath = path.resolve(currentDir, "media", img.target);
+          } else {
+            imagePath = path.resolve(currentDir, img.target);
+          }
         }
 
         // Convert to API URL
@@ -108,7 +113,6 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
         });
       }
 
-      // Process regular wikilinks
       const wikilinks = parseWikilinks(markdown);
       for (const link of wikilinks) {
         const resolved = resolveWikilink(link.target, currentFilePath, scopePath, fileTree || null);
@@ -300,7 +304,7 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
     const proseInvert = resolvedTheme === "dark" ? "prose-invert" : "";
 
     return (
-      <div ref={containerRef} className={`h-full flex flex-col ${wrapperClassName ?? "docs-editor-wrapper"}`}>
+      <div ref={containerRef} className={`flex flex-col ${wrapperClassName ? wrapperClassName : "h-full docs-editor-wrapper"}`}>
         <MDXEditor
           key={readOnly ? "read" : "edit"}
           ref={editorRef}

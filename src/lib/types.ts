@@ -259,6 +259,8 @@ export interface BridgeWeekly {
   needsRecycle: boolean;   // Current date in newer ISO week
   tasks: BridgeTask[];
   notes: string;           // Raw markdown of ## Notes section
+  vaultPath: string;       // Absolute path to vault root
+  filePath: string;        // Absolute path to the weekly .md file
 }
 
 export type BridgeProjectStatus = "thinking" | "refining" | "scoping" | "doing";

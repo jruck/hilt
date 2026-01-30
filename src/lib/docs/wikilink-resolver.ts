@@ -231,8 +231,8 @@ export interface ParsedImageWikilink {
 }
 
 export function parseImageWikilinks(content: string): ParsedImageWikilink[] {
-  // Match ![[...]] with optional |alt text
-  const regex = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+  // Match ![[...]] and !\[\[...]] (MDXEditor escapes brackets) with optional |alt text
+  const regex = /!\\?\[\\?\[([^\]|]+)(?:\|([^\]]+))?\\?\]\]/g;
   const images: ParsedImageWikilink[] = [];
 
   let match;

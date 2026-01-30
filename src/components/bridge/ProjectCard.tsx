@@ -23,18 +23,6 @@ export function ProjectCard({ project, onClick }: ProjectCardProps) {
           </span>
         </div>
       )}
-      {project.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-1.5">
-          {project.tags.map(tag => (
-            <span
-              key={tag}
-              className="text-xs text-[var(--text-tertiary)] bg-[var(--bg-primary)] px-1.5 py-0.5 rounded"
-            >
-              {tag}
-            </span>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

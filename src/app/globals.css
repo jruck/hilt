@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+button, [role="button"] {
+  cursor: pointer;
+}
+
 /* ============================================
    THEME SYSTEM - Light theme (default)
    Elegant, warm, high-contrast light mode
@@ -10,31 +14,31 @@
   --theme-transition: 200ms ease-out;
 
   /* Legacy variables for compatibility */
-  --background: #fefefe;
-  --foreground: #1a1a2e;
+  --background: #faf9f7;
+  --foreground: #1a1a1a;
 
-  /* Backgrounds - warm whites with subtle depth */
-  --bg-primary: #fefefe;
-  --bg-secondary: #f7f7f8;
-  --bg-tertiary: #eeeff2;
+  /* Backgrounds - warm off-whites (from jruck.us) */
+  --bg-primary: #faf9f7;
+  --bg-secondary: #f5f4f1;
+  --bg-tertiary: #edecea;
   --bg-elevated: #ffffff;
-  --border-hover: #c4c8d0;
+  --border-hover: #c4bfb8;
 
-  /* Borders - refined and visible */
-  --border-default: #dcdee3;
-  --border-subtle: #e8e9ed;
-  --border-strong: #b8bcc5;
+  /* Borders - warm tans */
+  --border-default: #e8e6e3;
+  --border-subtle: #f0eeeb;
+  --border-strong: #c4bfb8;
 
-  /* Text - high contrast, readable */
-  --text-primary: #1a1a2e;
-  --text-secondary: #4a4a5a;
-  --text-tertiary: #7a7a8a;
+  /* Text - warm, high contrast */
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b6b6b;
+  --text-tertiary: #9a9a9a;
   --text-inverted: #ffffff;
 
-  /* Interactive */
-  --interactive-default: #9333ea;
-  --interactive-hover: #7c3aed;
-  --interactive-active: #6b21a8;
+  /* Interactive — warm brown accent (from jruck.us) */
+  --interactive-default: #8b7355;
+  --interactive-hover: #725f47;
+  --interactive-active: #5e4d3a;
 
   /* Status Colors - vibrant but not harsh */
   --status-active: #059669;
@@ -50,24 +54,24 @@
 
   /* Surfaces (cards, panels) */
   --surface-card: #ffffff;
-  --surface-card-hover: #f7f7f8;
-  --surface-panel: #f7f7f8;
+  --surface-card-hover: #f5f4f1;
+  --surface-panel: #f5f4f1;
 
   /* Card toolbars - theme-aware */
   --toolbar-bg: rgba(255, 255, 255, 0.95);
-  --toolbar-border: #dcdee3;
+  --toolbar-border: #e8e6e3;
   --toolbar-bg-blue: #eff6ff;
   --toolbar-border-blue: #bfdbfe;
   --toolbar-bg-emerald: #ecfdf5;
   --toolbar-border-emerald: #a7f3d0;
-  --toolbar-hover: #f1f5f9;
+  --toolbar-hover: #f0eeeb;
   --toolbar-hover-blue: #dbeafe;
   --toolbar-hover-emerald: #d1fae5;
 
   /* Scrollbar */
-  --scrollbar-track: #f1f2f4;
-  --scrollbar-thumb: #c4c8d0;
-  --scrollbar-thumb-hover: #9ca3af;
+  --scrollbar-track: #f0eeeb;
+  --scrollbar-thumb: #c4bfb8;
+  --scrollbar-thumb-hover: #a39e96;
 }
 
 /* ============================================
@@ -75,30 +79,30 @@
    ============================================ */
 .dark {
   /* Legacy variables for compatibility */
-  --background: #0a0a0a;
-  --foreground: #fafafa;
+  --background: #121211;
+  --foreground: #f0ede8;
 
-  /* Backgrounds */
-  --bg-primary: #0a0a0a;
-  --bg-secondary: #18181b;
-  --bg-tertiary: #27272a;
-  --bg-elevated: #18181b;
+  /* Backgrounds - warm darks (from jruck.us) */
+  --bg-primary: #121211;
+  --bg-secondary: #1a1918;
+  --bg-tertiary: #2a2927;
+  --bg-elevated: #1a1918;
 
-  /* Borders */
-  --border-default: #27272a;
-  --border-subtle: #18181b;
-  --border-strong: #3f3f46;
+  /* Borders - warm dark */
+  --border-default: #2a2927;
+  --border-subtle: #1f1e1d;
+  --border-strong: #3d3b38;
 
-  /* Text */
-  --text-primary: #fafafa;
-  --text-secondary: #a1a1aa;
-  --text-tertiary: #71717a;
-  --text-inverted: #0a0a0a;
+  /* Text - warm off-whites */
+  --text-primary: #f0ede8;
+  --text-secondary: #a3a09a;
+  --text-tertiary: #6b6864;
+  --text-inverted: #121211;
 
-  /* Interactive */
-  --interactive-default: #a855f7;
-  --interactive-hover: #c084fc;
-  --interactive-active: #d8b4fe;
+  /* Interactive — warm tan accent (from jruck.us) */
+  --interactive-default: #c4a882;
+  --interactive-hover: #d4bc9a;
+  --interactive-active: #e0cdb0;
 
   /* Status Colors */
   --status-active: #10b981;
@@ -113,25 +117,25 @@
   --status-starred-bg: rgba(251, 191, 36, 0.1);
 
   /* Surfaces */
-  --surface-card: #18181b;
-  --surface-card-hover: #27272a;
-  --surface-panel: #18181b;
+  --surface-card: #1a1918;
+  --surface-card-hover: #2a2927;
+  --surface-panel: #1a1918;
 
   /* Card toolbars - dark theme */
-  --toolbar-bg: rgba(24, 24, 27, 0.95);
-  --toolbar-border: #3f3f46;
+  --toolbar-bg: rgba(26, 25, 24, 0.95);
+  --toolbar-border: #3d3b38;
   --toolbar-bg-blue: rgba(30, 64, 175, 0.8);
   --toolbar-border-blue: rgba(59, 130, 246, 0.3);
   --toolbar-bg-emerald: rgba(6, 78, 59, 0.8);
   --toolbar-border-emerald: rgba(16, 185, 129, 0.3);
-  --toolbar-hover: #3f3f46;
+  --toolbar-hover: #3d3b38;
   --toolbar-hover-blue: rgba(30, 64, 175, 0.9);
   --toolbar-hover-emerald: rgba(6, 78, 59, 0.9);
 
   /* Scrollbar */
-  --scrollbar-track: #18181b;
-  --scrollbar-thumb: #3f3f46;
-  --scrollbar-thumb-hover: #52525b;
+  --scrollbar-track: #1a1918;
+  --scrollbar-thumb: #3d3b38;
+  --scrollbar-thumb-hover: #4d4a46;
 }
 
 @theme inline {

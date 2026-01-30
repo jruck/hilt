@@ -2,7 +2,7 @@
 
 import { Sun, Moon, Monitor } from 'lucide-react';
 import { useTheme, Theme } from '@/hooks/useTheme';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 
 const themeOptions: { value: Theme; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: 'Light', icon: Sun },
@@ -13,7 +13,19 @@ const themeOptions: { value: Theme; label: string; icon: typeof Sun }[] = [
 export function ThemeToggle() {
   const { theme, resolvedTheme, setTheme } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
+  const [alignRight, setAlignRight] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // Determine dropdown alignment based on available space
+  const openDropdown = useCallback(() => {
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      const spaceRight = window.innerWidth - rect.left;
+      setAlignRight(spaceRight < 160);
+    }
+    setIsOpen(true);
+  }, []);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -32,7 +44,8 @@ export function ThemeToggle() {
   return (
     <div ref={containerRef} className="relative">
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        ref={buttonRef}
+        onClick={() => isOpen ? setIsOpen(false) : openDropdown()}
         className="p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
         title={`Theme: ${theme}`}
       >
@@ -40,9 +53,10 @@ export function ThemeToggle() {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1 z-50 min-w-[120px]
+        <div className={`absolute top-full mt-1 z-50 min-w-[120px]
                         bg-[var(--bg-elevated)] border border-[var(--border-default)]
-                        rounded-lg shadow-lg overflow-hidden">
+                        rounded-lg shadow-lg overflow-hidden
+                        ${alignRight ? 'right-0' : 'left-0'}`}>
           {themeOptions.map((option) => {
             const Icon = option.icon;
             const isSelected = theme === option.value;

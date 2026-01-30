@@ -8,6 +8,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
+- **`workingFolder` preference** - New user preference that sets the default scope for Docs, Stack, and Sessions views on initial load (when no localStorage scope exists). Set in `data/preferences.json` as `"workingFolder": "/path/to/folder"`. Falls back to home directory when not configured.
+  - Files: `src/lib/db.ts`, `src/app/api/folders/route.ts`, `src/components/Board.tsx`
+
 - **Bridge view** - Weekly task management and project kanban integrated as a new view mode
   - Weekly tasks with drag-and-drop reordering, inline title editing, checkbox toggling
   - Side panel for task details with full markdown editing

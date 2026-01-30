@@ -242,6 +242,8 @@ interface UserPreferences {
   inboxPath?: string;
   // Bridge vault path for weekly tasks and projects
   bridgeVaultPath?: string;
+  // Default working folder — used as initial scope for Docs, Stack, and Sessions views
+  workingFolder?: string;
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {

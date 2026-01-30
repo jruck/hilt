@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { execSync } from "child_process";
+import { getAllPreferences } from "@/lib/db";
 
 // Decode an encoded path by checking against filesystem
 // Claude Code encodes paths by replacing / with -, but folder names can contain hyphens
@@ -104,6 +105,8 @@ export async function GET(request: NextRequest) {
     // Get all project folders
     let folders = await getProjectFolders();
     const homeDir = os.homedir();
+    const prefs = await getAllPreferences();
+    const workingFolder = prefs.workingFolder || null;
 
     // Filter to only show folders under the current scope (children only, not the scope itself)
     if (scopePath) {
@@ -113,6 +116,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       folders,
       homeDir,
+      workingFolder,
     });
   } catch (error) {
     console.error("Error fetching folders:", error);

@@ -13,11 +13,11 @@ export function QuickAddButton({ onClick }: QuickAddButtonProps) {
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
-      title="Quick Add (Ctrl+I)"
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-80 transition-opacity"
+      title="Add (Ctrl+I)"
     >
       <Plus className="w-4 h-4 flex-shrink-0" />
-      <span className="hidden sm:inline">Quick Add</span>
+      <span>Add</span>
     </button>
   );
 }

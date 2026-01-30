@@ -19,8 +19,8 @@ import { useScope } from "@/contexts/ScopeContext";
 import { Column } from "./Column";
 import { SessionCard } from "./SessionCard";
 import dynamic from "next/dynamic";
-import { Sidebar } from "./sidebar";
 import { ScopeBreadcrumbs, BrowseButton, RecentScopesButton } from "./scope";
+import { PinnedFoldersPopover } from "./scope/PinnedFoldersPopover";
 import { ViewToggle, ViewMode, TaskViewModeToggle, getPrimaryView } from "./ViewToggle";
 
 const TreeView = dynamic(() => import("./TreeView").then(m => ({ default: m.TreeView })), { ssr: false });
@@ -68,6 +68,8 @@ export function Board() {
 
   // Initialize with empty/default values for SSR, then hydrate from localStorage
   const [homeDir, setHomeDir] = useState<string>("");
+  // undefined = not yet loaded, null = loaded but not configured, string = configured path
+  const [workingFolder, setWorkingFolder] = useState<string | null | undefined>(undefined);
   const [viewMode, setViewMode] = useState<ViewMode>("docs");
   const [docsInitialFile, setDocsInitialFile] = useState<string | null>(null);
 
@@ -124,8 +126,17 @@ export function Board() {
   useEffect(() => {
     if (!isHydrated) return;
 
-    // If we already have homeDir from cache, just validate scope
+    // If we already have homeDir from cache, just validate scope and fetch workingFolder
     if (homeDir) {
+      // Fetch workingFolder preference (needed for initial scope default)
+      if (workingFolder === undefined) {
+        fetch("/api/folders")
+          .then((res) => res.json())
+          .then((data) => {
+            setWorkingFolder(data.workingFolder || null);
+          })
+          .catch(() => setWorkingFolder(null));
+      }
       // Only validate if scope looks suspicious (not empty and not under cached homeDir)
       if (scopePath && !scopePath.startsWith(homeDir)) {
         fetch(`/api/folders?validate=${encodeURIComponent(scopePath)}`)
@@ -140,12 +151,13 @@ export function Board() {
       return;
     }
 
-    // No cache, need to fetch homeDir
+    // No cache, need to fetch homeDir and workingFolder
     fetch("/api/folders")
       .then((res) => res.json())
       .then(async (data) => {
         setHomeDir(data.homeDir);
         localStorage.setItem(HOME_DIR_STORAGE_KEY, data.homeDir);
+        setWorkingFolder(data.workingFolder || null);
 
         // Validate current scope path if set
         if (scopePath && scopePath !== data.homeDir) {
@@ -163,14 +175,16 @@ export function Board() {
   // Track if we've done the initial redirect (to prevent re-redirecting when user navigates to root)
   const hasInitialRedirected = useRef(false);
 
-  // Default to home directory only on initial load when at root URL
+  // Default to workingFolder (or homeDir) only on initial load when at root URL
   useEffect(() => {
+    // Wait for workingFolder to be loaded (undefined = still loading)
+    if (workingFolder === undefined) return;
     // Only redirect once, on initial hydration, if URL is at root
     if (isHydrated && homeDir && !scopePath && !hasInitialRedirected.current) {
       hasInitialRedirected.current = true;
-      setScopePath(homeDir);
+      setScopePath(workingFolder ?? homeDir);
     }
-  }, [isHydrated, homeDir, scopePath, setScopePath]);
+  }, [isHydrated, homeDir, workingFolder, scopePath, setScopePath]);
 
   // Filter state for showing archived sessions
   const [showArchived, setShowArchived] = useState(false);
@@ -1304,7 +1318,11 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
     ? inboxItems.filter((item) => matchesSearch(item.prompt))
     : inboxItems;
 
-  // No longer block render with full-screen spinner - columns show skeleton cards instead
+  // Don't render until viewMode preference is loaded to prevent flash
+  if (!isHydrated) {
+    return <div className="flex flex-col h-dvh bg-[var(--bg-primary)]" />;
+  }
+
   return (
     <div className="flex flex-col h-dvh bg-[var(--bg-primary)]">
       {/* Top Toolbar */}
@@ -1423,15 +1441,6 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Sidebar — hidden on Bridge view */}
-        {getPrimaryView(viewMode) !== "bridge" && (
-          <Sidebar
-            currentScope={scopePath}
-            onScopeChange={setScopePath}
-            pinnedFolders={pinnedFolders}
-          />
-        )}
-
         {/* Main content column */}
         <div className="flex-1 flex flex-col overflow-hidden">
         {/* Conditional View: Bridge, Docs, Tree, Stack, or Board */}
@@ -1550,7 +1559,7 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
 
         {/* Bottom toolbar — scope controls (hidden on Bridge view) */}
         {getPrimaryView(viewMode) !== "bridge" && (
-          <div className="flex-shrink-0 flex items-center gap-1 px-4 h-10 bg-[var(--bg-secondary)] border-t border-[var(--border-default)]">
+          <div className="flex-shrink-0 mt-auto flex items-center gap-1 px-4 h-10 bg-[var(--bg-secondary)] border-t border-[var(--border-default)]">
             {homeDir && (
               <>
                 <ScopeBreadcrumbs
@@ -1568,6 +1577,11 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
               </>
             )}
             <BrowseButton onSelect={setScopePath} />
+            <PinnedFoldersPopover
+              currentScope={scopePath}
+              onScopeChange={setScopePath}
+              pinnedFolders={pinnedFolders}
+            />
           </div>
         )}
         </div>{/* end main content column */}

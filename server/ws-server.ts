@@ -3,7 +3,7 @@ import * as path from "path";
 import * as fs from "fs";
 import * as http from "http";
 import { ptyManager } from "../src/lib/pty-manager";
-import { getSessionById } from "../src/lib/claude-sessions";
+import { getRegisteredSession } from "../src/lib/db";
 import { EventServer } from "./event-server";
 import { getSessionWatcher, getScopeWatcher, getInboxWatcher } from "./watchers";
 import type {
@@ -390,8 +390,8 @@ async function startServer() {
 
             let projectPath = msg.projectPath;
             if (!projectPath && !msg.isNew) {
-              const session = await getSessionById(msg.sessionId);
-              projectPath = session?.projectPath || process.env.HOME || "/";
+              const registered = getRegisteredSession(msg.sessionId);
+              projectPath = registered?.projectPath || process.env.HOME || "/";
             }
             projectPath = projectPath || process.env.HOME || "/";
 

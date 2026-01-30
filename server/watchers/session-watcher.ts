@@ -1,9 +1,9 @@
 /**
  * Session Watcher
  *
- * Watches ~/.claude/projects for JSONL file changes.
- * Emits events when sessions are created, updated, or deleted.
- * Performs incremental parsing and status derivation.
+ * Watches JSONL files for registered Hilt sessions only.
+ * On startup, reads the registry and watches non-archived sessions.
+ * Provides watchSession/unwatchSession for dynamic management.
  */
 
 import * as chokidar from "chokidar";
@@ -12,6 +12,8 @@ import * as path from "path";
 import * as os from "os";
 import * as fs from "fs";
 import { deriveSessionState, parseJSONLEntries } from "../../src/lib/session-status";
+import { readSessionsRegistry } from "../../src/lib/db";
+import { getSessionJSONLPath } from "../../src/lib/claude-sessions";
 import type { DerivedSessionState } from "../../src/lib/types";
 
 // Track state per session file
@@ -47,8 +49,10 @@ export class SessionWatcher extends EventEmitter {
   private watcher: chokidar.FSWatcher | null = null;
   private fileStates: Map<string, SessionFileState> = new Map();
   private debounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
-  private readonly debounceMs = 50; // Reduced for faster responsiveness
+  private readonly debounceMs = 50;
   private readonly claudeDir: string;
+  // Track which files we're watching: sessionId -> filePath
+  private watchedFiles: Map<string, string> = new Map();
 
   constructor() {
     super();
@@ -56,7 +60,7 @@ export class SessionWatcher extends EventEmitter {
   }
 
   /**
-   * Start watching for session file changes
+   * Start watching registered session files
    */
   start(): void {
     if (this.watcher) {
@@ -64,44 +68,57 @@ export class SessionWatcher extends EventEmitter {
       return;
     }
 
-    if (!fs.existsSync(this.claudeDir)) {
-      console.log(`[SessionWatcher] Claude projects directory doesn't exist: ${this.claudeDir}`);
-      return;
+    // Read registry and find JSONL paths for non-archived sessions
+    const sessions = readSessionsRegistry();
+    const filePaths: string[] = [];
+
+    for (const session of sessions) {
+      if (session.archived) continue;
+      if (session.id.startsWith("new-")) continue; // Skip temp sessions
+
+      const jsonlPath = getSessionJSONLPath(session.id, session.projectPath);
+      if (jsonlPath) {
+        filePaths.push(jsonlPath);
+        this.watchedFiles.set(session.id, jsonlPath);
+      }
     }
 
-    console.log(`[SessionWatcher] Starting to watch: ${this.claudeDir}`);
+    console.log(`[SessionWatcher] Starting to watch ${filePaths.length} registered session files`);
 
-    this.watcher = chokidar.watch(this.claudeDir, {
-      depth: 2, // Project folders are one level deep, JSONL files are another
-      ignored: [
-        /agent-.*\.jsonl$/, // Ignore agent sub-sessions
-        /node_modules/,
-        /\.DS_Store/,
-      ],
-      ignoreInitial: false, // Process existing files on startup
-      persistent: true,
-      awaitWriteFinish: {
-        stabilityThreshold: 50, // Reduced for faster responsiveness
-        pollInterval: 25,
-      },
-    });
+    if (filePaths.length === 0) {
+      // Watch a dummy pattern so we can add files later
+      this.watcher = chokidar.watch([], {
+        persistent: true,
+        awaitWriteFinish: {
+          stabilityThreshold: 50,
+          pollInterval: 25,
+        },
+      });
+    } else {
+      this.watcher = chokidar.watch(filePaths, {
+        ignoreInitial: false,
+        persistent: true,
+        awaitWriteFinish: {
+          stabilityThreshold: 50,
+          pollInterval: 25,
+        },
+      });
+    }
 
     this.watcher.on("add", (filePath) => {
-      console.log(`[SessionWatcher] File add event: ${filePath}`);
-      if (this.isSessionFile(filePath)) {
+      if (this.isWatchedFile(filePath)) {
         this.handleFileAdd(filePath);
       }
     });
 
     this.watcher.on("change", (filePath) => {
-      console.log(`[SessionWatcher] File change event: ${filePath}`);
-      if (this.isSessionFile(filePath)) {
+      if (this.isWatchedFile(filePath)) {
         this.debouncedHandleChange(filePath);
       }
     });
 
     this.watcher.on("unlink", (filePath) => {
-      if (this.isSessionFile(filePath)) {
+      if (this.isWatchedFile(filePath)) {
         this.handleFileDelete(filePath);
       }
     });
@@ -120,26 +137,65 @@ export class SessionWatcher extends EventEmitter {
       this.watcher = null;
     }
 
-    // Clear all debounce timers
     for (const timer of this.debounceTimers.values()) {
       clearTimeout(timer);
     }
     this.debounceTimers.clear();
     this.fileStates.clear();
+    this.watchedFiles.clear();
 
     console.log("[SessionWatcher] Stopped");
   }
 
   /**
-   * Check if a file path is a session JSONL file
+   * Start watching a specific session's JSONL file
    */
-  private isSessionFile(filePath: string): boolean {
-    const basename = path.basename(filePath);
-    return (
-      basename.endsWith(".jsonl") &&
-      !basename.startsWith("agent-") &&
-      !basename.startsWith(".")
-    );
+  watchSession(sessionId: string, projectPath: string): void {
+    if (this.watchedFiles.has(sessionId)) return;
+
+    const jsonlPath = getSessionJSONLPath(sessionId, projectPath);
+    if (!jsonlPath) {
+      // File doesn't exist yet — watch the directory for it
+      const folderName = projectPath.replace(/\//g, "-");
+      const expectedPath = path.join(this.claudeDir, folderName, `${sessionId}.jsonl`);
+      this.watchedFiles.set(sessionId, expectedPath);
+      if (this.watcher) {
+        this.watcher.add(expectedPath);
+      }
+      console.log(`[SessionWatcher] Queued watch for ${sessionId} (file not yet created)`);
+      return;
+    }
+
+    this.watchedFiles.set(sessionId, jsonlPath);
+    if (this.watcher) {
+      this.watcher.add(jsonlPath);
+    }
+    console.log(`[SessionWatcher] Watching session ${sessionId}`);
+  }
+
+  /**
+   * Stop watching a specific session
+   */
+  unwatchSession(sessionId: string): void {
+    const filePath = this.watchedFiles.get(sessionId);
+    if (!filePath) return;
+
+    this.watchedFiles.delete(sessionId);
+    if (this.watcher) {
+      this.watcher.unwatch(filePath);
+    }
+    this.fileStates.delete(filePath);
+    console.log(`[SessionWatcher] Unwatched session ${sessionId}`);
+  }
+
+  /**
+   * Check if a file path is being watched
+   */
+  private isWatchedFile(filePath: string): boolean {
+    for (const watched of this.watchedFiles.values()) {
+      if (watched === filePath) return true;
+    }
+    return false;
   }
 
   /**
@@ -150,7 +206,7 @@ export class SessionWatcher extends EventEmitter {
   }
 
   /**
-   * Extract project folder from file path (e.g., "-Users-jruck-Bridge")
+   * Extract project folder from file path
    */
   private getProjectFolder(filePath: string): string {
     const dir = path.dirname(filePath);
@@ -169,14 +225,12 @@ export class SessionWatcher extends EventEmitter {
       const entries = parseJSONLEntries(content);
       const derivedStatus = deriveSessionState(entries);
 
-      // Store state
       this.fileStates.set(filePath, {
         byteOffset: Buffer.byteLength(content, "utf-8"),
         lastModTime: Date.now(),
         derivedStatus,
       });
 
-      // Emit event
       const event: SessionCreatedEvent = {
         sessionId,
         filePath,
@@ -218,23 +272,17 @@ export class SessionWatcher extends EventEmitter {
     const projectFolder = this.getProjectFolder(filePath);
     const previousState = this.fileStates.get(filePath);
 
-    console.log(`[SessionWatcher] Processing file change for ${sessionId}`);
-
     try {
       const content = await fs.promises.readFile(filePath, "utf-8");
       const entries = parseJSONLEntries(content);
       const derivedStatus = deriveSessionState(entries);
 
-      console.log(`[SessionWatcher] ${sessionId}: prev=${previousState?.derivedStatus.status}, new=${derivedStatus.status}`);
-
-      // Update state
       this.fileStates.set(filePath, {
         byteOffset: Buffer.byteLength(content, "utf-8"),
         lastModTime: Date.now(),
         derivedStatus,
       });
 
-      // Emit if status or lastMessage changed (for live updates)
       const statusChanged =
         !previousState || previousState.derivedStatus.status !== derivedStatus.status;
       const messageChanged =
@@ -266,7 +314,6 @@ export class SessionWatcher extends EventEmitter {
     const sessionId = this.getSessionId(filePath);
     const projectFolder = this.getProjectFolder(filePath);
 
-    // Clean up state
     this.fileStates.delete(filePath);
     const timer = this.debounceTimers.get(filePath);
     if (timer) {
@@ -274,7 +321,6 @@ export class SessionWatcher extends EventEmitter {
       this.debounceTimers.delete(filePath);
     }
 
-    // Emit event
     const event: SessionDeletedEvent = {
       sessionId,
       filePath,

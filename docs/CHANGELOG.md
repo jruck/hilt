@@ -8,6 +8,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
+- **Hilt-only session tracking** - Replaced bulk JSONL scanning (3,789 files / 1.4GB) with a Hilt-owned session registry
+  - New `data/sessions.json` as single source of truth — replaces both `claude-sessions.ts` scanning and `session-status.json`
+  - Sessions registered at creation time via `POST /api/sessions`
+  - Startup is now a single JSON file read instead of scanning all JSONL files
+  - Running/active sessions still read individual JSONL for derived state (targeted reads, not bulk scan)
+  - Temp→real session ID resolution via `PATCH /api/sessions { sessionId, realId }`
+  - Session watcher narrowed to only watch registered session files
+  - Removed `getSessions()`, `parseSessionFile()`, `getRunningSessionIds()`, `watchSessions()`, `isSessionRunning()`, `getSessionMtime()`, `getSessionById()` from `claude-sessions.ts`
+  - Stripped `session-cache.ts` to only planned slugs caching
+  - Removed legacy status storage functions from `db.ts`
+  - Stale temp sessions (`new-*` entries > 5 min old) purged on startup
+
 - **Electron dev launcher redesign** - Server management now handled entirely by Electron main process
   - **No more Terminal.app** - Dev server runs as background child process instead of opening a visible Terminal window
   - **Single app experience** - Only the Electron app appears in dock/cmd-tab, no separate Terminal

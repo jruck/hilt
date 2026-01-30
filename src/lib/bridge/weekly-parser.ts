@@ -65,7 +65,7 @@ function addOneIndent(line: string): string {
  * and gets stripped on parse / re-added on save. Nested indentation beyond
  * the first level is preserved as-is.
  */
-export function parseWeeklyFile(content: string, filename: string): BridgeWeekly {
+export function parseWeeklyFile(content: string, filename: string): Omit<BridgeWeekly, 'vaultPath' | 'filePath'> {
   const [fm, body] = parseFrontmatter(content);
   const week = fm.week || "";
   const lines = body.split("\n");

@@ -2,8 +2,6 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { EventSocketProvider } from "@/contexts/EventSocketContext";
-import { StartupProvider } from "@/contexts/StartupContext";
-import { StartupScreen } from "@/components/StartupScreen";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -37,10 +35,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[var(--bg-primary)] text-[var(--text-primary)]`}
       >
-        <StartupProvider>
-          <StartupScreen />
-          <EventSocketProvider>{children}</EventSocketProvider>
-        </StartupProvider>
+        <EventSocketProvider>{children}</EventSocketProvider>
       </body>
     </html>
   );

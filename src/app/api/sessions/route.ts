@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessions, getRunningSessionIds, getSessionMtime, getSessionDerivedState } from "@/lib/claude-sessions";
-import { getAllSessionStatuses, setSessionStatus, archiveSession, unarchiveSession } from "@/lib/db";
+import { getSessionDerivedState, getSessionJSONLPath, parseSessionFileForMetadata } from "@/lib/claude-sessions";
+import {
+  readSessionsRegistry,
+  registerSession as dbRegisterSession,
+  updateRegisteredSession,
+  resolveSessionId,
+  purgeStaleTemps,
+  type RegisteredSession,
+} from "@/lib/db";
 import { Session, SessionStatus } from "@/lib/types";
 import { buildTree, isUnderScope } from "@/lib/tree-utils";
 import { getCachedPlannedSlugs, setCachedPlannedSlugs } from "@/lib/session-cache";
@@ -11,22 +18,26 @@ import os from "os";
 // Auto-archive threshold: sessions inactive for 7 days
 const ARCHIVE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 
+// Threshold for considering a session "running" based on file modification time
+const RUNNING_THRESHOLD_MS = 30_000; // 30 seconds
+
 const PLANS_DIR = path.join(os.homedir(), ".claude", "plans");
+
+// Purge stale temp sessions on first request
+let hasPurgedOnStartup = false;
 
 // Get set of slugs that have plan files (with 30s caching)
 function getPlannedSlugs(): Set<string> {
-  // Try cache first
   const cached = getCachedPlannedSlugs();
   if (cached) return cached;
 
-  // Cache miss - scan directory
   const slugs = new Set<string>();
   try {
     if (fs.existsSync(PLANS_DIR)) {
       const files = fs.readdirSync(PLANS_DIR);
       for (const file of files) {
         if (file.endsWith(".md")) {
-          slugs.add(file.slice(0, -3)); // Remove .md extension
+          slugs.add(file.slice(0, -3));
         }
       }
     }
@@ -34,13 +45,41 @@ function getPlannedSlugs(): Set<string> {
     // Ignore errors reading plans directory
   }
 
-  // Cache the result
   setCachedPlannedSlugs(slugs);
   return slugs;
 }
 
+/**
+ * Check if a session's JSONL file was modified within RUNNING_THRESHOLD_MS.
+ * Returns the mtime if running, undefined otherwise.
+ */
+function getRunningMtime(sessionId: string, projectPath: string): number | undefined {
+  const jsonlPath = getSessionJSONLPath(sessionId, projectPath);
+  if (!jsonlPath) return undefined;
+
+  try {
+    const stats = fs.statSync(jsonlPath);
+    const mtime = stats.mtime.getTime();
+    if (Date.now() - mtime < RUNNING_THRESHOLD_MS) {
+      return mtime;
+    }
+  } catch {
+    // File doesn't exist yet
+  }
+  return undefined;
+}
+
 export async function GET(request: NextRequest) {
   try {
+    // Purge stale temp sessions on first request
+    if (!hasPurgedOnStartup) {
+      hasPurgedOnStartup = true;
+      const purged = purgeStaleTemps();
+      if (purged > 0) {
+        console.log(`[sessions/GET] Purged ${purged} stale temp sessions`);
+      }
+    }
+
     const searchParams = request.nextUrl.searchParams;
     const page = parseInt(searchParams.get("page") || "1", 10);
     const pageSize = parseInt(searchParams.get("pageSize") || "50", 10);
@@ -48,124 +87,106 @@ export async function GET(request: NextRequest) {
     const mode = searchParams.get("mode") || "exact"; // "exact" | "tree"
     const showArchived = searchParams.get("showArchived") === "true";
 
-    // Get all sessions from Claude's JSONL files
-    const claudeSessions = await getSessions();
+    // Read registered sessions from our registry
+    const allRegistered = readSessionsRegistry();
 
     // Filter by scope path
-    // - mode=exact: Only sessions where projectPath === scope (current behavior)
-    // - mode=tree: All sessions under scope (prefix match, for tree view)
-    let filteredSessions;
+    let filteredSessions: RegisteredSession[];
     if (mode === "tree") {
       filteredSessions = scopePath
-        ? claudeSessions.filter(s => isUnderScope(s.projectPath, scopePath))
-        : claudeSessions;
+        ? allRegistered.filter(s => isUnderScope(s.projectPath, scopePath))
+        : allRegistered;
     } else {
       filteredSessions = scopePath
-        ? claudeSessions.filter(s => s.projectPath === scopePath)
-        : claudeSessions;
+        ? allRegistered.filter(s => s.projectPath === scopePath)
+        : allRegistered;
     }
 
-    // Get our status data, running session IDs, and planned slugs
-    const statuses = await getAllSessionStatuses();
-    const runningIds = getRunningSessionIds();
     const plannedSlugs = getPlannedSlugs();
-
-    // Auto-update running sessions to "active" status, but ONLY if there's new activity
-    // since the user marked it as "recent" (done). This prevents the bounce-back issue
-    // where marking done on a running session would immediately revert.
-    const statusUpdates: Promise<void>[] = [];
-    for (const [sessionId, currentMtime] of runningIds) {
-      const currentStatus = statuses.get(sessionId);
-      const lastKnownMtime = currentStatus?.lastKnownMtime;
-
-      // Only promote to active if:
-      // 1. No status set yet, OR
-      // 2. Status is not active AND there's new activity (mtime > lastKnownMtime)
-      const hasNewActivity = !lastKnownMtime || currentMtime > lastKnownMtime;
-      if ((!currentStatus || currentStatus.status !== "active") && hasNewActivity) {
-        statusUpdates.push(setSessionStatus(sessionId, "active"));
-      }
-    }
-    // Fire and forget - don't block response
-    if (statusUpdates.length > 0) {
-      Promise.all(statusUpdates).catch(console.error);
-    }
-
-    // Auto-archive: sessions with status "recent" that are:
-    // - Not starred (user explicitly marked as important)
-    // - Not running (currently active)
-    // - Inactive for more than ARCHIVE_THRESHOLD_MS (7 days)
     const now = Date.now();
-    const archiveUpdates: Promise<void>[] = [];
-    for (const session of filteredSessions) {
-      const statusData = statuses.get(session.id);
-      const isRunning = runningIds.has(session.id);
 
-      if (
-        statusData?.status === "recent" &&
-        !statusData?.starred &&
-        !statusData?.archived &&
-        !isRunning
-      ) {
-        const lastActivity = session.lastActivity.getTime();
-        const age = now - lastActivity;
-        if (age > ARCHIVE_THRESHOLD_MS) {
-          archiveUpdates.push(archiveSession(session.id));
+    // Build Session objects with live state
+    const sessions: Session[] = filteredSessions.map((reg) => {
+      const runningMtime = getRunningMtime(reg.id, reg.projectPath);
+      const isRunning = runningMtime !== undefined;
+
+      // For running/active sessions, read JSONL for derived state and update metadata
+      let derivedState = undefined;
+      if (isRunning || reg.status === "active") {
+        const state = getSessionDerivedState(reg.id, reg.projectPath);
+        if (state) {
+          derivedState = state;
+        }
+
+        // Opportunistically update metadata from JSONL for active/running sessions
+        if (isRunning) {
+          const metadata = parseSessionFileForMetadata(reg.id, reg.projectPath);
+          if (metadata) {
+            const needsUpdate =
+              metadata.messageCount !== reg.messageCount ||
+              metadata.slug !== reg.slug ||
+              metadata.lastMessage !== reg.lastMessage ||
+              metadata.title !== reg.title;
+
+            if (needsUpdate) {
+              updateRegisteredSession(reg.id, {
+                messageCount: metadata.messageCount,
+                slug: metadata.slug,
+                slugs: metadata.slugs,
+                lastMessage: metadata.lastMessage,
+                lastPrompt: metadata.lastPrompt,
+                title: metadata.title,
+                lastActivity: new Date().toISOString(),
+                gitBranch: metadata.gitBranch,
+              });
+            }
+          }
         }
       }
-    }
-    // Fire and forget - don't block response
-    if (archiveUpdates.length > 0) {
-      Promise.all(archiveUpdates).catch(console.error);
-    }
 
-    // Merge sessions with status data, running indicator, and plan status
-    // Also deduplicate by ID (in case of any filesystem race conditions)
-    const seenIds = new Set<string>();
-    const sessions: Session[] = filteredSessions
-      .filter((session) => {
-        if (seenIds.has(session.id)) return false;
-        seenIds.add(session.id);
-        return true;
-      })
-      .map((session) => {
-        const statusData = statuses.get(session.id);
-        const currentMtime = runningIds.get(session.id);
-        const isRunning = currentMtime !== undefined;
+      // Auto-archive: sessions with status "recent" that are not starred, not running, and old
+      const isOld = now - new Date(reg.lastActivity).getTime() > ARCHIVE_THRESHOLD_MS;
+      if (reg.status === "recent" && !reg.starred && !reg.archived && !isRunning && isOld) {
+        updateRegisteredSession(reg.id, { archived: true, archivedAt: new Date().toISOString() });
+        reg.archived = true;
+        reg.archivedAt = new Date().toISOString();
+      }
 
-        // Determine if we should show as active:
-        // - If running AND there's new activity since last status change
-        // - OR if stored status is already active
-        const lastKnownMtime = statusData?.lastKnownMtime;
-        const hasNewActivity = !lastKnownMtime || (currentMtime !== undefined && currentMtime > lastKnownMtime);
-        const shouldShowAsActive = isRunning && hasNewActivity;
+      // If running session was archived, auto-unarchive
+      if (isRunning && reg.archived) {
+        updateRegisteredSession(reg.id, { archived: false, archivedAt: undefined });
+        reg.archived = false;
+      }
 
-        // Find which of the session's slugs have plan files
-        const planSlugs = session.slugs?.filter(slug => plannedSlugs.has(slug)) || [];
+      // Find which of the session's slugs have plan files
+      const planSlugs = reg.slugs?.filter(slug => plannedSlugs.has(slug)) || [];
 
-        // If running session was archived, auto-unarchive it
-        if (isRunning && statusData?.archived) {
-          unarchiveSession(session.id).catch(console.error);
-        }
+      return {
+        id: reg.id,
+        title: reg.title,
+        project: reg.project,
+        projectPath: reg.projectPath,
+        lastActivity: new Date(reg.lastActivity),
+        messageCount: reg.messageCount,
+        gitBranch: reg.gitBranch,
+        firstPrompt: reg.firstPrompt,
+        lastPrompt: reg.lastPrompt,
+        lastMessage: reg.lastMessage,
+        slug: reg.slug,
+        slugs: reg.slugs,
+        status: (isRunning && reg.status !== "active") ? "active" : reg.status,
+        sortOrder: reg.sortOrder,
+        starred: reg.starred,
+        archived: isRunning ? false : reg.archived,
+        isRunning,
+        planSlugs,
+        derivedState,
+        terminalId: reg.terminalId,
+        initialPrompt: reg.initialPrompt,
+      };
+    });
 
-        // Derive state for running/active sessions (to detect waiting_for_approval, etc.)
-        const derivedState = (isRunning || shouldShowAsActive || statusData?.status === "active")
-          ? getSessionDerivedState(session.id)
-          : null;
-
-        return {
-          ...session,
-          status: shouldShowAsActive ? "active" : (statusData?.status || "recent"),
-          sortOrder: statusData?.sortOrder || 0,
-          starred: statusData?.starred || false,
-          archived: isRunning ? false : statusData?.archived || false,  // Running sessions are never archived
-          isRunning,
-          planSlugs,
-          derivedState: derivedState ?? undefined,
-        };
-      });
-
-    // Count total archived before filtering (always show this count)
+    // Count total archived before filtering
     const totalArchived = sessions.filter(s => s.archived).length;
 
     // Filter out archived sessions when showArchived is false
@@ -190,12 +211,12 @@ export async function GET(request: NextRequest) {
       return b.lastActivity.getTime() - a.lastActivity.getTime();
     });
 
-    // Count by status (visible sessions only, except archived which shows total)
+    // Count by status
     const counts = {
       inbox: visibleSessions.filter(s => s.status === "inbox").length,
       active: visibleSessions.filter(s => s.status === "active").length,
       recent: visibleSessions.filter(s => s.status === "recent" && !s.archived).length,
-      archived: totalArchived,  // Always show total archived count
+      archived: totalArchived,
     };
 
     // Paginate
@@ -212,7 +233,7 @@ export async function GET(request: NextRequest) {
       counts,
     };
 
-    // Include tree structure for tree mode (using visible sessions)
+    // Include tree structure for tree mode
     if (mode === "tree") {
       response.tree = buildTree(visibleSessions, scopePath || "");
     }
@@ -227,10 +248,60 @@ export async function GET(request: NextRequest) {
   }
 }
 
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { id, projectPath, title, firstPrompt, initialPrompt } = body;
+
+    if (!id || !projectPath) {
+      return NextResponse.json(
+        { error: "id and projectPath are required" },
+        { status: 400 }
+      );
+    }
+
+    const now = new Date().toISOString();
+    const project = projectPath.split("/").filter(Boolean).pop() || projectPath;
+
+    const session: RegisteredSession = {
+      id,
+      projectPath,
+      project,
+      title: title || firstPrompt?.slice(0, 50) || "New Session",
+      firstPrompt: firstPrompt || null,
+      initialPrompt,
+      status: "active",
+      sortOrder: 0,
+      starred: false,
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+      lastActivity: now,
+      messageCount: 0,
+      gitBranch: null,
+      slug: null,
+      slugs: [],
+      lastPrompt: firstPrompt || null,
+      lastMessage: firstPrompt || null,
+      terminalId: body.terminalId,
+    };
+
+    dbRegisterSession(session);
+
+    return NextResponse.json({ success: true, session });
+  } catch (error) {
+    console.error("Error creating session:", error);
+    return NextResponse.json(
+      { error: "Failed to create session" },
+      { status: 500 }
+    );
+  }
+}
+
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
-    const { sessionId, status, sortOrder, starred, archived } = body;
+    const { sessionId, status, sortOrder, starred, archived, realId } = body;
 
     if (!sessionId) {
       return NextResponse.json(
@@ -239,35 +310,53 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    // Handle archive/unarchive as a separate operation
+    // Handle temp→real ID resolution
+    if (realId) {
+      const resolved = resolveSessionId(sessionId, realId);
+      if (!resolved) {
+        return NextResponse.json(
+          { error: "Session not found" },
+          { status: 404 }
+        );
+      }
+      return NextResponse.json({ success: true, session: resolved });
+    }
+
+    // Handle archive/unarchive
     if (archived !== undefined) {
-      if (archived) {
-        await archiveSession(sessionId);
-      } else {
-        await unarchiveSession(sessionId);
+      const updated = updateRegisteredSession(sessionId, {
+        archived,
+        archivedAt: archived ? new Date().toISOString() : undefined,
+      });
+      if (!updated) {
+        // Session not in registry - might be legacy. Create a minimal entry.
+        return NextResponse.json({ success: true });
       }
       return NextResponse.json({ success: true });
     }
 
+    // Handle status/sortOrder/starred updates
     const validStatuses: SessionStatus[] = ["inbox", "active", "recent"];
     if (status !== undefined && !validStatuses.includes(status)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
 
-    // When marking as "recent" (done), store the current JSONL mtime
-    // This allows us to detect NEW activity after marking done
-    let lastKnownMtime: number | undefined;
-    if (status === "recent") {
-      lastKnownMtime = getSessionMtime(sessionId) ?? undefined;
-    }
+    const updates: Partial<RegisteredSession> = {};
+    if (status !== undefined) updates.status = status;
+    if (sortOrder !== undefined) updates.sortOrder = sortOrder;
+    if (starred !== undefined) updates.starred = starred;
 
-    await setSessionStatus(sessionId, status, sortOrder, starred, lastKnownMtime);
+    const updated = updateRegisteredSession(sessionId, updates);
+    if (!updated) {
+      // Session not in registry - might be legacy or temp. Silently succeed.
+      return NextResponse.json({ success: true });
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error updating session status:", error);
+    console.error("Error updating session:", error);
     return NextResponse.json(
-      { error: "Failed to update session status" },
+      { error: "Failed to update session" },
       { status: 500 }
     );
   }

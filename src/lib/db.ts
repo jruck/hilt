@@ -1,11 +1,10 @@
 import * as fs from "fs";
 import * as path from "path";
 import { SessionStatus } from "./types";
-import { getCachedStatus, setCachedStatus, invalidateStatusCache } from "./session-cache";
 
 // Use DATA_DIR env var if set, otherwise use local ./data
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
-const STATUS_FILE = path.join(DATA_DIR, "session-status.json");
+const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
 const INBOX_FILE = path.join(DATA_DIR, "inbox.json");
 const PREFERENCES_FILE = path.join(DATA_DIR, "preferences.json");
 
@@ -16,141 +15,124 @@ function ensureDataDir() {
   }
 }
 
-// Get file mtime for cache validation
-function getStatusFileMtime(): number {
-  try {
-    if (fs.existsSync(STATUS_FILE)) {
-      return fs.statSync(STATUS_FILE).mtime.getTime();
-    }
-  } catch {
-    // Ignore errors
-  }
-  return 0;
-}
+// ============================================================================
+// Session Registry (Hilt-only sessions)
+// ============================================================================
 
-// Status storage
-interface StatusRecord {
+export interface RegisteredSession {
+  id: string;
+  projectPath: string;
+  project: string;
+  title: string;
+  firstPrompt: string | null;
+  initialPrompt?: string;
   status: SessionStatus;
   sortOrder: number;
-  starred?: boolean;
+  starred: boolean;
+  archived: boolean;
+  archivedAt?: string;
+  createdAt: string;
   updatedAt: string;
-  // When set to "recent", store the JSONL mtime so we only auto-promote
-  // back to "active" if there's NEW activity after marking done
-  lastKnownMtime?: number;
-  // Archival state - hidden from default views
-  archived?: boolean;
-  archivedAt?: string;  // ISO timestamp of when archived
+  lastActivity: string;
+  messageCount: number;
+  gitBranch: string | null;
+  slug: string | null;
+  slugs: string[];
+  lastPrompt: string | null;
+  lastMessage: string | null;
+  terminalId?: string;
 }
 
-interface StatusData {
-  [sessionId: string]: StatusRecord;
+interface SessionsRegistry {
+  sessions: RegisteredSession[];
 }
 
-function readStatusFile(): StatusData {
+export function readSessionsRegistry(): RegisteredSession[] {
   ensureDataDir();
-  if (!fs.existsSync(STATUS_FILE)) {
-    return {};
+  if (!fs.existsSync(SESSIONS_FILE)) {
+    return [];
   }
   try {
-    const content = fs.readFileSync(STATUS_FILE, "utf-8");
-    const data = JSON.parse(content) as StatusData;
-
-    // Migrate old statuses to new "recent" status
-    let needsWrite = false;
-    for (const [sessionId, record] of Object.entries(data)) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const status = record.status as any;
-      if (status === "inactive") {
-        // Saved sessions become starred in recent
-        record.status = "recent";
-        record.starred = true;
-        needsWrite = true;
-      } else if (status === "done") {
-        // Done sessions become unstarred in recent
-        record.status = "recent";
-        record.starred = false;
-        needsWrite = true;
-      }
-    }
-
-    // Write back migrated data
-    if (needsWrite) {
-      writeStatusFile(data);
-    }
-
-    return data;
+    const content = fs.readFileSync(SESSIONS_FILE, "utf-8");
+    const data: SessionsRegistry = JSON.parse(content);
+    return data.sessions || [];
   } catch {
-    return {};
+    return [];
   }
 }
 
-function writeStatusFile(data: StatusData) {
+export function writeSessionsRegistry(sessions: RegisteredSession[]): void {
   ensureDataDir();
-  fs.writeFileSync(STATUS_FILE, JSON.stringify(data, null, 2));
-  // Invalidate cache after write
-  invalidateStatusCache();
+  const data: SessionsRegistry = { sessions };
+  fs.writeFileSync(SESSIONS_FILE, JSON.stringify(data, null, 2));
 }
 
-export async function getSessionStatus(
-  sessionId: string
-): Promise<{ status: SessionStatus; sortOrder: number; starred?: boolean } | null> {
-  const data = readStatusFile();
-  const record = data[sessionId];
-  if (!record) return null;
-  return { status: record.status, sortOrder: record.sortOrder, starred: record.starred };
+export function getRegisteredSession(sessionId: string): RegisteredSession | undefined {
+  const sessions = readSessionsRegistry();
+  return sessions.find(s => s.id === sessionId);
 }
 
-export async function setSessionStatus(
+export function registerSession(session: RegisteredSession): void {
+  const sessions = readSessionsRegistry();
+  // Replace if exists (e.g., temp→real ID update), otherwise add
+  const idx = sessions.findIndex(s => s.id === session.id);
+  if (idx !== -1) {
+    sessions[idx] = session;
+  } else {
+    sessions.push(session);
+  }
+  writeSessionsRegistry(sessions);
+}
+
+export function updateRegisteredSession(
   sessionId: string,
-  status?: SessionStatus,
-  sortOrder?: number,
-  starred?: boolean,
-  lastKnownMtime?: number
-): Promise<void> {
-  const data = readStatusFile();
-  const existing = data[sessionId];
+  updates: Partial<RegisteredSession>
+): RegisteredSession | null {
+  const sessions = readSessionsRegistry();
+  const idx = sessions.findIndex(s => s.id === sessionId);
+  if (idx === -1) return null;
 
-  data[sessionId] = {
-    status: status ?? existing?.status ?? "recent",
-    sortOrder: sortOrder ?? existing?.sortOrder ?? 0,
-    starred: starred !== undefined ? starred : existing?.starred,
-    updatedAt: new Date().toISOString(),
-    // Store mtime when marking as recent so we can detect new activity
-    lastKnownMtime: lastKnownMtime ?? existing?.lastKnownMtime,
-  };
-
-  writeStatusFile(data);
+  sessions[idx] = { ...sessions[idx], ...updates, updatedAt: new Date().toISOString() };
+  writeSessionsRegistry(sessions);
+  return sessions[idx];
 }
 
-export async function getAllSessionStatuses(): Promise<
-  Map<string, { status: SessionStatus; sortOrder: number; starred?: boolean; lastKnownMtime?: number; archived?: boolean; archivedAt?: string }>
-> {
-  // Check cache first using file mtime for validation
-  const currentMtime = getStatusFileMtime();
-  const cached = getCachedStatus(currentMtime);
-  if (cached) {
-    return cached as Map<string, { status: SessionStatus; sortOrder: number; starred?: boolean; lastKnownMtime?: number; archived?: boolean; archivedAt?: string }>;
+/**
+ * Replace a temp session ID with the real session ID.
+ * Preserves all other fields.
+ */
+export function resolveSessionId(tempId: string, realId: string): RegisteredSession | null {
+  const sessions = readSessionsRegistry();
+  const idx = sessions.findIndex(s => s.id === tempId);
+  if (idx === -1) return null;
+
+  sessions[idx] = {
+    ...sessions[idx],
+    id: realId,
+    updatedAt: new Date().toISOString(),
+  };
+  writeSessionsRegistry(sessions);
+  return sessions[idx];
+}
+
+/**
+ * Purge stale temp sessions (new-* entries older than maxAge).
+ */
+export function purgeStaleTemps(maxAgeMs: number = 5 * 60 * 1000): number {
+  const sessions = readSessionsRegistry();
+  const now = Date.now();
+  const before = sessions.length;
+
+  const filtered = sessions.filter(s => {
+    if (!s.id.startsWith("new-")) return true;
+    const age = now - new Date(s.createdAt).getTime();
+    return age < maxAgeMs;
+  });
+
+  if (filtered.length < before) {
+    writeSessionsRegistry(filtered);
   }
-
-  // Cache miss - read file
-  const data = readStatusFile();
-  const map = new Map<string, { status: SessionStatus; sortOrder: number; starred?: boolean; lastKnownMtime?: number; archived?: boolean; archivedAt?: string }>();
-
-  for (const [sessionId, record] of Object.entries(data)) {
-    map.set(sessionId, {
-      status: record.status,
-      sortOrder: record.sortOrder,
-      starred: record.starred,
-      lastKnownMtime: record.lastKnownMtime,
-      archived: record.archived,
-      archivedAt: record.archivedAt,
-    });
-  }
-
-  // Cache the result
-  setCachedStatus(map, currentMtime);
-
-  return map;
+  return before - filtered.length;
 }
 
 // Inbox storage
@@ -236,37 +218,6 @@ export async function deleteInboxItem(id: string): Promise<void> {
   writeInboxFile(filtered);
 }
 
-// Archive a session (hide from default views)
-export async function archiveSession(sessionId: string): Promise<void> {
-  const data = readStatusFile();
-  const existing = data[sessionId];
-
-  data[sessionId] = {
-    status: existing?.status ?? "recent",
-    sortOrder: existing?.sortOrder ?? 0,
-    starred: existing?.starred,
-    lastKnownMtime: existing?.lastKnownMtime,
-    archived: true,
-    archivedAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  writeStatusFile(data);
-}
-
-// Unarchive a session (restore to default views)
-export async function unarchiveSession(sessionId: string): Promise<void> {
-  const data = readStatusFile();
-  const existing = data[sessionId];
-
-  if (existing) {
-    delete existing.archived;
-    delete existing.archivedAt;
-    existing.updatedAt = new Date().toISOString();
-    writeStatusFile(data);
-  }
-}
-
 // ============================================================================
 // Preferences storage (pinned folders, sidebar state, theme, recent scopes)
 // ============================================================================
@@ -296,7 +247,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   sidebarCollapsed: false,
   theme: "system",
   recentScopes: [],
-  viewMode: "board",
+  viewMode: "docs",
   folderEmojis: {},
 };
 

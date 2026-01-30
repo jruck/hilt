@@ -18,19 +18,20 @@ import { useTreeSessions } from "@/hooks/useTreeSessions";
 import { useScope } from "@/contexts/ScopeContext";
 import { Column } from "./Column";
 import { SessionCard } from "./SessionCard";
-import { TerminalDrawer } from "./TerminalDrawer";
+import dynamic from "next/dynamic";
 import { Sidebar } from "./sidebar";
 import { ScopeBreadcrumbs, BrowseButton, RecentScopesButton } from "./scope";
 import { ViewToggle, ViewMode, TaskViewModeToggle, getPrimaryView } from "./ViewToggle";
-import { TreeView } from "./TreeView";
-import { DocsView } from "./DocsView";
-import { StackView } from "./stack";
+
+const TreeView = dynamic(() => import("./TreeView").then(m => ({ default: m.TreeView })), { ssr: false });
+const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.DocsView })), { ssr: false });
+const StackView = dynamic(() => import("./stack").then(m => ({ default: m.StackView })), { ssr: false });
+const TerminalDrawer = dynamic(() => import("./TerminalDrawer").then(m => ({ default: m.TerminalDrawer })), { ssr: false });
 import { RalphSetupModal } from "./RalphSetupModal";
 import { QuickAddModal } from "./QuickAddModal";
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
 import { useInboxPath } from "@/hooks/useInboxPath";
 import { generatePrdPrompt, generateRalphCommand } from "@/lib/ralph";
-import { useStartup } from "@/contexts/StartupContext";
 import { X, Inbox, Play, Clock, Search, Filter, FileText, Check, Archive, Eye, CheckCircle, Terminal } from "lucide-react";
 
 const COLUMNS: ColumnId[] = ["inbox", "active", "attention", "recent"];
@@ -64,7 +65,7 @@ export function Board() {
 
   // Initialize with empty/default values for SSR, then hydrate from localStorage
   const [homeDir, setHomeDir] = useState<string>("");
-  const [viewMode, setViewMode] = useState<ViewMode>("board");
+  const [viewMode, setViewMode] = useState<ViewMode>("docs");
 
   // Hydrate from localStorage (for homeDir) and server (for viewMode) after mount
   useEffect(() => {
@@ -168,85 +169,11 @@ export function Board() {
   // Filter state for showing archived sessions
   const [showArchived, setShowArchived] = useState(false);
 
-  const { sessions, counts, isLoading, isError: sessionsError, updateStatus, toggleStarred, archiveSession, unarchiveSession } = useSessions(scopePath || undefined, 1, 100, showArchived);
-  const { items: inboxItems, sections: todoSections, isLoading: isInboxLoading, isError: inboxError, createItem, updateItem, deleteItem, reorderSections, reorderItem } = useInboxItems(scopePath || undefined);
-  const { tree, isLoading: isTreeLoading, isError: treeError } = useTreeSessions(scopePath, showArchived);
+  const { sessions, counts, isLoading, updateStatus, toggleStarred, archiveSession, unarchiveSession } = useSessions(scopePath || undefined, 1, 100, showArchived);
+  const { items: inboxItems, sections: todoSections, createItem, updateItem, deleteItem, reorderSections, reorderItem } = useInboxItems(scopePath || undefined);
+  const { tree, isLoading: isTreeLoading } = useTreeSessions(scopePath, showArchived, viewMode === "tree");
   const pinnedFolders = usePinnedFolders();
   const { inboxPath, setInboxPath } = useInboxPath();
-
-  // Startup tracking
-  const { registerActivity, startActivity, updateActivity, completeActivity, errorActivity, fatalError } = useStartup();
-  const startupTrackedRef = useRef({
-    preferences: false,
-    sessions: false,
-    inbox: false,
-    tree: false,
-  });
-
-  // Register and track startup activities
-  useEffect(() => {
-    // Register all activities on mount
-    registerActivity({ id: "preferences", label: "Loading preferences", phase: "bootstrap" });
-    registerActivity({ id: "sessions", label: "Loading sessions", phase: "data" });
-    registerActivity({ id: "inbox", label: "Loading inbox items", phase: "data" });
-    registerActivity({ id: "tree", label: "Building tree view", phase: "data" });
-
-    // Start preferences immediately (they load first)
-    startActivity("preferences");
-  }, [registerActivity, startActivity]);
-
-  // Track preferences loading (tied to isHydrated)
-  useEffect(() => {
-    if (isHydrated && !startupTrackedRef.current.preferences) {
-      startupTrackedRef.current.preferences = true;
-      completeActivity("preferences", `viewMode: ${viewMode}`);
-      // Start data loading activities
-      startActivity("sessions");
-      startActivity("inbox");
-      startActivity("tree");
-    }
-  }, [isHydrated, viewMode, completeActivity, startActivity]);
-
-  // Track sessions loading
-  useEffect(() => {
-    if (!startupTrackedRef.current.preferences) return; // Wait for preferences
-
-    if (sessionsError && !startupTrackedRef.current.sessions) {
-      startupTrackedRef.current.sessions = true;
-      errorActivity("sessions", "Failed to load sessions");
-      fatalError("Failed to load sessions. Check server connection.");
-    } else if (!isLoading && sessions && !startupTrackedRef.current.sessions) {
-      startupTrackedRef.current.sessions = true;
-      completeActivity("sessions", `${sessions.length.toLocaleString()} sessions`);
-    }
-  }, [isLoading, sessions, sessionsError, completeActivity, errorActivity, fatalError]);
-
-  // Track inbox loading
-  useEffect(() => {
-    if (!startupTrackedRef.current.preferences) return;
-
-    if (inboxError && !startupTrackedRef.current.inbox) {
-      startupTrackedRef.current.inbox = true;
-      errorActivity("inbox", "Failed to load inbox");
-    } else if (!isInboxLoading && inboxItems && !startupTrackedRef.current.inbox) {
-      startupTrackedRef.current.inbox = true;
-      completeActivity("inbox", `${inboxItems.length} items`);
-    }
-  }, [isInboxLoading, inboxItems, inboxError, completeActivity, errorActivity]);
-
-  // Track tree loading
-  useEffect(() => {
-    if (!startupTrackedRef.current.preferences) return;
-
-    if (treeError && !startupTrackedRef.current.tree) {
-      startupTrackedRef.current.tree = true;
-      errorActivity("tree", "Failed to build tree");
-    } else if (!isTreeLoading && tree && !startupTrackedRef.current.tree) {
-      startupTrackedRef.current.tree = true;
-      const folderCount = Object.keys(tree).length;
-      completeActivity("tree", `${folderCount} folders`);
-    }
-  }, [isTreeLoading, tree, treeError, completeActivity, errorActivity]);
 
   // The most recent session would be resumed by `claude --continue`
   const continuableSessionId = useMemo(() => {
@@ -299,6 +226,26 @@ export function Board() {
   const knownSessionIds = useRef<Set<string>>(new Set());
   // Track temp session creation times and project paths for matching with real sessions
   const tempSessionInfo = useRef<Record<string, { createdAt: number; projectPath: string }>>({});
+
+  // Register a session in the Hilt registry (POST /api/sessions)
+  const registerSession = useCallback(async (session: {
+    id: string;
+    projectPath: string;
+    title: string;
+    firstPrompt: string | null;
+    initialPrompt?: string;
+    terminalId?: string;
+  }) => {
+    try {
+      await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(session),
+      });
+    } catch (err) {
+      console.error("Failed to register session:", err);
+    }
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -453,6 +400,15 @@ export function Board() {
         }
         return prev;
       });
+
+      // Resolve temp→real IDs in the registry
+      for (const [tempId, realId] of Object.entries(updates)) {
+        fetch("/api/sessions", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId: tempId, realId }),
+        }).catch(err => console.error("Failed to resolve session ID:", err));
+      }
     }
   }, [sessions, openSessions]);
 
@@ -719,6 +675,16 @@ export function Board() {
     // Track temp session for matching with real session later
     tempSessionInfo.current[tempId] = { createdAt: now, projectPath };
 
+    // Register in Hilt session registry
+    registerSession({
+      id: tempId,
+      projectPath,
+      title: newSession.title,
+      firstPrompt: prompt,
+      initialPrompt: prompt,
+      terminalId: tempId,
+    });
+
     setOpenSessions((prev) => [...prev, newSession]);
     setActiveSession(newSession);
     setIsDrawerOpen(true);
@@ -769,6 +735,16 @@ export function Board() {
 
     // Track temp session for matching with real session later
     tempSessionInfo.current[tempId] = { createdAt: now, projectPath };
+
+    // Register in Hilt session registry
+    registerSession({
+      id: tempId,
+      projectPath,
+      title: newSession.title,
+      firstPrompt: item.prompt,
+      initialPrompt: item.prompt,
+      terminalId: tempId,
+    });
 
     // Add to open sessions and open the drawer
     setOpenSessions((prev) => [...prev, newSession]);
@@ -821,6 +797,16 @@ IMPORTANT: Do NOT begin implementing or writing code yet. This is a refinement p
 
     // Track temp session for matching with real session later
     tempSessionInfo.current[tempId] = { createdAt: now, projectPath };
+
+    // Register in Hilt session registry
+    registerSession({
+      id: tempId,
+      projectPath,
+      title: newSession.title,
+      firstPrompt: refinementPrompt,
+      initialPrompt: refinementPrompt,
+      terminalId: tempId,
+    });
 
     // Add to open sessions and open the drawer
     setOpenSessions((prev) => [...prev, newSession]);
@@ -924,6 +910,16 @@ Proceed autonomously otherwise.`;
     // Track temp session for matching with real session later
     tempSessionInfo.current[tempId] = { createdAt: now, projectPath };
 
+    // Register in Hilt session registry
+    registerSession({
+      id: tempId,
+      projectPath,
+      title: newSession.title,
+      firstPrompt: referencePrompt,
+      initialPrompt: referencePrompt,
+      terminalId: tempId,
+    });
+
     // Add to open sessions and open the drawer
     setOpenSessions((prev) => [...prev, newSession]);
     setActiveSession(newSession);
@@ -982,6 +978,16 @@ Proceed autonomously otherwise.`;
 
     tempSessionInfo.current[tempId] = { createdAt: now, projectPath: destinationPath };
 
+    // Register in Hilt session registry
+    registerSession({
+      id: tempId,
+      projectPath: destinationPath,
+      title: newSession.title,
+      firstPrompt: prompt,
+      initialPrompt: prompt,
+      terminalId: tempId,
+    });
+
     setOpenSessions((prev) => [...prev, newSession]);
     setActiveSession(newSession);
     setIsDrawerOpen(true);
@@ -1030,6 +1036,16 @@ IMPORTANT: Do NOT begin implementing or writing code yet. This is a refinement p
     };
 
     tempSessionInfo.current[tempId] = { createdAt: now, projectPath: destinationPath };
+
+    // Register in Hilt session registry
+    registerSession({
+      id: tempId,
+      projectPath: destinationPath,
+      title: newSession.title,
+      firstPrompt: refinementPrompt,
+      initialPrompt: refinementPrompt,
+      terminalId: tempId,
+    });
 
     setOpenSessions((prev) => [...prev, newSession]);
     setActiveSession(newSession);
@@ -1095,6 +1111,16 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
 
     tempSessionInfo.current[tempId] = { createdAt: now, projectPath: destinationPath };
 
+    // Register in Hilt session registry
+    registerSession({
+      id: tempId,
+      projectPath: destinationPath,
+      title: newSession.title,
+      firstPrompt: referencePrompt,
+      initialPrompt: referencePrompt,
+      terminalId: tempId,
+    });
+
     setOpenSessions((prev) => [...prev, newSession]);
     setActiveSession(newSession);
     setIsDrawerOpen(true);
@@ -1142,6 +1168,16 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
 
     // Track temp session for matching with real session later
     tempSessionInfo.current[tempId] = { createdAt: now, projectPath };
+
+    // Register in Hilt session registry
+    registerSession({
+      id: tempId,
+      projectPath,
+      title: newSession.title,
+      firstPrompt: prdPrompt,
+      initialPrompt: prdPrompt,
+      terminalId: tempId,
+    });
 
     // Add to open sessions and open the drawer
     setOpenSessions((prev) => [...prev, newSession]);
@@ -1193,6 +1229,16 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
 
     // Track temp session for matching with real session later
     tempSessionInfo.current[tempId] = { createdAt: now, projectPath };
+
+    // Register in Hilt session registry
+    registerSession({
+      id: tempId,
+      projectPath,
+      title: newSession.title,
+      firstPrompt: ralphCommand,
+      initialPrompt: ralphCommand,
+      terminalId: tempId,
+    });
 
     // Add to open sessions and open the drawer
     setOpenSessions((prev) => [...prev, newSession]);
@@ -1254,7 +1300,7 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
 
   // No longer block render with full-screen spinner - columns show skeleton cards instead
   return (
-    <div className="flex flex-col h-screen bg-[var(--bg-primary)]">
+    <div className="flex flex-col h-dvh bg-[var(--bg-primary)]">
       {/* Status Bar - fixed height for drawer alignment */}
       <div
         data-statusbar
@@ -1285,12 +1331,12 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
         {/* Right side: Task Mode Toggle, Filter, Search, Primary View Toggle */}
         <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           {/* Task view mode toggle (Board/Tree) - only shown in tasks mode */}
-          {getPrimaryView(viewMode) === "tasks" && (
+          {getPrimaryView(viewMode) === "sessions" && (
             <TaskViewModeToggle view={viewMode} onChange={setViewMode} />
           )}
 
           {/* Filter dropdown - only shown in tasks mode */}
-          {getPrimaryView(viewMode) === "tasks" && (
+          {getPrimaryView(viewMode) === "sessions" && (
           <div className="relative" ref={filterRef}>
             <button
               onClick={() => setIsFilterOpen(!isFilterOpen)}

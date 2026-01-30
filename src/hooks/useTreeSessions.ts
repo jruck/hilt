@@ -24,7 +24,7 @@ function useVisibilityAwareInterval(activeInterval: number, hiddenInterval: numb
  * Hook for fetching sessions in tree mode.
  * Returns sessions with child rollup and tree structure for treemap visualization.
  */
-export function useTreeSessions(scopePath: string, showArchived = false) {
+export function useTreeSessions(scopePath: string, showArchived = false, enabled = true) {
   const { connected, subscribe, unsubscribe, on } = useEventSocketContext();
 
   // No polling when connected - rely entirely on WebSocket events
@@ -34,8 +34,10 @@ export function useTreeSessions(scopePath: string, showArchived = false) {
 
   const scopeParam = scopePath ? `&scope=${encodeURIComponent(scopePath)}` : "";
   const archivedParam = showArchived ? "&showArchived=true" : "";
+  // Pass null key when disabled to skip fetching (SWR convention)
+  const swrKey = enabled ? `/api/sessions?mode=tree&pageSize=500${scopeParam}${archivedParam}` : null;
   const { data, error, isLoading, mutate } = useSWR<TreeSessionsResponse>(
-    `/api/sessions?mode=tree&pageSize=500${scopeParam}${archivedParam}`,
+    swrKey,
     fetcher,
     {
       refreshInterval,
@@ -46,7 +48,7 @@ export function useTreeSessions(scopePath: string, showArchived = false) {
 
   // Subscribe to session events and update data when events arrive
   useEffect(() => {
-    if (!connected) return;
+    if (!connected || !enabled) return;
 
     // Subscribe to sessions channel with scope filter (tree uses prefix match)
     subscribe("sessions", scopePath ? { scope: scopePath } : {});
@@ -75,7 +77,7 @@ export function useTreeSessions(scopePath: string, showArchived = false) {
       unsubUpdated();
       unsubDeleted();
     };
-  }, [connected, scopePath, subscribe, unsubscribe, on, mutate]);
+  }, [connected, enabled, scopePath, subscribe, unsubscribe, on, mutate]);
 
   // Re-fetch data when WebSocket reconnects (connected goes from false to true)
   const wasConnectedRef = useRef(connected);

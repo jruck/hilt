@@ -41,8 +41,8 @@ This document provides a comprehensive architectural overview of Hilt for AI age
 ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
 │  Claude Sessions │  │  Local Storage   │  │  Claude CLI      │
 │  ~/.claude/      │  │                  │  │  (via PTY)       │
-│  projects/       │  │  data/session-   │  │                  │
-│  *.jsonl         │  │  status.json     │  │  claude --resume │
+│  projects/       │  │  data/sessions.  │  │                  │
+│  *.jsonl         │  │  json (registry) │  │  claude --resume │
 │  (read-only)     │  │  data/inbox.json │  │  or new session  │
 └──────────────────┘  └──────────────────┘  └──────────────────┘
 ```
@@ -102,7 +102,7 @@ hilt/
 ├── server/
 │   └── ws-server.ts            # WebSocket + PTY server (318 lines)
 ├── data/                       # Persistent storage (gitignored)
-│   ├── session-status.json     # Kanban states
+│   ├── sessions.json     # Kanban states
 │   └── inbox.json              # Draft prompts (fallback)
 ├── electron/                   # Electron native app
 │   ├── main.ts                 # Main process, IPC handlers
@@ -218,7 +218,7 @@ TreeView uses different API mode:
 | State | Location | Persistence | Purpose |
 |-------|----------|-------------|---------|
 | Session metadata | `~/.claude/projects/` | Claude-owned | Session content |
-| Kanban status | `data/session-status.json` | Local JSON | Column, order, starred |
+| Kanban status | `data/sessions.json` | Local JSON | Column, order, starred |
 | Draft prompts | `Todo.md` or `data/inbox.json` | Local | Queued prompts |
 | View preference | localStorage `VIEW_MODE_KEY` | Browser | Board/Tree/Docs |
 | Recent scopes | localStorage | Browser | Navigation history |
@@ -474,7 +474,7 @@ Claude's session files contain these entry types:
 
 ### 1. Claude JSONL Files are Read-Only
 - Never write to `~/.claude/projects/` - owned by Claude CLI
-- All kanban state goes to `data/session-status.json`
+- All kanban state goes to `data/sessions.json`
 
 ### 2. Terminal Stability
 - Use `terminalId` (not `sessionId`) as React key

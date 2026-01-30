@@ -137,14 +137,14 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders, onQuickAdd
 
   return (
     <div
-      className="flex-shrink-0 bg-[var(--bg-secondary)] border-r border-[var(--border-default)] flex flex-col overflow-hidden"
+      className="flex-shrink-0 h-full bg-[var(--bg-secondary)] border-r border-[var(--border-default)] flex flex-col overflow-hidden"
       style={{
         width: sidebarWidth,
         transition: transitionStyle
       }}
     >
       {/* Pinned Folders Section */}
-      <div className={`flex-1 overflow-y-auto overflow-x-hidden ${effectiveCollapsed ? "py-2" : "pt-3"}`}>
+      <div className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden ${effectiveCollapsed ? "py-2" : "pt-3"}`}>
         <SidebarSection
           title="Pinned"
           icon={Pin}
@@ -191,7 +191,7 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders, onQuickAdd
 
       {/* Footer with quick add, theme toggle, and sidebar toggle */}
       <div
-        className={`border-t border-[var(--border-default)] ${
+        className={`flex-shrink-0 border-t border-[var(--border-default)] ${
           effectiveCollapsed
             ? "flex flex-col items-center py-2 gap-1"
             : "flex items-center justify-between px-2 h-11"

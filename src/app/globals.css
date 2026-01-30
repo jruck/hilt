@@ -1207,3 +1207,90 @@ body [data-radix-popper-content-wrapper]::after {
   border-top: 1px solid var(--border-default);
   margin: 0.75em 0;
 }
+
+/* Images */
+.bridge-task-editor .ProseMirror img {
+  max-width: 100%;
+  border-radius: 6px;
+  margin: 0.5em 0;
+}
+
+/* Task list checkboxes */
+.bridge-task-editor .ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+  margin: 0.25em 0;
+}
+
+.bridge-task-editor .ProseMirror ul[data-type="taskList"] li[data-type="taskItem"] {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin: 0.125em 0;
+}
+
+.bridge-task-editor .ProseMirror ul[data-type="taskList"] li[data-type="taskItem"] > label {
+  flex-shrink: 0;
+  margin-top: 0.2em;
+}
+
+.bridge-task-editor .ProseMirror ul[data-type="taskList"] li[data-type="taskItem"] > div {
+  flex: 1;
+}
+
+/* Tables */
+.bridge-task-editor .ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5em 0;
+}
+
+.bridge-task-editor .ProseMirror th,
+.bridge-task-editor .ProseMirror td {
+  border: 1px solid var(--border-default);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.bridge-task-editor .ProseMirror th {
+  background: var(--bg-tertiary);
+  font-weight: 600;
+}
+
+/* Placeholder */
+.bridge-task-editor .ProseMirror p.is-editor-empty:first-child::before {
+  color: var(--text-tertiary);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Floating menu */
+.bridge-editor-toolbar {
+  display: flex;
+  gap: 0.25rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  padding: 0.2rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  z-index: 50;
+}
+
+.bridge-editor-toolbar button {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+  white-space: nowrap;
+  transition: background 150ms, color 150ms;
+}
+
+.bridge-editor-toolbar button:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}

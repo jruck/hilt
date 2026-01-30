@@ -95,6 +95,8 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
 
           <BridgeNotes
             notes={weekly.notes}
+            vaultPath={weekly.vaultPath}
+            filePath={weekly.filePath}
             onSave={updateNotes}
           />
 
@@ -126,6 +128,8 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
         <div className="w-96 flex-shrink-0">
           <BridgeTaskPanel
             task={resolvedTask}
+            vaultPath={weekly.vaultPath}
+            filePath={weekly.filePath}
             onClose={() => setSelectedTask(null)}
             onUpdateTitle={updateTaskTitle}
             onUpdateDetails={updateTaskDetails}

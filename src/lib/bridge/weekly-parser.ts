@@ -121,8 +121,9 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
         // Strip one indent level so details are clean markdown
         currentTask.detailLines.push(stripOneIndent(line));
       } else if (currentTask && line.trim() === "") {
-        // Empty line — keep in rawLines for structure
+        // Empty line — keep in both for structure and markdown rendering
         currentTask.rawLines.push(line);
+        currentTask.detailLines.push("");
       } else if (line.trim() === "") {
         // Empty line outside a task context, skip
       }

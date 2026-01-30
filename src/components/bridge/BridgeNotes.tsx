@@ -10,10 +10,12 @@ const BridgeTaskEditor = dynamic(
 
 interface BridgeNotesProps {
   notes: string;
+  vaultPath?: string;
+  filePath?: string;
   onSave: (notes: string) => void;
 }
 
-export function BridgeNotes({ notes, onSave }: BridgeNotesProps) {
+export function BridgeNotes({ notes, vaultPath, filePath, onSave }: BridgeNotesProps) {
   const lastSaved = useRef(notes);
 
   const handleChange = useCallback(
@@ -35,6 +37,8 @@ export function BridgeNotes({ notes, onSave }: BridgeNotesProps) {
       <BridgeTaskEditor
         markdown={notes}
         onChange={handleChange}
+        vaultPath={vaultPath}
+        filePath={filePath}
       />
     </div>
   );

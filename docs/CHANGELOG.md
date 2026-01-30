@@ -23,6 +23,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - **DocsView initial file navigation** - New `initialFilePath` prop allows programmatic navigation to a specific file on view switch, expanding all parent folders in the tree
   - Files: `src/components/DocsView.tsx`
 
+- **Bridge rich media & Notion-like editing** - Extended BridgeTaskEditor with inline images, tables, task lists, and more
+  - Image/video rendering: wikilinks (`![[file]]`) and relative paths converted to API URLs on read, normalized to standard markdown on save
+  - Video observer: `<img>` with `.mp4/.webm/.mov/.ogg` src auto-replaced with `<video controls>`
+  - New extensions: Image, Table, TaskList/TaskItem, Placeholder, Typography
+  - Editor toolbar (Table, Checklist) appears on focus; replaced FloatingMenu due to ProseMirror cursor rect limitations
+  - MutationObserver video replacement restricted to read-only mode to prevent ProseMirror DOM corruption
+  - `vaultPath`/`filePath` props threaded from BridgeView → BridgeTaskPanel/BridgeNotes → BridgeTaskEditor
+  - CSS for task list checkboxes, tables, placeholder text, and editor toolbar
+  - Files: `BridgeTaskEditor.tsx`, `BridgeView.tsx`, `BridgeTaskPanel.tsx`, `BridgeNotes.tsx`, `globals.css`
+
 ### Changed
 
 - **Bridge editors: MDXEditor → Tiptap** - Replaced MDXEditor with Tiptap for task detail and notes editing in Bridge view

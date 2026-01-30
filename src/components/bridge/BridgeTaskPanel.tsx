@@ -12,6 +12,8 @@ const BridgeTaskEditor = dynamic(
 
 interface BridgeTaskPanelProps {
   task: BridgeTask;
+  vaultPath?: string;
+  filePath?: string;
   onClose: () => void;
   onUpdateTitle: (id: string, title: string) => void;
   onUpdateDetails: (id: string, details: string[]) => void;
@@ -20,6 +22,8 @@ interface BridgeTaskPanelProps {
 
 export function BridgeTaskPanel({
   task,
+  vaultPath,
+  filePath,
   onClose,
   onUpdateTitle,
   onUpdateDetails,
@@ -138,6 +142,8 @@ export function BridgeTaskPanel({
           markdown={fullMarkdown}
           onChange={handleContentChange}
           readOnly={!isEditMode}
+          vaultPath={vaultPath}
+          filePath={filePath}
         />
       </div>
     </div>

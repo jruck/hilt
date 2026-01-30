@@ -62,18 +62,27 @@ electron_1.contextBridge.exposeInMainWorld("electronAPI", {
             };
         },
     },
+    // Startup activity events (for loading screen)
+    onStartupActivity: (callback) => {
+        const handler = (_, data) => callback(data);
+        electron_1.ipcRenderer.on("startup:activity", handler);
+        return () => {
+            electron_1.ipcRenderer.removeListener("startup:activity", handler);
+        };
+    },
 });
 const electronAPI = {
     isElectron: true,
     pty: {
-        spawn: async (options) => ({ success: true, terminalId: options.terminalId }),
-        write: async (options) => ({ success: true }),
-        resize: async (options) => ({ success: true }),
-        kill: async (options) => ({ success: true }),
-        onData: (callback) => () => { },
-        onExit: (callback) => () => { },
-        onTitle: (callback) => () => { },
-        onContext: (callback) => () => { },
-        onPlan: (callback) => () => { },
+        spawn: async (_options) => ({ success: true, terminalId: _options.terminalId }),
+        write: async (_options) => ({ success: true }),
+        resize: async (_options) => ({ success: true }),
+        kill: async (_options) => ({ success: true }),
+        onData: (_callback) => () => { },
+        onExit: (_callback) => () => { },
+        onTitle: (_callback) => () => { },
+        onContext: (_callback) => () => { },
+        onPlan: (_callback) => () => { },
     },
+    onStartupActivity: (_callback) => () => { },
 };

@@ -242,3 +242,37 @@ export interface RalphLoopState {
   completionPromise: string;
   startedAt: string;
 }
+
+// ============ Bridge View Types ============
+
+export interface BridgeTask {
+  id: string;              // "task-0", "task-1", ...
+  title: string;           // First line minus checkbox
+  done: boolean;           // [x] vs [ ]
+  details: string[];       // Indented sub-bullet lines (raw markdown)
+  rawLines: string[];      // All lines in this task block
+}
+
+export interface BridgeWeekly {
+  filename: string;        // "2026-01-27.md"
+  week: string;            // "2026-01-27" from frontmatter
+  needsRecycle: boolean;   // Current date in newer ISO week
+  tasks: BridgeTask[];
+  notes: string;           // Raw markdown of ## Notes section
+}
+
+export type BridgeProjectStatus = "thinking" | "refining" | "scoping" | "doing";
+
+export interface BridgeProject {
+  slug: string;            // Folder name
+  path: string;            // Absolute path to project folder
+  title: string;           // H1 from index.md
+  status: BridgeProjectStatus;
+  area: string;
+  tags: string[];
+}
+
+export interface BridgeProjectsResponse {
+  vaultPath: string;       // Absolute path to the bridge vault root
+  columns: Record<BridgeProjectStatus, BridgeProject[]>;
+}

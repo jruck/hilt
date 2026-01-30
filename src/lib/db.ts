@@ -235,11 +235,13 @@ interface UserPreferences {
   sidebarCollapsed: boolean;
   theme: "light" | "dark" | "system";
   recentScopes: string[];
-  viewMode: "board" | "tree" | "docs";
+  viewMode: "board" | "tree" | "docs" | "stack" | "bridge";
   // Separate storage for folder emojis by path - persists across unpin/re-pin
   folderEmojis?: Record<string, string>;
   // Global inbox folder path for quick capture
   inboxPath?: string;
+  // Bridge vault path for weekly tasks and projects
+  bridgeVaultPath?: string;
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
@@ -409,14 +411,26 @@ export async function addRecentScope(scope: string): Promise<string[]> {
 }
 
 // View mode
-export async function getViewMode(): Promise<"board" | "tree" | "docs"> {
+export async function getViewMode(): Promise<string> {
   const prefs = readPreferencesFile();
   return prefs.viewMode;
 }
 
-export async function setViewMode(mode: "board" | "tree" | "docs"): Promise<void> {
+export async function setViewMode(mode: string): Promise<void> {
   const prefs = readPreferencesFile();
-  prefs.viewMode = mode;
+  prefs.viewMode = mode as UserPreferences["viewMode"];
+  writePreferencesFile(prefs);
+}
+
+// Bridge vault path
+export async function getBridgeVaultPath(): Promise<string> {
+  const prefs = readPreferencesFile();
+  return prefs.bridgeVaultPath || process.env.BRIDGE_VAULT_PATH || path.join(process.env.HOME || "~", "work/bridge");
+}
+
+export async function setBridgeVaultPath(vaultPath: string): Promise<void> {
+  const prefs = readPreferencesFile();
+  prefs.bridgeVaultPath = vaultPath;
   writePreferencesFile(prefs);
 }
 

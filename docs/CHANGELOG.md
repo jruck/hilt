@@ -6,6 +6,28 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Added
+
+- **Bridge view** - Weekly task management and project kanban integrated as a new view mode
+  - Weekly tasks with drag-and-drop reordering, inline title editing, checkbox toggling
+  - Side panel for task details with full markdown editing
+  - Inline editable notes section (zero-padding, borderless — just text on the page)
+  - Project kanban with four columns: thinking, refining, scoping, doing
+  - Clicking a project card opens its folder in the docs viewer with bridge as scope, project folder expanded, and index.md selected
+  - Real-time updates via WebSocket events
+  - Files: `src/components/bridge/*`, `src/hooks/useBridgeWeekly.ts`, `src/hooks/useBridgeProjects.ts`, `src/lib/bridge/*`, `src/app/api/bridge/*`
+
+- **DocsView initial file navigation** - New `initialFilePath` prop allows programmatic navigation to a specific file on view switch, expanding all parent folders in the tree
+  - Files: `src/components/DocsView.tsx`
+
+### Changed
+
+- **Docs editor line height** - Reduced from `1.75` (prose default) to `1.5` (`leading-normal`) to match Obsidian's tighter spacing
+  - File: `src/components/docs/DocsEditor.tsx`
+
+- **Compact editor padding** - `.docs-editor-compact` wrapper now strips all padding from both MDXEditor wrapper and contenteditable elements
+  - File: `src/app/globals.css`
+
 ### Changed
 
 - **Hilt-only session tracking** - Replaced bulk JSONL scanning (3,789 files / 1.4GB) with a Hilt-owned session registry

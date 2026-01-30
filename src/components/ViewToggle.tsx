@@ -1,12 +1,12 @@
 "use client";
 
-import { Columns3, Network, FileText, Layers, Terminal } from "lucide-react";
+import { Columns3, Network, FileText, Layers, Terminal, Compass } from "lucide-react";
 
 // The underlying view mode stored in state/preferences
-export type ViewMode = "tree" | "board" | "docs" | "stack";
+export type ViewMode = "tree" | "board" | "docs" | "stack" | "bridge";
 
 // Primary view categories
-export type PrimaryView = "sessions" | "docs" | "stack";
+export type PrimaryView = "sessions" | "docs" | "stack" | "bridge";
 
 // Task-specific view modes
 export type TaskViewMode = "board" | "tree";
@@ -15,6 +15,7 @@ export type TaskViewMode = "board" | "tree";
 export function getPrimaryView(viewMode: ViewMode): PrimaryView {
   if (viewMode === "board" || viewMode === "tree") return "sessions";
   if (viewMode === "docs") return "docs";
+  if (viewMode === "bridge") return "bridge";
   return "stack";
 }
 
@@ -29,6 +30,7 @@ interface PrimaryViewToggleProps {
 }
 
 const PRIMARY_VIEW_CONFIG = [
+  { id: "bridge" as const, label: "Bridge", icon: Compass, title: "Bridge weekly tasks & projects", targetMode: "bridge" as ViewMode },
   { id: "docs" as const, label: "Docs", icon: FileText, title: "Documentation", targetMode: "docs" as ViewMode },
   { id: "stack" as const, label: "Stack", icon: Layers, title: "Claude configuration stack", targetMode: "stack" as ViewMode },
   { id: "sessions" as const, label: "Sessions", icon: Terminal, title: "Claude Code sessions (Board/Tree)", targetMode: "board" as ViewMode },
@@ -44,10 +46,11 @@ export function PrimaryViewToggle({ view, onChange }: PrimaryViewToggleProps) {
 
   const handleChange = (primary: PrimaryView) => {
     if (primary === "sessions") {
-      // When switching to sessions, use the current task mode (preserved from last time)
       onChange(currentTaskMode);
     } else if (primary === "docs") {
       onChange("docs");
+    } else if (primary === "bridge") {
+      onChange("bridge");
     } else {
       onChange("stack");
     }

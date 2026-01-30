@@ -37,6 +37,9 @@ interface DocsEditorProps {
   markdown: string;
   onChange?: (markdown: string) => void;
   readOnly?: boolean;
+  hideToolbar?: boolean;
+  contentPadding?: string;
+  wrapperClassName?: string;
   currentFilePath?: string;
   scopePath?: string;
   fileTree?: FileNode | null;
@@ -49,7 +52,7 @@ export interface DocsEditorRef {
 }
 
 export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
-  ({ markdown, onChange, readOnly = false, currentFilePath, scopePath, fileTree, onNavigateToFile }, ref) => {
+  ({ markdown, onChange, readOnly = false, hideToolbar = false, contentPadding, wrapperClassName, currentFilePath, scopePath, fileTree, onNavigateToFile }, ref) => {
     const editorRef = useRef<MDXEditorMethods>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const { resolvedTheme } = useTheme();
@@ -153,6 +156,47 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
       }
     }, []);
 
+    // Convert <img> tags with video extensions to <video> elements after render
+    const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|ogg)(\?|$)/i;
+    useEffect(() => {
+      if (!readOnly) return;
+      const el = containerRef.current;
+      if (!el) return;
+
+      const observer = new MutationObserver(() => {
+        const imgs = el.querySelectorAll('img');
+        imgs.forEach((img) => {
+          const src = img.getAttribute('src') || '';
+          if (VIDEO_EXTENSIONS.test(src)) {
+            const video = document.createElement('video');
+            video.src = src;
+            video.controls = true;
+            video.style.maxWidth = '100%';
+            video.style.borderRadius = '8px';
+            img.replaceWith(video);
+          }
+        });
+      });
+
+      observer.observe(el, { childList: true, subtree: true });
+
+      // Also run once immediately for already-rendered content
+      const imgs = el.querySelectorAll('img');
+      imgs.forEach((img) => {
+        const src = img.getAttribute('src') || '';
+        if (VIDEO_EXTENSIONS.test(src)) {
+          const video = document.createElement('video');
+          video.src = src;
+          video.controls = true;
+          video.style.maxWidth = '100%';
+          video.style.borderRadius = '8px';
+          img.replaceWith(video);
+        }
+      });
+
+      return () => observer.disconnect();
+    }, [readOnly, processedMarkdown]);
+
     // Handle wikilink clicks (intercept our custom hash links)
     const handleWikilinkClick = useCallback((e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -228,8 +272,8 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
       frontmatterPlugin(),
     ];
 
-    // Add toolbar for editing mode
-    if (!readOnly) {
+    // Add toolbar for editing mode (unless explicitly hidden)
+    if (!readOnly && !hideToolbar) {
       plugins.push(
         toolbarPlugin({
           toolbarContents: () => (
@@ -256,7 +300,7 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
     const proseInvert = resolvedTheme === "dark" ? "prose-invert" : "";
 
     return (
-      <div ref={containerRef} className="h-full flex flex-col docs-editor-wrapper">
+      <div ref={containerRef} className={`h-full flex flex-col ${wrapperClassName ?? "docs-editor-wrapper"}`}>
         <MDXEditor
           key={readOnly ? "read" : "edit"}
           ref={editorRef}
@@ -264,7 +308,7 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
           onChange={onChange}
           readOnly={readOnly}
           plugins={plugins}
-          contentEditableClassName={`prose ${proseInvert} max-w-none
+          contentEditableClassName={`prose ${proseInvert} max-w-none leading-normal
             prose-headings:font-semibold
             prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:bg-[var(--bg-tertiary)] prose-code:text-[var(--text-secondary)] prose-code:before:content-none prose-code:after:content-none
             prose-pre:rounded-lg prose-pre:bg-[var(--bg-tertiary)]
@@ -272,7 +316,7 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
             prose-table:border-collapse
             prose-th:border prose-th:border-[var(--border-default)] prose-th:px-3 prose-th:py-2
             prose-td:border prose-td:border-[var(--border-default)] prose-td:px-3 prose-td:py-2
-            outline-none px-12 py-6`}
+            outline-none ${contentPadding ?? "px-12 py-6"}`}
           className={`${themeClass} h-full flex-1`}
         />
       </div>

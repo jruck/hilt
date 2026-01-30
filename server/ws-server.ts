@@ -5,7 +5,7 @@ import * as http from "http";
 import { ptyManager } from "../src/lib/pty-manager";
 import { getRegisteredSession } from "../src/lib/db";
 import { EventServer } from "./event-server";
-import { getSessionWatcher, getScopeWatcher, getInboxWatcher } from "./watchers";
+import { getSessionWatcher, getScopeWatcher, getInboxWatcher, getBridgeWatcher } from "./watchers";
 import type {
   SessionCreatedEvent,
   SessionUpdatedEvent,
@@ -345,7 +345,20 @@ async function startServer() {
     inboxWatcher.removeClient(clientId);
   });
 
-  console.log(`Scope and inbox watchers configured`);
+  // Bridge watcher for vault file events
+  const bridgeWatcher = getBridgeWatcher();
+
+  bridgeWatcher.on("weekly-changed", () => {
+    eventServer.broadcast("bridge", "weekly-changed", {});
+  });
+
+  bridgeWatcher.on("projects-changed", () => {
+    eventServer.broadcast("bridge", "projects-changed", {});
+  });
+
+  bridgeWatcher.start();
+
+  console.log(`Scope, inbox, and bridge watchers configured`);
 
   // Manually handle WebSocket upgrades and route to appropriate server
   httpServer.on("upgrade", (request, socket, head) => {
@@ -554,6 +567,7 @@ async function startServer() {
     sessionWatcher.stop();
     scopeWatcher.stop();
     inboxWatcher.stop();
+    bridgeWatcher.stop();
     eventServer.close();
     wss.close(() => {
       httpServer.close(() => {

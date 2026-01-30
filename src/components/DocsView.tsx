@@ -16,9 +16,12 @@ interface DocsViewProps {
   scopePath: string;
   onScopeChange?: (path: string) => void;
   searchQuery?: string;
+  /** When set, expands parent folders and selects this file on load. Cleared after use. */
+  initialFilePath?: string | null;
+  onInitialFileConsumed?: () => void;
 }
 
-export function DocsView({ scopePath, onScopeChange, searchQuery }: DocsViewProps) {
+export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePath, onInitialFileConsumed }: DocsViewProps) {
   const {
     // Tree
     tree,
@@ -133,18 +136,43 @@ export function DocsView({ scopePath, onScopeChange, searchQuery }: DocsViewProp
     return indexFile?.path || null;
   }, [tree]);
 
+  // Handle initialFilePath: expand parents and select the file once tree loads
+  // Uses requestAnimationFrame to run after useDocs scope-sync effect resets expandedPaths
+  const consumedInitialFileRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!tree || treeLoading || !initialFilePath) return;
+    if (consumedInitialFileRef.current === initialFilePath) return;
+    consumedInitialFileRef.current = initialFilePath;
+
+    const filePath = initialFilePath;
+    const raf = requestAnimationFrame(() => {
+      // Expand folders between scope root and the file
+      const relative = filePath.slice(scopePath.length + 1); // e.g. "projects/perf-review/index.md"
+      const parts = relative.split("/");
+      let currentPath = scopePath;
+      for (let i = 0; i < parts.length - 1; i++) { // -1 to skip filename
+        currentPath = `${currentPath}/${parts[i]}`;
+        expandPath(currentPath);
+      }
+      setSelectedPath(filePath);
+      onInitialFileConsumed?.();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [tree, treeLoading, initialFilePath, scopePath, expandPath, setSelectedPath, onInitialFileConsumed]);
+
   // Auto-select root index.md on initial load (when no file is selected)
   const hasAutoSelectedRef = useRef(false);
   useEffect(() => {
     // Only run once per scope when tree loads and nothing is selected
-    if (tree && !selectedPath && !treeLoading && !hasAutoSelectedRef.current) {
+    // Skip if an initialFilePath is pending
+    if (tree && !selectedPath && !treeLoading && !hasAutoSelectedRef.current && !initialFilePath) {
       hasAutoSelectedRef.current = true;
       const indexPath = findIndexFile(scopePath);
       if (indexPath) {
         setSelectedPath(indexPath);
       }
     }
-  }, [tree, selectedPath, treeLoading, scopePath, findIndexFile, setSelectedPath]);
+  }, [tree, selectedPath, treeLoading, scopePath, findIndexFile, setSelectedPath, initialFilePath]);
 
   // Reset auto-selection flag when scope changes
   useEffect(() => {

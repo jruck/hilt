@@ -40,7 +40,7 @@ export function ThemeToggle() {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 bottom-full mb-1 z-50 min-w-[120px]
+        <div className="absolute right-0 top-full mt-1 z-50 min-w-[120px]
                         bg-[var(--bg-elevated)] border border-[var(--border-default)]
                         rounded-lg shadow-lg overflow-hidden">
           {themeOptions.map((option) => {

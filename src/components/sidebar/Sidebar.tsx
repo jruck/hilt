@@ -20,10 +20,8 @@ import { SessionsResponse } from "@/lib/types";
 import { PinnedFolder } from "@/lib/pinned-folders";
 import { needsAttention } from "@/lib/session-status";
 import { SidebarToggle } from "./SidebarToggle";
-import { ThemeToggle } from "../ThemeToggle";
 import { SidebarSection } from "./SidebarSection";
 import { SortablePinnedFolderItem } from "./SortablePinnedFolderItem";
-import { QuickAddButton } from "../QuickAddButton";
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
@@ -39,14 +37,13 @@ interface SidebarProps {
   currentScope: string;
   onScopeChange: (path: string) => void;
   pinnedFolders: PinnedFoldersHook;
-  onQuickAdd?: () => void;
 }
 
 /**
  * Main collapsible sidebar with pinned folders
  * Fetches its own session data (unscoped) to compute counts across all pinned folders
  */
-export function Sidebar({ currentScope, onScopeChange, pinnedFolders, onQuickAdd }: SidebarProps) {
+export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarProps) {
   const { isCollapsed, toggle, isHydrated: sidebarHydrated } = useSidebarState();
   const { folders, unpinFolder, reorderFolders, setEmoji, isHydrated: foldersHydrated } = pinnedFolders;
 
@@ -189,18 +186,8 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders, onQuickAdd
         </SidebarSection>
       </div>
 
-      {/* Footer with quick add, theme toggle, and sidebar toggle */}
-      <div
-        className={`flex-shrink-0 border-t border-[var(--border-default)] ${
-          effectiveCollapsed
-            ? "flex flex-col items-center py-2 gap-1"
-            : "flex items-center justify-between px-2 h-11"
-        }`}
-      >
-        {onQuickAdd && (
-          <QuickAddButton onClick={onQuickAdd} isCollapsed={effectiveCollapsed} />
-        )}
-        <ThemeToggle />
+      {/* Footer with sidebar toggle */}
+      <div className="flex-shrink-0 border-t border-[var(--border-default)] flex items-center justify-center px-2 h-11">
         <SidebarToggle isCollapsed={effectiveCollapsed} onToggle={toggle} />
       </div>
     </div>

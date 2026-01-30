@@ -1070,6 +1070,12 @@ body [data-radix-popper-content-wrapper]::after {
   padding: 24px 48px !important;
 }
 
+/* Compact padding for inline editors (bridge notes, etc.) */
+.docs-editor-compact .mdxeditor-root-contenteditable,
+.docs-editor-compact [contenteditable] {
+  padding: 0 !important;
+}
+
 /* ============================================
    Wikilink Styling
    ============================================ */

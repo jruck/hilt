@@ -12,6 +12,12 @@ const MIME_TYPES: Record<string, string> = {
   svg: "image/svg+xml",
   pdf: "application/pdf",
   csv: "text/csv",
+  mp4: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
+  ogg: "video/ogg",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
 };
 
 // Validate path is within scope (prevent directory traversal)

@@ -26,6 +26,7 @@ import { ViewToggle, ViewMode, TaskViewModeToggle, getPrimaryView } from "./View
 const TreeView = dynamic(() => import("./TreeView").then(m => ({ default: m.TreeView })), { ssr: false });
 const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.DocsView })), { ssr: false });
 const StackView = dynamic(() => import("./stack").then(m => ({ default: m.StackView })), { ssr: false });
+const BridgeView = dynamic(() => import("./bridge/BridgeView").then(m => ({ default: m.BridgeView })), { ssr: false });
 const TerminalDrawer = dynamic(() => import("./TerminalDrawer").then(m => ({ default: m.TerminalDrawer })), { ssr: false });
 import { RalphSetupModal } from "./RalphSetupModal";
 import { QuickAddModal } from "./QuickAddModal";
@@ -33,6 +34,8 @@ import { usePinnedFolders } from "@/hooks/usePinnedFolders";
 import { useInboxPath } from "@/hooks/useInboxPath";
 import { generatePrdPrompt, generateRalphCommand } from "@/lib/ralph";
 import { X, Inbox, Play, Clock, Search, Filter, FileText, Check, Archive, Eye, CheckCircle, Terminal } from "lucide-react";
+import { ThemeToggle } from "./ThemeToggle";
+import { QuickAddButton } from "./QuickAddButton";
 
 const COLUMNS: ColumnId[] = ["inbox", "active", "attention", "recent"];
 
@@ -66,6 +69,7 @@ export function Board() {
   // Initialize with empty/default values for SSR, then hydrate from localStorage
   const [homeDir, setHomeDir] = useState<string>("");
   const [viewMode, setViewMode] = useState<ViewMode>("docs");
+  const [docsInitialFile, setDocsInitialFile] = useState<string | null>(null);
 
   // Hydrate from localStorage (for homeDir) and server (for viewMode) after mount
   useEffect(() => {
@@ -79,7 +83,7 @@ export function Board() {
     fetch("/api/preferences?key=viewMode")
       .then((res) => res.json())
       .then((data) => {
-        if (data.value === "board" || data.value === "tree" || data.value === "docs" || data.value === "stack") {
+        if (data.value === "board" || data.value === "tree" || data.value === "docs" || data.value === "stack" || data.value === "bridge") {
           setViewMode(data.value);
         }
       })
@@ -94,6 +98,8 @@ export function Board() {
           setViewMode("docs");
         } else if (cachedViewMode === "stack") {
           setViewMode("stack");
+        } else if (cachedViewMode === "bridge") {
+          setViewMode("bridge");
         }
       })
       .finally(() => {
@@ -1301,83 +1307,59 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
   // No longer block render with full-screen spinner - columns show skeleton cards instead
   return (
     <div className="flex flex-col h-dvh bg-[var(--bg-primary)]">
-      {/* Status Bar - fixed height for drawer alignment */}
+      {/* Top Toolbar */}
       <div
         data-statusbar
-        className="relative flex items-center justify-between px-4 h-11 bg-[var(--bg-secondary)] border-b border-[var(--border-default)]"
+        className="relative flex items-center px-4 h-11 bg-[var(--bg-secondary)] border-b border-[var(--border-default)]"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
-        {/* Left side: Scope controls (breadcrumbs, recent, browse) */}
-        <div className="flex items-center gap-1 min-w-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          {homeDir && (
-            <>
-              <ScopeBreadcrumbs
-                  value={scopePath}
-                  homeDir={homeDir}
-                  onChange={setScopePath}
-                  isPinned={pinnedFolders.isPinned(scopePath)}
-                  onTogglePin={() => pinnedFolders.togglePin(scopePath)}
-                />
-              <RecentScopesButton
-                currentPath={scopePath}
-                homeDir={homeDir}
-                onSelect={setScopePath}
-              />
-            </>
-          )}
-          <BrowseButton onSelect={setScopePath} />
-        </div>
-
-        {/* Right side: Task Mode Toggle, Filter, Search, Primary View Toggle */}
+        {/* Left: session controls, search, theme, terminal */}
         <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          {/* Task view mode toggle (Board/Tree) - only shown in tasks mode */}
           {getPrimaryView(viewMode) === "sessions" && (
             <TaskViewModeToggle view={viewMode} onChange={setViewMode} />
           )}
-
-          {/* Filter dropdown - only shown in tasks mode */}
           {getPrimaryView(viewMode) === "sessions" && (
-          <div className="relative" ref={filterRef}>
-            <button
-              onClick={() => setIsFilterOpen(!isFilterOpen)}
-              className={`p-1.5 rounded transition-colors ${
-                hasActiveFilters
-                  ? "text-[var(--interactive-default)] bg-[var(--status-todo-bg)] hover:bg-[var(--status-todo-bg)]"
-                  : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
-              }`}
-              title="Filters"
-            >
-              <Filter className="w-4 h-4" />
-            </button>
-            {isFilterOpen && (
-              <div className="absolute right-0 top-full mt-1 w-48 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg shadow-xl z-50 py-1">
-                <button
-                  onClick={() => {
-                    setFilters(prev => ({ ...prev, hasPlan: !prev.hasPlan }));
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-[var(--bg-tertiary)] transition-colors"
-                >
-                  <FileText className="w-4 h-4 text-[var(--text-tertiary)]" />
-                  <span className="flex-1">Plans</span>
-                  {filters.hasPlan && <Check className="w-4 h-4 text-[var(--interactive-default)]" />}
-                </button>
-                <button
-                  onClick={() => setShowArchived(!showArchived)}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-[var(--bg-tertiary)] transition-colors"
-                >
-                  <Archive className="w-4 h-4 text-[var(--text-tertiary)]" />
-                  <span className="flex-1">Archived</span>
-                  {counts.archived > 0 && (
-                    <span className="text-xs text-[var(--text-tertiary)]">{counts.archived}</span>
-                  )}
-                  {showArchived && <Check className="w-4 h-4 text-[var(--interactive-default)]" />}
-                </button>
-              </div>
-            )}
-          </div>
+            <div className="relative" ref={filterRef}>
+              <button
+                onClick={() => setIsFilterOpen(!isFilterOpen)}
+                className={`p-1.5 rounded transition-colors ${
+                  hasActiveFilters
+                    ? "text-[var(--interactive-default)] bg-[var(--status-todo-bg)] hover:bg-[var(--status-todo-bg)]"
+                    : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
+                }`}
+                title="Filters"
+              >
+                <Filter className="w-4 h-4" />
+              </button>
+              {isFilterOpen && (
+                <div className="absolute left-0 top-full mt-1 w-48 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg shadow-xl z-50 py-1">
+                  <button
+                    onClick={() => {
+                      setFilters(prev => ({ ...prev, hasPlan: !prev.hasPlan }));
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-[var(--bg-tertiary)] transition-colors"
+                  >
+                    <FileText className="w-4 h-4 text-[var(--text-tertiary)]" />
+                    <span className="flex-1">Plans</span>
+                    {filters.hasPlan && <Check className="w-4 h-4 text-[var(--interactive-default)]" />}
+                  </button>
+                  <button
+                    onClick={() => setShowArchived(!showArchived)}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-[var(--bg-tertiary)] transition-colors"
+                  >
+                    <Archive className="w-4 h-4 text-[var(--text-tertiary)]" />
+                    <span className="flex-1">Archived</span>
+                    {counts.archived > 0 && (
+                      <span className="text-xs text-[var(--text-tertiary)]">{counts.archived}</span>
+                    )}
+                    {showArchived && <Check className="w-4 h-4 text-[var(--interactive-default)]" />}
+                  </button>
+                </div>
+              )}
+            </div>
           )}
 
-          {/* Search - visible in all modes, filters sessions/files/folders */}
+          {/* Search */}
           {searchQuery ? (
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-tertiary)]" />
@@ -1409,7 +1391,10 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
             </button>
           )}
 
-          {/* Terminal Drawer Toggle - visible across all modes when sessions are open */}
+          {/* Theme toggle */}
+          <ThemeToggle />
+
+          {/* Terminal Drawer Toggle */}
           {openSessions.length > 0 && (
             <button
               onClick={() => setIsDrawerOpen(!isDrawerOpen)}
@@ -1424,27 +1409,45 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
               <span>{openSessions.length}</span>
             </button>
           )}
+        </div>
 
-          {/* View Toggle */}
+        {/* Center: View toggle (absolute center) */}
+        <div className="absolute left-1/2 -translate-x-1/2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <ViewToggle view={viewMode} onChange={setViewMode} />
+        </div>
+
+        {/* Right: QuickAdd */}
+        <div className="flex items-center ml-auto" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <QuickAddButton onClick={() => setIsQuickAddOpen(true)} />
         </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Sidebar */}
-        <Sidebar
-          currentScope={scopePath}
-          onScopeChange={setScopePath}
-          pinnedFolders={pinnedFolders}
-          onQuickAdd={() => setIsQuickAddOpen(true)}
-        />
+        {/* Left Sidebar — hidden on Bridge view */}
+        {getPrimaryView(viewMode) !== "bridge" && (
+          <Sidebar
+            currentScope={scopePath}
+            onScopeChange={setScopePath}
+            pinnedFolders={pinnedFolders}
+          />
+        )}
 
-        {/* Conditional View: Docs, Tree, Stack, or Board */}
-        {viewMode === "docs" ? (
+        {/* Main content column */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Conditional View: Bridge, Docs, Tree, Stack, or Board */}
+        {viewMode === "bridge" ? (
+          <BridgeView onNavigateToProject={(project, vaultPath) => {
+            setScopePath(vaultPath);
+            setDocsInitialFile(project.path + "/index.md");
+            setViewMode("docs");
+          }} />
+        ) : viewMode === "docs" ? (
           <DocsView
             scopePath={scopePath}
             onScopeChange={setScopePath}
             searchQuery={searchQuery}
+            initialFilePath={docsInitialFile}
+            onInitialFileConsumed={() => setDocsInitialFile(null)}
           />
         ) : viewMode === "stack" ? (
           <div className="flex-1 overflow-hidden">
@@ -1544,6 +1547,30 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
             </DragOverlay>
           </DndContext>
         )}
+
+        {/* Bottom toolbar — scope controls (hidden on Bridge view) */}
+        {getPrimaryView(viewMode) !== "bridge" && (
+          <div className="flex-shrink-0 flex items-center gap-1 px-4 h-10 bg-[var(--bg-secondary)] border-t border-[var(--border-default)]">
+            {homeDir && (
+              <>
+                <ScopeBreadcrumbs
+                  value={scopePath}
+                  homeDir={homeDir}
+                  onChange={setScopePath}
+                  isPinned={pinnedFolders.isPinned(scopePath)}
+                  onTogglePin={() => pinnedFolders.togglePin(scopePath)}
+                />
+                <RecentScopesButton
+                  currentPath={scopePath}
+                  homeDir={homeDir}
+                  onSelect={setScopePath}
+                />
+              </>
+            )}
+            <BrowseButton onSelect={setScopePath} />
+          </div>
+        )}
+        </div>{/* end main content column */}
 
         {/* Terminal Drawer */}
         <TerminalDrawer

@@ -323,16 +323,18 @@ async function startNextServer(): Promise<number> {
   });
 
   return new Promise((resolve, reject) => {
-    const serverPath = path.join(process.resourcesPath, "app", ".next", "standalone", "server.js");
+    const standaloneDir = path.join(process.resourcesPath, "app", ".next", "standalone");
+    const serverPath = path.join(standaloneDir, "server.js");
 
-    nextServer = spawn("node", [serverPath], {
+    nextServer = spawn(process.execPath, [serverPath], {
       env: {
         ...process.env,
+        ELECTRON_RUN_AS_NODE: "1",
         PORT: String(port),
         DATA_DIR,
         NODE_ENV: "production",
       },
-      cwd: path.join(process.resourcesPath, "app"),
+      cwd: standaloneDir,
     });
 
     let started = false;

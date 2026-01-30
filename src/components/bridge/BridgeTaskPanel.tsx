@@ -2,11 +2,11 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { X, Pencil, Eye, Trash2 } from "lucide-react";
-import dynamic from "next/dynamic";
 import type { BridgeTask } from "@/lib/types";
+import dynamic from "next/dynamic";
 
-const DocsEditor = dynamic(
-  () => import("../docs/DocsEditor").then((mod) => mod.DocsEditor),
+const BridgeTaskEditor = dynamic(
+  () => import("./BridgeTaskEditor").then((mod) => mod.BridgeTaskEditor),
   { ssr: false }
 );
 
@@ -31,7 +31,6 @@ export function BridgeTaskPanel({
   const lastSavedTitle = useRef(task.title);
   const lastSavedDetails = useRef(task.details.join("\n"));
 
-  // Sync from props when task changes
   useEffect(() => {
     if (task.title !== lastSavedTitle.current) {
       setTitle(task.title);
@@ -40,7 +39,6 @@ export function BridgeTaskPanel({
     lastSavedDetails.current = task.details.join("\n");
   }, [task.title, task.details]);
 
-  // Reset confirm state when task changes
   useEffect(() => {
     setConfirmDelete(false);
   }, [task.id]);
@@ -55,14 +53,17 @@ export function BridgeTaskPanel({
     }
   }
 
-  const handleContentChange = useCallback((markdown: string) => {
-    if (markdown !== lastSavedDetails.current) {
-      lastSavedDetails.current = markdown;
-      onUpdateDetails(task.id, markdown.split("\n"));
-    }
-  }, [task.id, onUpdateDetails]);
+  const handleContentChange = useCallback(
+    (markdown: string) => {
+      if (markdown !== lastSavedDetails.current) {
+        lastSavedDetails.current = markdown;
+        onUpdateDetails(task.id, markdown.split("\n"));
+      }
+    },
+    [task.id, onUpdateDetails]
+  );
 
-  const markdown = task.details.join("\n");
+  const fullMarkdown = task.details.join("\n");
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg-primary)] border-l border-[var(--border-default)]">
@@ -131,14 +132,12 @@ export function BridgeTaskPanel({
         </div>
       )}
 
-      {/* Content — DocsEditor for markdown editing */}
-      <div className="flex-1 overflow-y-auto">
-        <DocsEditor
-          markdown={markdown}
-          onChange={isEditMode ? handleContentChange : undefined}
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        <BridgeTaskEditor
+          markdown={fullMarkdown}
+          onChange={handleContentChange}
           readOnly={!isEditMode}
-          hideToolbar
-          wrapperClassName="docs-editor-compact"
         />
       </div>
     </div>

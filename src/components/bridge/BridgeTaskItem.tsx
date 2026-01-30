@@ -90,11 +90,15 @@ export function BridgeTaskItem({
           : "border-[var(--border-default)]"
       } ${task.done ? "opacity-50" : ""}`}
     >
-      <div className="flex items-center gap-2 px-3 py-2.5">
+      <div
+        className="flex items-center gap-2 px-3 py-2.5 cursor-pointer"
+        onClick={() => onSelect(task)}
+      >
         {/* Drag handle */}
         <button
           {...attributes}
           {...listeners}
+          onClick={(e) => e.stopPropagation()}
           className="flex-shrink-0 cursor-grab text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] active:cursor-grabbing"
         >
           <GripVertical className="w-4 h-4" />
@@ -105,53 +109,55 @@ export function BridgeTaskItem({
           type="checkbox"
           checked={task.done}
           onChange={() => onToggle(task.id, !task.done)}
+          onClick={(e) => e.stopPropagation()}
           className="flex-shrink-0 w-4 h-4 rounded border-[var(--border-default)] text-[var(--interactive-default)] focus:ring-[var(--interactive-default)] cursor-pointer"
         />
 
-        {/* Editable title */}
-        <input
-          ref={inputRef}
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onBlur={(e) => {
-            if (!promptDeleteIfEmpty()) {
-              saveTitle(e.target.value);
-            }
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              if (title.trim() === "") {
+        {/* Editable title — inline-grid trick to auto-size input to text width */}
+        <div className="inline-grid min-w-0" onClick={(e) => e.stopPropagation()}>
+          <input
+            ref={inputRef}
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onBlur={(e) => {
+              if (!promptDeleteIfEmpty()) {
+                saveTitle(e.target.value);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                if (title.trim() === "") {
+                  e.preventDefault();
+                  promptDeleteIfEmpty();
+                } else {
+                  e.currentTarget.blur();
+                }
+              }
+              if (e.key === "Backspace" && title === "") {
                 e.preventDefault();
                 promptDeleteIfEmpty();
-              } else {
-                e.currentTarget.blur();
               }
-            }
-            if (e.key === "Backspace" && title === "") {
-              e.preventDefault();
-              promptDeleteIfEmpty();
-            }
-          }}
-          className={`flex-1 text-sm bg-transparent border-none outline-none ${
-            task.done
-              ? "line-through text-[var(--text-tertiary)]"
-              : "text-[var(--text-primary)]"
-          }`}
-        />
+            }}
+            className={`text-sm bg-transparent border-none outline-none p-0 min-w-[1ch] [grid-area:1/1] ${
+              task.done
+                ? "line-through text-[var(--text-tertiary)]"
+                : "text-[var(--text-primary)]"
+            }`}
+          />
+          <span className="text-sm invisible whitespace-pre [grid-area:1/1] pointer-events-none">
+            {title || " "}
+          </span>
+        </div>
 
-        {/* Open detail panel */}
-        <button
-          onClick={() => onSelect(task)}
-          className={`flex-shrink-0 p-0.5 transition-colors ${
-            isSelected
-              ? "text-[var(--interactive-default)]"
-              : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-          }`}
-          title="Open details"
-        >
-          <ChevronRight className="w-4 h-4" />
-        </button>
+        <div className="flex-1" />
+
+        {/* Open detail panel indicator */}
+        <ChevronRight className={`flex-shrink-0 w-4 h-4 transition-colors ${
+          isSelected
+            ? "text-[var(--interactive-default)]"
+            : "text-[var(--text-tertiary)]"
+        }`} />
       </div>
 
       {/* Delete confirmation */}

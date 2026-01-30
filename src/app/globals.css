@@ -1076,6 +1076,12 @@ body [data-radix-popper-content-wrapper]::after {
   padding: 0 !important;
 }
 
+/* Hide MDXEditor's trailing empty paragraph in compact mode.
+   MDXEditor inserts <p><br></p> as an insertion point — not truly :empty */
+.docs-editor-compact [contenteditable] > p:last-child:has(br:only-child) {
+  display: none;
+}
+
 /* ============================================
    Wikilink Styling
    ============================================ */
@@ -1111,4 +1117,89 @@ body [data-radix-popper-content-wrapper]::after {
 .dark .docs-editor-wrapper a[href^="#wikilink-broken:"] {
   color: #f87171 !important;
   border-bottom-color: #f87171;
+}
+
+/* ============================================
+   Bridge Task Editor (Tiptap / ProseMirror)
+   ============================================ */
+.bridge-task-editor .ProseMirror {
+  outline: none;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.bridge-task-editor .ProseMirror p {
+  margin: 0.25em 0;
+}
+
+/* Hide ProseMirror's trailing empty paragraph (cursor placeholder after last block) */
+.bridge-task-editor .ProseMirror > p:last-child:has(> .ProseMirror-trailingBreak:only-child) {
+  display: none;
+}
+
+/* Hide empty trailing list item created when Delete merges the trailing <p> into the list */
+.bridge-task-editor .ProseMirror li:last-child:has(> p > .ProseMirror-trailingBreak:only-child) {
+  display: none;
+}
+
+.bridge-task-editor .ProseMirror ul {
+  list-style-type: disc;
+  padding-left: 1.25em;
+  margin: 0.25em 0;
+}
+
+.bridge-task-editor .ProseMirror ol {
+  list-style-type: decimal;
+  padding-left: 1.25em;
+  margin: 0.25em 0;
+}
+
+.bridge-task-editor .ProseMirror li {
+  margin: 0.125em 0;
+}
+
+.bridge-task-editor .ProseMirror a {
+  color: var(--interactive-default);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.bridge-task-editor .ProseMirror a:hover {
+  color: var(--interactive-hover);
+}
+
+.bridge-task-editor .ProseMirror code {
+  background: var(--bg-tertiary);
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  font-size: 0.8em;
+  font-family: var(--font-mono);
+}
+
+.bridge-task-editor .ProseMirror pre {
+  background: var(--bg-tertiary);
+  padding: 0.75em 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+
+.bridge-task-editor .ProseMirror pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+.bridge-task-editor .ProseMirror blockquote {
+  border-left: 3px solid var(--border-strong);
+  padding-left: 1em;
+  margin: 0.5em 0;
+  color: var(--text-tertiary);
+}
+
+.bridge-task-editor .ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--border-default);
+  margin: 0.75em 0;
 }

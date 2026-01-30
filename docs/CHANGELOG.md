@@ -22,6 +22,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
+- **Bridge editors: MDXEditor → Tiptap** - Replaced MDXEditor with Tiptap for task detail and notes editing in Bridge view
+  - New `BridgeTaskEditor` component using StarterKit + Link + tiptap-markdown extensions
+  - Wikilink escaping fix: `unescapeWikilinks()` restores `![[file]]` syntax that tiptap-markdown escapes
+  - Round-trip stability: normalized comparison prevents spurious saves from tiptap-markdown whitespace differences
+  - Trailing node fix: CSS hides ProseMirror's trailing `<p>` and empty `<li>` artifacts to prevent layout shift
+  - Weekly parser fix: `rebuildContent` strips trailing blank lines from task rawLines to prevent accumulation
+  - Files: `src/components/bridge/BridgeTaskEditor.tsx` (new), `BridgeTaskPanel.tsx`, `BridgeNotes.tsx`, `src/lib/bridge/weekly-parser.ts`, `src/app/globals.css`
+
+- **Task card click-to-open** - Clicking anywhere on a task card opens the detail panel; text input click still edits title
+  - Auto-sizing title input uses inline-grid trick to match text width
+  - File: `src/components/bridge/BridgeTaskItem.tsx`
+
 - **Docs editor line height** - Reduced from `1.75` (prose default) to `1.5` (`leading-normal`) to match Obsidian's tighter spacing
   - File: `src/components/docs/DocsEditor.tsx`
 

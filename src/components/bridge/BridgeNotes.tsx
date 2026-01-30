@@ -3,8 +3,8 @@
 import { useRef, useCallback } from "react";
 import dynamic from "next/dynamic";
 
-const DocsEditor = dynamic(
-  () => import("../docs/DocsEditor").then((mod) => mod.DocsEditor),
+const BridgeTaskEditor = dynamic(
+  () => import("./BridgeTaskEditor").then((mod) => mod.BridgeTaskEditor),
   { ssr: false }
 );
 
@@ -18,9 +18,10 @@ export function BridgeNotes({ notes, onSave }: BridgeNotesProps) {
 
   const handleChange = useCallback(
     (markdown: string) => {
-      if (markdown !== lastSaved.current) {
-        lastSaved.current = markdown;
-        onSave(markdown);
+      const trimmed = markdown.trimEnd();
+      if (trimmed !== lastSaved.current) {
+        lastSaved.current = trimmed;
+        onSave(trimmed);
       }
     },
     [onSave]
@@ -31,12 +32,9 @@ export function BridgeNotes({ notes, onSave }: BridgeNotesProps) {
       <h2 className="text-sm font-medium text-[var(--text-tertiary)] uppercase tracking-wide mb-3">
         Notes
       </h2>
-      <DocsEditor
+      <BridgeTaskEditor
         markdown={notes}
         onChange={handleChange}
-        hideToolbar
-        contentPadding="px-0 py-0"
-        wrapperClassName="docs-editor-compact"
       />
     </div>
   );

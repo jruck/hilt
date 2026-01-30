@@ -268,14 +268,18 @@ function rebuildContent(
     ? lines.slice(0, tasksHeadingIdx + 1).join("\n")
     : lines.join("\n");
 
-  // Build tasks section
-  const taskLines = tasks.flatMap(t => t.rawLines);
+  // Build tasks section (strip trailing blank lines from each task)
+  const taskLines = tasks.flatMap(t => {
+    const raw = [...t.rawLines];
+    while (raw.length > 0 && raw[raw.length - 1].trim() === "") raw.pop();
+    return raw;
+  });
   const tasksSection = taskLines.length > 0 ? taskLines.join("\n") : "";
 
   // Build notes section
   let notesContent: string;
   if (newNotes !== null) {
-    notesContent = newNotes;
+    notesContent = newNotes.trim();
   } else if (notesHeadingIdx !== -1) {
     notesContent = lines.slice(notesHeadingIdx + 1).join("\n").trim();
   } else {

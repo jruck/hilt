@@ -84,7 +84,7 @@ export function BridgeTaskItem({
     <div
       ref={setNodeRef}
       style={style}
-      className={`rounded-lg border bg-[var(--bg-secondary)] transition-[border-color,box-shadow] duration-200 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
+      className={`rounded-lg border bg-[var(--bg-secondary)] transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
         isSelected
           ? "border-[var(--interactive-default)]"
           : "border-[var(--border-default)]"
@@ -110,7 +110,7 @@ export function BridgeTaskItem({
           checked={task.done}
           onChange={() => onToggle(task.id, !task.done)}
           onClick={(e) => e.stopPropagation()}
-          className="flex-shrink-0 w-4 h-4 rounded border-[var(--border-default)] text-[var(--interactive-default)] focus:ring-[var(--interactive-default)] cursor-pointer"
+          className="bridge-checkbox flex-shrink-0 w-4 h-4 cursor-pointer"
         />
 
         {/* Title area — flex-1 with fade mask pinned to row edge */}

@@ -1222,6 +1222,35 @@ body [data-radix-popper-content-wrapper]::after {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--interactive-default) 15%, transparent);
 }
 
+/* Bridge task list checkboxes — custom styled for dark mode */
+.bridge-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--text-tertiary);
+  border-radius: 3px;
+  background: transparent;
+  position: relative;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+.bridge-checkbox:hover {
+  border-color: var(--interactive-default);
+}
+.bridge-checkbox:checked {
+  background: var(--interactive-default);
+  border-color: var(--interactive-default);
+}
+.bridge-checkbox:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 1px 1px 0;
+  transform: rotate(45deg);
+}
+
 /* Task list checkboxes */
 .bridge-task-editor .ProseMirror ul[data-type="taskList"] {
   list-style: none;

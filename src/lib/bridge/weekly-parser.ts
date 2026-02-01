@@ -270,11 +270,7 @@ function rebuildContent(
     : lines.join("\n");
 
   // Build tasks section (strip trailing blank lines from each task)
-  const taskLines = tasks.flatMap(t => {
-    const raw = [...t.rawLines];
-    while (raw.length > 0 && raw[raw.length - 1].trim() === "") raw.pop();
-    return raw;
-  });
+  const taskLines = tasks.flatMap(t => t.rawLines);
   const tasksSection = taskLines.length > 0 ? taskLines.join("\n") : "";
 
   // Build notes section

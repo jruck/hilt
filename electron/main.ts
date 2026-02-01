@@ -16,9 +16,10 @@ let getSessionById: any = null;
 
 const PLANS_DIR = path.join(process.env.HOME || "~", ".claude", "plans");
 
-// Track active windows and server process
+// Track active windows and server processes
 let mainWindow: BrowserWindow | null = null;
 let nextServer: ChildProcess | null = null;
+let wsServer: ChildProcess | null = null;
 let serverPort: number | null = null;
 
 // Startup activity tracking for loading screen
@@ -389,6 +390,50 @@ async function startNextServer(): Promise<number> {
 }
 
 /**
+ * Start the WebSocket server (handles real-time events + file watching)
+ * The WS server has its own lock file (~/.hilt-server.lock) to prevent duplicates,
+ * so if one is already running (e.g. from terminal dev:all), this will gracefully exit.
+ */
+function startWsServer(): void {
+  const projectDir = path.resolve(__dirname, "..");
+
+  // Ensure log directory exists
+  const logDir = path.join(app.getPath("userData"), "logs");
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+  }
+  const logPath = path.join(logDir, "ws-server.log");
+  const logStream = fs.createWriteStream(logPath, { flags: "a" });
+  logStream.write(`\n--- WS server starting at ${new Date().toISOString()} ---\n`);
+
+  wsServer = spawn("npm", ["run", "ws-server"], {
+    cwd: projectDir,
+    env: { ...process.env, FORCE_COLOR: "0" },
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: false,
+  });
+
+  wsServer.stdout?.pipe(logStream);
+  wsServer.stderr?.pipe(logStream);
+
+  wsServer.stdout?.on("data", (data: Buffer) => {
+    console.log("[WS Server]", data.toString().trim());
+  });
+  wsServer.stderr?.on("data", (data: Buffer) => {
+    console.error("[WS Server Error]", data.toString().trim());
+  });
+
+  wsServer.on("error", (err) => {
+    console.error("Failed to start WS server:", err);
+  });
+
+  wsServer.on("close", (code) => {
+    console.log(`WS server exited with code ${code}`);
+    wsServer = null;
+  });
+}
+
+/**
  * Create the main application window
  */
 async function createWindow() {
@@ -626,6 +671,22 @@ async function createWindow() {
   console.log("Starting Next.js server...");
   const port = await startNextServer();
   console.log(`Next.js server running on port ${port}`);
+
+  // Start the WS server (real-time events, file watching)
+  if (!app.isPackaged) {
+    sendStartupActivity({
+      id: "ws-server",
+      label: "Starting WebSocket server",
+      status: "active",
+    });
+    startWsServer();
+    sendStartupActivity({
+      id: "ws-server",
+      label: "Starting WebSocket server",
+      status: "complete",
+      detail: "WS server launched",
+    });
+  }
 
   sendStartupActivity({
     id: "create-window",
@@ -904,6 +965,12 @@ app.on("window-all-closed", () => {
     nextServer = null;
   }
 
+  // Kill the WS server
+  if (wsServer) {
+    wsServer.kill();
+    wsServer = null;
+  }
+
   // Clean up plan watcher
   if (plansWatcher) {
     plansWatcher.close();
@@ -931,6 +998,9 @@ app.on("activate", () => {
 app.on("before-quit", () => {
   if (nextServer) {
     nextServer.kill();
+  }
+  if (wsServer) {
+    wsServer.kill();
   }
   if (plansWatcher) {
     plansWatcher.close();

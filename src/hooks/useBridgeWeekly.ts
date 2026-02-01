@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import useSWR from "swr";
-import type { BridgeWeekly } from "@/lib/types";
+import type { BridgeWeekly, BridgeTask } from "@/lib/types";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
@@ -137,16 +137,16 @@ export function useBridgeWeekly() {
     mutate();
   }
 
-  async function addTask(title: string) {
-    // Optimistic update — add to top
+  async function addTask(title: string): Promise<BridgeTask> {
+    // Optimistic update — add to top with task-0 (matches server ID)
+    const newTask: BridgeTask = {
+      id: "task-0",
+      title,
+      done: false,
+      details: [],
+      rawLines: [`- [ ] ${title}`],
+    };
     if (data) {
-      const newTask = {
-        id: `task-new-${Date.now()}`,
-        title,
-        done: false,
-        details: [],
-        rawLines: [`- [ ] ${title}`],
-      };
       const reindexed = data.tasks.map((t, i) => ({ ...t, id: `task-${i + 1}` }));
       mutate({ ...data, tasks: [newTask, ...reindexed] }, false);
     }
@@ -157,6 +157,7 @@ export function useBridgeWeekly() {
       body: JSON.stringify({ title }),
     });
     mutate();
+    return newTask;
   }
 
   async function recycle(carry: string[], newWeek: string) {

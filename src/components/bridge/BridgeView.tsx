@@ -48,6 +48,12 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
     return [...undone, ...done];
   }, [weekly]);
 
+  function handleAddTask(title: string) {
+    // Select immediately — the optimistic task has id "task-0"
+    setSelectedTask({ id: "task-0", title, done: false, details: [], rawLines: [`- [ ] ${title}`] });
+    addTask(title);
+  }
+
   function handleSelectTask(task: BridgeTask) {
     setSelectedTask(prev => prev?.id === task.id ? null : task);
   }
@@ -82,7 +88,7 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
           <BridgeTaskList
             tasks={displayTasks}
             selectedTaskId={resolvedTask?.id ?? null}
-            onAddTask={addTask}
+            onAddTask={handleAddTask}
             onToggle={toggleTask}
             onReorder={reorderTasks}
             onUpdateTitle={updateTaskTitle}
@@ -102,6 +108,7 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
 
           {projects && (
             <ProjectKanban
+              className="-mt-4"
               columns={projects.columns}
               onProjectClick={(project) => onNavigateToProject?.(project, projects.vaultPath)}
             />

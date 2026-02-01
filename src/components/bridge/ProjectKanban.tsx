@@ -13,15 +13,16 @@ const COLUMN_ORDER: { key: BridgeProjectStatus; label: string }[] = [
 interface ProjectKanbanProps {
   columns: Record<BridgeProjectStatus, BridgeProject[]>;
   onProjectClick?: (project: BridgeProject) => void;
+  className?: string;
 }
 
-export function ProjectKanban({ columns, onProjectClick }: ProjectKanbanProps) {
+export function ProjectKanban({ columns, onProjectClick, className }: ProjectKanbanProps) {
   const hasProjects = Object.values(columns).some(col => col.length > 0);
 
   if (!hasProjects) return null;
 
   return (
-    <div>
+    <div className={className}>
       <h2 className="text-sm font-medium text-[var(--text-tertiary)] uppercase tracking-wide mb-3">
         Projects
       </h2>

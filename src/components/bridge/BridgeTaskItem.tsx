@@ -84,7 +84,7 @@ export function BridgeTaskItem({
     <div
       ref={setNodeRef}
       style={style}
-      className={`rounded-lg border bg-[var(--bg-secondary)] transition-opacity ${
+      className={`rounded-lg border bg-[var(--bg-secondary)] transition-[border-color,box-shadow] duration-200 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
         isSelected
           ? "border-[var(--interactive-default)]"
           : "border-[var(--border-default)]"
@@ -113,44 +113,48 @@ export function BridgeTaskItem({
           className="flex-shrink-0 w-4 h-4 rounded border-[var(--border-default)] text-[var(--interactive-default)] focus:ring-[var(--interactive-default)] cursor-pointer"
         />
 
-        {/* Editable title — inline-grid trick to auto-size input to text width */}
-        <div className="inline-grid min-w-0" onClick={(e) => e.stopPropagation()}>
-          <input
-            ref={inputRef}
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onBlur={(e) => {
-              if (!promptDeleteIfEmpty()) {
-                saveTitle(e.target.value);
-              }
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                if (title.trim() === "") {
+        {/* Title area — flex-1 with fade mask pinned to row edge */}
+        <div
+          className="flex-1 min-w-0 overflow-hidden flex items-center"
+          style={{ maskImage: "linear-gradient(to right, black calc(100% - 48px), transparent)" }}
+        >
+          <div className="inline-grid min-w-0 max-w-full">
+            <input
+              ref={inputRef}
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onBlur={(e) => {
+                if (!promptDeleteIfEmpty()) {
+                  saveTitle(e.target.value);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  if (title.trim() === "") {
+                    e.preventDefault();
+                    promptDeleteIfEmpty();
+                  } else {
+                    e.currentTarget.blur();
+                  }
+                }
+                if (e.key === "Backspace" && title === "") {
                   e.preventDefault();
                   promptDeleteIfEmpty();
-                } else {
-                  e.currentTarget.blur();
                 }
-              }
-              if (e.key === "Backspace" && title === "") {
-                e.preventDefault();
-                promptDeleteIfEmpty();
-              }
-            }}
-            className={`text-sm bg-transparent border-none outline-none p-0 min-w-[1ch] [grid-area:1/1] ${
-              task.done
-                ? "line-through text-[var(--text-tertiary)]"
-                : "text-[var(--text-primary)]"
-            }`}
-          />
-          <span className="text-sm invisible whitespace-pre [grid-area:1/1] pointer-events-none">
-            {title || " "}
-          </span>
+              }}
+              className={`text-sm bg-transparent border-none outline-none p-0 min-w-[1ch] [grid-area:1/1] ${
+                task.done
+                  ? "line-through text-[var(--text-tertiary)]"
+                  : "text-[var(--text-primary)]"
+              }`}
+            />
+            <span className="text-sm invisible whitespace-pre [grid-area:1/1] pointer-events-none">
+              {title || " "}
+            </span>
+          </div>
         </div>
-
-        <div className="flex-1" />
 
         {/* Open detail panel indicator */}
         <ChevronRight className={`flex-shrink-0 w-4 h-4 transition-colors ${

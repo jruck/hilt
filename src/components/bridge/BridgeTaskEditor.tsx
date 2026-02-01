@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
@@ -13,6 +13,7 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import Typography from "@tiptap/extension-typography";
+import { FileHandler } from "@tiptap/extension-file-handler";
 import { Markdown } from "tiptap-markdown";
 
 // Client-safe path utilities (no Node.js path module)
@@ -92,6 +93,22 @@ function preprocessMarkdown(
     }
   );
 
+  // 3. Convert relative regular link paths: [text](relative/path) for local files
+  result = result.replace(
+    /(?<!!)\[([^\]]*?)\]\(([^)]+)\)/g,
+    (match, text: string, href: string) => {
+      const trimmedHref = href.trim();
+      if (trimmedHref.startsWith("http://") || trimmedHref.startsWith("https://") || trimmedHref.startsWith("/api/") || trimmedHref.startsWith("#")) {
+        return match;
+      }
+      // Only convert paths that look like local file references (have an extension)
+      if (!/\.\w+$/.test(trimmedHref)) return match;
+      const absPath = resolvePath(fileDir, trimmedHref);
+      const url = `/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(vaultPath)}`;
+      return `[${text}](${url})`;
+    }
+  );
+
   return result;
 }
 
@@ -108,7 +125,8 @@ function postprocessMarkdown(
 
   const fileDir = dirname(filePath);
 
-  return md.replace(
+  // Convert image embeds: ![alt](/api/docs/raw?...) → ![alt](relative/path)
+  let result = md.replace(
     /!\\?\[([^\]]*?)\\?\]\(\/api\/docs\/raw\?path=([^&]+)&scope=[^)]+\)/g,
     (_match, alt: string, encodedPath: string) => {
       const absPath = decodeURIComponent(encodedPath);
@@ -116,30 +134,136 @@ function postprocessMarkdown(
       return `![${alt}](${relPath})`;
     }
   );
+
+  // Convert regular links: [text](/api/docs/raw?...) → [text](relative/path)
+  result = result.replace(
+    /(?<!!)\[([^\]]*?)\]\(\/api\/docs\/raw\?path=([^&]+)&scope=[^)]+\)/g,
+    (_match, text: string, encodedPath: string) => {
+      const absPath = decodeURIComponent(encodedPath);
+      const relPath = relativePath(fileDir, absPath);
+      return `[${text}](${relPath})`;
+    }
+  );
+
+  return result;
 }
 
-/** Clean serialized markdown: unescape wikilinks, convert API URLs, strip empty trailing list items, trim */
+/** Clean serialized markdown: unescape wikilinks, convert API URLs, trim */
 function cleanOutput(raw: string, vaultPath?: string, filePath?: string): string {
   let md = unescapeWikilinks(raw);
   md = postprocessMarkdown(md, vaultPath, filePath);
-  // Remove empty trailing list items (e.g. "- \n" or "* \n" at end)
-  md = md.replace(/\n[-*]\s*$/g, "");
   return md.trimEnd();
 }
 
 /**
- * Normalize markdown for comparison only: collapse blank-line runs,
- * strip empty list items, trim. Prevents tiptap-markdown's paragraph
- * spacing from being treated as a meaningful change.
+ * Normalize markdown for comparison only: collapse blank-line runs
+ * and trim. Prevents tiptap-markdown's paragraph spacing from being
+ * treated as a meaningful change.
  */
 function normalizeMd(md: string): string {
   return md
-    .replace(/\n[-*]\s*$/g, "")
     .replace(/\n{2,}/g, "\n")
     .trim();
 }
 
-const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|ogg)([?&]|$)/i;
+const VIDEO_SRC_RE = /\.(mp4|webm|mov|ogg)([?&]|$)/i;
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg)$/i;
+const VIDEO_EMBED_EXTENSIONS = /\.(mp4|webm|mov|ogg)$/i;
+
+/** Image extension with atom selection and auto video rendering via NodeView */
+const MediaImage = Image.extend({
+  atom: true,
+  addNodeView() {
+    return ({ node, HTMLAttributes }) => {
+      const src = HTMLAttributes.src || node.attrs.src || "";
+      let dom: HTMLElement;
+      if (VIDEO_SRC_RE.test(src)) {
+        const video = document.createElement("video");
+        video.src = src;
+        video.controls = true;
+        video.style.maxWidth = "100%";
+        video.style.borderRadius = "8px";
+        video.style.margin = "0.5em 0";
+        video.draggable = true;
+        dom = video;
+      } else {
+        const img = document.createElement("img");
+        img.src = src;
+        if (HTMLAttributes.alt) img.alt = HTMLAttributes.alt;
+        if (HTMLAttributes.title) img.title = HTMLAttributes.title;
+        dom = img;
+      }
+      return {
+        dom,
+        selectNode: () => dom.classList.add("ProseMirror-selectednode"),
+        deselectNode: () => dom.classList.remove("ProseMirror-selectednode"),
+      };
+    };
+  },
+});
+
+function isEmbeddable(file: File): "image" | "video" | false {
+  if (file.type.startsWith("image/") || IMAGE_EXTENSIONS.test(file.name)) return "image";
+  if (file.type.startsWith("video/") || VIDEO_EMBED_EXTENSIONS.test(file.name)) return "video";
+  return false;
+}
+
+async function uploadFile(
+  file: File,
+  vaultPath: string,
+  filePath: string
+): Promise<{ url: string; relPath: string } | null> {
+  const fileDir = dirname(filePath);
+  const form = new FormData();
+  form.append("file", file);
+  form.append("scope", vaultPath);
+  form.append("fileDir", fileDir);
+
+  const res = await fetch("/api/bridge/upload", { method: "POST", body: form });
+  if (!res.ok) return null;
+  const { relativePath: relPath } = await res.json();
+
+  const absPath = resolvePath(fileDir, relPath);
+  const url = `/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(vaultPath)}`;
+  return { url, relPath };
+}
+
+/** Insert an uploaded file into the editor at the given position. */
+function insertFile(
+  editor: ReturnType<typeof useEditor>,
+  file: File,
+  result: { url: string; relPath: string },
+  pos?: number,
+) {
+  if (!editor) return;
+  const embedType = isEmbeddable(file);
+  const chain = editor.chain().focus();
+
+  if (embedType) {
+    // Images and videos both use the image node (videos get swapped in read-only mode)
+    const node = { type: "image" as const, attrs: { src: result.url, alt: file.name } };
+    if (pos != null) {
+      chain.insertContentAt(pos, node).run();
+    } else {
+      chain.insertContent(node).run();
+    }
+  } else {
+    // Non-embeddable files: insert as a linked filename
+    const content = {
+      type: "paragraph" as const,
+      content: [{
+        type: "text" as const,
+        marks: [{ type: "link" as const, attrs: { href: result.url } }],
+        text: file.name,
+      }],
+    };
+    if (pos != null) {
+      chain.insertContentAt(pos, content).run();
+    } else {
+      chain.insertContent(content).run();
+    }
+  }
+}
 
 interface BridgeTaskEditorProps {
   markdown: string;
@@ -162,7 +286,7 @@ export function BridgeTaskEditor({
   // Start at 1 to skip the onUpdate fired by useEditor's initial empty content
   const programmatic = useRef(1);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isFocused, setIsFocused] = useState(false);
+  const focusedRef = useRef(false);
 
   // Keep refs for values used in onUpdate closure (avoids stale closures)
   const vaultPathRef = useRef(vaultPath);
@@ -174,7 +298,7 @@ export function BridgeTaskEditor({
     extensions: [
       StarterKit.configure({ heading: false }),
       Link.configure({ openOnClick: false }),
-      Image.configure({ inline: true, allowBase64: false }),
+      MediaImage.configure({ inline: false, allowBase64: false }),
       Table.configure({ resizable: false }),
       TableRow,
       TableCell,
@@ -183,11 +307,38 @@ export function BridgeTaskEditor({
       TaskItem.configure({ nested: true }),
       Placeholder.configure({ placeholder: "Add details..." }),
       Typography,
+      FileHandler.configure({
+        onDrop: (editor, files, pos) => {
+          for (const file of files) {
+            const vault = vaultPathRef.current;
+            const fp = filePathRef.current;
+            if (!vault || !fp) continue;
+            uploadFile(file, vault, fp).then((result) => {
+              if (!result) return;
+              insertFile(editor, file, result, pos);
+            });
+          }
+        },
+        onPaste: (editor, files, htmlContent) => {
+          if (htmlContent) return;
+          for (const file of files) {
+            const vault = vaultPathRef.current;
+            const fp = filePathRef.current;
+            if (!vault || !fp) continue;
+            uploadFile(file, vault, fp).then((result) => {
+              if (!result) return;
+              insertFile(editor, file, result);
+            });
+          }
+        },
+      }),
       Markdown,
     ],
     content: "",
     editable: !readOnly,
     immediatelyRender: false,
+    onFocus: () => { focusedRef.current = true; },
+    onBlur: () => { focusedRef.current = false; },
     onUpdate: ({ editor }) => {
       // Skip updates caused by programmatic setContent
       if (programmatic.current > 0) {
@@ -204,8 +355,6 @@ export function BridgeTaskEditor({
       lastEmittedNorm.current = norm;
       onChange?.(md);
     },
-    onFocus: () => setIsFocused(true),
-    onBlur: () => setIsFocused(false),
   });
 
   // Sync readOnly without re-mounting
@@ -223,6 +372,8 @@ export function BridgeTaskEditor({
     const pathsJustArrived = vaultPath && !lastProcessedWithPaths.current;
     const needsInit = !contentInitialized.current;
     if (!needsInit && norm === lastEmittedNorm.current && !pathsJustArrived) return;
+    // Don't overwrite the editor while the user is actively editing
+    if (!needsInit && focusedRef.current) return;
     contentInitialized.current = true;
     if (vaultPath) lastProcessedWithPaths.current = true;
     lastEmittedNorm.current = norm;
@@ -231,59 +382,51 @@ export function BridgeTaskEditor({
     editor.commands.setContent(processed);
   }, [editor, markdown, vaultPath, filePath]);
 
-  // Convert <img> tags with video extensions to <video> elements.
-  // Only in read-only mode — mutating ProseMirror's DOM while editable
-  // causes it to interpret the replacement as content deletion.
+  // Fallback drop handler: ProseMirror's plugin handleDrop only fires for
+  // drops between blocks. Drops that land on text get swallowed by
+  // ProseMirror's internal drag-move logic. This DOM handler catches those
+  // using the capture phase so it runs before ProseMirror, but only acts
+  // on file drops (not text/node drags).
   useEffect(() => {
-    if (!readOnly) return;
+    if (readOnly) return;
     const el = containerRef.current;
-    if (!el) return;
+    if (!el || !editor) return;
 
-    function replaceVideoImgs(container: HTMLElement) {
-      container.querySelectorAll("img").forEach((img) => {
-        const src = img.getAttribute("src") || "";
-        if (VIDEO_EXTENSIONS.test(src)) {
-          const video = document.createElement("video");
-          video.src = src;
-          video.controls = true;
-          video.style.maxWidth = "100%";
-          video.style.borderRadius = "8px";
-          img.replaceWith(video);
-        }
-      });
+    function handleDrop(e: DragEvent) {
+      // Only intercept external file drops, not ProseMirror node drags
+      if (!e.dataTransfer?.types.includes("Files")) return;
+      const files = e.dataTransfer.files;
+      if (!files.length) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const vault = vaultPathRef.current;
+      const fp = filePathRef.current;
+      if (!vault || !fp) return;
+
+      const pos = editor!.view.posAtCoords({
+        left: e.clientX,
+        top: e.clientY,
+      })?.pos ?? editor!.state.selection.head;
+
+      for (const file of Array.from(files)) {
+        uploadFile(file, vault, fp).then((result) => {
+          if (!result) return;
+          insertFile(editor!, file, result, pos);
+        });
+      }
     }
 
-    const observer = new MutationObserver(() => replaceVideoImgs(el));
-    observer.observe(el, { childList: true, subtree: true });
-    replaceVideoImgs(el);
-
-    return () => observer.disconnect();
-  }, [markdown, readOnly]);
+    // Capture phase so we intercept before ProseMirror's view handler
+    el.addEventListener("drop", handleDrop, true);
+    return () => {
+      el.removeEventListener("drop", handleDrop, true);
+    };
+  }, [editor, readOnly]);
 
   return (
     <div ref={containerRef} className={`bridge-task-editor ${className ?? ""}`}>
-      {editor && !readOnly && isFocused && (
-        <div className="bridge-editor-toolbar">
-          <button
-            type="button"
-            onMouseDown={(e) => {
-              e.preventDefault();
-              editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
-            }}
-          >
-            Table
-          </button>
-          <button
-            type="button"
-            onMouseDown={(e) => {
-              e.preventDefault();
-              editor.chain().focus().toggleTaskList().run();
-            }}
-          >
-            Checklist
-          </button>
-        </div>
-      )}
       <EditorContent editor={editor} />
     </div>
   );

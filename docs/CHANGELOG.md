@@ -6,7 +6,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Changed
+
+- **Self-contained one-click dev app** - `Hilt.app` now launches Electron directly, which starts all dev servers (Next.js + WS/event server) as child processes. No more Terminal.app window opening via `osascript`. Electron manages the full lifecycle: startup, port discovery, and cleanup on quit.
+  - `electron/main.ts`: Added `startWsServer()` to spawn WS server alongside Next.js in dev mode, with log output to `userData/logs/ws-server.log` and cleanup in `window-all-closed`/`before-quit` handlers
+  - `scripts/create-dev-app.sh`: Removed `check_server()`, `find_port()`, port scanning, `osascript` Terminal.app launch, and `HILT_DEV_PORT` env var. Launcher now just sets up nvm PATH and `exec`s Electron directly
+
 ### Added
+
+- **Drag-and-drop file upload in Bridge editor** - Drop or paste any file into Bridge task/notes editors. Images and videos embed inline (as markdown image syntax); other files (PDFs, zips, etc.) insert as linked filenames. All files upload to `media/` alongside the weekly file and save as relative paths. Image nodes are `atom: true` for proper click-to-select with a focus-only selection ring.
+  - Files: `src/app/api/bridge/upload/route.ts` (new), `src/components/bridge/BridgeTaskEditor.tsx`, `src/app/globals.css`
 
 - **`workingFolder` preference** - New user preference that sets the default scope for Docs, Stack, and Sessions views on initial load (when no localStorage scope exists). Set in `data/preferences.json` as `"workingFolder": "/path/to/folder"`. Falls back to home directory when not configured.
   - Files: `src/lib/db.ts`, `src/app/api/folders/route.ts`, `src/components/Board.tsx`
@@ -27,11 +36,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   - Image/video rendering: wikilinks (`![[file]]`) and relative paths converted to API URLs on read, normalized to standard markdown on save
   - Video observer: `<img>` with `.mp4/.webm/.mov/.ogg` src auto-replaced with `<video controls>`
   - New extensions: Image, Table, TaskList/TaskItem, Placeholder, Typography
-  - Editor toolbar (Table, Checklist) appears on focus; replaced FloatingMenu due to ProseMirror cursor rect limitations
   - MutationObserver video replacement restricted to read-only mode to prevent ProseMirror DOM corruption
   - `vaultPath`/`filePath` props threaded from BridgeView → BridgeTaskPanel/BridgeNotes → BridgeTaskEditor
-  - CSS for task list checkboxes, tables, placeholder text, and editor toolbar
+  - CSS for task list checkboxes, tables, and placeholder text
   - Files: `BridgeTaskEditor.tsx`, `BridgeView.tsx`, `BridgeTaskPanel.tsx`, `BridgeNotes.tsx`, `globals.css`
+
+### Fixed
+
+- **Enter key in tiptap editors** - Pressing Enter at the end of a bullet list now immediately creates a new list item
+  - Removed trailing empty list item stripping from `cleanOutput` and `normalizeMd` — was silently reverting the user's new lines
+  - Removed trailing blank line stripping from `rebuildContent` — was discarding new content when writing task details to disk
+  - Added focus guard to sync `useEffect` — prevents SWR re-fetch from overwriting editor while user is actively editing
+  - Files: `BridgeTaskEditor.tsx`, `weekly-parser.ts`
 
 ### Changed
 
@@ -40,7 +56,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   - Wikilink escaping fix: `unescapeWikilinks()` restores `![[file]]` syntax that tiptap-markdown escapes
   - Round-trip stability: normalized comparison prevents spurious saves from tiptap-markdown whitespace differences
   - Trailing node fix: CSS hides ProseMirror's trailing `<p>` and empty `<li>` artifacts to prevent layout shift
-  - Weekly parser fix: `rebuildContent` strips trailing blank lines from task rawLines to prevent accumulation
+  - Weekly parser: `rebuildContent` preserves trailing lines in task rawLines (stripping was preventing Enter key from working)
   - Files: `src/components/bridge/BridgeTaskEditor.tsx` (new), `BridgeTaskPanel.tsx`, `BridgeNotes.tsx`, `src/lib/bridge/weekly-parser.ts`, `src/app/globals.css`
 
 - **Task card click-to-open** - Clicking anywhere on a task card opens the detail panel; text input click still edits title

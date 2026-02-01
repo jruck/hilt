@@ -1137,13 +1137,12 @@ body [data-radix-popper-content-wrapper]::after {
   margin: 0.25em 0;
 }
 
-/* Hide ProseMirror's trailing empty paragraph (cursor placeholder after last block) */
-.bridge-task-editor .ProseMirror > p:last-child:has(> .ProseMirror-trailingBreak:only-child) {
+/* Hide ProseMirror's trailing empty paragraph / list item in read-only mode only.
+   In edit mode these are live cursor targets the user needs to interact with. */
+.bridge-task-editor .ProseMirror:not([contenteditable="true"]) > p:last-child:has(> .ProseMirror-trailingBreak:only-child) {
   display: none;
 }
-
-/* Hide empty trailing list item created when Delete merges the trailing <p> into the list */
-.bridge-task-editor .ProseMirror li:last-child:has(> p > .ProseMirror-trailingBreak:only-child) {
+.bridge-task-editor .ProseMirror:not([contenteditable="true"]) li:last-child:has(> p > .ProseMirror-trailingBreak:only-child) {
   display: none;
 }
 
@@ -1213,6 +1212,14 @@ body [data-radix-popper-content-wrapper]::after {
   max-width: 100%;
   border-radius: 6px;
   margin: 0.5em 0;
+  transition: outline 0.1s ease, box-shadow 0.1s ease;
+}
+
+.bridge-task-editor .ProseMirror.ProseMirror-focused img.ProseMirror-selectednode,
+.bridge-task-editor .ProseMirror.ProseMirror-focused video.ProseMirror-selectednode {
+  outline: 2px solid var(--interactive-default);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--interactive-default) 15%, transparent);
 }
 
 /* Task list checkboxes */
@@ -1267,30 +1274,3 @@ body [data-radix-popper-content-wrapper]::after {
   pointer-events: none;
 }
 
-/* Floating menu */
-.bridge-editor-toolbar {
-  display: flex;
-  gap: 0.25rem;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  padding: 0.2rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  z-index: 50;
-}
-
-.bridge-editor-toolbar button {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-  border-radius: 4px;
-  background: transparent;
-  border: none;
-  white-space: nowrap;
-  transition: background 150ms, color 150ms;
-}
-
-.bridge-editor-toolbar button:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}

@@ -72,7 +72,7 @@ export function BridgeTaskPanel({
   return (
     <div className="flex flex-col h-full bg-[var(--bg-primary)] border-l border-[var(--border-default)]">
       {/* Header */}
-      <div className="flex-shrink-0 flex items-start gap-3 px-6 pt-6 pb-4 border-b border-[var(--border-default)]">
+      <div className="flex-shrink-0 flex items-start gap-3 px-6 py-5 border-b border-[var(--border-default)]">
         <textarea
           value={title}
           onChange={(e) => setTitle(e.target.value)}
@@ -85,11 +85,11 @@ export function BridgeTaskPanel({
             if (e.key === "Escape") onClose();
           }}
           rows={1}
-          className="flex-1 text-lg font-semibold bg-transparent border-none outline-none text-[var(--text-primary)] placeholder-[var(--text-tertiary)] resize-none overflow-hidden"
+          className="flex-1 text-lg leading-snug font-semibold bg-transparent border-none outline-none text-[var(--text-primary)] placeholder-[var(--text-tertiary)] resize-none overflow-hidden p-0 m-0"
           placeholder="Task title..."
           style={{ fieldSizing: "content" } as React.CSSProperties}
         />
-        <div className="flex items-center gap-1 flex-shrink-0 mt-1">
+        <div className="flex items-center gap-1 flex-shrink-0">
           <button
             onClick={() => setIsEditMode(!isEditMode)}
             className={`p-1 rounded transition-colors ${

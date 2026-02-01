@@ -253,6 +253,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   recentScopes: [],
   viewMode: "docs",
   folderEmojis: {},
+  workingFolder: "/Users/jruck/work/bridge",
 };
 
 function readPreferencesFile(): UserPreferences {

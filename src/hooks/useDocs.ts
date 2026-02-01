@@ -159,7 +159,9 @@ export function useDocs(scopePath: string | null): UseDocsResult {
       if (typeof window === "undefined" || !scopePath) return;
 
       const url = new URL(window.location.href);
-      if (path && path.startsWith(scopePath)) {
+      const fileName = path?.split("/").pop();
+      const isIndex = fileName === "index.md" || fileName === "index.markdown" || fileName === "index.mdx";
+      if (path && path.startsWith(scopePath) && !isIndex) {
         const relativePath = path.slice(scopePath.length + 1); // +1 for the trailing /
         url.searchParams.set("doc", relativePath);
       } else {

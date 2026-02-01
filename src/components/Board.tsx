@@ -68,8 +68,9 @@ export function Board() {
 
   // Initialize with empty/default values for SSR, then hydrate from localStorage
   const [homeDir, setHomeDir] = useState<string>("");
-  // undefined = not yet loaded, null = loaded but not configured, string = configured path
-  const [workingFolder, setWorkingFolder] = useState<string | null | undefined>(undefined);
+  // Default scope for all views — fetched from server preferences
+  // undefined = not yet loaded, string = resolved path (always has a value once loaded)
+  const [workingFolder, setWorkingFolder] = useState<string | undefined>(undefined);
   const [viewMode, setViewMode] = useState<ViewMode>("docs");
   const [docsInitialFile, setDocsInitialFile] = useState<string | null>(null);
 
@@ -133,9 +134,9 @@ export function Board() {
         fetch("/api/folders")
           .then((res) => res.json())
           .then((data) => {
-            setWorkingFolder(data.workingFolder || null);
+            setWorkingFolder(data.workingFolder || data.homeDir);
           })
-          .catch(() => setWorkingFolder(null));
+          .catch(() => setWorkingFolder(homeDir));
       }
       // Only validate if scope looks suspicious (not empty and not under cached homeDir)
       if (scopePath && !scopePath.startsWith(homeDir)) {
@@ -143,7 +144,7 @@ export function Board() {
           .then((res) => res.json())
           .then((data) => {
             if (!data.valid) {
-              setScopePath(homeDir);
+              setScopePath(workingFolder || homeDir);
             }
           })
           .catch(console.error);
@@ -157,14 +158,14 @@ export function Board() {
       .then(async (data) => {
         setHomeDir(data.homeDir);
         localStorage.setItem(HOME_DIR_STORAGE_KEY, data.homeDir);
-        setWorkingFolder(data.workingFolder || null);
+        setWorkingFolder(data.workingFolder || data.homeDir);
 
         // Validate current scope path if set
         if (scopePath && scopePath !== data.homeDir) {
           const validateRes = await fetch(`/api/folders?validate=${encodeURIComponent(scopePath)}`);
           const validateData = await validateRes.json();
           if (!validateData.valid) {
-            setScopePath(data.homeDir);
+            setScopePath(data.workingFolder || data.homeDir);
           }
         }
       })
@@ -175,16 +176,15 @@ export function Board() {
   // Track if we've done the initial redirect (to prevent re-redirecting when user navigates to root)
   const hasInitialRedirected = useRef(false);
 
-  // Default to workingFolder (or homeDir) only on initial load when at root URL
+  // Default to workingFolder on initial load
   useEffect(() => {
     // Wait for workingFolder to be loaded (undefined = still loading)
     if (workingFolder === undefined) return;
-    // Only redirect once, on initial hydration, if URL is at root
-    if (isHydrated && homeDir && !scopePath && !hasInitialRedirected.current) {
+    if (isHydrated && !hasInitialRedirected.current) {
       hasInitialRedirected.current = true;
-      setScopePath(workingFolder ?? homeDir);
+      setScopePath(workingFolder);
     }
-  }, [isHydrated, homeDir, workingFolder, scopePath, setScopePath]);
+  }, [isHydrated, workingFolder, setScopePath]);
 
   // Filter state for showing archived sessions
   const [showArchived, setShowArchived] = useState(false);

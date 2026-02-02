@@ -760,6 +760,31 @@ async function createWindow() {
     `);
   });
 
+  // Keyboard shortcuts for back/forward navigation (Cmd+[ / Cmd+])
+  // Uses history.back()/forward() for SPA-style popstate navigation, not full page nav
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (!mainWindow) return;
+    if (input.meta && input.type === "keyDown") {
+      if (input.key === "[") {
+        event.preventDefault();
+        mainWindow.webContents.executeJavaScript("window.history.back()");
+      } else if (input.key === "]") {
+        event.preventDefault();
+        mainWindow.webContents.executeJavaScript("window.history.forward()");
+      }
+    }
+  });
+
+  // Trackpad swipe gestures for back/forward (macOS two-finger swipe)
+  mainWindow.on("swipe", (_event, direction) => {
+    if (!mainWindow) return;
+    if (direction === "left") {
+      mainWindow.webContents.executeJavaScript("window.history.back()");
+    } else if (direction === "right") {
+      mainWindow.webContents.executeJavaScript("window.history.forward()");
+    }
+  });
+
   mainWindow.on("closed", () => {
     mainWindow = null;
   });

@@ -60,8 +60,8 @@ const HOME_DIR_STORAGE_KEY = "hilt-home-dir";
 const VIEW_MODE_STORAGE_KEY = "hilt-view-mode";
 
 export function Board() {
-  // Scope path from context - no more router.push, pure client-side state
-  const { scopePath, setScopePath } = useScope();
+  // Scope path and view mode from context — URL-based routing
+  const { scopePath, setScopePath, viewMode: urlViewMode, setViewMode: setUrlViewMode, replaceViewMode, navigateTo } = useScope();
 
   // Track if we've hydrated from localStorage (to prevent hydration mismatch)
   const [isHydrated, setIsHydrated] = useState(false);
@@ -71,10 +71,34 @@ export function Board() {
   // Default scope for all views — fetched from server preferences
   // undefined = not yet loaded, string = resolved path (always has a value once loaded)
   const [workingFolder, setWorkingFolder] = useState<string | undefined>(undefined);
-  const [viewMode, setViewMode] = useState<ViewMode>("docs");
+  // board/tree sub-mode for the "sessions" URL prefix (persisted to server prefs separately)
+  const [taskSubMode, setTaskSubMode] = useState<"board" | "tree">("board");
   const [docsInitialFile, setDocsInitialFile] = useState<string | null>(null);
 
-  // Hydrate from localStorage (for homeDir) and server (for viewMode) after mount
+  // Derive ViewMode from URL prefix + local sub-mode
+  // URL "sessions" maps to board or tree; null = legacy URL, resolved below
+  const viewMode: ViewMode = urlViewMode === "sessions"
+    ? taskSubMode
+    : urlViewMode === "bridge" ? "bridge"
+    : urlViewMode === "docs" ? "docs"
+    : urlViewMode === "stack" ? "stack"
+    : "docs"; // fallback during legacy resolution
+
+  // Unified setter that routes to URL or local sub-mode
+  const setViewMode = useCallback((mode: ViewMode) => {
+    if (mode === "board" || mode === "tree") {
+      setTaskSubMode(mode);
+      setUrlViewMode("sessions");
+    } else if (mode === "bridge") {
+      setUrlViewMode("bridge");
+    } else if (mode === "docs") {
+      setUrlViewMode("docs");
+    } else if (mode === "stack") {
+      setUrlViewMode("stack");
+    }
+  }, [setUrlViewMode]);
+
+  // Hydrate from localStorage (for homeDir) and server (for viewMode prefs) after mount
   useEffect(() => {
     const cachedHomeDir = localStorage.getItem(HOME_DIR_STORAGE_KEY) || "";
 
@@ -86,23 +110,43 @@ export function Board() {
     fetch("/api/preferences?key=viewMode")
       .then((res) => res.json())
       .then((data) => {
-        if (data.value === "board" || data.value === "tree" || data.value === "docs" || data.value === "stack" || data.value === "bridge") {
-          setViewMode(data.value);
+        const pref = data.value as string | undefined;
+        // Always set taskSubMode from prefs (board/tree sub-mode)
+        if (pref === "board" || pref === "tree") {
+          setTaskSubMode(pref);
+        }
+
+        // If URL already has a view prefix, nothing more to do
+        if (urlViewMode) return;
+
+        // Legacy URL (no prefix) — resolve from server prefs via replaceState (no extra history entry)
+        if (pref === "board" || pref === "tree") {
+          replaceViewMode("sessions");
+        } else if (pref === "docs" || pref === "stack" || pref === "bridge") {
+          replaceViewMode(pref);
+        } else {
+          replaceViewMode("docs"); // ultimate fallback
         }
       })
       .catch(() => {
         // Fall back to localStorage for backward compatibility
-        const cachedViewMode = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
-        if (cachedViewMode === "kanban" || cachedViewMode === "board") {
-          setViewMode("board");
-        } else if (cachedViewMode === "tree") {
-          setViewMode("tree");
-        } else if (cachedViewMode === "docs") {
-          setViewMode("docs");
-        } else if (cachedViewMode === "stack") {
-          setViewMode("stack");
-        } else if (cachedViewMode === "bridge") {
-          setViewMode("bridge");
+        if (!urlViewMode) {
+          const cachedViewMode = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+          if (cachedViewMode === "kanban" || cachedViewMode === "board") {
+            setTaskSubMode("board");
+            replaceViewMode("sessions");
+          } else if (cachedViewMode === "tree") {
+            setTaskSubMode("tree");
+            replaceViewMode("sessions");
+          } else if (cachedViewMode === "docs") {
+            replaceViewMode("docs");
+          } else if (cachedViewMode === "stack") {
+            replaceViewMode("stack");
+          } else if (cachedViewMode === "bridge") {
+            replaceViewMode("bridge");
+          } else {
+            replaceViewMode("docs");
+          }
         }
       })
       .finally(() => {
@@ -111,6 +155,7 @@ export function Board() {
   }, []);
 
   // Persist view mode to server when it changes (skip during initial hydration)
+  // Persists the actual ViewMode (board/tree/docs/stack/bridge)
   useEffect(() => {
     if (isHydrated) {
       fetch("/api/preferences", {
@@ -122,6 +167,7 @@ export function Board() {
       });
     }
   }, [viewMode, isHydrated]);
+
 
   // Fetch home directory after hydration (if not cached) and validate scope if set
   useEffect(() => {
@@ -1446,9 +1492,9 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
         {/* Conditional View: Bridge, Docs, Tree, Stack, or Board */}
         {viewMode === "bridge" ? (
           <BridgeView onNavigateToProject={(project, vaultPath) => {
-            setScopePath(vaultPath);
             setDocsInitialFile(project.path + "/index.md");
-            setViewMode("docs");
+            // Single history entry: /docs/vaultPath — Back returns to /bridge/...
+            navigateTo("docs", vaultPath);
           }} />
         ) : viewMode === "docs" ? (
           <DocsView

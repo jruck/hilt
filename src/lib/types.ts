@@ -247,10 +247,11 @@ export interface RalphLoopState {
 
 export interface BridgeTask {
   id: string;              // "task-0", "task-1", ...
-  title: string;           // First line minus checkbox
+  title: string;           // Display text only (no markdown link syntax)
   done: boolean;           // [x] vs [ ]
   details: string[];       // Indented sub-bullet lines (raw markdown)
   rawLines: string[];      // All lines in this task block
+  projectPath: string | null;  // Relative path from vault root, or null
 }
 
 export interface BridgeWeekly {
@@ -263,15 +264,17 @@ export interface BridgeWeekly {
   filePath: string;        // Absolute path to the weekly .md file
 }
 
-export type BridgeProjectStatus = "thinking" | "refining" | "scoping" | "doing";
+export type BridgeProjectStatus = "thinking" | "refining" | "scoping" | "doing" | "done";
 
 export interface BridgeProject {
   slug: string;            // Folder name
   path: string;            // Absolute path to project folder
-  title: string;           // H1 from index.md
+  relativePath: string;    // Path relative to vault root (e.g., "projects/slug" or "libraries/everpro/projects/slug")
+  title: string;           // H1 from index.md, or folder name fallback
   status: BridgeProjectStatus;
   area: string;
   tags: string[];
+  source: string;          // Display group (e.g., "Projects", "EverPro", "Ventures")
 }
 
 export interface BridgeProjectsResponse {

@@ -55,7 +55,7 @@ export interface UseDocsResult {
 
   // Selected file
   selectedPath: string | null;
-  setSelectedPath: (path: string | null) => void;
+  setSelectedPath: (path: string | null, options?: { replace?: boolean }) => void;
 
   // File content
   fileContent: string | null;
@@ -153,8 +153,9 @@ export function useDocs(scopePath: string | null): UseDocsResult {
   });
 
   // Wrapper that also updates URL
+  // replace=true uses replaceState (for auto-selections that shouldn't create history entries)
   const setSelectedPath = useCallback(
-    (path: string | null) => {
+    (path: string | null, { replace = false }: { replace?: boolean } = {}) => {
       setSelectedPathInternal(path);
       if (typeof window === "undefined" || !scopePath) return;
 
@@ -167,7 +168,11 @@ export function useDocs(scopePath: string | null): UseDocsResult {
       } else {
         url.searchParams.delete("doc");
       }
-      window.history.pushState({ doc: path }, "", url.toString());
+      if (replace) {
+        window.history.replaceState({}, "", url.toString());
+      } else {
+        window.history.pushState({}, "", url.toString());
+      }
     },
     [scopePath]
   );
@@ -184,8 +189,14 @@ export function useDocs(scopePath: string | null): UseDocsResult {
     return () => window.removeEventListener("popstate", handlePopState);
   }, [scopePath]);
 
-  // Re-initialize from URL when scope changes
+  // Re-initialize from URL when scope changes (skip initial mount —
+  // on mount the useState initializer already reads from URL)
+  const scopeInitRef = useRef(true);
   useEffect(() => {
+    if (scopeInitRef.current) {
+      scopeInitRef.current = false;
+      return;
+    }
     if (typeof window === "undefined" || !scopePath) {
       setSelectedPathInternal(null);
       return;

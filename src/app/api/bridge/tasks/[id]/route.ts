@@ -19,14 +19,15 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { done, title, details, moveTo } = body;
+    const { done, title, details, moveTo, projectPath } = body;
 
     const { filename, content } = await getCurrentWeekly();
 
-    const updates: { done?: boolean; title?: string; details?: string[] } = {};
+    const updates: { done?: boolean; title?: string; details?: string[]; projectPath?: string | null } = {};
     if (done !== undefined) updates.done = done;
     if (title !== undefined) updates.title = title;
     if (details !== undefined) updates.details = details;
+    if (projectPath !== undefined) updates.projectPath = projectPath;
 
     let updated = updateTask(content, id, updates);
 

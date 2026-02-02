@@ -145,6 +145,7 @@ export function useBridgeWeekly() {
       done: false,
       details: [],
       rawLines: [`- [ ] ${title}`],
+      projectPath: null,
     };
     if (data) {
       const reindexed = data.tasks.map((t, i) => ({ ...t, id: `task-${i + 1}` }));
@@ -158,6 +159,22 @@ export function useBridgeWeekly() {
     });
     mutate();
     return newTask;
+  }
+
+  async function updateTaskProject(id: string, projectPath: string | null) {
+    if (data) {
+      const updatedTasks = data.tasks.map(t =>
+        t.id === id ? { ...t, projectPath } : t
+      );
+      mutate({ ...data, tasks: updatedTasks }, false);
+    }
+
+    await fetch(`/api/bridge/tasks/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectPath }),
+    });
+    mutate();
   }
 
   async function recycle(carry: string[], newWeek: string) {
@@ -179,6 +196,7 @@ export function useBridgeWeekly() {
     reorderTasks,
     updateTaskDetails,
     updateTaskTitle,
+    updateTaskProject,
     updateNotes,
     recycle,
   };

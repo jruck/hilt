@@ -3,6 +3,7 @@
 import { use } from "react";
 import { Board } from "@/components/Board";
 import { ScopeProvider } from "@/contexts/ScopeContext";
+import { parseViewUrl } from "@/lib/url-utils";
 
 interface PageProps {
   params: Promise<{ path?: string[] }>;
@@ -10,12 +11,10 @@ interface PageProps {
 
 export default function Home({ params }: PageProps) {
   const { path } = use(params);
-  // Reconstruct the scope path from URL segments
-  // e.g., ["Users", "jruck", "Work"] -> "/Users/jruck/Work"
-  const scopePath = path ? `/${path.join("/")}` : "";
+  const { viewMode, scope } = parseViewUrl(path ?? []);
 
   return (
-    <ScopeProvider initialScope={scopePath}>
+    <ScopeProvider initialScope={scope} initialViewMode={viewMode}>
       <Board />
     </ScopeProvider>
   );

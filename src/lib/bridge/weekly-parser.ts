@@ -92,7 +92,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
   // Parse tasks
   const tasks: BridgeTask[] = [];
   if (tasksStart !== -1) {
-    let currentTask: { titleLine: string; done: boolean; rawLines: string[]; detailLines: string[] } | null = null;
+    let currentTask: { titleLine: string; done: boolean; rawLines: string[]; detailLines: string[]; projectPath: string | null } | null = null;
 
     for (let i = tasksStart; i < tasksEnd; i++) {
       const line = lines[i];
@@ -107,13 +107,18 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
             done: currentTask.done,
             details: currentTask.detailLines,
             rawLines: currentTask.rawLines,
+            projectPath: currentTask.projectPath,
           });
         }
+        // Check if title is a markdown link: [display text](path)
+        const titleRaw = taskMatch[2];
+        const linkMatch = titleRaw.match(/^\[(.+?)\]\((.+?)\)$/);
         currentTask = {
-          titleLine: taskMatch[2],
+          titleLine: linkMatch ? linkMatch[1] : titleRaw,
           done: taskMatch[1] === "x",
           rawLines: [line],
           detailLines: [],
+          projectPath: linkMatch ? linkMatch[2] : null,
         };
       } else if (currentTask && line.match(/^[\t ]{2,}|^\t/)) {
         // Indented line belongs to current task
@@ -137,6 +142,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
         done: currentTask.done,
         details: currentTask.detailLines,
         rawLines: currentTask.rawLines,
+        projectPath: currentTask.projectPath,
       });
     }
   }
@@ -169,14 +175,16 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
  * Add a new task at the top of the task list.
  * Returns the updated file content.
  */
-export function addTask(content: string, title: string): string {
+export function addTask(content: string, title: string, projectPath?: string): string {
   const parsed = parseWeeklyFile(content, "");
+  const titleText = projectPath ? `[${title}](${projectPath})` : title;
   const newTask: BridgeTask = {
     id: `task-0`,
     title,
     done: false,
     details: [],
-    rawLines: [`- [ ] ${title}`],
+    rawLines: [`- [ ] ${titleText}`],
+    projectPath: projectPath ?? null,
   };
   // Re-index existing tasks
   const reindexed = parsed.tasks.map((t, i) => ({ ...t, id: `task-${i + 1}` }));
@@ -214,7 +222,7 @@ export function reorderTasks(content: string, newOrder: string[]): string {
 export function updateTask(
   content: string,
   taskId: string,
-  updates: Partial<Pick<BridgeTask, "done" | "title" | "details">>
+  updates: Partial<Pick<BridgeTask, "done" | "title" | "details" | "projectPath">>
 ): string {
   const parsed = parseWeeklyFile(content, "");
   const updatedTasks = parsed.tasks.map(task => {
@@ -222,12 +230,14 @@ export function updateTask(
     const done = updates.done !== undefined ? updates.done : task.done;
     const title = updates.title !== undefined ? updates.title : task.title;
     const details = updates.details !== undefined ? updates.details : task.details;
+    const projPath = updates.projectPath !== undefined ? updates.projectPath : task.projectPath;
     const checkbox = done ? "[x]" : "[ ]";
-    const titleLine = `- ${checkbox} ${title}`;
+    const titleText = projPath ? `[${title}](${projPath})` : title;
+    const titleLine = `- ${checkbox} ${titleText}`;
     // Re-indent details for file storage
     const indentedDetails = details.map(addOneIndent);
     const rawLines = [titleLine, ...indentedDetails];
-    return { ...task, done, title, details, rawLines };
+    return { ...task, done, title, details, rawLines, projectPath: projPath };
   });
 
   return rebuildContent(content, updatedTasks, null);

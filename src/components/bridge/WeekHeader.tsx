@@ -30,18 +30,18 @@ export function WeekHeader({ week, needsRecycle, onRecycle }: WeekHeaderProps) {
       </div>
 
       {needsRecycle && (
-        <div className="mt-3 flex items-center gap-3 px-4 py-3 rounded-lg bg-[var(--status-todo-bg)] border border-[var(--status-todo-border)]">
-          <span className="text-sm text-[var(--text-secondary)] flex-1">
+        <button
+          onClick={onRecycle}
+          className="mt-3 w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-default)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+        >
+          <span className="text-sm text-[var(--text-secondary)] flex-1 text-left">
             This list is from a previous week. Start a new one?
           </span>
-          <button
-            onClick={onRecycle}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-[var(--interactive-default)] text-white hover:bg-[var(--interactive-hover)] transition-colors"
-          >
+          <span className="flex items-center gap-1 text-xs font-medium text-[var(--text-secondary)]">
             <RefreshCw className="w-3.5 h-3.5" />
             New Week
-          </button>
-        </div>
+          </span>
+        </button>
       )}
     </div>
   );

@@ -137,39 +137,52 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
   }, [tree]);
 
   // Handle initialFilePath: expand parents and select the file once tree loads
-  // Uses requestAnimationFrame to run after useDocs scope-sync effect resets expandedPaths
+  // Ref blocks auto-select from racing with uncommitted selectedPath state
   const consumedInitialFileRef = useRef<string | null>(null);
+  const initialFileHandledRef = useRef(false);
   useEffect(() => {
-    if (!tree || treeLoading || !initialFilePath) return;
+    if (!initialFilePath) {
+      consumedInitialFileRef.current = null;
+      return;
+    }
+    if (!tree || treeLoading) return;
     if (consumedInitialFileRef.current === initialFilePath) return;
     consumedInitialFileRef.current = initialFilePath;
 
-    const filePath = initialFilePath;
-    const raf = requestAnimationFrame(() => {
-      // Expand folders between scope root and the file
-      const relative = filePath.slice(scopePath.length + 1); // e.g. "projects/perf-review/index.md"
-      const parts = relative.split("/");
-      let currentPath = scopePath;
-      for (let i = 0; i < parts.length - 1; i++) { // -1 to skip filename
-        currentPath = `${currentPath}/${parts[i]}`;
-        expandPath(currentPath);
-      }
-      setSelectedPath(filePath);
-      onInitialFileConsumed?.();
-    });
-    return () => cancelAnimationFrame(raf);
+    // Block auto-select synchronously — selectedPath won't commit until next render
+    initialFileHandledRef.current = true;
+
+    // Expand folders between scope root and the file
+    const relative = initialFilePath.slice(scopePath.length + 1);
+    const parts = relative.split("/");
+    let currentPath = scopePath;
+    for (let i = 0; i < parts.length - 1; i++) { // -1 to skip filename
+      currentPath = `${currentPath}/${parts[i]}`;
+      expandPath(currentPath);
+    }
+    setSelectedPath(initialFilePath, { replace: true });
+    onInitialFileConsumed?.();
   }, [tree, treeLoading, initialFilePath, scopePath, expandPath, setSelectedPath, onInitialFileConsumed]);
+
+  // Clear the handled ref once selectedPath commits (non-null means setSelectedPath took effect)
+  useEffect(() => {
+    if (selectedPath && initialFileHandledRef.current) {
+      initialFileHandledRef.current = false;
+    }
+  }, [selectedPath]);
 
   // Auto-select root index.md on initial load (when no file is selected)
   const hasAutoSelectedRef = useRef(false);
   useEffect(() => {
+    // Skip if initialFilePath effect already called setSelectedPath (state pending commit)
+    if (initialFileHandledRef.current) return;
     // Only run once per scope when tree loads and nothing is selected
     // Skip if an initialFilePath is pending
     if (tree && !selectedPath && !treeLoading && !hasAutoSelectedRef.current && !initialFilePath) {
       hasAutoSelectedRef.current = true;
       const indexPath = findIndexFile(scopePath);
       if (indexPath) {
-        setSelectedPath(indexPath);
+        setSelectedPath(indexPath, { replace: true });
       }
     }
   }, [tree, selectedPath, treeLoading, scopePath, findIndexFile, setSelectedPath, initialFilePath]);

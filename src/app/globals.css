@@ -1294,6 +1294,37 @@ body [data-radix-popper-content-wrapper]::after {
   font-weight: 600;
 }
 
+/* Marquee scroll on hover for overflowing text */
+@keyframes marquee-scroll {
+  0%, 10% { transform: translateX(0); }
+  45%, 55% { transform: translateX(var(--marquee-offset)); }
+  90%, 100% { transform: translateX(0); }
+}
+
+@keyframes marquee-mask {
+  0%, 10% { mask-image: linear-gradient(to right, black calc(100% - 16px), transparent); }
+  20%, 45% { mask-image: linear-gradient(to left, black calc(100% - 16px), transparent); }
+  55%, 80% { mask-image: linear-gradient(to left, black calc(100% - 16px), transparent); }
+  90%, 100% { mask-image: linear-gradient(to right, black calc(100% - 16px), transparent); }
+}
+
+.marquee-path {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.marquee-container {
+  mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
+}
+
+.group:hover .marquee-path {
+  animation: marquee-scroll 4s ease-in-out infinite;
+}
+
+.group:hover .marquee-container {
+  animation: marquee-mask 4s ease-in-out infinite;
+}
+
 /* Placeholder */
 .bridge-task-editor .ProseMirror p.is-editor-empty:first-child::before {
   color: var(--text-tertiary);

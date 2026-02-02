@@ -26,11 +26,12 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
     reorderTasks,
     updateTaskDetails,
     updateTaskTitle,
+    updateTaskProject,
     updateNotes,
     recycle,
   } = useBridgeWeekly();
 
-  const { data: projects, isLoading: projectsLoading } = useBridgeProjects();
+  const { data: projects, isLoading: projectsLoading, updateProjectStatus } = useBridgeProjects();
 
   const [showRecycleModal, setShowRecycleModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<BridgeTask | null>(null);
@@ -50,7 +51,7 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
 
   function handleAddTask(title: string) {
     // Select immediately — the optimistic task has id "task-0"
-    setSelectedTask({ id: "task-0", title, done: false, details: [], rawLines: [`- [ ] ${title}`] });
+    setSelectedTask({ id: "task-0", title, done: false, details: [], rawLines: [`- [ ] ${title}`], projectPath: null });
     addTask(title);
   }
 
@@ -78,7 +79,7 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
     <div className="flex-1 flex overflow-hidden">
       {/* Main content */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-6 py-6 space-y-8">
+        <div className="max-w-3xl mx-auto px-6 py-8 space-y-8">
           <WeekHeader
             week={weekly.week}
             needsRecycle={weekly.needsRecycle}
@@ -111,6 +112,7 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
               className="-mt-4"
               columns={projects.columns}
               onProjectClick={(project) => onNavigateToProject?.(project, projects.vaultPath)}
+              onStatusChange={(project, status) => updateProjectStatus(project.path, status)}
             />
           )}
 
@@ -132,7 +134,7 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
 
       {/* Side panel for task details */}
       {resolvedTask && (
-        <div className="w-96 flex-shrink-0">
+        <div className="w-96 flex-shrink-0 overflow-visible">
           <BridgeTaskPanel
             task={resolvedTask}
             vaultPath={weekly.vaultPath}
@@ -140,9 +142,19 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
             onClose={() => setSelectedTask(null)}
             onUpdateTitle={updateTaskTitle}
             onUpdateDetails={updateTaskDetails}
+            onUpdateProject={updateTaskProject}
             onDelete={(id) => {
               deleteTask(id);
               setSelectedTask(null);
+            }}
+            onNavigateToProject={(projectPath, vaultPath) => {
+              if (projects) {
+                const allProjects = Object.values(projects.columns).flat();
+                const project = allProjects.find(p => p.relativePath === projectPath);
+                if (project) {
+                  onNavigateToProject?.(project, vaultPath);
+                }
+              }
             }}
           />
         </div>

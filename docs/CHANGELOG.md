@@ -8,11 +8,33 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
+- **URL-based view mode routing** - Active view (bridge/docs/stack/sessions) is now encoded as the first URL path segment. Browser Back/Forward naturally switches between views. URL structure: `/docs/Users/jruck/work/bridge`, `/bridge`, `/sessions/Users/jruck/work/bridge`. Legacy URLs without prefix (e.g., `/Users/jruck/...`) are resolved from server prefs via `replaceState`. Board/tree sub-mode stays in React state (not URL).
+  - Files: `src/lib/url-utils.ts` (new), `src/app/[[...path]]/page.tsx`, `src/contexts/ScopeContext.tsx`, `src/components/Board.tsx`, `src/hooks/useDocs.ts`, `src/components/DocsView.tsx`
+  - Added `navigateTo(mode, scope)` to ScopeContext for atomic view+scope changes (single history entry)
+  - Fixed double-push on Bridge→Docs project navigation: `navigateTo` replaces separate `setScopePath`+`setViewMode` calls
+  - Fixed `useDocs` auto-selection pushing extra history entries: `setSelectedPath` now accepts `{ replace: true }` for auto-selections (initial file, root index.md)
+  - Removed: `pushViewState`, `onViewRestore`, `HistoryState` type, `viewRestoreListeners` — all replaced by URL-based routing through `viewMode`/`setViewMode`/`replaceViewMode`/`navigateTo` on `ScopeContext`
+  - Added Cmd+[/Cmd+] keyboard shortcuts and trackpad swipe gestures for back/forward in Electron (`electron/main.ts`). Uses `executeJavaScript("window.history.back()")` for SPA-style popstate navigation instead of `webContents.goBack()` which would trigger full page loads.
+
+### Changed (previous)
+
 - **Self-contained one-click dev app** - `Hilt.app` now launches Electron directly, which starts all dev servers (Next.js + WS/event server) as child processes. No more Terminal.app window opening via `osascript`. Electron manages the full lifecycle: startup, port discovery, and cleanup on quit.
   - `electron/main.ts`: Added `startWsServer()` to spawn WS server alongside Next.js in dev mode, with log output to `userData/logs/ws-server.log` and cleanup in `window-all-closed`/`before-quit` handlers
   - `scripts/create-dev-app.sh`: Removed `check_server()`, `find_port()`, port scanning, `osascript` Terminal.app launch, and `HILT_DEV_PORT` env var. Launcher now just sets up nvm PATH and `exec`s Electron directly
 
 ### Added
+
+- **Project status management** - Projects can be moved between kanban columns (thinking/refining/scoping/doing/done) via a three-dot menu on each project card. Status is persisted to frontmatter in each project's `index.md`. Done projects are hidden from the kanban board. The project picker shows done projects in a separate view with restore-to-column functionality.
+  - Files: `src/lib/bridge/project-parser.ts`, `src/app/api/bridge/projects/status/route.ts` (new), `src/hooks/useBridgeProjects.ts`, `src/components/bridge/ProjectCard.tsx`, `src/components/bridge/ProjectKanban.tsx`, `src/components/bridge/ProjectPicker.tsx`
+
+- **Expanded project discovery** - Project parser now scans both `projects/` and `libraries/*/projects/` folders. Projects without `index.md` or frontmatter are included with sensible defaults (folder name as title, "thinking" as status). Projects are grouped by source folder in the picker (e.g., "Projects", "EverPro").
+  - Files: `src/lib/bridge/project-parser.ts`, `src/lib/types.ts` (`source` and `relativePath` added to `BridgeProject`), `src/components/bridge/ProjectPicker.tsx`
+
+- **Project linking for Bridge tasks** - Tasks can be linked to a project folder. The link is stored as a standard markdown link in the task title: `- [ ] [Task Title](projects/slug)`. The parser extracts display text and project path. A project card is pinned above the editor in the task detail panel showing project title, area badge, and path. A three-dot menu opens a picker popover to attach/change/detach projects. Clicking the card navigates to the project in Docs view.
+  - Files: `src/lib/types.ts`, `src/lib/bridge/weekly-parser.ts`, `src/app/api/bridge/tasks/[id]/route.ts`, `src/hooks/useBridgeWeekly.ts`, `src/components/bridge/BridgeTaskPanel.tsx`, `src/components/bridge/ProjectPicker.tsx` (new), `src/components/bridge/BridgeView.tsx`
+
+- **Task panel UI simplification** - Removed edit/preview toggle (editor is always editable). Replaced action buttons with a three-dot menu containing project and delete actions. Close button replaced with an invisible full-height clickable strip on the left border using `cursor-e-resize` to indicate retractability.
+  - Files: `src/components/bridge/BridgeTaskPanel.tsx`
 
 - **Drag-and-drop file upload in Bridge editor** - Drop or paste any file into Bridge task/notes editors. Images and videos embed inline (as markdown image syntax); other files (PDFs, zips, etc.) insert as linked filenames. All files upload to `media/` alongside the weekly file and save as relative paths. Image nodes are `atom: true` for proper click-to-select with a focus-only selection ring.
   - Files: `src/app/api/bridge/upload/route.ts` (new), `src/components/bridge/BridgeTaskEditor.tsx`, `src/app/globals.css`

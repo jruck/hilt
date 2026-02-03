@@ -8,14 +8,12 @@ import { ProjectCard } from "./ProjectCard";
 const COLUMN_ORDER: { key: BridgeProjectStatus; label: string }[] = [
   { key: "thinking", label: "Thinking" },
   { key: "refining", label: "Refining" },
-  { key: "scoping", label: "Scoping" },
   { key: "doing", label: "Doing" },
 ];
 
 const RESTORE_OPTIONS: { key: BridgeProjectStatus; label: string }[] = [
   { key: "thinking", label: "Thinking" },
   { key: "refining", label: "Refining" },
-  { key: "scoping", label: "Scoping" },
   { key: "doing", label: "Doing" },
 ];
 
@@ -84,7 +82,7 @@ export function ProjectKanban({ columns, onProjectClick, onStatusChange, classNa
         Projects
       </h2>
       {hasProjects && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           {COLUMN_ORDER.map(({ key, label }) => (
             <div
               key={key}

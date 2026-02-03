@@ -7,7 +7,6 @@ import type { BridgeProject, BridgeProjectStatus } from "@/lib/types";
 const STATUS_OPTIONS: { key: BridgeProjectStatus; label: string }[] = [
   { key: "thinking", label: "Thinking" },
   { key: "refining", label: "Refining" },
-  { key: "scoping", label: "Scoping" },
   { key: "doing", label: "Doing" },
   { key: "done", label: "Done" },
 ];

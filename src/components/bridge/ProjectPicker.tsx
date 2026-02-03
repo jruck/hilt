@@ -8,7 +8,6 @@ import { useBridgeProjects } from "@/hooks/useBridgeProjects";
 const RESTORE_OPTIONS: { key: BridgeProjectStatus; label: string }[] = [
   { key: "thinking", label: "Thinking" },
   { key: "refining", label: "Refining" },
-  { key: "scoping", label: "Scoping" },
   { key: "doing", label: "Doing" },
 ];
 

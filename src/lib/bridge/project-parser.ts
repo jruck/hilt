@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { BridgeProject, BridgeProjectStatus, BridgeProjectsResponse } from "../types";
 
-const VALID_STATUSES: Set<string> = new Set(["thinking", "refining", "scoping", "doing", "done"]);
+const VALID_STATUSES: Set<string> = new Set(["thinking", "refining", "doing", "done"]);
 
 /**
  * Parse a project index.md file into partial project data.
@@ -130,7 +130,6 @@ export async function getAllProjects(vaultPath: string): Promise<BridgeProjectsR
   const columns: Record<BridgeProjectStatus, BridgeProject[]> = {
     thinking: [],
     refining: [],
-    scoping: [],
     doing: [],
     done: [],
   };

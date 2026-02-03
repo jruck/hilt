@@ -264,7 +264,7 @@ export interface BridgeWeekly {
   filePath: string;        // Absolute path to the weekly .md file
 }
 
-export type BridgeProjectStatus = "thinking" | "refining" | "scoping" | "doing" | "done";
+export type BridgeProjectStatus = "thinking" | "refining" | "doing" | "done";
 
 export interface BridgeProject {
   slug: string;            // Folder name

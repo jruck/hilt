@@ -6,13 +6,13 @@ import type { BridgeProject, BridgeProjectStatus } from "@/lib/types";
 import { ProjectCard } from "./ProjectCard";
 
 const COLUMN_ORDER: { key: BridgeProjectStatus; label: string }[] = [
-  { key: "thinking", label: "Thinking" },
+  { key: "considering", label: "Considering" },
   { key: "refining", label: "Refining" },
   { key: "doing", label: "Doing" },
 ];
 
 const RESTORE_OPTIONS: { key: BridgeProjectStatus; label: string }[] = [
-  { key: "thinking", label: "Thinking" },
+  { key: "considering", label: "Considering" },
   { key: "refining", label: "Refining" },
   { key: "doing", label: "Doing" },
 ];

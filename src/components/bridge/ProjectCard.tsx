@@ -5,7 +5,7 @@ import { MoreHorizontal } from "lucide-react";
 import type { BridgeProject, BridgeProjectStatus } from "@/lib/types";
 
 const STATUS_OPTIONS: { key: BridgeProjectStatus; label: string }[] = [
-  { key: "thinking", label: "Thinking" },
+  { key: "considering", label: "Considering" },
   { key: "refining", label: "Refining" },
   { key: "doing", label: "Doing" },
   { key: "done", label: "Done" },

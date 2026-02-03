@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { updateProjectStatus } from "@/lib/bridge/project-parser";
 import type { BridgeProjectStatus } from "@/lib/types";
 
-const VALID_STATUSES = new Set(["thinking", "refining", "doing", "done"]);
+const VALID_STATUSES = new Set(["considering", "refining", "doing", "done"]);
 
 export async function PUT(request: NextRequest) {
   try {

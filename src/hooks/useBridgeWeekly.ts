@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import type { BridgeWeekly, BridgeTask } from "@/lib/types";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
@@ -10,10 +10,18 @@ const fetcher = (url: string) => fetch(url).then((res) => res.json());
 export function useBridgeWeekly() {
   const { connected, subscribe, unsubscribe, on } = useEventSocketContext();
 
+  // Ephemeral preview state — not persisted, resets on reload/nav
+  const [previewWeek, setPreviewWeek] = useState<string | null>(null);
+
   const refreshInterval = connected ? 0 : 5000;
 
+  // Build API URL with optional week param
+  const apiUrl = previewWeek
+    ? `/api/bridge/weekly?week=${previewWeek}`
+    : "/api/bridge/weekly";
+
   const { data, error, isLoading, mutate } = useSWR<BridgeWeekly>(
-    "/api/bridge/weekly",
+    apiUrl,
     fetcher,
     {
       refreshInterval,
@@ -186,10 +194,26 @@ export function useBridgeWeekly() {
     mutate();
   }
 
+  // Computed: are we previewing a past week?
+  const isPreviewingPast = Boolean(
+    previewWeek && data?.latestWeek && previewWeek !== data.latestWeek
+  );
+
+  function clearPreview() {
+    setPreviewWeek(null);
+  }
+
   return {
     data,
     isLoading,
     isError: error,
+    // Week preview (ephemeral, resets on reload/nav)
+    previewWeek,
+    setPreviewWeek,
+    clearPreview,
+    isPreviewingPast,
+    availableWeeks: data?.availableWeeks ?? [],
+    // Mutations
     addTask,
     deleteTask,
     toggleTask,

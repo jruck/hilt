@@ -16,6 +16,10 @@ import {
   setViewMode,
   getInboxPath,
   setInboxPath,
+  getChatAgent,
+  setChatAgent,
+  getChatSessionKey,
+  setChatSessionKey,
 } from "@/lib/db";
 
 // GET all preferences or specific preference
@@ -44,6 +48,10 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ value: await getViewMode() });
       case "inboxPath":
         return NextResponse.json({ value: await getInboxPath() });
+      case "chatAgent":
+        return NextResponse.json({ value: await getChatAgent() });
+      case "chatSessionKey":
+        return NextResponse.json({ value: await getChatSessionKey() });
       default:
         return NextResponse.json(
           { error: `Unknown preference key: ${key}` },
@@ -156,6 +164,12 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ success: true });
       case "inboxPath":
         await setInboxPath(value);
+        return NextResponse.json({ success: true });
+      case "chatAgent":
+        await setChatAgent(value);
+        return NextResponse.json({ success: true });
+      case "chatSessionKey":
+        await setChatSessionKey(value);
         return NextResponse.json({ success: true });
       default:
         return NextResponse.json(

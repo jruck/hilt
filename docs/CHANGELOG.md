@@ -6,7 +6,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Fixed
+
+- **Bridge notes not saving** - Fixed stale closure bug where the `onChange` callback in `BridgeTaskEditor` was captured in TipTap's initial config and never updated. Added `onChangeRef` to keep the callback current, matching the existing pattern for `vaultPathRef` and `filePathRef`.
+  - File: `src/components/bridge/BridgeTaskEditor.tsx`
+
+- **Clickable links in task notes** - Links in Bridge task notes are now clickable. TipTap Link extension changed from `openOnClick: false` to `openOnClick: true` with `target="_blank"`. URLs open in external browser.
+  - File: `src/components/bridge/BridgeTaskEditor.tsx`
+
 ### Changed
+
+- **Project status "thinking" renamed to "considering"** - Better reflects the deliberative nature of the initial project stage. Updated across all files: project parser, kanban columns, picker restore options.
+  - Files: `src/lib/bridge/project-parser.ts`, `src/components/bridge/ProjectKanban.tsx`, `src/components/bridge/ProjectPicker.tsx`, `src/components/bridge/ProjectCard.tsx`, `src/app/api/bridge/projects/status/route.ts`
 
 - **URL-based view mode routing** - Active view (bridge/docs/stack/sessions) is now encoded as the first URL path segment. Browser Back/Forward naturally switches between views. URL structure: `/docs/Users/jruck/work/bridge`, `/bridge`, `/sessions/Users/jruck/work/bridge`. Legacy URLs without prefix (e.g., `/Users/jruck/...`) are resolved from server prefs via `replaceState`. Board/tree sub-mode stays in React state (not URL).
   - Files: `src/lib/url-utils.ts` (new), `src/app/[[...path]]/page.tsx`, `src/contexts/ScopeContext.tsx`, `src/components/Board.tsx`, `src/hooks/useDocs.ts`, `src/components/DocsView.tsx`
@@ -24,10 +35,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
-- **Project status management** - Projects can be moved between kanban columns (thinking/refining/scoping/doing/done) via a three-dot menu on each project card. Status is persisted to frontmatter in each project's `index.md`. Done projects are hidden from the kanban board. The project picker shows done projects in a separate view with restore-to-column functionality.
+- **Project status management** - Projects can be moved between kanban columns (considering/refining/doing/done) via a three-dot menu on each project card. Status is persisted to frontmatter in each project's `index.md`. Done projects are hidden from the kanban board. The project picker shows done projects in a separate view with restore-to-column functionality.
   - Files: `src/lib/bridge/project-parser.ts`, `src/app/api/bridge/projects/status/route.ts` (new), `src/hooks/useBridgeProjects.ts`, `src/components/bridge/ProjectCard.tsx`, `src/components/bridge/ProjectKanban.tsx`, `src/components/bridge/ProjectPicker.tsx`
 
-- **Expanded project discovery** - Project parser now scans both `projects/` and `libraries/*/projects/` folders. Projects without `index.md` or frontmatter are included with sensible defaults (folder name as title, "thinking" as status). Projects are grouped by source folder in the picker (e.g., "Projects", "EverPro").
+- **Expanded project discovery** - Project parser now scans both `projects/` and `libraries/*/projects/` folders. Projects without `index.md` or frontmatter are included with sensible defaults (folder name as title, "considering" as status). Projects are grouped by source folder in the picker (e.g., "Projects", "EverPro").
   - Files: `src/lib/bridge/project-parser.ts`, `src/lib/types.ts` (`source` and `relativePath` added to `BridgeProject`), `src/components/bridge/ProjectPicker.tsx`
 
 - **Project linking for Bridge tasks** - Tasks can be linked to a project folder. The link is stored as a standard markdown link in the task title: `- [ ] [Task Title](projects/slug)`. The parser extracts display text and project path. A project card is pinned above the editor in the task detail panel showing project title, area badge, and path. A three-dot menu opens a picker popover to attach/change/detach projects. Clicking the card navigates to the project in Docs view.
@@ -46,7 +57,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   - Weekly tasks with drag-and-drop reordering, inline title editing, checkbox toggling
   - Side panel for task details with full markdown editing
   - Inline editable notes section (zero-padding, borderless — just text on the page)
-  - Project kanban with four columns: thinking, refining, scoping, doing
+  - Project kanban with four columns: considering, refining, doing
   - Clicking a project card opens its folder in the docs viewer with bridge as scope, project folder expanded, and index.md selected
   - Real-time updates via WebSocket events
   - Files: `src/components/bridge/*`, `src/hooks/useBridgeWeekly.ts`, `src/hooks/useBridgeProjects.ts`, `src/lib/bridge/*`, `src/app/api/bridge/*`

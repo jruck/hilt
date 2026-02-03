@@ -1334,19 +1334,3 @@ body [data-radix-popper-content-wrapper]::after {
   pointer-events: none;
 }
 
-
-/* Voice indicator animation */
-@keyframes voice-bar {
-  0%, 100% { height: 4px; }
-  50% { height: 16px; }
-}
-
-/* Streaming cursor */
-@keyframes blink-cursor {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-.animate-blink-cursor {
-  animation: blink-cursor 1s step-end infinite;
-}

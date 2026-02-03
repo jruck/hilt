@@ -291,13 +291,21 @@ export function BridgeTaskEditor({
   // Keep refs for values used in onUpdate closure (avoids stale closures)
   const vaultPathRef = useRef(vaultPath);
   const filePathRef = useRef(filePath);
+  const onChangeRef = useRef(onChange);
   vaultPathRef.current = vaultPath;
   filePathRef.current = filePath;
+  onChangeRef.current = onChange;
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: false }),
-      Link.configure({ openOnClick: false }),
+      Link.configure({
+        openOnClick: true,
+        HTMLAttributes: {
+          target: "_blank",
+          rel: "noopener noreferrer",
+        },
+      }),
       MediaImage.configure({ inline: false, allowBase64: false }),
       Table.configure({ resizable: false }),
       TableRow,
@@ -353,7 +361,7 @@ export function BridgeTaskEditor({
       const norm = normalizeMd(md);
       if (norm === lastEmittedNorm.current) return;
       lastEmittedNorm.current = norm;
-      onChange?.(md);
+      onChangeRef.current?.(md);
     },
   });
 

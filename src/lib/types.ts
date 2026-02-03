@@ -262,9 +262,11 @@ export interface BridgeWeekly {
   notes: string;           // Raw markdown of ## Notes section
   vaultPath: string;       // Absolute path to vault root
   filePath: string;        // Absolute path to the weekly .md file
+  availableWeeks: string[];// All weeks in lists/now, newest first
+  latestWeek: string;      // The most recent week (for detecting preview mode)
 }
 
-export type BridgeProjectStatus = "thinking" | "refining" | "doing" | "done";
+export type BridgeProjectStatus = "considering" | "refining" | "doing" | "done";
 
 export interface BridgeProject {
   slug: string;            // Folder name

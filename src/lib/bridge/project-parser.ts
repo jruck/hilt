@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { BridgeProject, BridgeProjectStatus, BridgeProjectsResponse } from "../types";
 
-const VALID_STATUSES: Set<string> = new Set(["thinking", "refining", "doing", "done"]);
+const VALID_STATUSES: Set<string> = new Set(["considering", "refining", "doing", "done"]);
 
 /**
  * Parse a project index.md file into partial project data.
@@ -10,7 +10,7 @@ const VALID_STATUSES: Set<string> = new Set(["thinking", "refining", "doing", "d
  */
 function parseIndexFile(content: string): { title: string | null; status: BridgeProjectStatus; area: string; tags: string[] } {
   let title: string | null = null;
-  let status: BridgeProjectStatus = "thinking";
+  let status: BridgeProjectStatus = "considering";
   let area = "";
   let tags: string[] = [];
 
@@ -89,7 +89,7 @@ function scanProjectsDir(
     const relativePath = path.relative(vaultPath, projectDir);
 
     let title = humanizeFolderName(entry.name);
-    let status: BridgeProjectStatus = "thinking";
+    let status: BridgeProjectStatus = "considering";
     let area = "";
     let tags: string[] = [];
 
@@ -128,7 +128,7 @@ function scanProjectsDir(
  */
 export async function getAllProjects(vaultPath: string): Promise<BridgeProjectsResponse> {
   const columns: Record<BridgeProjectStatus, BridgeProject[]> = {
-    thinking: [],
+    considering: [],
     refining: [],
     doing: [],
     done: [],

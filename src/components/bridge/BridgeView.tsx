@@ -29,6 +29,10 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
     updateTaskProject,
     updateNotes,
     recycle,
+    // Week preview (ephemeral)
+    setPreviewWeek,
+    isPreviewingPast,
+    availableWeeks,
   } = useBridgeWeekly();
 
   const { data: projects, isLoading: projectsLoading, updateProjectStatus } = useBridgeProjects();
@@ -84,6 +88,9 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
             week={weekly.week}
             needsRecycle={weekly.needsRecycle}
             onRecycle={() => setShowRecycleModal(true)}
+            availableWeeks={availableWeeks}
+            isPreviewingPast={isPreviewingPast}
+            onWeekChange={setPreviewWeek}
           />
 
           <BridgeTaskList

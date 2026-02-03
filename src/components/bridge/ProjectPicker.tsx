@@ -6,7 +6,7 @@ import type { BridgeProject, BridgeProjectStatus } from "@/lib/types";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
 
 const RESTORE_OPTIONS: { key: BridgeProjectStatus; label: string }[] = [
-  { key: "thinking", label: "Thinking" },
+  { key: "considering", label: "Considering" },
   { key: "refining", label: "Refining" },
   { key: "doing", label: "Doing" },
 ];

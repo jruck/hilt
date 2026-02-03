@@ -235,7 +235,7 @@ interface UserPreferences {
   sidebarCollapsed: boolean;
   theme: "light" | "dark" | "system";
   recentScopes: string[];
-  viewMode: "board" | "tree" | "docs" | "stack" | "bridge";
+  viewMode: "board" | "tree" | "docs" | "stack" | "bridge" | "chat";
   // Separate storage for folder emojis by path - persists across unpin/re-pin
   folderEmojis?: Record<string, string>;
   // Global inbox folder path for quick capture
@@ -244,6 +244,10 @@ interface UserPreferences {
   bridgeVaultPath?: string;
   // Default working folder — used as initial scope for Docs, Stack, and Sessions views
   workingFolder?: string;
+  // Chat view: last used agent label
+  chatAgent?: string;
+  // Chat view: session key for continuity across app restarts
+  chatSessionKey?: string;
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
@@ -454,6 +458,38 @@ export async function setInboxPath(path: string | null): Promise<void> {
     delete prefs.inboxPath;
   } else {
     prefs.inboxPath = path;
+  }
+  writePreferencesFile(prefs);
+}
+
+// Chat agent
+export async function getChatAgent(): Promise<string | undefined> {
+  const prefs = readPreferencesFile();
+  return prefs.chatAgent;
+}
+
+export async function setChatAgent(agent: string | null): Promise<void> {
+  const prefs = readPreferencesFile();
+  if (agent === null) {
+    delete prefs.chatAgent;
+  } else {
+    prefs.chatAgent = agent;
+  }
+  writePreferencesFile(prefs);
+}
+
+// Chat session key
+export async function getChatSessionKey(): Promise<string | undefined> {
+  const prefs = readPreferencesFile();
+  return prefs.chatSessionKey;
+}
+
+export async function setChatSessionKey(key: string | null): Promise<void> {
+  const prefs = readPreferencesFile();
+  if (key === null) {
+    delete prefs.chatSessionKey;
+  } else {
+    prefs.chatSessionKey = key;
   }
   writePreferencesFile(prefs);
 }

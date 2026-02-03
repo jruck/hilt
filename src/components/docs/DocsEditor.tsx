@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useEffect, useImperativeHandle, useRef, useCallback, useMemo } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useCallback, useMemo, Component, type ReactNode } from "react";
 import { useTheme } from "@/hooks/useTheme";
 import {
   MDXEditor,
@@ -32,6 +32,57 @@ import "@mdxeditor/editor/style.css";
 import type { FileNode } from "@/lib/types";
 import { resolveWikilink, parseWikilinks, parseImageWikilinks } from "@/lib/docs/wikilink-resolver";
 import * as path from "path";
+
+/**
+ * Sanitise markdown so MDXEditor's MDX parser doesn't choke on JSX-like
+ * syntax.  Applied only in read-only mode.
+ *
+ * 1. Inside fenced code blocks — escape <, >, {, } as HTML entities.
+ * 2. Outside code blocks — replace <br> with newlines, and escape remaining
+ *    angle-bracket patterns that look like JSX/HTML tags (e.g. `<640px>`).
+ */
+function sanitiseForMdx(markdown: string): string {
+  // Split on fenced code blocks (captured groups are odd indices)
+  const parts = markdown.split(/(```[\s\S]*?```)/g);
+
+  return parts
+    .map((part, i) => {
+      if (i % 2 === 1) {
+        // Code block — escape all JSX-like chars
+        return part.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/{/g, "&#123;").replace(/}/g, "&#125;");
+      }
+      // Outside code blocks:
+      // a) Replace <br> tags with newlines
+      let text = part.replace(/<br\s*\/?>/gi, "\n");
+      // b) Escape ALL remaining < that are not part of URL autolinks.
+      //    MDXEditor's MDX parser treats any < as potential JSX, even
+      //    unmatched ones like (<640px).
+      text = text.replace(/<(?!https?:\/\/|mailto:)/g, "&lt;");
+      return text;
+    })
+    .join("");
+}
+
+/** Error boundary — falls back to a plain <pre> rendering of the markdown. */
+class EditorErrorBoundary extends Component<
+  { children: ReactNode; fallbackContent: string; className?: string },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <pre className={`whitespace-pre-wrap text-sm p-6 overflow-auto ${this.props.className ?? ""}`}>
+          {this.props.fallbackContent}
+        </pre>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 interface DocsEditorProps {
   markdown: string;
@@ -71,7 +122,7 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
       }
 
       if (!currentFilePath || !scopePath) {
-        return markdown;
+        return sanitiseForMdx(markdown);
       }
 
       let result = markdown;
@@ -138,7 +189,7 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
         result = result.slice(0, r.start) + r.replacement + result.slice(r.end);
       }
 
-      return result;
+      return sanitiseForMdx(result);
     }, [markdown, currentFilePath, scopePath, fileTree, readOnly]);
 
     // Update editor when processed markdown changes
@@ -305,24 +356,26 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
 
     return (
       <div ref={containerRef} className={`flex flex-col ${wrapperClassName ? wrapperClassName : "h-full docs-editor-wrapper"}`}>
-        <MDXEditor
-          key={readOnly ? "read" : "edit"}
-          ref={editorRef}
-          markdown={processedMarkdown}
-          onChange={onChange}
-          readOnly={readOnly}
-          plugins={plugins}
-          contentEditableClassName={`prose ${proseInvert} max-w-none leading-normal
-            prose-headings:font-semibold
-            prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:bg-[var(--bg-tertiary)] prose-code:text-[var(--text-secondary)] prose-code:before:content-none prose-code:after:content-none
-            prose-pre:rounded-lg prose-pre:bg-[var(--bg-tertiary)]
-            prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
-            prose-table:border-collapse
-            prose-th:border prose-th:border-[var(--border-default)] prose-th:px-3 prose-th:py-2
-            prose-td:border prose-td:border-[var(--border-default)] prose-td:px-3 prose-td:py-2
-            outline-none ${contentPadding ?? "px-12 py-6"}`}
-          className={`${themeClass} h-full flex-1`}
-        />
+        <EditorErrorBoundary fallbackContent={markdown} className="flex-1">
+          <MDXEditor
+            key={readOnly ? "read" : "edit"}
+            ref={editorRef}
+            markdown={processedMarkdown}
+            onChange={onChange}
+            readOnly={readOnly}
+            plugins={plugins}
+            contentEditableClassName={`prose ${proseInvert} max-w-none leading-normal font-[family-name:var(--font-geist-sans)]
+              prose-headings:font-semibold
+              prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:bg-[var(--bg-tertiary)] prose-code:text-[var(--text-secondary)] prose-code:before:content-none prose-code:after:content-none
+              prose-pre:rounded-lg prose-pre:bg-[var(--bg-tertiary)]
+              prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
+              prose-table:border-collapse
+              prose-th:border prose-th:border-[var(--border-default)] prose-th:px-3 prose-th:py-2
+              prose-td:border prose-td:border-[var(--border-default)] prose-td:px-3 prose-td:py-2
+              outline-none ${contentPadding ?? "px-12 py-6"}`}
+            className={`${themeClass} h-full flex-1`}
+          />
+        </EditorErrorBoundary>
       </div>
     );
   }

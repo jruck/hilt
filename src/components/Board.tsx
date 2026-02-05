@@ -57,7 +57,6 @@ interface InboxItem {
 }
 
 const HOME_DIR_STORAGE_KEY = "hilt-home-dir";
-const VIEW_MODE_STORAGE_KEY = "hilt-view-mode";
 
 export function Board() {
   // Scope path and view mode from context — URL-based routing
@@ -106,48 +105,22 @@ export function Board() {
       setHomeDir(cachedHomeDir);
     }
 
-    // Fetch view mode from server-side preferences
+    // Always open to Bridge when no view prefix in URL (e.g., Electron app startup)
+    if (!urlViewMode) {
+      replaceViewMode("bridge");
+    }
+
+    // Fetch task sub-mode (board/tree) from server preferences
     fetch("/api/preferences?key=viewMode")
       .then((res) => res.json())
       .then((data) => {
         const pref = data.value as string | undefined;
-        // Always set taskSubMode from prefs (board/tree sub-mode)
         if (pref === "board" || pref === "tree") {
           setTaskSubMode(pref);
         }
-
-        // If URL already has a view prefix, nothing more to do
-        if (urlViewMode) return;
-
-        // Legacy URL (no prefix) — resolve from server prefs via replaceState (no extra history entry)
-        if (pref === "board" || pref === "tree") {
-          replaceViewMode("sessions");
-        } else if (pref === "docs" || pref === "stack" || pref === "bridge") {
-          replaceViewMode(pref);
-        } else {
-          replaceViewMode("docs"); // ultimate fallback
-        }
       })
       .catch(() => {
-        // Fall back to localStorage for backward compatibility
-        if (!urlViewMode) {
-          const cachedViewMode = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
-          if (cachedViewMode === "kanban" || cachedViewMode === "board") {
-            setTaskSubMode("board");
-            replaceViewMode("sessions");
-          } else if (cachedViewMode === "tree") {
-            setTaskSubMode("tree");
-            replaceViewMode("sessions");
-          } else if (cachedViewMode === "docs") {
-            replaceViewMode("docs");
-          } else if (cachedViewMode === "stack") {
-            replaceViewMode("stack");
-          } else if (cachedViewMode === "bridge") {
-            replaceViewMode("bridge");
-          } else {
-            replaceViewMode("docs");
-          }
-        }
+        // Silently fail — sub-mode defaults are fine
       })
       .finally(() => {
         setIsHydrated(true);
@@ -1491,10 +1464,9 @@ Only ask for input when absolutely necessary. Proceed autonomously otherwise.`;
         <div className="flex-1 flex flex-col overflow-hidden">
         {/* Conditional View: Bridge, Docs, Tree, Stack, or Board */}
         {viewMode === "bridge" ? (
-          <BridgeView onNavigateToProject={(project, vaultPath) => {
-            setDocsInitialFile(project.path + "/index.md");
-            // Single history entry: /docs/vaultPath — Back returns to /bridge/...
-            navigateTo("docs", vaultPath);
+          <BridgeView onNavigateToProject={(project) => {
+            // Scope into the project folder — DocsView auto-selects index.md
+            navigateTo("docs", project.path);
           }} />
         ) : viewMode === "docs" ? (
           <DocsView

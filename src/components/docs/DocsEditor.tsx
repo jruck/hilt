@@ -1,6 +1,7 @@
 "use client";
 
-import { forwardRef, useEffect, useImperativeHandle, useRef, useCallback, useMemo, Component, type ReactNode } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useCallback, useMemo, useState, Component, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useTheme } from "@/hooks/useTheme";
 import {
   MDXEditor,
@@ -14,7 +15,6 @@ import {
   tablePlugin,
   codeBlockPlugin,
   codeMirrorPlugin,
-  frontmatterPlugin,
   imagePlugin,
   toolbarPlugin,
   UndoRedo,
@@ -41,6 +41,61 @@ import * as path from "path";
  * 2. Outside code blocks — replace <br> with newlines, and escape remaining
  *    angle-bracket patterns that look like JSX/HTML tags (e.g. `<640px>`).
  */
+/** Extract YAML frontmatter key-value pairs from markdown. Returns null if no frontmatter. */
+function parseFrontmatter(markdown: string): Record<string, string> | null {
+  const match = markdown.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) return null;
+  const pairs: Record<string, string> = {};
+  for (const line of match[1].split("\n")) {
+    const sep = line.indexOf(":");
+    if (sep > 0) {
+      const key = line.slice(0, sep).trim();
+      const value = line.slice(sep + 1).trim();
+      if (key) pairs[key] = value;
+    }
+  }
+  return Object.keys(pairs).length > 0 ? pairs : null;
+}
+
+/** Strip YAML frontmatter (---\n...\n---) from the beginning of markdown. */
+function stripFrontmatter(markdown: string): string {
+  return markdown.replace(/^---\n[\s\S]*?\n---\n?/, "");
+}
+
+/** Compact frontmatter display rendered above the editor content (read mode). */
+function FrontmatterDisplay({ fields }: { fields: Record<string, string> }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-6 py-2 min-h-[44px] text-[13px] font-mono border-b border-[var(--border-default)]">
+      {Object.entries(fields).map(([key, value]) => (
+        <span key={key} className="text-[var(--text-tertiary)]">
+          <span className="font-medium">{key}:</span>{" "}
+          <span className="text-[var(--text-secondary)]">{value}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Editable frontmatter displayed below the toolbar in edit mode. */
+function EditableFrontmatter({ fields, onChange }: { fields: Record<string, string>; onChange: (key: string, value: string) => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-6 py-2 min-h-[44px] text-[13px] font-mono border-b border-[var(--border-default)]">
+      {Object.entries(fields).map(([key, value]) => (
+        <label key={key} className="flex items-center gap-1 text-[var(--text-tertiary)]">
+          <span className="font-medium">{key}:</span>
+          <input
+            type="text"
+            defaultValue={value}
+            onBlur={(e) => onChange(key, e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+            className="bg-transparent text-[var(--text-secondary)] border-b border-transparent hover:border-[var(--border-default)] focus:border-[var(--text-tertiary)] focus:outline-none px-1 min-w-[4rem]"
+          />
+        </label>
+      ))}
+    </div>
+  );
+}
+
 function sanitiseForMdx(markdown: string): string {
   // Split on fenced code blocks (captured groups are odd indices)
   const parts = markdown.split(/(```[\s\S]*?```)/g);
@@ -108,30 +163,108 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const { resolvedTheme } = useTheme();
 
+    // Extract frontmatter once from the raw markdown — displayed separately, stripped from editor
+    const frontmatterFields = useMemo(() => parseFrontmatter(markdown), [markdown]);
+    // Keep the raw frontmatter block so we can re-prepend it on save
+    const rawFrontmatterRef = useRef<string | null>(null);
+    useMemo(() => {
+      const match = markdown.match(/^(---\n[\s\S]*?\n---\n?)/);
+      rawFrontmatterRef.current = match ? match[1] : null;
+    }, [markdown]);
+
     useImperativeHandle(ref, () => ({
-      getMarkdown: () => editorRef.current?.getMarkdown() || "",
-      setMarkdown: (md: string) => editorRef.current?.setMarkdown(md),
+      getMarkdown: () => {
+        const body = editorRef.current?.getMarkdown() || "";
+        return rawFrontmatterRef.current ? rawFrontmatterRef.current + body : body;
+      },
+      setMarkdown: (md: string) => {
+        // Update frontmatter ref and pass only the body to the editor
+        const match = md.match(/^(---\n[\s\S]*?\n---\n?)/);
+        rawFrontmatterRef.current = match ? match[1] : null;
+        editorRef.current?.setMarkdown(stripFrontmatter(md));
+      },
     }));
+
+    // Wrap onChange to re-prepend frontmatter before passing to parent
+    const handleChange = useCallback((body: string) => {
+      if (!onChange) return;
+      onChange(rawFrontmatterRef.current ? rawFrontmatterRef.current + body : body);
+    }, [onChange]);
+
+    // Handle edits to individual frontmatter fields
+    const handleFrontmatterFieldChange = useCallback((key: string, value: string) => {
+      if (!rawFrontmatterRef.current) return;
+      const lines = rawFrontmatterRef.current.split("\n");
+      rawFrontmatterRef.current = lines.map(line => {
+        const sep = line.indexOf(":");
+        if (sep > 0 && line.slice(0, sep).trim() === key) {
+          return `${key}: ${value}`;
+        }
+        return line;
+      }).join("\n");
+
+      if (onChange) {
+        const body = editorRef.current?.getMarkdown() || "";
+        onChange(rawFrontmatterRef.current + body);
+      }
+    }, [onChange]);
+
+    // Portal target for rendering editable frontmatter below the toolbar in edit mode
+    const portalTargetRef = useRef<HTMLDivElement | null>(null);
+    const [portalReady, setPortalReady] = useState(false);
+
+    useEffect(() => {
+      if (readOnly || !containerRef.current) {
+        if (portalTargetRef.current) {
+          portalTargetRef.current.remove();
+          portalTargetRef.current = null;
+          setPortalReady(false);
+        }
+        return;
+      }
+
+      const raf = requestAnimationFrame(() => {
+        const toolbar = containerRef.current?.querySelector(".mdxeditor-toolbar");
+        if (toolbar && !portalTargetRef.current) {
+          const target = document.createElement("div");
+          toolbar.after(target);
+          portalTargetRef.current = target;
+          setPortalReady(true);
+        }
+      });
+
+      return () => {
+        cancelAnimationFrame(raf);
+        if (portalTargetRef.current) {
+          portalTargetRef.current.remove();
+          portalTargetRef.current = null;
+        }
+        setPortalReady(false);
+      };
+    }, [readOnly]);
 
     // Process markdown to convert wikilinks to standard markdown links for display
     // Only process in read mode - in edit mode, show raw [[wikilink]] syntax
     // (processing in edit mode causes MDXEditor to save expanded URLs back to files)
     const processedMarkdown = useMemo(() => {
+      // Strip frontmatter in both modes — it's rendered separately above the editor
+      const body = stripFrontmatter(markdown);
+
       if (readOnly === false) {
-        return markdown;
+        return body;
       }
 
       if (!currentFilePath || !scopePath) {
-        return sanitiseForMdx(markdown);
+        return sanitiseForMdx(body);
       }
 
-      let result = markdown;
+      let result = body;
 
       // Collect all replacements with their positions
       const replacements: { start: number; end: number; replacement: string }[] = [];
 
       // Process image wikilinks (![[path]])
-      const imageWikilinks = parseImageWikilinks(markdown);
+      const imageWikilinks = parseImageWikilinks(body);
       for (const img of imageWikilinks) {
         // Use the same resolver as regular wikilinks to support Obsidian-style filename search
         const resolved = resolveWikilink(img.target, currentFilePath, scopePath, fileTree || null);
@@ -164,7 +297,7 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
         });
       }
 
-      const wikilinks = parseWikilinks(markdown);
+      const wikilinks = parseWikilinks(body);
       for (const link of wikilinks) {
         const resolved = resolveWikilink(link.target, currentFilePath, scopePath, fileTree || null);
 
@@ -324,7 +457,6 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
           text: "Plain Text",
         },
       }),
-      frontmatterPlugin(),
     ];
 
     // Add toolbar for editing mode (unless explicitly hidden)
@@ -356,12 +488,18 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
 
     return (
       <div ref={containerRef} className={`flex flex-col ${wrapperClassName ? wrapperClassName : "h-full docs-editor-wrapper"}`}>
+        {readOnly && frontmatterFields && <FrontmatterDisplay fields={frontmatterFields} />}
+        {!readOnly && portalReady && frontmatterFields && portalTargetRef.current &&
+          createPortal(
+            <EditableFrontmatter key={currentFilePath} fields={frontmatterFields} onChange={handleFrontmatterFieldChange} />,
+            portalTargetRef.current
+          )}
         <EditorErrorBoundary fallbackContent={markdown} className="flex-1">
           <MDXEditor
             key={readOnly ? "read" : "edit"}
             ref={editorRef}
             markdown={processedMarkdown}
-            onChange={onChange}
+            onChange={handleChange}
             readOnly={readOnly}
             plugins={plugins}
             contentEditableClassName={`prose ${proseInvert} max-w-none leading-normal font-[family-name:var(--font-geist-sans)]

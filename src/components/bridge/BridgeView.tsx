@@ -13,7 +13,7 @@ import { Loader2 } from "lucide-react";
 import type { BridgeTask, BridgeProject } from "@/lib/types";
 
 interface BridgeViewProps {
-  onNavigateToProject?: (project: BridgeProject, vaultPath: string) => void;
+  onNavigateToProject?: (project: BridgeProject) => void;
 }
 
 export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
@@ -118,7 +118,7 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
             <ProjectKanban
               className="-mt-4"
               columns={projects.columns}
-              onProjectClick={(project) => onNavigateToProject?.(project, projects.vaultPath)}
+              onProjectClick={(project) => onNavigateToProject?.(project)}
               onStatusChange={(project, status) => updateProjectStatus(project.path, status)}
             />
           )}
@@ -155,12 +155,19 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
               setSelectedTask(null);
             }}
             onNavigateToProject={(projectPath, vaultPath) => {
+              // Try to resolve from loaded projects first
               if (projects) {
                 const allProjects = Object.values(projects.columns).flat();
                 const project = allProjects.find(p => p.relativePath === projectPath);
                 if (project) {
-                  onNavigateToProject?.(project, vaultPath);
+                  onNavigateToProject?.(project);
+                  return;
                 }
+              }
+              // Fallback: construct absolute path and navigate directly
+              if (vaultPath && onNavigateToProject) {
+                const absolutePath = `${vaultPath}/${projectPath}`;
+                onNavigateToProject({ path: absolutePath, relativePath: projectPath } as BridgeProject);
               }
             }}
           />

@@ -255,7 +255,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   sidebarCollapsed: false,
   theme: "system",
   recentScopes: [],
-  viewMode: "docs",
+  viewMode: "bridge",
   folderEmojis: {},
   workingFolder: "/Users/jruck/work/bridge",
 };

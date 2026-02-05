@@ -116,7 +116,6 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
 
           {projects && (
             <ProjectKanban
-              className="-mt-4"
               columns={projects.columns}
               onProjectClick={(project) => onNavigateToProject?.(project)}
               onStatusChange={(project, status) => updateProjectStatus(project.path, status)}

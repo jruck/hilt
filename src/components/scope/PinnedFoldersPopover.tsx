@@ -15,9 +15,7 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { SessionsResponse } from "@/lib/types";
 import { PinnedFolder } from "@/lib/pinned-folders";
-import { needsAttention } from "@/lib/session-status";
 import { SortablePinnedFolderItem } from "@/components/sidebar/SortablePinnedFolderItem";
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
@@ -47,14 +45,6 @@ export function PinnedFoldersPopover({
 
   const { folders, unpinFolder, reorderFolders, setEmoji } = pinnedFolders;
 
-  // Fetch ALL sessions (no scope filter) so we can count across all pinned folders
-  const { data: sessionsData } = useSWR<SessionsResponse>(
-    isOpen ? "/api/sessions?page=1&pageSize=500" : null,
-    fetcher,
-    { refreshInterval: 10000 }
-  );
-  const allSessions = sessionsData?.sessions ?? [];
-
   // Fetch inbox counts for all pinned folders
   const folderPaths = folders.map((f) => f.path).join(",");
   const { data: inboxCountsData } = useSWR<{ counts: Record<string, number> }>(
@@ -74,37 +64,15 @@ export function PinnedFoldersPopover({
 
   // Compute counts per pinned folder
   const folderStats = useMemo(() => {
-    const stats: Record<
-      string,
-      { inboxCount: number; activeCount: number; reviewCount: number; hasRunning: boolean }
-    > = {};
+    const stats: Record<string, { inboxCount: number }> = {};
 
     for (const folder of folders) {
-      let activeCount = 0;
-      let reviewCount = 0;
-      let hasRunning = false;
-
-      for (const session of allSessions) {
-        if (session.projectPath === folder.path && session.status === "active") {
-          const sessionNeedsAttention =
-            session.derivedState && needsAttention(session.derivedState.status);
-          if (sessionNeedsAttention) {
-            reviewCount++;
-          } else {
-            activeCount++;
-          }
-          if (session.isRunning) {
-            hasRunning = true;
-          }
-        }
-      }
-
       const inboxCount = inboxCounts[folder.path] ?? 0;
-      stats[folder.id] = { inboxCount, activeCount, reviewCount, hasRunning };
+      stats[folder.id] = { inboxCount };
     }
 
     return stats;
-  }, [folders, allSessions, inboxCounts]);
+  }, [folders, inboxCounts]);
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -187,20 +155,15 @@ export function PinnedFoldersPopover({
                   strategy={verticalListSortingStrategy}
                 >
                   {folders.map((folder) => {
-                    const stats = folderStats[folder.id] || {
-                      inboxCount: 0,
-                      activeCount: 0,
-                      reviewCount: 0,
-                      hasRunning: false,
-                    };
+                    const stats = folderStats[folder.id] || { inboxCount: 0 };
                     return (
                       <SortablePinnedFolderItem
                         key={folder.id}
                         folder={folder}
                         inboxCount={stats.inboxCount}
-                        activeCount={stats.activeCount}
-                        reviewCount={stats.reviewCount}
-                        hasRunning={stats.hasRunning}
+                        activeCount={0}
+                        reviewCount={0}
+                        hasRunning={false}
                         isActive={currentScope === folder.path}
                         onClick={() => handleFolderClick(folder.path)}
                         onUnpin={() => unpinFolder(folder.id)}

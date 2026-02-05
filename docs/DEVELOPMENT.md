@@ -37,25 +37,24 @@ open http://localhost:3000
 ## Architecture
 
 ```
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│  Next.js Dev    │  │  WebSocket      │  │  Event Server   │
-│  Server         │  │  Server         │  │  (optional)     │
-│  port 3000      │  │  port 3001      │  │  port 3002      │
-└─────────────────┘  └─────────────────┘  └─────────────────┘
-        │                    │                    │
-        │ HTTP/REST          │ WebSocket          │ WebSocket
-        │                    │                    │
-        ▼                    ▼                    ▼
-┌────────────────────────────────────────────────────────────┐
-│                        Browser                              │
-│  React App + xterm.js + Real-time Events                    │
-└────────────────────────────────────────────────────────────┘
+┌─────────────────┐  ┌─────────────────┐
+│  Next.js Dev    │  │  WebSocket      │
+│  Server         │  │  Server         │
+│  port 3000      │  │  port 3001      │
+└─────────────────┘  └─────────────────┘
+        │                    │
+        │ HTTP/REST          │ WebSocket
+        │                    │ (real-time events)
+        ▼                    ▼
+┌────────────────────────────────────────┐
+│              Browser                    │
+│  React App + Real-time Events           │
+└────────────────────────────────────────┘
 ```
 
 All servers are started together with `npm run dev:all`:
 - **Next.js** handles the UI and REST API
-- **WebSocket** handles terminal PTY connections
-- **Event Server** handles real-time file change notifications
+- **WebSocket** handles real-time file change notifications (scope changes, inbox updates, bridge file changes)
 
 ## Environment Variables
 
@@ -73,16 +72,51 @@ hilt/
 │   ├── app/                 # Next.js App Router
 │   │   ├── [[...path]]/     # Catch-all route for scopes
 │   │   ├── api/             # API routes
+│   │   │   ├── bridge/      # Bridge task/project endpoints
+│   │   │   ├── claude-stack/ # Claude config stack API
+│   │   │   ├── docs/        # Documentation viewer API
+│   │   │   ├── folders/     # Folder discovery
+│   │   │   ├── inbox/       # Inbox drafts
+│   │   │   ├── plans/       # Plan management
+│   │   │   ├── preferences/ # User preferences
+│   │   │   └── ...          # Other endpoints
 │   │   ├── layout.tsx       # Root layout
 │   │   └── globals.css      # Global styles
 │   ├── components/          # React components
+│   │   ├── bridge/          # Bridge view (notes, tasks, projects)
+│   │   ├── docs/            # Docs viewer (file tree, content pane)
+│   │   ├── stack/           # Stack view (Claude config explorer)
+│   │   ├── scope/           # Scope navigation (breadcrumbs, browse)
+│   │   ├── sidebar/         # Sidebar (pinned folders)
+│   │   ├── ui/              # Shared UI components
+│   │   ├── Board.tsx        # Main container, view routing
+│   │   ├── DocsView.tsx     # Docs view wrapper
+│   │   ├── PlanEditor.tsx   # MDX plan editor
+│   │   └── ViewToggle.tsx   # Bridge/Docs/Stack tab switcher
 │   ├── hooks/               # Custom hooks
+│   │   ├── useBridgeProjects.ts
+│   │   ├── useBridgeWeekly.ts
+│   │   ├── useClaudeStack.ts
+│   │   ├── useDocs.ts
+│   │   ├── useEventSocket.ts
+│   │   ├── usePinnedFolders.ts
+│   │   └── useSidebarState.ts
 │   └── lib/                 # Utilities and core logic
+│       ├── bridge/          # Project parser, vault, weekly parser
+│       ├── claude-config/   # Config discovery, MCP, plugins
+│       ├── docs/            # Wikilink resolver
+│       ├── db.ts            # Persistence layer
+│       ├── types.ts         # TypeScript types and Zod schemas
+│       └── ...              # Other utilities
 ├── server/
-│   └── ws-server.ts         # WebSocket + PTY server
+│   ├── ws-server.ts         # WebSocket server (real-time events)
+│   ├── event-server.ts      # Event pub/sub system
+│   └── watchers/            # File system watchers
+│       ├── bridge-watcher.ts
+│       ├── inbox-watcher.ts
+│       └── scope-watcher.ts
 ├── data/                    # Persistent storage (gitignored)
-│   ├── session-status.json  # Kanban states
-│   └── inbox.json           # Fallback draft storage
+│   └── preferences.json     # User preferences
 ├── docs/                    # Documentation
 ├── electron/                # Electron wrapper (optional)
 └── package.json
@@ -92,11 +126,15 @@ hilt/
 
 | File | Purpose |
 |------|---------|
-| `src/components/Board.tsx` | Main container, all state management |
-| `src/lib/claude-sessions.ts` | JSONL parsing, session discovery |
+| `src/components/Board.tsx` | Main container, view routing and state management |
+| `src/components/bridge/BridgeView.tsx` | Bridge view: notes, tasks, projects |
+| `src/components/docs/DocsContentPane.tsx` | Docs viewer content rendering |
+| `src/components/stack/StackView.tsx` | Claude config stack explorer |
 | `src/lib/types.ts` | TypeScript types and Zod schemas |
-| `server/ws-server.ts` | Terminal PTY management |
-| `src/app/api/sessions/route.ts` | Session API endpoint |
+| `src/lib/bridge/project-parser.ts` | Parses project markdown frontmatter |
+| `src/lib/claude-config/discovery.ts` | Claude config file discovery |
+| `server/ws-server.ts` | WebSocket server for real-time file change events |
+| `server/watchers/` | File system watchers (scope, inbox, bridge) |
 
 ## Development Workflow
 
@@ -133,52 +171,36 @@ hilt/
 
 ## Debugging
 
-### Terminal Issues
-
-The terminal uses xterm.js connected via WebSocket to a PTY process.
-
-**Common issues:**
-
-1. **Terminal won't connect**
-   - Check WebSocket server is running on port 3001
-   - Check browser console for WebSocket errors
-   - Verify `claude` command is in PATH
-
-2. **Terminal reloads unexpectedly**
-   - Ensure using `terminalId` (not `sessionId`) as React key
-   - Check `Terminal.tsx` useEffect dependencies
-
-3. **PTY spawn fails**
-   - Check `server/ws-server.ts` console output
-   - Verify project path exists
-
-### Session Discovery Issues
-
-Sessions are read from `~/.claude/projects/`.
-
-**Common issues:**
-
-1. **Sessions not appearing**
-   - Check encoded path decoding in `folders/route.ts`
-   - Verify JSONL files exist in expected location
-   - Check scope filtering mode (exact vs tree)
-
-2. **Running indicator wrong**
-   - Check file mtime threshold (30 seconds)
-   - Verify `getRunningSessionIds()` in `claude-sessions.ts`
-
 ### API Issues
 
 ```bash
-# Test session endpoint
-curl "http://localhost:3000/api/sessions?scope=/Users/you/project"
+# Test folders endpoint
+curl "http://localhost:3000/api/folders"
 
 # Test inbox endpoint
 curl "http://localhost:3000/api/inbox?scope=/Users/you/project"
 
-# Test folders endpoint
-curl "http://localhost:3000/api/folders"
+# Test bridge endpoint
+curl "http://localhost:3000/api/bridge?scope=/Users/you/project"
+
+# Test docs endpoint
+curl "http://localhost:3000/api/docs?scope=/Users/you/project"
 ```
+
+### WebSocket Event Issues
+
+The WebSocket server broadcasts real-time file change events to connected clients.
+
+**Common issues:**
+
+1. **Events not arriving**
+   - Check WebSocket server is running on port 3001
+   - Check browser console for WebSocket errors
+   - Verify watchers are initialized in `server/watchers/`
+
+2. **Stale data after file changes**
+   - Check that the relevant watcher is active (bridge, inbox, scope)
+   - Verify `useEventSocket` hook is subscribing to the correct channel
 
 ## Code Style
 
@@ -204,49 +226,46 @@ curl "http://localhost:3000/api/folders"
 
 **Currently no automated tests.** Manual testing checklist:
 
-### Board View
-- [ ] Sessions load for current scope
-- [ ] Drag-drop between columns works
-- [ ] Search filters correctly
-- [ ] Multi-select works
+### Bridge View
+- [ ] Notes load for current scope
+- [ ] Tasks display with correct status
+- [ ] Project cards render with frontmatter
+- [ ] Week header shows correct date range
+- [ ] Task editor opens and saves
 
-### Terminal
-- [ ] Terminal opens and connects
-- [ ] Input is sent correctly
-- [ ] Title updates from Claude
-- [ ] Multiple tabs work
+### Docs View
+- [ ] File tree renders for current scope
+- [ ] Clicking a file loads content in pane
+- [ ] Markdown renders correctly
+- [ ] Code viewer syntax highlights
+- [ ] PDF and CSV viewers work
+- [ ] Wikilinks resolve correctly
 
-### Tree View
-- [ ] Tree renders correctly
-- [ ] Click folder navigates
-- [ ] Click session opens terminal
-- [ ] Heat scores affect sizing
+### Stack View
+- [ ] Claude config files discovered
+- [ ] MCP servers listed
+- [ ] Plugin details render
+- [ ] File tree navigation works
 
 ### Scope Navigation
 - [ ] Breadcrumbs show correct path
 - [ ] Click segment navigates
 - [ ] URL updates on navigation
 - [ ] Browser back/forward works
+- [ ] Pinned folders appear in sidebar
 
 ## Performance Tips
 
-### Large Session Counts
+### Large File Counts
 
 - SWR polling is set to 5 seconds
 - `keepPreviousData: true` prevents loading flash
-- Tree view uses prefix filtering (more sessions)
-
-### Memory
-
-- Terminal instances are created per tab
-- Closing tab destroys xterm instance
-- WebSocket connections are per-terminal
+- File watchers debounce rapid changes
 
 ### Bundle Size
 
 - MDXEditor is large (~500KB)
 - Consider lazy loading for plan editor
-- xterm.js is ~200KB
 
 ## Common Patterns
 
@@ -254,7 +273,7 @@ curl "http://localhost:3000/api/folders"
 
 ```typescript
 const { data, error, mutate } = useSWR(
-  `/api/sessions?scope=${scope}`,
+  `/api/bridge?scope=${scope}`,
   fetcher,
   {
     refreshInterval: 5000,
@@ -266,22 +285,22 @@ const { data, error, mutate } = useSWR(
 ### Optimistic Updates
 
 ```typescript
-const handleStatusChange = async (id: string, status: SessionStatus) => {
+const handleUpdate = async (id: string, updates: Partial<Task>) => {
   // Optimistic update
   mutate(
     (current) => ({
       ...current,
-      sessions: current.sessions.map((s) =>
-        s.id === id ? { ...s, status } : s
+      tasks: current.tasks.map((t) =>
+        t.id === id ? { ...t, ...updates } : t
       ),
     }),
     false // Don't revalidate yet
   );
 
   // Actual update
-  await fetch("/api/sessions", {
+  await fetch("/api/bridge/tasks", {
     method: "PATCH",
-    body: JSON.stringify({ sessionId: id, status }),
+    body: JSON.stringify({ id, ...updates }),
   });
 
   // Revalidate
@@ -289,14 +308,17 @@ const handleStatusChange = async (id: string, status: SessionStatus) => {
 };
 ```
 
-### Stable Terminal Keys
+### Real-time Event Subscription
 
 ```typescript
-// WRONG - causes remount when ID changes
-<Terminal key={session.id} sessionId={session.id} />
+const { lastEvent } = useEventSocket(scope);
 
-// CORRECT - stable across ID changes
-<Terminal key={session.terminalId} sessionId={session.id} />
+useEffect(() => {
+  if (lastEvent) {
+    // Revalidate data when file changes detected
+    mutate();
+  }
+}, [lastEvent, mutate]);
 ```
 
 ## Electron Development
@@ -332,7 +354,7 @@ kill -9 <PID>
 
 ### WebSocket connection refused
 
-Make sure you're using `npm run dev:all` instead of `npm run dev`. The WebSocket server must be running for terminal features.
+Make sure you're using `npm run dev:all` instead of `npm run dev`. The WebSocket server must be running for real-time event updates.
 
 ### TypeScript errors
 
@@ -343,4 +365,4 @@ npx tsc --noEmit
 
 ---
 
-*Last updated: 2025-01-06*
+*Last updated: 2026-02-05*

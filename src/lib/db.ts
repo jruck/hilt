@@ -1,10 +1,8 @@
 import * as fs from "fs";
 import * as path from "path";
-import { SessionStatus } from "./types";
 
 // Use DATA_DIR env var if set, otherwise use local ./data
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
-const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
 const INBOX_FILE = path.join(DATA_DIR, "inbox.json");
 const PREFERENCES_FILE = path.join(DATA_DIR, "preferences.json");
 
@@ -13,126 +11,6 @@ function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
-}
-
-// ============================================================================
-// Session Registry (Hilt-only sessions)
-// ============================================================================
-
-export interface RegisteredSession {
-  id: string;
-  projectPath: string;
-  project: string;
-  title: string;
-  firstPrompt: string | null;
-  initialPrompt?: string;
-  status: SessionStatus;
-  sortOrder: number;
-  starred: boolean;
-  archived: boolean;
-  archivedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-  lastActivity: string;
-  messageCount: number;
-  gitBranch: string | null;
-  slug: string | null;
-  slugs: string[];
-  lastPrompt: string | null;
-  lastMessage: string | null;
-  terminalId?: string;
-}
-
-interface SessionsRegistry {
-  sessions: RegisteredSession[];
-}
-
-export function readSessionsRegistry(): RegisteredSession[] {
-  ensureDataDir();
-  if (!fs.existsSync(SESSIONS_FILE)) {
-    return [];
-  }
-  try {
-    const content = fs.readFileSync(SESSIONS_FILE, "utf-8");
-    const data: SessionsRegistry = JSON.parse(content);
-    return data.sessions || [];
-  } catch {
-    return [];
-  }
-}
-
-export function writeSessionsRegistry(sessions: RegisteredSession[]): void {
-  ensureDataDir();
-  const data: SessionsRegistry = { sessions };
-  fs.writeFileSync(SESSIONS_FILE, JSON.stringify(data, null, 2));
-}
-
-export function getRegisteredSession(sessionId: string): RegisteredSession | undefined {
-  const sessions = readSessionsRegistry();
-  return sessions.find(s => s.id === sessionId);
-}
-
-export function registerSession(session: RegisteredSession): void {
-  const sessions = readSessionsRegistry();
-  // Replace if exists (e.g., temp→real ID update), otherwise add
-  const idx = sessions.findIndex(s => s.id === session.id);
-  if (idx !== -1) {
-    sessions[idx] = session;
-  } else {
-    sessions.push(session);
-  }
-  writeSessionsRegistry(sessions);
-}
-
-export function updateRegisteredSession(
-  sessionId: string,
-  updates: Partial<RegisteredSession>
-): RegisteredSession | null {
-  const sessions = readSessionsRegistry();
-  const idx = sessions.findIndex(s => s.id === sessionId);
-  if (idx === -1) return null;
-
-  sessions[idx] = { ...sessions[idx], ...updates, updatedAt: new Date().toISOString() };
-  writeSessionsRegistry(sessions);
-  return sessions[idx];
-}
-
-/**
- * Replace a temp session ID with the real session ID.
- * Preserves all other fields.
- */
-export function resolveSessionId(tempId: string, realId: string): RegisteredSession | null {
-  const sessions = readSessionsRegistry();
-  const idx = sessions.findIndex(s => s.id === tempId);
-  if (idx === -1) return null;
-
-  sessions[idx] = {
-    ...sessions[idx],
-    id: realId,
-    updatedAt: new Date().toISOString(),
-  };
-  writeSessionsRegistry(sessions);
-  return sessions[idx];
-}
-
-/**
- * Purge stale temp sessions (new-* entries older than maxAge).
- */
-export function purgeStaleTemps(maxAgeMs: number = 5 * 60 * 1000): number {
-  const sessions = readSessionsRegistry();
-  const now = Date.now();
-  const before = sessions.length;
-
-  const filtered = sessions.filter(s => {
-    if (!s.id.startsWith("new-")) return true;
-    const age = now - new Date(s.createdAt).getTime();
-    return age < maxAgeMs;
-  });
-
-  if (filtered.length < before) {
-    writeSessionsRegistry(filtered);
-  }
-  return before - filtered.length;
 }
 
 // Inbox storage
@@ -242,7 +120,7 @@ interface UserPreferences {
   inboxPath?: string;
   // Bridge vault path for weekly tasks and projects
   bridgeVaultPath?: string;
-  // Default working folder — used as initial scope for Docs, Stack, and Sessions views
+  // Default working folder — used as initial scope for Docs, Stack, and Bridge views
   workingFolder?: string;
   // Chat view: last used agent label
   chatAgent?: string;

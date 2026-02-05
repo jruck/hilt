@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Hilt",
-  description: "Manage your Claude Code sessions",
+  description: "Bridge, Docs, and Stack for your projects",
   icons: {
     icon: "/favicon.ico",
     apple: "/apple-touch-icon.png",

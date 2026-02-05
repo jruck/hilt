@@ -6,395 +6,270 @@ React component architecture and key implementation details.
 
 ```
 App (layout.tsx)
-└── Board.tsx (1046 lines) ─────────────────────────────────────────────
+└── Board.tsx (~275 lines) ──────────────────────────────────────────────
     │
-    ├── Header
-    │   ├── Sidebar toggle button
-    │   ├── ScopeBreadcrumbs
-    │   │   ├── "/" All Projects button
-    │   │   ├── Path segments (clickable)
-    │   │   ├── SubfolderDropdown
-    │   │   ├── PinButton
-    │   │   ├── RecentScopesButton
-    │   │   └── BrowseButton
-    │   ├── ViewToggle (Tree/Board/Docs)
-    │   └── Search input
-    │
-    ├── Sidebar (collapsible, 256px/48px)
-    │   ├── PinnedFolderList
-    │   │   └── SortablePinnedFolderItem × N (draggable)
-    │   └── Collapse button
+    ├── Top Toolbar
+    │   ├── Search input (expandable)
+    │   ├── ThemeToggle
+    │   └── ViewToggle (Bridge/Docs/Stack) — centered
     │
     ├── Main Content (conditional on viewMode)
     │   │
-    │   ├── viewMode === "board"
-    │   │   └── Column × 3
-    │   │       ├── Column "To Do"
-    │   │       │   ├── NewDraftCard (input)
-    │   │       │   └── InboxCard × N (draggable)
-    │   │       ├── Column "In Progress"
-    │   │       │   └── SessionCard × N (draggable)
-    │   │       └── Column "Recent"
-    │   │           └── SessionCard × N (grouped by time)
+    │   ├── viewMode === "bridge"
+    │   │   └── BridgeView
+    │   │       ├── WeekHeader
+    │   │       ├── BridgeTaskList
+    │   │       │   └── BridgeTaskItem × N
+    │   │       ├── BridgeTaskPanel / BridgeTaskDetail / BridgeTaskEditor
+    │   │       ├── BridgeNotes
+    │   │       ├── ProjectCard × N
+    │   │       ├── ProjectKanban
+    │   │       ├── ProjectPicker
+    │   │       └── RecycleModal
     │   │
-    │   ├── viewMode === "tree"
-    │   │   └── TreeView
-    │   │       ├── TreeNodeCard × N (folders)
-    │   │       │   └── Session thumbnails
-    │   │       └── TreeSessionCard × N (sessions)
+    │   ├── viewMode === "docs"
+    │   │   └── DocsView
+    │   │       ├── DocsBreadcrumbs
+    │   │       ├── DocsFileTree
+    │   │       │   └── DocsTreeItem × N
+    │   │       ├── DocsContentPane
+    │   │       │   ├── DocsEditor (markdown editing)
+    │   │       │   ├── DocsEditToggle
+    │   │       │   ├── CodeViewer
+    │   │       │   ├── CSVTableViewer
+    │   │       │   ├── ImageViewer
+    │   │       │   ├── PDFViewer
+    │   │       │   └── DocsFallbackView
+    │   │       └── DocsEditToggle
     │   │
-    │   └── viewMode === "docs"
-    │       └── "Coming Soon" placeholder
+    │   └── viewMode === "stack"
+    │       └── StackView
+    │           ├── StackFileTree
+    │           ├── StackContentPane
+    │           │   ├── StackSummary
+    │           │   ├── MCPServerDetail
+    │           │   └── PluginDetail
+    │           └── CreateFileDialog
     │
-    └── TerminalDrawer (fixed right, resizable)
-        ├── Tab bar
-        │   └── Tab × N (closable)
-        └── Terminal × N
-            └── xterm.js instance
+    └── Bottom Toolbar (hidden on Bridge view)
+        ├── ScopeBreadcrumbs
+        │   └── PinButton (inline)
+        ├── RecentScopesButton
+        ├── BrowseButton
+        └── PinnedFoldersPopover
 ```
 
 ## Core Components
 
 ### Board.tsx
 
-**File**: `src/components/Board.tsx` (1046 lines)
+**File**: `src/components/Board.tsx` (~275 lines)
 
-Main container component managing all state.
+Main container component managing scope, view routing, and toolbar layout.
 
 **Key State**
 
 ```typescript
-const [scopePath, setScopePath] = useState(initialScope);
-const [viewMode, setViewMode] = useState<ViewMode>("board");
-const [search, setSearch] = useState("");
-const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-const [drawerOpen, setDrawerOpen] = useState(false);
-const [openSessions, setOpenSessions] = useState<OpenSession[]>([]);
-const [activeTabId, setActiveTabId] = useState<string | null>(null);
-const [sidebarCollapsed, setSidebarCollapsed] = useSidebarState();
-const [firstSeenAt, setFirstSeenAt] = useState<Map<string, number>>(new Map());
+const [homeDir, setHomeDir] = useState<string>("");
+const [workingFolder, setWorkingFolder] = useState<string | undefined>(undefined);
+const [docsInitialFile, setDocsInitialFile] = useState<string | null>(null);
+const [searchQuery, setSearchQuery] = useState<string>("");
 ```
 
-**Key Props**
+**View Routing**
+
+Derives `viewMode` from the URL and renders the appropriate view:
 
 ```typescript
-interface BoardProps {
-  initialScope: string;  // From URL path
-}
+const viewMode: ViewMode = urlViewMode === "bridge" ? "bridge"
+  : urlViewMode === "docs" ? "docs"
+  : urlViewMode === "stack" ? "stack"
+  : "bridge"; // fallback
 ```
 
 **Data Fetching**
 
-```typescript
-// Board mode - exact scope match
-const { sessions, counts, isLoading, mutate } = useSessions(scopePath);
+- Fetches home directory and working folder from `/api/folders`
+- Validates scope path against server
+- Persists view mode preference via `/api/preferences`
 
-// Tree mode - prefix match with tree structure
-const { sessions: treeSessions, tree } = useTreeSessions(scopePath);
+**Key Behaviors**
 
-// Inbox items
-const { items: inboxItems } = useInboxItems(scopePath);
-```
-
-**Important Functions**
-
-- `handleStatusChange(id, status)` - Move session between columns
-- `handleOpenTerminal(session)` - Open terminal drawer with session
-- `handleStartFromInbox(item)` - Start new session from draft
-- `handleScopeChange(path)` - Navigate to different scope
+- Defaults to Bridge view when no URL prefix is present (e.g., Electron app startup)
+- Hides the bottom scope toolbar when in Bridge view
+- Supports cross-view navigation (e.g., Bridge project click navigates to Docs view)
 
 ---
 
-### Column.tsx
+### ViewToggle.tsx
 
-**File**: `src/components/Column.tsx` (759 lines)
+**File**: `src/components/ViewToggle.tsx` (~52 lines)
 
-Kanban column with drag-drop support and time grouping.
-
-**Props**
+Three-way toggle for view modes.
 
 ```typescript
-interface ColumnProps {
-  title: string;
-  status: SessionStatus;
-  sessions: Session[];
-  inboxItems?: InboxItem[];
-  selectedIds: Set<string>;
-  onSelect: (id: string, multi: boolean) => void;
-  onStatusChange: (id: string, status: SessionStatus) => void;
-  onOpenTerminal: (session: Session) => void;
-  onStartFromInbox?: (item: InboxItem) => void;
-  // ... more handlers
-}
+type ViewMode = "docs" | "stack" | "bridge";
 ```
 
-**Time Grouping** (Recent column only)
+**View Configuration**
 
-Groups sessions into:
-- Starred (pinned)
-- Today
-- Yesterday
-- This Week
-- Last Week
-- This Month
-- Older
-
-**Drag & Drop**
-
-Uses `@dnd-kit/core` and `@dnd-kit/sortable`.
-
-```typescript
-<SortableContext items={sortedItems.map(s => s.id)}>
-  {sortedItems.map(session => (
-    <SortableSessionCard key={session.id} session={session} />
-  ))}
-</SortableContext>
-```
+| View | Icon | Description |
+|------|------|-------------|
+| Bridge | Compass | Weekly tasks and projects |
+| Docs | FileText | Documentation browser/editor |
+| Stack | Layers | Claude configuration stack |
 
 ---
 
-### SessionCard.tsx
+## Bridge Components
 
-**File**: `src/components/SessionCard.tsx` (300 lines)
+### BridgeView.tsx
 
-Individual session display with actions.
+**File**: `src/components/bridge/BridgeView.tsx`
 
-**Props**
+Main Bridge view showing weekly tasks, projects, and notes. Supports navigating to projects in Docs view via the `onNavigateToProject` callback.
 
-```typescript
-interface SessionCardProps {
-  session: Session;
-  isSelected: boolean;
-  isNew?: boolean;      // Show green glow
-  newness?: number;     // 0-1 fade for new indicator
-  firstSeenAt?: number; // When session first appeared
-  onSelect: (multi: boolean) => void;
-  onStatusChange: (status: SessionStatus) => void;
-  onOpenTerminal: () => void;
-  onOpenPlan?: () => void;
-  onStar?: () => void;
-}
-```
+### BridgeTaskList.tsx
 
-**Visual States**
+**File**: `src/components/bridge/BridgeTaskList.tsx`
 
-- **Default**: `bg-zinc-800` border
-- **Selected**: `border-blue-500/50 bg-blue-500/5`
-- **Active/Running**: `border-emerald-500/20 bg-emerald-500/5`
-- **New**: Green glow fading over 60 seconds
+List of tasks for the current week.
 
-**Actions (Floating Toolbar)**
+### BridgeTaskItem.tsx
 
-- Open terminal
-- View plan (if has plan)
-- Star/unstar
-- Move to Recent (checkmark)
+**File**: `src/components/bridge/BridgeTaskItem.tsx`
 
----
+Individual task item with status management.
 
-### InboxCard.tsx
+### BridgeTaskPanel.tsx / BridgeTaskDetail.tsx / BridgeTaskEditor.tsx
 
-**File**: `src/components/InboxCard.tsx` (270 lines)
+**Files**: `src/components/bridge/BridgeTaskPanel.tsx`, `BridgeTaskDetail.tsx`, `BridgeTaskEditor.tsx`
 
-Draft prompt card with inline editing.
+Task detail view with editing capabilities.
 
-**Props**
+### BridgeNotes.tsx
 
-```typescript
-interface InboxCardProps {
-  item: InboxItem;
-  isSelected: boolean;
-  onSelect: (multi: boolean) => void;
-  onStart: () => void;           // Start session with this prompt
-  onUpdate: (prompt: string) => void;
-  onDelete: () => void;
-  onRefine?: () => void;         // Refine with AI
-  onProcessReference?: () => void; // Process as reference
-}
-```
+**File**: `src/components/bridge/BridgeNotes.tsx`
 
-**Actions**
+Notes section within the Bridge view.
 
-- Start session (play icon)
-- Edit inline (pencil icon)
-- Refine with AI (brain icon)
-- Process as reference (bookmark icon)
-- Delete (trash icon)
+### ProjectCard.tsx / ProjectKanban.tsx / ProjectPicker.tsx
+
+**Files**: `src/components/bridge/ProjectCard.tsx`, `ProjectKanban.tsx`, `ProjectPicker.tsx`
+
+Project display and organization components.
+
+### WeekHeader.tsx
+
+**File**: `src/components/bridge/WeekHeader.tsx`
+
+Week navigation header for the Bridge view.
+
+### RecycleModal.tsx
+
+**File**: `src/components/bridge/RecycleModal.tsx`
+
+Modal for recycling/archiving completed items.
 
 ---
 
-### TerminalDrawer.tsx
+## Docs Components
 
-**File**: `src/components/TerminalDrawer.tsx` (821 lines)
+### DocsView.tsx
 
-Resizable terminal panel with multi-tab support.
+**File**: `src/components/DocsView.tsx`
 
-**Props**
+Documentation browser and editor view. Accepts `scopePath`, `searchQuery`, optional `initialFilePath`, and scope change callbacks.
 
-```typescript
-interface TerminalDrawerProps {
-  isOpen: boolean;
-  sessions: OpenSession[];
-  activeTabId: string | null;
-  onClose: () => void;
-  onTabChange: (id: string) => void;
-  onCloseTab: (id: string) => void;
-  onWidthChange?: (width: number) => void;
-}
+### DocsFileTree.tsx
 
-interface OpenSession {
-  session: Session;
-  terminalId: string;  // IMPORTANT: Use as React key
-}
-```
+**File**: `src/components/docs/DocsFileTree.tsx`
 
-**Resizing**
+File tree sidebar for navigating documentation files within the current scope.
 
-- Min width: 400px
-- Max width: 1200px
-- Drag handle on left edge
-- Persists width in state (not localStorage)
+### DocsTreeItem.tsx
 
-**Tab Management**
+**File**: `src/components/docs/DocsTreeItem.tsx`
 
-- Each tab has unique `terminalId`
-- Closing last tab closes drawer
-- Active tab indicator
+Individual tree node (file or folder) in the docs file tree.
 
----
+### DocsEditor.tsx
 
-### Terminal.tsx
+**File**: `src/components/docs/DocsEditor.tsx`
 
-**File**: `src/components/Terminal.tsx` (291 lines)
+Markdown editor for documentation files.
 
-xterm.js wrapper with WebSocket connection.
+### DocsContentPane.tsx
 
-**Props**
+**File**: `src/components/docs/DocsContentPane.tsx`
 
-```typescript
-interface TerminalProps {
-  sessionId: string;
-  terminalId: string;  // Stable ID
-  projectPath: string;
-  isNew?: boolean;
-  initialPrompt?: string;
-  onTitleChange?: (title: string) => void;
-  onContextChange?: (progress: number) => void;
-  onExit?: () => void;
-}
-```
+Content display pane that routes to the appropriate viewer based on file type.
 
-**Key Implementation**
+### DocsBreadcrumbs.tsx
 
-```typescript
-// CRITICAL: Use refs for spawn-time values to prevent re-renders
-const sessionIdRef = useRef(sessionId);
-const isNewRef = useRef(isNew);
-const initialPromptRef = useRef(initialPrompt);
+**File**: `src/components/docs/DocsBreadcrumbs.tsx`
 
-// Don't include sessionId in deps - use ref instead
-useEffect(() => {
-  const ws = new WebSocket("ws://localhost:3001");
-  ws.send(JSON.stringify({
-    type: "spawn",
-    terminalId,
-    sessionId: sessionIdRef.current,
-    projectPath,
-    isNew: isNewRef.current,
-    initialPrompt: initialPromptRef.current,
-  }));
-}, [terminalId, projectPath]); // NOT sessionId
-```
+Breadcrumb navigation within the docs view.
+
+### DocsEditToggle.tsx
+
+**File**: `src/components/docs/DocsEditToggle.tsx`
+
+Toggle between read and edit modes for documentation.
+
+### Specialized Viewers
+
+- **CodeViewer.tsx** - Syntax-highlighted code display
+- **CSVTableViewer.tsx** - Tabular CSV rendering
+- **ImageViewer.tsx** - Image file display
+- **PDFViewer.tsx** - PDF document rendering
+- **DocsFallbackView.tsx** - Fallback for unsupported file types
 
 ---
 
-### TreeView.tsx
+## Stack Components
 
-**File**: `src/components/TreeView.tsx` (175 lines)
+### StackView.tsx
 
-Treemap visualization container.
+**File**: `src/components/stack/StackView.tsx`
 
-**Props**
+Claude configuration stack viewer. Displays CLAUDE.md files, MCP servers, and plugins for the current scope.
 
-```typescript
-interface TreeViewProps {
-  tree: TreeNode;
-  sessions: Session[];
-  onNavigate: (path: string) => void;
-  onOpenSession: (session: Session) => void;
-}
-```
+### StackFileTree.tsx
 
-**Layout**
+**File**: `src/components/stack/StackFileTree.tsx`
 
-Uses `squarify()` from `src/lib/treemap-layout.ts`:
+File tree showing configuration files in the stack hierarchy.
 
-```typescript
-const rects = useMemo(() => {
-  const items = prepareLayoutItems(tree, sessions);
-  return squarify(items, { x: 0, y: 0, width, height });
-}, [tree, sessions, width, height]);
-```
+### StackContentPane.tsx
 
----
+**File**: `src/components/stack/StackContentPane.tsx`
 
-### TreeNodeCard.tsx
+Content pane that routes to the appropriate detail view.
 
-**File**: `src/components/TreeNodeCard.tsx` (249 lines)
+### StackSummary.tsx
 
-Folder rectangle in treemap.
+**File**: `src/components/stack/StackSummary.tsx`
 
-**Render Levels**
+Overview summary of the current configuration stack.
 
-| Level | Min Area | Content |
-|-------|----------|---------|
-| 1 | 40000px² | Full: name, metrics, session thumbnails |
-| 2 | 10000px² | Compact: name, count badge |
-| 3 | 2500px² | Minimal: just name |
-| 4 | < 2500px² | Tiny: colored box only |
+### MCPServerDetail.tsx
 
-**Visual States**
+**File**: `src/components/stack/MCPServerDetail.tsx`
 
-- **Has active sessions**: Emerald border/background
-- **No active sessions**: Zinc border/background
-- **Hover**: Lighter background
+Detail view for an individual MCP server configuration.
 
----
+### PluginDetail.tsx
 
-### TreeSessionCard.tsx
+**File**: `src/components/stack/PluginDetail.tsx`
 
-**File**: `src/components/TreeSessionCard.tsx` (~230 lines)
+Detail view for a Claude plugin.
 
-Session leaf in treemap. Shows content appropriate to render level.
+### CreateFileDialog.tsx
 
-**Render Levels**
+**File**: `src/components/stack/CreateFileDialog.tsx`
 
-| Level | Min Area | Content |
-|-------|----------|---------|
-| 1 | Large | Title, slug, lastPrompt (if different), message count, git branch, action toolbar |
-| 2 | Medium | Title, message count, action toolbar |
-| 3 | Small | Truncated title (12 chars), running dot |
-| 4 | Tiny | Colored status dot only |
-
-**Action Toolbar** (Levels 1-2 only)
-
-Floating toolbar appears on hover in top-right corner:
-- Select/Deselect (checkbox icon)
-- Open session (Play icon)
-- Mark as Done (CheckCircle icon) - only for non-recent sessions
-
-**Props**
-
-```typescript
-interface TreeSessionCardProps {
-  session: Session;
-  renderLevel: 1 | 2 | 3 | 4;
-  onClick: () => void;
-  onSelect?: (session: Session, selected: boolean) => void;
-  onDelete?: (session: Session) => void;
-  isSelected?: boolean;
-}
-```
+Dialog for creating new configuration files.
 
 ---
 
@@ -404,7 +279,7 @@ interface TreeSessionCardProps {
 
 **File**: `src/components/scope/ScopeBreadcrumbs.tsx`
 
-Clickable path navigation.
+Clickable path navigation with inline pin button.
 
 ```typescript
 // Path: /Users/jruck/Work/Code/myproject
@@ -417,7 +292,7 @@ Clickable path navigation.
 
 **File**: `src/components/scope/SubfolderDropdown.tsx`
 
-Dropdown showing child folders with sessions.
+Dropdown showing child folders.
 
 ### RecentScopesButton.tsx
 
@@ -431,11 +306,11 @@ Clock icon with dropdown of recent scopes.
 
 Opens native macOS folder picker.
 
-### PinButton.tsx
+### PinnedFoldersPopover.tsx
 
-**File**: `src/components/scope/PinButton.tsx`
+**File**: `src/components/scope/PinnedFoldersPopover.tsx`
 
-Pin current scope to sidebar.
+Popover listing pinned folders for quick scope switching.
 
 ---
 
@@ -445,37 +320,64 @@ Pin current scope to sidebar.
 
 **File**: `src/components/sidebar/Sidebar.tsx`
 
-Collapsible sidebar container.
+Collapsible sidebar container. Fetches inbox counts for pinned folders and renders them with drag-and-drop reordering.
 
 ### SortablePinnedFolderItem.tsx
 
 **File**: `src/components/sidebar/SortablePinnedFolderItem.tsx`
 
-Draggable pinned folder with badges.
+Draggable pinned folder with emoji customization and count badges.
 
 **Badges**
 
-- Blue: To Do count
-- Green: In Progress count
-- Pulsing dot: Running sessions
+- Blue: To Do / inbox count
+- Amber: Needs review count
+- Green: Active / in progress count
+- Live indicator dot: Running processes
+
+### SidebarSection.tsx
+
+**File**: `src/components/sidebar/SidebarSection.tsx`
+
+Collapsible section container within the sidebar.
+
+### SidebarToggle.tsx
+
+**File**: `src/components/sidebar/SidebarToggle.tsx`
+
+Button to collapse/expand the sidebar.
+
+### PinnedFolderItem.tsx
+
+**File**: `src/components/sidebar/PinnedFolderItem.tsx`
+
+Non-sortable pinned folder display (used in contexts without drag-and-drop).
 
 ---
 
 ## UI Components
 
-### ViewToggle.tsx
+### LiveIndicator.tsx
 
-**File**: `src/components/ViewToggle.tsx` (65 lines)
+**File**: `src/components/ui/LiveIndicator.tsx`
 
-Three-way toggle for view modes.
+Pulsing dot indicator for active/running state.
 
-```typescript
-type ViewMode = "tree" | "board" | "docs";
-```
+### ThemeToggle.tsx
+
+**File**: `src/components/ThemeToggle.tsx`
+
+Toggle between light and dark themes.
+
+### ThemeProvider.tsx
+
+**File**: `src/components/ThemeProvider.tsx`
+
+Theme context provider for the application.
 
 ### PlanEditor.tsx
 
-**File**: `src/components/PlanEditor.tsx` (166 lines)
+**File**: `src/components/PlanEditor.tsx`
 
 MDXEditor wrapper for plan markdown.
 
@@ -492,100 +394,24 @@ MDXEditor wrapper for plan markdown.
 - linkDialogPlugin
 - toolbarPlugin
 
-### NewDraftCard.tsx
-
-**File**: `src/components/NewDraftCard.tsx` (143 lines)
-
-Input field for creating new drafts.
-
-**Features**
-
-- Auto-expand textarea
-- Submit on Enter (Shift+Enter for newline)
-- Refine and Reference buttons
-
 ---
 
 ## Hooks
-
-### useSessions.ts
-
-```typescript
-function useSessions(scope?: string) {
-  const { data, error, mutate } = useSWR(
-    `/api/sessions?scope=${scope}&mode=exact`,
-    fetcher,
-    {
-      refreshInterval: 5000,
-      keepPreviousData: true,  // Prevents loading flash
-    }
-  );
-
-  return {
-    sessions: data?.sessions ?? [],
-    counts: data?.counts,
-    isLoading: !error && !data,
-    mutate,
-  };
-}
-```
-
-### useTreeSessions.ts
-
-```typescript
-function useTreeSessions(scope?: string) {
-  const { data, error, mutate } = useSWR(
-    `/api/sessions?scope=${scope}&mode=tree`,
-    fetcher,
-    {
-      refreshInterval: 5000,
-      keepPreviousData: true,
-    }
-  );
-
-  return {
-    sessions: data?.sessions ?? [],
-    tree: data?.tree,
-    isLoading: !error && !data,
-    mutate,
-  };
-}
-```
-
-### useInboxItems.ts
-
-```typescript
-function useInboxItems(scope?: string) {
-  const { data, mutate } = useSWR(
-    `/api/inbox?scope=${scope}`,
-    fetcher,
-    { refreshInterval: 5000 }
-  );
-
-  return {
-    items: data?.items ?? [],
-    sections: data?.sections ?? [],
-    mutate,
-  };
-}
-```
 
 ### usePinnedFolders.ts
 
 ```typescript
 function usePinnedFolders() {
-  // Lazy initializer for localStorage hydration
-  const [folders, setFolders] = useState<string[]>(() => {
-    if (typeof window === "undefined") return [];
-    const stored = localStorage.getItem("pinned-folders");
-    return stored ? JSON.parse(stored) : [];
-  });
-
-  const addFolder = (path: string) => { ... };
-  const removeFolder = (path: string) => { ... };
-  const reorderFolders = (newOrder: string[]) => { ... };
-
-  return { folders, addFolder, removeFolder, reorderFolders };
+  // Server-persisted pinned folders with optimistic updates
+  return {
+    folders: PinnedFolder[],
+    isPinned: (path: string) => boolean,
+    togglePin: (path: string) => void,
+    unpinFolder: (id: string) => void,
+    reorderFolders: (activeId: string, overId: string) => void,
+    setEmoji: (id: string, emoji: string | null) => Promise<void>,
+    isHydrated: boolean,
+  };
 }
 ```
 
@@ -593,19 +419,38 @@ function usePinnedFolders() {
 
 ```typescript
 function useSidebarState() {
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("sidebar-collapsed") === "true";
-  });
-
-  // Persist on change
-  useEffect(() => {
-    localStorage.setItem("sidebar-collapsed", String(collapsed));
-  }, [collapsed]);
-
-  return [collapsed, setCollapsed] as const;
+  // localStorage-persisted sidebar collapsed state
+  return {
+    isCollapsed: boolean,
+    toggle: () => void,
+    isHydrated: boolean,
+  };
 }
 ```
+
+### useBridgeProjects.ts
+
+Hook for fetching and managing Bridge project data.
+
+### useBridgeWeekly.ts
+
+Hook for fetching weekly task data for the Bridge view.
+
+### useClaudeStack.ts
+
+Hook for fetching Claude configuration stack data (CLAUDE.md files, MCP servers, plugins).
+
+### useDocs.ts
+
+Hook for fetching documentation file trees and content.
+
+### useEventSocket.ts
+
+Hook for WebSocket-based real-time event updates.
+
+### useTheme.ts
+
+Hook for theme state management (light/dark mode).
 
 ---
 
@@ -613,37 +458,39 @@ function useSidebarState() {
 
 ### Color Palette
 
-| Color | Usage |
-|-------|-------|
-| `zinc-900` | Background |
-| `zinc-800` | Card background |
-| `zinc-700` | Borders, dividers |
-| `zinc-400` | Secondary text |
-| `zinc-200` | Primary text |
-| `emerald-500` | Active/running states |
-| `blue-500` | Selected, To Do column |
-| `red-500` | Errors, destructive actions |
+Uses CSS custom properties for theme support:
 
-### Card States
+| Variable | Usage |
+|----------|-------|
+| `--bg-primary` | Main background |
+| `--bg-secondary` | Toolbar/sidebar background |
+| `--bg-tertiary` | Input/hover background |
+| `--bg-elevated` | Cards, popovers |
+| `--border-default` | Standard borders |
+| `--text-primary` | Primary text |
+| `--text-secondary` | Secondary text |
+| `--text-tertiary` | Muted/placeholder text |
+| `--interactive-default` | Focus rings, active elements |
+| `--status-todo` | To Do badge color (blue) |
+| `--status-active` | Active badge color (green) |
+
+### Common Patterns
 
 ```css
-/* Default */
-.card { @apply bg-zinc-800 border-zinc-700; }
+/* Card/panel background */
+.panel { background: var(--bg-elevated); border: 1px solid var(--border-default); }
 
-/* Selected */
-.card-selected { @apply border-blue-500/50 bg-blue-500/5; }
+/* Interactive hover */
+.interactive:hover { background: var(--bg-tertiary); color: var(--text-primary); }
 
-/* Active/Running */
-.card-active { @apply border-emerald-500/20 bg-emerald-500/5; }
-
-/* New (fading) */
-.card-new { @apply ring-2 ring-emerald-500/30 shadow-emerald-500/20; }
+/* Active/selected state */
+.active { background: var(--bg-tertiary); color: var(--text-primary); }
 ```
 
 ### Responsive Breakpoints
 
-Not heavily used - designed for desktop/laptop screens.
+Not heavily used -- designed for desktop/laptop screens. The `sm:` breakpoint is used sparingly (e.g., hiding view toggle labels on narrow screens).
 
 ---
 
-*Last updated: 2025-01-06*
+*Last updated: 2026-02-05*

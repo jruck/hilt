@@ -2,13 +2,6 @@
  * Watchers - File system watchers for real-time updates
  */
 
-export { SessionWatcher, getSessionWatcher } from "./session-watcher";
-export type {
-  SessionCreatedEvent,
-  SessionUpdatedEvent,
-  SessionDeletedEvent,
-} from "./session-watcher";
-
 export { ScopeWatcher, getScopeWatcher } from "./scope-watcher";
 export type {
   TreeChangedEvent,

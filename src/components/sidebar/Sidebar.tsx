@@ -16,9 +16,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useSidebarState } from "@/hooks/useSidebarState";
-import { SessionsResponse } from "@/lib/types";
 import { PinnedFolder } from "@/lib/pinned-folders";
-import { needsAttention } from "@/lib/session-status";
 import { SidebarToggle } from "./SidebarToggle";
 import { SidebarSection } from "./SidebarSection";
 import { SortablePinnedFolderItem } from "./SortablePinnedFolderItem";
@@ -41,20 +39,11 @@ interface SidebarProps {
 
 /**
  * Main collapsible sidebar with pinned folders
- * Fetches its own session data (unscoped) to compute counts across all pinned folders
+ * Fetches inbox counts for pinned folders
  */
 export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarProps) {
   const { isCollapsed, toggle, isHydrated: sidebarHydrated } = useSidebarState();
   const { folders, unpinFolder, reorderFolders, setEmoji, isHydrated: foldersHydrated } = pinnedFolders;
-
-  // Fetch ALL sessions (no scope filter) so we can count across all pinned folders
-  // Use longer refresh interval (10s) since sidebar counts are less time-critical
-  const { data: sessionsData } = useSWR<SessionsResponse>(
-    '/api/sessions?page=1&pageSize=500',
-    fetcher,
-    { refreshInterval: 10000 }
-  );
-  const allSessions = sessionsData?.sessions ?? [];
 
   // Fetch inbox counts for all pinned folders
   const folderPaths = folders.map(f => f.path).join(',');
@@ -73,43 +62,17 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarP
     })
   );
 
-  // Compute counts per pinned folder from ALL sessions + inbox counts
-  // - inboxCount: from batch API for each folder's Todo.md
-  // - activeCount: sessions with status "active" that don't need attention
-  // - reviewCount: sessions with status "active" that need attention (Review column)
-  // - hasRunning: any running sessions in this folder
+  // Compute counts per pinned folder from inbox counts
   const folderStats = useMemo(() => {
-    const stats: Record<string, { inboxCount: number; activeCount: number; reviewCount: number; hasRunning: boolean }> = {};
+    const stats: Record<string, { inboxCount: number }> = {};
 
     for (const folder of folders) {
-      let activeCount = 0;
-      let reviewCount = 0;
-      let hasRunning = false;
-
-      // Count active sessions in this exact folder (not subfolders)
-      for (const session of allSessions) {
-        if (session.projectPath === folder.path && session.status === "active") {
-          // Check if session needs attention (goes in Review column)
-          const sessionNeedsAttention = session.derivedState && needsAttention(session.derivedState.status);
-          if (sessionNeedsAttention) {
-            reviewCount++;
-          } else {
-            activeCount++;
-          }
-          if (session.isRunning) {
-            hasRunning = true;
-          }
-        }
-      }
-
-      // Get inbox count from batch API response
       const inboxCount = inboxCounts[folder.path] ?? 0;
-
-      stats[folder.id] = { inboxCount, activeCount, reviewCount, hasRunning };
+      stats[folder.id] = { inboxCount };
     }
 
     return stats;
-  }, [folders, allSessions, inboxCounts]);
+  }, [folders, inboxCounts]);
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -164,15 +127,15 @@ export function Sidebar({ currentScope, onScopeChange, pinnedFolders }: SidebarP
                 strategy={verticalListSortingStrategy}
               >
                 {folders.map((folder) => {
-                  const stats = folderStats[folder.id] || { inboxCount: 0, activeCount: 0, reviewCount: 0, hasRunning: false };
+                  const stats = folderStats[folder.id] || { inboxCount: 0 };
                   return (
                     <SortablePinnedFolderItem
                       key={folder.id}
                       folder={folder}
                       inboxCount={stats.inboxCount}
-                      activeCount={stats.activeCount}
-                      reviewCount={stats.reviewCount}
-                      hasRunning={stats.hasRunning}
+                      activeCount={0}
+                      reviewCount={0}
+                      hasRunning={false}
                       isActive={currentScope === folder.path}
                       onClick={() => onScopeChange(folder.path)}
                       onUnpin={() => unpinFolder(folder.id)}

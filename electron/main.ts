@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { spawn, ChildProcess } from "child_process";
@@ -6,13 +6,6 @@ import { spawn, ChildProcess } from "child_process";
 // Set DATA_DIR to Electron's userData path before anything else
 const DATA_DIR = path.join(app.getPath("userData"), "data");
 process.env.DATA_DIR = DATA_DIR;
-
-// These modules are loaded dynamically at runtime after DATA_DIR is set
-// They're outside the electron/ directory so we use require() instead of import
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let ptyManager: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let getSessionById: any = null;
 
 const PLANS_DIR = path.join(process.env.HOME || "~", ".claude", "plans");
 
@@ -52,72 +45,6 @@ function flushPendingStartupActivities() {
     }
     pendingStartupActivities.length = 0;
   }
-}
-
-// Track which IPC clients are connected to which terminals
-const ipcToTerminal = new Map<number, string>();
-const terminalToIpc = new Map<string, Set<number>>();
-// Track last known title per terminal
-const terminalTitles = new Map<string, string>();
-// Track last known context progress per terminal (0-100)
-const terminalContextProgress = new Map<string, number>();
-
-/**
- * Parse OSC sequences to extract terminal title changes
- */
-function extractTitle(data: string): string | null {
-  const oscRegex = /\x1b\]([012]);([^\x07\x1b]*?)(?:\x07|\x1b\\)/g;
-  let lastTitle: string | null = null;
-  let match;
-
-  while ((match = oscRegex.exec(data)) !== null) {
-    const code = match[1];
-    const title = match[2].trim();
-    if ((code === "0" || code === "2") && isClaudeStatusTitle(title)) {
-      lastTitle = title;
-    }
-  }
-
-  return lastTitle;
-}
-
-/**
- * Check if a title looks like a Claude Code status (not a shell command)
- */
-function isClaudeStatusTitle(title: string): boolean {
-  if (!title || title.length === 0) return false;
-  if (title.startsWith("claude")) return false;
-  if (title.startsWith("zsh")) return false;
-  if (title.startsWith("bash")) return false;
-  if (title.startsWith("/")) return false;
-  if (title.startsWith("~")) return false;
-  if (title.includes("--")) return false;
-  if (/^[a-f0-9-]{20,}$/i.test(title)) return false;
-  if (title.includes(" ") && title.length < 100) return true;
-  if (title.length < 30 && /^[a-z][a-z\s]+$/i.test(title)) return true;
-  return false;
-}
-
-/**
- * Extract context percentage from terminal output
- */
-function extractContextProgress(data: string): number | null {
-  const patterns = [
-    /(\d+(?:\.\d+)?)\s*%\s*context/i,
-    /context[:\s]+(\d+(?:\.\d+)?)\s*%/i,
-    /(\d+(?:\.\d+)?)\s*%\s*used/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = data.match(pattern);
-    if (match) {
-      const value = parseFloat(match[1]);
-      if (value >= 0 && value <= 100) {
-        return Math.round(value);
-      }
-    }
-  }
-  return null;
 }
 
 /**
@@ -455,218 +382,6 @@ async function createWindow() {
     detail: DATA_DIR,
   });
 
-  // Load modules - in development, tsx handles TypeScript compilation
-  // In production, we need to use the bundled/compiled versions
-  const isPackaged = app.isPackaged;
-
-  sendStartupActivity({
-    id: "load-modules",
-    label: "Loading PTY manager",
-    status: "active",
-  });
-
-  if (isPackaged) {
-    // Production: use the standalone server's compiled modules
-    // The pty-manager runs in the main electron process, so we need it here
-    // For production, we inline a simple pty-manager implementation
-    const ptyLib = require("node-pty");
-    const { EventEmitter } = require("events");
-
-    class PtyManager extends EventEmitter {
-      private terminals: Map<string, { id: string; sessionId: string; pty: any; projectPath: string }> = new Map();
-      private lastSpawnTime: Map<string, number> = new Map();
-
-      spawn(terminalId: string, sessionId: string, projectPath: string, isNew?: boolean, initialPrompt?: string) {
-        // Debounce rapid re-spawns (within 500ms)
-        const now = Date.now();
-        const lastSpawn = this.lastSpawnTime.get(terminalId);
-        if (lastSpawn && now - lastSpawn < 500) {
-          console.log(`Debouncing rapid spawn for ${terminalId} (last spawn ${now - lastSpawn}ms ago)`);
-          const existing = this.terminals.get(terminalId);
-          if (existing) {
-            return existing;
-          }
-        }
-        this.lastSpawnTime.set(terminalId, now);
-
-        if (this.terminals.has(terminalId)) {
-          this.kill(terminalId);
-        }
-
-        let cwd = projectPath || process.env.HOME || "/";
-        try {
-          if (!fs.existsSync(cwd)) {
-            cwd = process.env.HOME || "/";
-          }
-        } catch {
-          cwd = process.env.HOME || "/";
-        }
-
-        console.log(`Spawning terminal ${terminalId} for session ${sessionId} in ${cwd}`);
-
-        const shell = process.env.SHELL || "/bin/zsh";
-        const ptyProcess = ptyLib.spawn(shell, [], {
-          name: "xterm-256color",
-          cols: 80,
-          rows: 24,
-          cwd,
-          env: {
-            ...process.env,
-            TERM: "xterm-256color",
-            COLORTERM: "truecolor",
-            FORCE_COLOR: "3",
-          },
-        });
-
-        const session = { id: terminalId, sessionId, pty: ptyProcess, projectPath };
-        this.terminals.set(terminalId, session);
-
-        let promptSent = false;
-        let watchingForReady = false;
-        let outputBuffer = "";
-
-        ptyProcess.onData((data: string) => {
-          this.emit("data", terminalId, data);
-
-          if (isNew && initialPrompt && !promptSent && watchingForReady) {
-            outputBuffer += data;
-            const hasClaudeCode = outputBuffer.includes("Claude") || outputBuffer.includes("claude");
-            const hasBoxChars = outputBuffer.includes("╭") || outputBuffer.includes("╰") || outputBuffer.includes("│");
-            const hasPromptChar = outputBuffer.includes(">") && outputBuffer.length > 100;
-            const isReady = (hasClaudeCode && hasBoxChars) || (hasPromptChar && outputBuffer.length > 300) || outputBuffer.includes("Press Enter");
-
-            if (isReady) {
-              promptSent = true;
-              setTimeout(() => {
-                const usesBracketedPaste = initialPrompt.includes("\n") || initialPrompt.length > 200;
-                if (usesBracketedPaste) {
-                  ptyProcess.write("\x1b[200~");
-                  ptyProcess.write(initialPrompt);
-                  ptyProcess.write("\x1b[201~");
-                } else {
-                  ptyProcess.write(initialPrompt);
-                }
-                const enterDelay = Math.min(500, 100 + Math.floor(initialPrompt.length / 100) * 50);
-                setTimeout(() => ptyProcess.write("\r"), enterDelay);
-              }, 200);
-            }
-          }
-        });
-
-        ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
-          this.emit("exit", terminalId, exitCode);
-          this.terminals.delete(terminalId);
-        });
-
-        setTimeout(() => {
-          if (isNew && initialPrompt) {
-            ptyProcess.write(`claude\r`);
-            setTimeout(() => {
-              outputBuffer = "";
-              watchingForReady = true;
-            }, 1500);
-            setTimeout(() => {
-              if (!promptSent) {
-                promptSent = true;
-                const usesBracketedPaste = initialPrompt.includes("\n") || initialPrompt.length > 200;
-                if (usesBracketedPaste) {
-                  ptyProcess.write("\x1b[200~");
-                  ptyProcess.write(initialPrompt);
-                  ptyProcess.write("\x1b[201~");
-                } else {
-                  ptyProcess.write(initialPrompt);
-                }
-                setTimeout(() => ptyProcess.write("\r"), 200);
-              }
-            }, 10000);
-          } else {
-            ptyProcess.write(`claude --resume ${sessionId}\r`);
-          }
-        }, 200);
-
-        return session;
-      }
-
-      write(terminalId: string, data: string): boolean {
-        const session = this.terminals.get(terminalId);
-        if (!session) return false;
-        try {
-          session.pty.write(data);
-          return true;
-        } catch {
-          return false;
-        }
-      }
-
-      resize(terminalId: string, cols: number, rows: number): boolean {
-        const session = this.terminals.get(terminalId);
-        if (!session) return false;
-        try {
-          session.pty.resize(cols, rows);
-          return true;
-        } catch {
-          return false;
-        }
-      }
-
-      kill(terminalId: string): boolean {
-        const session = this.terminals.get(terminalId);
-        if (!session) return false;
-        try {
-          session.pty.kill();
-        } catch {}
-        this.terminals.delete(terminalId);
-        return true;
-      }
-
-      get(terminalId: string) {
-        return this.terminals.get(terminalId);
-      }
-
-      getAll() {
-        return Array.from(this.terminals.values());
-      }
-
-      has(terminalId: string): boolean {
-        return this.terminals.has(terminalId);
-      }
-    }
-
-    ptyManager = new PtyManager();
-
-    // For getSessionById, we read JSONL files directly in production
-    getSessionById = async (sessionId: string) => {
-      const claudeDir = path.join(process.env.HOME || "~", ".claude", "projects");
-      try {
-        const folders = fs.readdirSync(claudeDir, { withFileTypes: true }).filter(d => d.isDirectory());
-        for (const folder of folders) {
-          const sessionFile = path.join(claudeDir, folder.name, `${sessionId}.jsonl`);
-          if (fs.existsSync(sessionFile)) {
-            // Decode the folder name to get projectPath
-            const projectPath = decodeURIComponent(folder.name).replace(/-/g, "/");
-            return { id: sessionId, projectPath: `/${projectPath}` };
-          }
-        }
-      } catch {}
-      return null;
-    };
-  } else {
-    // Development: tsx handles TypeScript compilation
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const ptyModule = require("../src/lib/pty-manager.ts");
-    ptyManager = ptyModule.ptyManager;
-
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const sessionsModule = require("../src/lib/claude-sessions.ts");
-    getSessionById = sessionsModule.getSessionById;
-  }
-
-  sendStartupActivity({
-    id: "load-modules",
-    label: "Loading PTY manager",
-    status: "complete",
-  });
-
   // Start the Next.js server
   console.log("Starting Next.js server...");
   const port = await startNextServer();
@@ -789,128 +504,8 @@ async function createWindow() {
     mainWindow = null;
   });
 
-  // Setup IPC handlers
-  setupIpcHandlers();
-
   // Setup plan file watcher
   setupPlanWatcher();
-}
-
-/**
- * Setup IPC handlers for PTY communication
- */
-function setupIpcHandlers() {
-  // Get window ID from sender
-  const getWindowId = (event: Electron.IpcMainInvokeEvent): number => {
-    return event.sender.id;
-  };
-
-  // Handle spawn requests
-  ipcMain.handle("pty:spawn", async (event, data) => {
-    const { terminalId, sessionId, projectPath, isNew, initialPrompt } = data;
-    const windowId = getWindowId(event);
-
-    if (!terminalId || !sessionId) {
-      return { error: "Missing terminalId or sessionId" };
-    }
-
-    if (!ptyManager) {
-      return { error: "PTY manager not initialized" };
-    }
-
-    let resolvedPath = projectPath;
-    if (!resolvedPath && !isNew) {
-      const session = await getSessionById(sessionId);
-      resolvedPath = session?.projectPath || process.env.HOME || "/";
-    }
-    resolvedPath = resolvedPath || process.env.HOME || "/";
-
-    ptyManager.spawn(terminalId, sessionId, resolvedPath, isNew, initialPrompt);
-
-    ipcToTerminal.set(windowId, terminalId);
-    if (!terminalToIpc.has(terminalId)) {
-      terminalToIpc.set(terminalId, new Set());
-    }
-    terminalToIpc.get(terminalId)!.add(windowId);
-
-    return { success: true, terminalId };
-  });
-
-  // Handle data writes
-  ipcMain.handle("pty:write", async (_event, data) => {
-    const { terminalId, data: inputData } = data;
-    if (!terminalId || inputData === undefined) return { error: "Missing data" };
-    ptyManager.write(terminalId, inputData);
-    return { success: true };
-  });
-
-  // Handle resize
-  ipcMain.handle("pty:resize", async (_event, data) => {
-    const { terminalId, cols, rows } = data;
-    if (!terminalId || !cols || !rows) return { error: "Missing dimensions" };
-    ptyManager.resize(terminalId, cols, rows);
-    return { success: true };
-  });
-
-  // Handle kill
-  ipcMain.handle("pty:kill", async (event, data) => {
-    const { terminalId } = data;
-    const windowId = getWindowId(event);
-
-    if (!terminalId) return { error: "Missing terminalId" };
-
-    ptyManager.kill(terminalId);
-
-    // Clean up tracking
-    ipcToTerminal.delete(windowId);
-    const ipcSet = terminalToIpc.get(terminalId);
-    if (ipcSet) {
-      ipcSet.delete(windowId);
-      if (ipcSet.size === 0) {
-        terminalToIpc.delete(terminalId);
-      }
-    }
-    terminalTitles.delete(terminalId);
-    terminalContextProgress.delete(terminalId);
-
-    return { success: true };
-  });
-
-  // Forward PTY data to renderer
-  if (!ptyManager) {
-    return;
-  }
-
-  ptyManager.on("data", (terminalId: string, data: string) => {
-    if (!mainWindow) return;
-
-    // Check for title changes
-    const newTitle = extractTitle(data);
-    if (newTitle && newTitle !== terminalTitles.get(terminalId)) {
-      terminalTitles.set(terminalId, newTitle);
-      mainWindow.webContents.send("pty:title", { terminalId, title: newTitle });
-    }
-
-    // Check for context progress
-    const newProgress = extractContextProgress(data);
-    if (newProgress !== null && newProgress !== terminalContextProgress.get(terminalId)) {
-      terminalContextProgress.set(terminalId, newProgress);
-      mainWindow.webContents.send("pty:context", { terminalId, progress: newProgress });
-    }
-
-    // Forward data
-    mainWindow.webContents.send("pty:data", { terminalId, data });
-  });
-
-  // Forward PTY exit events
-  ptyManager.on("exit", (terminalId: string, exitCode: number) => {
-    if (mainWindow) {
-      mainWindow.webContents.send("pty:exit", { terminalId, exitCode });
-    }
-    terminalToIpc.delete(terminalId);
-    terminalTitles.delete(terminalId);
-    terminalContextProgress.delete(terminalId);
-  });
 }
 
 /**
@@ -943,7 +538,7 @@ async function setupPlanWatcher() {
       try {
         const content = fs.readFileSync(filePath, "utf-8");
         if (mainWindow) {
-          mainWindow.webContents.send("pty:plan", {
+          mainWindow.webContents.send("plan:created", {
             event: "created",
             slug,
             path: filePath,
@@ -962,7 +557,7 @@ async function setupPlanWatcher() {
       try {
         const content = fs.readFileSync(filePath, "utf-8");
         if (mainWindow) {
-          mainWindow.webContents.send("pty:plan", {
+          mainWindow.webContents.send("plan:updated", {
             event: "updated",
             slug,
             path: filePath,
@@ -999,13 +594,6 @@ app.on("window-all-closed", () => {
   // Clean up plan watcher
   if (plansWatcher) {
     plansWatcher.close();
-  }
-
-  // Kill all terminals
-  if (ptyManager) {
-    ptyManager.getAll().forEach((session: { id: string }) => {
-      ptyManager.kill(session.id);
-    });
   }
 
   if (process.platform !== "darwin") {

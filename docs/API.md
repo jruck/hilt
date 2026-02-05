@@ -2,81 +2,6 @@
 
 All API routes are Next.js App Router API routes under `src/app/api/`.
 
-## Sessions
-
-**File**: `src/app/api/sessions/route.ts`
-
-### GET /api/sessions
-
-List and filter sessions with optional tree structure.
-
-**Query Parameters**
-
-| Param | Type | Default | Description |
-|-------|------|---------|-------------|
-| `scope` | string | - | Filter by project path |
-| `mode` | `"exact"` \| `"tree"` | `"exact"` | Filtering mode |
-| `page` | number | 1 | Pagination page |
-| `pageSize` | number | 50 | Items per page |
-
-**Mode Behavior**
-- `exact`: Only sessions where `projectPath === scope`
-- `tree`: All sessions where `projectPath.startsWith(scope)` (includes subfolders)
-
-**Response**
-
-```typescript
-{
-  sessions: Session[];
-  total: number;
-  page: number;
-  pageSize: number;
-  counts: {
-    inbox: number;
-    active: number;
-    recent: number;
-  };
-  tree?: TreeNode;  // Only when mode=tree
-}
-```
-
-**Example**
-
-```bash
-curl "http://localhost:3000/api/sessions?scope=/Users/jruck/Work/Code/myproject&mode=exact"
-```
-
-### PATCH /api/sessions
-
-Update session status, sort order, or starred state.
-
-**Request Body**
-
-```typescript
-{
-  sessionId: string;       // Required
-  status?: "inbox" | "active" | "recent";
-  sortOrder?: number;
-  starred?: boolean;
-}
-```
-
-**Response**
-
-```typescript
-{ success: true }
-```
-
-**Example**
-
-```bash
-curl -X PATCH http://localhost:3000/api/sessions \
-  -H "Content-Type: application/json" \
-  -d '{"sessionId": "abc-123", "status": "active"}'
-```
-
----
-
 ## Inbox (Draft Prompts)
 
 **File**: `src/app/api/inbox/route.ts`
@@ -198,7 +123,7 @@ Browse project folders and validate paths.
 
 ### GET /api/folders
 
-List project folders that have Claude sessions.
+List project folders.
 
 **Query Parameters**
 
@@ -295,6 +220,438 @@ Write or update a plan file.
 
 ---
 
+## Bridge Routes
+
+Routes for the Bridge view, which manages weekly task lists and projects from an Obsidian vault.
+
+### GET /api/bridge/weekly
+
+**File**: `src/app/api/bridge/weekly/route.ts`
+
+Get the current (or specified) weekly list with tasks, notes, and metadata.
+
+**Query Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `week` | string | Optional. ISO date string (e.g., `2025-01-06`) to preview a specific week |
+
+**Response**
+
+```typescript
+{
+  tasks: BridgeTask[];
+  notes: string;
+  weekOf: string;
+  vaultPath: string;
+  filePath: string;
+  availableWeeks: string[];
+  latestWeek: string;
+}
+```
+
+### POST /api/bridge/tasks
+
+**File**: `src/app/api/bridge/tasks/route.ts`
+
+Add a new task to the current weekly list.
+
+**Request Body**
+
+```typescript
+{ title: string }
+```
+
+**Response**
+
+```typescript
+{ task: BridgeTask }
+```
+
+### PUT /api/bridge/tasks/[id]
+
+**File**: `src/app/api/bridge/tasks/[id]/route.ts`
+
+Update a task by ID. Supports toggling done, renaming, editing details, moving position, and assigning a project path.
+
+**Request Body**
+
+```typescript
+{
+  done?: boolean;
+  title?: string;
+  details?: string[];
+  moveTo?: "top" | "bottom";
+  projectPath?: string | null;
+}
+```
+
+**Response**
+
+```typescript
+{ tasks: BridgeTask[] }
+```
+
+### DELETE /api/bridge/tasks/[id]
+
+**File**: `src/app/api/bridge/tasks/[id]/route.ts`
+
+Delete a task by ID.
+
+**Response**
+
+```typescript
+{ ok: true }
+```
+
+### PUT /api/bridge/tasks/reorder
+
+**File**: `src/app/api/bridge/tasks/reorder/route.ts`
+
+Reorder tasks by providing the full ordered list of task IDs.
+
+**Request Body**
+
+```typescript
+{ order: string[] }
+```
+
+**Response**
+
+```typescript
+{ success: true }
+```
+
+### GET /api/bridge/projects
+
+**File**: `src/app/api/bridge/projects/route.ts`
+
+Get all projects parsed from the vault.
+
+**Response**
+
+```typescript
+BridgeProject[]
+```
+
+### PUT /api/bridge/projects/status
+
+**File**: `src/app/api/bridge/projects/status/route.ts`
+
+Update a project's status.
+
+**Request Body**
+
+```typescript
+{
+  projectPath: string;
+  status: "considering" | "refining" | "doing" | "done";
+}
+```
+
+**Response**
+
+```typescript
+{ ok: true }
+```
+
+### PUT /api/bridge/notes
+
+**File**: `src/app/api/bridge/notes/route.ts`
+
+Update the notes section of the current weekly list.
+
+**Request Body**
+
+```typescript
+{ notes: string }
+```
+
+**Response**
+
+```typescript
+{ success: true }
+```
+
+### POST /api/bridge/upload
+
+**File**: `src/app/api/bridge/upload/route.ts`
+
+Upload a file (image, etc.) to a media directory within the vault. Uses multipart form data.
+
+**Form Fields**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `file` | File | The file to upload |
+| `scope` | string | Base vault path |
+| `fileDir` | string | Directory within scope for the media subfolder |
+
+**Response**
+
+```typescript
+{ relativePath: string }  // e.g., "media/screenshot.png"
+```
+
+### POST /api/bridge/recycle
+
+**File**: `src/app/api/bridge/recycle/route.ts`
+
+Create a new weekly list, optionally carrying over incomplete tasks from the current week.
+
+**Request Body**
+
+```typescript
+{
+  carry: string[];   // Task IDs to carry forward
+  newWeek: string;   // ISO date string for the new week
+}
+```
+
+**Response**
+
+```typescript
+{ filename: string }
+```
+
+---
+
+## Docs Routes
+
+Routes for the Docs view, which provides a file browser and editor for project files.
+
+### GET /api/docs/tree
+
+**File**: `src/app/api/docs/tree/route.ts`
+
+Build and return the file tree for a given scope directory.
+
+**Query Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `scope` | string | Required. Root directory path |
+
+**Response**
+
+```typescript
+{
+  root: FileNode;
+  scope: string;
+  modTime: number;
+}
+```
+
+### GET /api/docs/file
+
+**File**: `src/app/api/docs/file/route.ts`
+
+Read a file's content and metadata. Returns text content for viewable file types, null for binary files.
+
+**Query Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `path` | string | Required. Absolute file path |
+| `scope` | string | Required. Scope for path validation |
+
+**Response**
+
+```typescript
+{
+  path: string;
+  content: string | null;
+  isBinary: boolean;
+  isViewable: boolean;
+  mimeType: string;
+  size: number;
+  modTime: number;
+}
+```
+
+### PUT /api/docs/file
+
+Save content to a file. Only viewable (text) file types can be saved.
+
+**Request Body**
+
+```typescript
+{
+  path: string;
+  content: string;
+  scope: string;
+}
+```
+
+**Response**
+
+```typescript
+{ success: true; modTime: number }
+```
+
+### GET /api/docs/raw
+
+**File**: `src/app/api/docs/raw/route.ts`
+
+Serve a file's raw binary content with appropriate MIME type headers. Used for rendering images, PDFs, and other binary files in the browser.
+
+**Query Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `path` | string | Required. Absolute file path |
+| `scope` | string | Required. Scope for path validation |
+
+**Response**: Raw file bytes with `Content-Type` and `Cache-Control` headers.
+
+---
+
+## Stack Routes
+
+Routes for the Stack view, which inspects Claude configuration files (CLAUDE.md, settings, MCP configs) across system/user/project layers.
+
+### GET /api/claude-stack
+
+**File**: `src/app/api/claude-stack/route.ts`
+
+Discover the full Claude configuration stack for a given scope.
+
+**Query Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `scope` | string | Required. Project directory path |
+
+**Response**
+
+```typescript
+{ stack: ConfigStack }
+```
+
+### GET /api/claude-stack/file
+
+**File**: `src/app/api/claude-stack/file/route.ts`
+
+Read a specific configuration file's parsed content.
+
+**Query Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `path` | string | Required. Absolute path to the config file |
+| `scope` | string | Optional. Scope for stack-aware metadata lookup |
+
+**Response**
+
+```typescript
+{ file: ConfigFileContent }
+```
+
+### PUT /api/claude-stack/file
+
+Save content to a configuration file.
+
+**Request Body**
+
+```typescript
+{
+  path: string;
+  content: string;
+  createDirectories?: boolean;
+}
+```
+
+**Response**
+
+```typescript
+{ success: true }
+```
+
+### DELETE /api/claude-stack/file
+
+Delete a configuration file.
+
+**Query Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `path` | string | Required. Absolute path to the config file |
+
+**Response**
+
+```typescript
+{ success: true }
+```
+
+### PUT /api/claude-stack/mcp
+
+**File**: `src/app/api/claude-stack/mcp/route.ts`
+
+Toggle an MCP server's enabled state in `~/.claude/settings.json`.
+
+**Request Body**
+
+```typescript
+{
+  pluginId: string;
+  enabled: boolean;
+}
+```
+
+**Response**
+
+```typescript
+{ success: true; pluginId: string; enabled: boolean }
+```
+
+### POST /api/claude-stack/mcp
+
+Update a user-defined MCP server configuration in `~/.claude/.mcp.json`.
+
+**Request Body**
+
+```typescript
+{
+  serverName: string;
+  config: {
+    type?: string;
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
+    url?: string;
+    headers?: Record<string, string>;
+  };
+}
+```
+
+**Response**
+
+```typescript
+{ success: true; serverName: string }
+```
+
+---
+
+## Chat Config
+
+### GET /api/chat/config
+
+**File**: `src/app/api/chat/config/route.ts`
+
+Get OpenClaw gateway configuration for the chat interface. Reads from environment variables or `~/.openclaw/openclaw.json`.
+
+**Response**
+
+```typescript
+{
+  url: string;     // Gateway WebSocket URL
+  token: string;   // Auth token
+  agents: string[];
+}
+```
+
+---
+
 ## Utility Routes
 
 ### GET /api/cwd
@@ -343,9 +700,23 @@ Get inbox item counts grouped by scope.
 
 ```typescript
 {
-  counts: Record<string, number>;  // path → count
+  counts: Record<string, number>;  // path -> count
 }
 ```
+
+### GET /api/ws-port
+
+**File**: `src/app/api/ws-port/route.ts`
+
+Get the WebSocket server port. Reads from `~/.hilt-ws-port` file written by the event server on startup.
+
+**Response**
+
+```typescript
+{ port: number }
+```
+
+Returns `503` if the WebSocket server is not running.
 
 ---
 
@@ -373,7 +744,7 @@ Get all or specific preferences.
   sidebarCollapsed: boolean;
   theme: "light" | "dark" | "system";
   recentScopes: string[];
-  viewMode: "board" | "tree" | "docs";
+  viewMode: "docs" | "stack" | "bridge";
 }
 ```
 
@@ -524,94 +895,101 @@ Fetch transcript for a YouTube video.
 
 ---
 
-## WebSocket Protocol
+## WebSocket Protocol (EventServer)
 
-**Server**: `ws://localhost:3001` (configurable via `WS_PORT`)
+**Server**: `ws://localhost:{port}/events` (port discovered via `GET /api/ws-port`)
 
-**File**: `server/ws-server.ts`
+**Files**: `server/event-server.ts`, `server/ws-server.ts`
 
-### Client → Server Messages
+The EventServer provides a channel-based pub/sub system for real-time updates. Clients subscribe to channels with optional filtering parameters (e.g., scope) and receive broadcast events when watched resources change.
 
-**Spawn Terminal**
+### Client -> Server Messages
+
+**Subscribe**
 ```typescript
 {
-  type: "spawn";
-  terminalId: string;   // Stable ID for terminal tracking
-  sessionId: string;    // Claude session UUID
-  projectPath?: string; // Working directory
-  isNew?: boolean;      // Start new session vs resume
-  initialPrompt?: string; // Auto-inject prompt for new sessions
+  type: "subscribe";
+  channel: string;               // Channel name (see below)
+  params?: Record<string, unknown>;  // Filtering params (e.g., { scope: "/path" })
 }
 ```
 
-**Send Input**
+**Unsubscribe**
 ```typescript
 {
-  type: "data";
-  terminalId: string;
-  data: string;  // Keystrokes/input
+  type: "unsubscribe";
+  channel: string;
 }
 ```
 
-**Resize Terminal**
+**Ping**
 ```typescript
-{
-  type: "resize";
-  terminalId: string;
-  cols: number;
-  rows: number;
-}
+{ type: "ping" }
 ```
 
-**Kill Terminal**
+### Server -> Client Messages
+
+**Connected** (sent on connection)
 ```typescript
-{
-  type: "kill";
-  terminalId: string;
-}
+{ type: "connected"; clientId: string }
 ```
 
-### Server → Client Messages
-
-**Spawned**
+**Subscribed** (acknowledgment)
 ```typescript
-{ type: "spawned"; terminalId: string }
+{ type: "subscribed"; channel: string }
 ```
 
-**Data Output**
+**Unsubscribed** (acknowledgment)
 ```typescript
-{ type: "data"; terminalId: string; data: string }
+{ type: "unsubscribed"; channel: string }
 ```
 
-**Title Change** (from OSC sequences)
+**Pong**
 ```typescript
-{ type: "title"; terminalId: string; title: string }
-```
-
-**Context Progress**
-```typescript
-{ type: "context"; terminalId: string; progress: number }
-```
-
-**Exit**
-```typescript
-{ type: "exit"; terminalId: string; exitCode: number }
-```
-
-**Plan Events** (file watcher)
-```typescript
-{
-  type: "plan";
-  event: "created" | "updated";
-  slug: string;
-  path: string;
-  content: string;
-}
+{ type: "pong" }
 ```
 
 **Error**
 ```typescript
 { type: "error"; message: string }
+```
+
+**Event Broadcast** (data push to subscribers)
+```typescript
+{
+  channel: string;
+  event: string;
+  data: unknown;
+}
+```
+
+### Channels
+
+| Channel | Params | Events | Description |
+|---------|--------|--------|-------------|
+| `tree` | `{ scope: string }` | `changed` | File tree structure changed (file add/remove/rename) |
+| `file` | `{ scope: string }` | `changed` | File content changed within scope |
+| `inbox` | `{ scope: string }` | `changed` | Todo.md file changed within scope |
+| `bridge` | *(none)* | `weekly-changed`, `projects-changed` | Vault weekly list or project files changed |
+
+### Client Usage (React Hook)
+
+```typescript
+const { connected, subscribe, unsubscribe, on } = useEventSocket();
+
+useEffect(() => {
+  if (!connected) return;
+
+  subscribe("tree", { scope: "/path/to/project" });
+  const unsub = on("tree", "changed", (data) => {
+    // Refresh tree data
+  });
+
+  return () => {
+    unsub();
+    unsubscribe("tree");
+  };
+}, [connected]);
 ```
 
 ---
@@ -628,8 +1006,11 @@ All routes return errors in this format:
 
 Common HTTP status codes:
 - `400` - Bad request (missing/invalid parameters)
+- `403` - Forbidden (path traversal, permission denied)
+- `404` - Not found
 - `500` - Server error
+- `503` - Service unavailable (e.g., WebSocket server not running)
 
 ---
 
-*Last updated: 2025-01-06*
+*Last updated: 2025-02-05*

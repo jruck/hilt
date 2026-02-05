@@ -7,7 +7,7 @@
  *      /sessions/Users/jruck/work/bridge
  */
 
-export const VIEW_PREFIXES = ["bridge", "docs", "stack", "sessions"] as const;
+export const VIEW_PREFIXES = ["bridge", "docs", "stack"] as const;
 export type ViewPrefix = (typeof VIEW_PREFIXES)[number];
 
 export function isViewPrefix(s: string): s is ViewPrefix {

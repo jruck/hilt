@@ -1,15 +1,9 @@
-import { WebSocketServer, WebSocket } from "ws";
 import * as path from "path";
 import * as fs from "fs";
 import * as http from "http";
-import { ptyManager } from "../src/lib/pty-manager";
-import { getRegisteredSession } from "../src/lib/db";
 import { EventServer } from "./event-server";
-import { getSessionWatcher, getScopeWatcher, getInboxWatcher, getBridgeWatcher } from "./watchers";
+import { getScopeWatcher, getInboxWatcher, getBridgeWatcher } from "./watchers";
 import type {
-  SessionCreatedEvent,
-  SessionUpdatedEvent,
-  SessionDeletedEvent,
   TreeChangedEvent,
   FileChangedEvent,
   InboxChangedEvent,
@@ -18,7 +12,6 @@ import type {
 const PREFERRED_PORT = parseInt(process.env.WS_PORT || "3001", 10);
 const PORT_FILE = path.join(process.env.HOME || "~", ".hilt-ws-port");
 const LOCK_FILE = path.join(process.env.HOME || "~", ".hilt-server.lock");
-const PLANS_DIR = path.join(process.env.HOME || "~", ".claude", "plans");
 
 /**
  * Check if a process with the given PID is running
@@ -68,18 +61,6 @@ function releaseLock(): void {
   }
 }
 
-interface WSMessage {
-  type: "spawn" | "data" | "resize" | "kill";
-  terminalId?: string;
-  sessionId?: string;
-  projectPath?: string;
-  isNew?: boolean;
-  initialPrompt?: string;
-  data?: string;
-  cols?: number;
-  rows?: number;
-}
-
 /**
  * Find an available port, starting with the preferred port
  */
@@ -116,109 +97,6 @@ function removePortFile(): void {
   }
 }
 
-// Track which WebSocket is connected to which terminal
-const wsToTerminal = new Map<WebSocket, string>();
-const terminalToWs = new Map<string, Set<WebSocket>>();
-// Track last known title per terminal
-const terminalTitles = new Map<string, string>();
-// Track last known context progress per terminal (0-100)
-const terminalContextProgress = new Map<string, number>();
-// Track Ralph loop iteration per terminal
-const terminalRalphIteration = new Map<string, { current: number; max: number }>();
-
-/**
- * Parse OSC sequences to extract terminal title changes
- */
-function extractTitle(data: string): string | null {
-  const oscRegex = /\x1b\]([012]);([^\x07\x1b]*?)(?:\x07|\x1b\\)/g;
-  let lastTitle: string | null = null;
-  let match;
-
-  while ((match = oscRegex.exec(data)) !== null) {
-    const code = match[1];
-    const title = match[2].trim();
-    if ((code === "0" || code === "2") && isClaudeStatusTitle(title)) {
-      lastTitle = title;
-    }
-  }
-
-  return lastTitle;
-}
-
-/**
- * Check if a title looks like a Claude Code status (not a shell command)
- */
-function isClaudeStatusTitle(title: string): boolean {
-  if (!title || title.length === 0) return false;
-  if (title.startsWith("claude")) return false;
-  if (title.startsWith("zsh")) return false;
-  if (title.startsWith("bash")) return false;
-  if (title.startsWith("/")) return false;
-  if (title.startsWith("~")) return false;
-  if (title.includes("--")) return false;
-  if (/^[a-f0-9-]{20,}$/i.test(title)) return false;
-  if (title.includes(" ") && title.length < 100) return true;
-  if (title.length < 30 && /^[a-z][a-z\s]+$/i.test(title)) return true;
-  return false;
-}
-
-/**
- * Extract context percentage from terminal output
- * Claude Code shows context usage like "85% context" or similar patterns
- */
-function extractContextProgress(data: string): number | null {
-  // Match patterns like "85% context", "85.5% context", "Context: 85%", etc.
-  const patterns = [
-    /(\d+(?:\.\d+)?)\s*%\s*context/i,
-    /context[:\s]+(\d+(?:\.\d+)?)\s*%/i,
-    /(\d+(?:\.\d+)?)\s*%\s*used/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = data.match(pattern);
-    if (match) {
-      const value = parseFloat(match[1]);
-      if (value >= 0 && value <= 100) {
-        return Math.round(value);
-      }
-    }
-  }
-  return null;
-}
-
-/**
- * Extract Ralph Wiggum loop iteration from terminal output
- * Returns [current, max] or null if not found
- */
-function extractRalphIteration(data: string): { current: number; max: number } | null {
-  // Common patterns Ralph might output
-  const patterns = [
-    /iteration\s+(\d+)\s*\/\s*(\d+)/i,
-    /loop\s+(\d+)\s*of\s*(\d+)/i,
-    /\[(\d+)\/(\d+)\]/,
-    /ralph.*?(\d+)\s*\/\s*(\d+)/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = data.match(pattern);
-    if (match) {
-      const current = parseInt(match[1], 10);
-      const max = parseInt(match[2], 10);
-      if (current > 0 && max > 0 && current <= max) {
-        return { current, max };
-      }
-    }
-  }
-  return null;
-}
-
-/**
- * Check if output indicates Ralph loop completion
- */
-function isRalphComplete(data: string): boolean {
-  return data.includes("RALPH_COMPLETE:");
-}
-
 async function startServer() {
   // Prevent multiple server instances
   if (!acquireLock()) {
@@ -240,45 +118,9 @@ async function startServer() {
     res.end();
   });
 
-  // Terminal WebSocket server (noServer mode for manual upgrade handling)
-  const wss = new WebSocketServer({ noServer: true });
-  console.log(`Terminal WebSocket server configured for path: /terminal`);
-
   // Event WebSocket server (noServer mode)
   const eventServer = new EventServer();
   console.log(`Event WebSocket server configured for path: /events`);
-
-  // Session watcher for real-time session updates
-  const sessionWatcher = getSessionWatcher();
-
-  // Connect session watcher events to EventServer broadcasts
-  sessionWatcher.on("session:created", (event: SessionCreatedEvent) => {
-    eventServer.broadcast("sessions", "created", {
-      sessionId: event.sessionId,
-      projectFolder: event.projectFolder,
-      derivedStatus: event.derivedStatus,
-    });
-  });
-
-  sessionWatcher.on("session:updated", (event: SessionUpdatedEvent) => {
-    eventServer.broadcast("sessions", "updated", {
-      sessionId: event.sessionId,
-      projectFolder: event.projectFolder,
-      derivedStatus: event.derivedStatus,
-      previousStatus: event.previousStatus,
-    });
-  });
-
-  sessionWatcher.on("session:deleted", (event: SessionDeletedEvent) => {
-    eventServer.broadcast("sessions", "deleted", {
-      sessionId: event.sessionId,
-      projectFolder: event.projectFolder,
-    });
-  });
-
-  // Start watching after server is ready
-  sessionWatcher.start();
-  console.log(`Session watcher started`);
 
   // Scope watcher for docs tree/file events (per-client subscription)
   const scopeWatcher = getScopeWatcher();
@@ -327,8 +169,6 @@ async function startServer() {
   });
 
   eventServer.on("subscription:removed", ({ clientId, channel, params }: { clientId: string; channel: string; params?: Record<string, unknown> }) => {
-    // When a client unsubscribes, we need to find the scope they were watching
-    // Note: params may not be available on unsubscribe, so we let the watcher handle cleanup via removeClient
     const scope = params?.scope as string | undefined;
     if (!scope) return;
 
@@ -364,11 +204,7 @@ async function startServer() {
   httpServer.on("upgrade", (request, socket, head) => {
     const pathname = request.url || "";
 
-    if (pathname === "/terminal" || pathname.startsWith("/terminal?")) {
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        wss.emit("connection", ws, request);
-      });
-    } else if (pathname === "/events" || pathname.startsWith("/events?")) {
+    if (pathname === "/events" || pathname.startsWith("/events?")) {
       eventServer.handleUpgrade(request, socket, head);
     } else {
       // Unknown path - destroy the socket
@@ -378,179 +214,7 @@ async function startServer() {
 
   httpServer.listen(port, () => {
     console.log(`HTTP server listening on port ${port}`);
-    console.log(`  Terminal WebSocket: ws://localhost:${port}/terminal`);
     console.log(`  Events WebSocket: ws://localhost:${port}/events`);
-  });
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let plansWatcher: any = null;
-
-  wss.on("connection", (ws) => {
-    console.log("Client connected");
-
-    ws.on("message", async (message) => {
-      try {
-        const msg: WSMessage = JSON.parse(message.toString());
-
-        switch (msg.type) {
-          case "spawn": {
-            if (!msg.terminalId || !msg.sessionId) {
-              ws.send(
-                JSON.stringify({ type: "error", message: "Missing terminalId or sessionId" })
-              );
-              return;
-            }
-
-            let projectPath = msg.projectPath;
-            if (!projectPath && !msg.isNew) {
-              const registered = getRegisteredSession(msg.sessionId);
-              projectPath = registered?.projectPath || process.env.HOME || "/";
-            }
-            projectPath = projectPath || process.env.HOME || "/";
-
-            ptyManager.spawn(msg.terminalId, msg.sessionId, projectPath, msg.isNew, msg.initialPrompt);
-
-            wsToTerminal.set(ws, msg.terminalId);
-            if (!terminalToWs.has(msg.terminalId)) {
-              terminalToWs.set(msg.terminalId, new Set());
-            }
-            terminalToWs.get(msg.terminalId)!.add(ws);
-
-            ws.send(JSON.stringify({ type: "spawned", terminalId: msg.terminalId }));
-            break;
-          }
-
-          case "data": {
-            if (!msg.terminalId || msg.data === undefined) return;
-            ptyManager.write(msg.terminalId, msg.data);
-            break;
-          }
-
-          case "resize": {
-            if (!msg.terminalId || !msg.cols || !msg.rows) return;
-            ptyManager.resize(msg.terminalId, msg.cols, msg.rows);
-            break;
-          }
-
-          case "kill": {
-            if (!msg.terminalId) return;
-            ptyManager.kill(msg.terminalId);
-            ws.send(JSON.stringify({ type: "killed", terminalId: msg.terminalId }));
-            break;
-          }
-        }
-      } catch (err) {
-        console.error("Error processing message:", err);
-      }
-    });
-
-    ws.on("close", () => {
-      console.log("Client disconnected");
-      const terminalId = wsToTerminal.get(ws);
-      if (terminalId) {
-        wsToTerminal.delete(ws);
-        const wsSet = terminalToWs.get(terminalId);
-        if (wsSet) {
-          wsSet.delete(ws);
-          if (wsSet.size === 0) {
-            ptyManager.kill(terminalId);
-            terminalToWs.delete(terminalId);
-          }
-        }
-      }
-    });
-  });
-
-  // Forward PTY data to connected WebSockets
-  ptyManager.on("data", (terminalId: string, data: string) => {
-    const wsSet = terminalToWs.get(terminalId);
-    if (!wsSet) return;
-
-    // Check for title changes and forward to clients
-    const newTitle = extractTitle(data);
-    if (newTitle && newTitle !== terminalTitles.get(terminalId)) {
-      terminalTitles.set(terminalId, newTitle);
-      const titleMsg = JSON.stringify({ type: "title", terminalId, title: newTitle });
-      wsSet.forEach((ws) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(titleMsg);
-        }
-      });
-    }
-
-    // Check for context progress changes and forward to clients
-    const newProgress = extractContextProgress(data);
-    if (newProgress !== null && newProgress !== terminalContextProgress.get(terminalId)) {
-      terminalContextProgress.set(terminalId, newProgress);
-      const progressMsg = JSON.stringify({ type: "context", terminalId, progress: newProgress });
-      wsSet.forEach((ws) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(progressMsg);
-        }
-      });
-    }
-
-    // Check for Ralph loop iteration changes
-    const ralphIteration = extractRalphIteration(data);
-    if (ralphIteration) {
-      const lastIteration = terminalRalphIteration.get(terminalId);
-      if (!lastIteration || lastIteration.current !== ralphIteration.current || lastIteration.max !== ralphIteration.max) {
-        terminalRalphIteration.set(terminalId, ralphIteration);
-        const ralphMsg = JSON.stringify({
-          type: "ralph",
-          terminalId,
-          event: "iteration",
-          current: ralphIteration.current,
-          max: ralphIteration.max,
-        });
-        wsSet.forEach((ws) => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(ralphMsg);
-          }
-        });
-      }
-    }
-
-    // Check for Ralph loop completion
-    if (isRalphComplete(data)) {
-      terminalRalphIteration.delete(terminalId);
-      const completeMsg = JSON.stringify({
-        type: "ralph",
-        terminalId,
-        event: "complete",
-        success: true,
-      });
-      wsSet.forEach((ws) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(completeMsg);
-        }
-      });
-    }
-
-    // Forward the data
-    const msg = JSON.stringify({ type: "data", terminalId, data });
-    wsSet.forEach((ws) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(msg);
-      }
-    });
-  });
-
-  // Forward PTY exit events
-  ptyManager.on("exit", (terminalId: string, exitCode: number) => {
-    const wsSet = terminalToWs.get(terminalId);
-    if (wsSet) {
-      const msg = JSON.stringify({ type: "exit", terminalId, exitCode });
-      wsSet.forEach((ws) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(msg);
-        }
-      });
-    }
-    terminalToWs.delete(terminalId);
-    terminalTitles.delete(terminalId);
-    terminalContextProgress.delete(terminalId);
-    terminalRalphIteration.delete(terminalId);
   });
 
   // Handle graceful shutdown
@@ -558,101 +222,14 @@ async function startServer() {
     console.log("\nShutting down WebSocket server...");
     removePortFile();
     releaseLock();
-    ptyManager.getAll().forEach((session) => {
-      ptyManager.kill(session.id);
-    });
-    if (plansWatcher) {
-      await plansWatcher.close();
-    }
-    sessionWatcher.stop();
     scopeWatcher.stop();
     inboxWatcher.stop();
     bridgeWatcher.stop();
     eventServer.close();
-    wss.close(() => {
-      httpServer.close(() => {
-        process.exit(0);
-      });
+    httpServer.close(() => {
+      process.exit(0);
     });
   });
-
-  // Watch for new plan files and broadcast to all clients
-  async function watchPlans() {
-    try {
-      const chokidar = await import("chokidar");
-
-      // Ensure plans directory exists
-      if (!fs.existsSync(PLANS_DIR)) {
-        console.log(`Plans directory doesn't exist yet: ${PLANS_DIR}`);
-        return;
-      }
-
-      plansWatcher = chokidar.watch(path.join(PLANS_DIR, "*.md"), {
-        ignoreInitial: true,
-        awaitWriteFinish: {
-          stabilityThreshold: 300,
-          pollInterval: 100,
-        },
-      });
-
-      plansWatcher.on("add", (filePath: string) => {
-        const slug = path.basename(filePath, ".md");
-        console.log(`New plan detected: ${slug}`);
-
-        // Read the plan content
-        try {
-          const content = fs.readFileSync(filePath, "utf-8");
-          const msg = JSON.stringify({
-            type: "plan",
-            event: "created",
-            slug,
-            path: filePath,
-            content,
-          });
-
-          // Broadcast to all connected clients
-          wss.clients.forEach((client) => {
-            if (client.readyState === WebSocket.OPEN) {
-              client.send(msg);
-            }
-          });
-        } catch (err) {
-          console.error(`Error reading new plan ${filePath}:`, err);
-        }
-      });
-
-      plansWatcher.on("change", (filePath: string) => {
-        const slug = path.basename(filePath, ".md");
-        console.log(`Plan updated: ${slug}`);
-
-        try {
-          const content = fs.readFileSync(filePath, "utf-8");
-          const msg = JSON.stringify({
-            type: "plan",
-            event: "updated",
-            slug,
-            path: filePath,
-            content,
-          });
-
-          wss.clients.forEach((client) => {
-            if (client.readyState === WebSocket.OPEN) {
-              client.send(msg);
-            }
-          });
-        } catch (err) {
-          console.error(`Error reading updated plan ${filePath}:`, err);
-        }
-      });
-
-      console.log(`Watching for plans in: ${PLANS_DIR}`);
-    } catch (err) {
-      console.error("Error setting up plans watcher:", err);
-    }
-  }
-
-  // Start watching plans
-  watchPlans();
 }
 
 // Start the server

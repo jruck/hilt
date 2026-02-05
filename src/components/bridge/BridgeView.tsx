@@ -6,7 +6,7 @@ import { useBridgeProjects } from "@/hooks/useBridgeProjects";
 import { WeekHeader } from "./WeekHeader";
 import { BridgeTaskList } from "./BridgeTaskList";
 import { BridgeNotes } from "./BridgeNotes";
-import { ProjectKanban } from "./ProjectKanban";
+import { ProjectBoard } from "./ProjectBoard";
 import { RecycleModal } from "./RecycleModal";
 import { BridgeTaskPanel } from "./BridgeTaskPanel";
 import { Loader2 } from "lucide-react";
@@ -115,7 +115,7 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
           />
 
           {projects && (
-            <ProjectKanban
+            <ProjectBoard
               columns={projects.columns}
               onProjectClick={(project) => onNavigateToProject?.(project)}
               onStatusChange={(project, status) => updateProjectStatus(project.path, status)}

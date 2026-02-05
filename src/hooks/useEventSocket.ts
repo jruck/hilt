@@ -27,14 +27,14 @@ interface ServerMessage {
  * useEffect(() => {
  *   if (!connected) return;
  *
- *   subscribe('sessions', { scope: '/path/to/scope' });
- *   const unsub = on('sessions', 'updated', (data) => {
- *     console.log('Session updated:', data);
+ *   subscribe('bridge', { scope: '/path/to/scope' });
+ *   const unsub = on('bridge', 'updated', (data) => {
+ *     console.log('Bridge updated:', data);
  *   });
  *
  *   return () => {
  *     unsub();
- *     unsubscribe('sessions');
+ *     unsubscribe('bridge');
  *   };
  * }, [connected]);
  * ```

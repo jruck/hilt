@@ -69,7 +69,7 @@ export function SubfolderDropdown({
       {/* Subfolders/Projects section */}
       <div className="px-2 py-1.5">
         <span className="text-xs text-[var(--text-tertiary)] uppercase tracking-wide">
-          {isAtRoot ? "Projects" : "Subfolders with sessions"}
+          {isAtRoot ? "Projects" : "Subfolders"}
         </span>
       </div>
 
@@ -78,7 +78,7 @@ export function SubfolderDropdown({
           <p className="px-3 py-2 text-sm text-[var(--text-tertiary)]">Loading...</p>
         ) : folders.length === 0 ? (
           <p className="px-3 py-2 text-sm text-[var(--text-tertiary)]">
-            {isAtRoot ? "No projects with sessions" : "No subfolders with sessions"}
+            {isAtRoot ? "No projects found" : "No subfolders"}
           </p>
         ) : (
           folders.map((folder) => (

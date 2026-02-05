@@ -121,7 +121,7 @@ describe("EventServer", () => {
 
   describe("broadcast", () => {
     it("sends to all subscribers of channel", () => {
-      // eventServer.broadcast('sessions', 'updated', { sessionId: '123' })
+      // eventServer.broadcast('sessions', 'updated', { taskId: '123' })
       // should send to all clients subscribed to 'sessions'
     });
 

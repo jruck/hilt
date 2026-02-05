@@ -101,13 +101,13 @@ describe("useEventSocket", () => {
 
   describe("subscriptions", () => {
     it("sends subscribe message", async () => {
-      // subscribe('sessions', { scope: '/path' }) should send:
-      // { type: 'subscribe', channel: 'sessions', params: { scope: '/path' } }
+      // subscribe('bridge', { scope: '/path' }) should send:
+      // { type: 'subscribe', channel: 'bridge', params: { scope: '/path' } }
     });
 
     it("sends unsubscribe message", async () => {
-      // unsubscribe('sessions') should send:
-      // { type: 'unsubscribe', channel: 'sessions' }
+      // unsubscribe('bridge') should send:
+      // { type: 'unsubscribe', channel: 'bridge' }
     });
 
     it("tracks pending subscriptions for reconnection", async () => {
@@ -128,7 +128,7 @@ describe("useEventSocket", () => {
 
   describe("event handling", () => {
     it("routes events to registered handlers", async () => {
-      // When server sends: { channel: 'sessions', event: 'updated', data: {...} }
+      // When server sends: { channel: 'bridge', event: 'updated', data: {...} }
       // Registered handlers for 'sessions:updated' should be called with data
     });
 
@@ -138,7 +138,7 @@ describe("useEventSocket", () => {
     });
 
     it("returns unsubscribe function from on()", async () => {
-      // const unsub = on('sessions', 'updated', handler);
+      // const unsub = on('bridge', 'updated', handler);
       // After unsub(), handler should no longer be called
     });
 

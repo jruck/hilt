@@ -46,7 +46,7 @@ function decodePath(encoded: string): string | null {
   return null;
 }
 
-// Get all project folders that have sessions
+// Get all project folders from ~/.claude/projects
 async function getProjectFolders(): Promise<string[]> {
   const claudeProjectsDir = path.join(os.homedir(), ".claude", "projects");
 

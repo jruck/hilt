@@ -6,7 +6,7 @@ interface LiveIndicatorProps {
 }
 
 /**
- * Reusable green pulsing dot indicator for running sessions
+ * Reusable green pulsing dot indicator for active processes
  */
 export function LiveIndicator({ className = "", title = "Running" }: LiveIndicatorProps) {
   return (

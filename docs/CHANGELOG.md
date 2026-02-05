@@ -16,16 +16,52 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
-- **Project status "thinking" renamed to "considering"** - Better reflects the deliberative nature of the initial project stage. Updated across all files: project parser, kanban columns, picker restore options.
-  - Files: `src/lib/bridge/project-parser.ts`, `src/components/bridge/ProjectKanban.tsx`, `src/components/bridge/ProjectPicker.tsx`, `src/components/bridge/ProjectCard.tsx`, `src/app/api/bridge/projects/status/route.ts`
+- **Project status "thinking" renamed to "considering"** - Better reflects the deliberative nature of the initial project stage. Updated across all files: project parser, board columns, picker restore options.
+  - Files: `src/lib/bridge/project-parser.ts`, `src/components/bridge/ProjectBoard.tsx`, `src/components/bridge/ProjectPicker.tsx`, `src/components/bridge/ProjectCard.tsx`, `src/app/api/bridge/projects/status/route.ts`
 
-- **URL-based view mode routing** - Active view (bridge/docs/stack/sessions) is now encoded as the first URL path segment. Browser Back/Forward naturally switches between views. URL structure: `/docs/Users/jruck/work/bridge`, `/bridge`, `/sessions/Users/jruck/work/bridge`. Legacy URLs without prefix (e.g., `/Users/jruck/...`) are resolved from server prefs via `replaceState`. Board/tree sub-mode stays in React state (not URL).
+- **URL-based view mode routing** - Active view (bridge/docs/stack) is now encoded as the first URL path segment. Browser Back/Forward naturally switches between views. URL structure: `/docs/Users/jruck/work/bridge`, `/bridge`, `/stack/Users/jruck/work/bridge`. Legacy URLs without prefix (e.g., `/Users/jruck/...`) are resolved from server prefs via `replaceState`.
   - Files: `src/lib/url-utils.ts` (new), `src/app/[[...path]]/page.tsx`, `src/contexts/ScopeContext.tsx`, `src/components/Board.tsx`, `src/hooks/useDocs.ts`, `src/components/DocsView.tsx`
   - Added `navigateTo(mode, scope)` to ScopeContext for atomic view+scope changes (single history entry)
   - Fixed double-push on Bridge→Docs project navigation: `navigateTo` replaces separate `setScopePath`+`setViewMode` calls
   - Fixed `useDocs` auto-selection pushing extra history entries: `setSelectedPath` now accepts `{ replace: true }` for auto-selections (initial file, root index.md)
   - Removed: `pushViewState`, `onViewRestore`, `HistoryState` type, `viewRestoreListeners` — all replaced by URL-based routing through `viewMode`/`setViewMode`/`replaceViewMode`/`navigateTo` on `ScopeContext`
   - Added Cmd+[/Cmd+] keyboard shortcuts and trackpad swipe gestures for back/forward in Electron (`electron/main.ts`). Uses `executeJavaScript("window.history.back()")` for SPA-style popstate navigation instead of `webContents.goBack()` which would trigger full page loads.
+
+---
+
+## [2.1.0] - 2026-02-05
+
+Remove Sessions tab and all session-related code. Hilt now focuses on three views: Bridge, Docs, and Stack.
+
+### Removed
+
+- **Sessions tab** — Kanban board, tree view, and all session management UI
+  - Deleted components: `Column`, `SessionCard`, `InboxCard`, `NewDraftCard`, `QuickAddButton`, `QuickAddModal`, `RalphSetupModal`, `Terminal`, `TerminalDrawer`, `TreeView`, `TreeNodeCard`, `TreeSessionCard`
+  - Deleted hooks: `useSessions`, `useTreeSessions`, `useInboxPath`
+  - Deleted lib: `claude-sessions`, `session-status`, `session-cache`, `tree-utils`, `treemap-layout`, `heat-score`, `ralph`, `ralph-server`, `pty-manager`
+  - Deleted API routes: `/api/sessions`, `/api/ralph`, `/api/suggest-destination`
+  - Deleted server watcher: `session-watcher`
+  - Deleted tests: `session-status.test.ts`
+
+- **Terminal integration** — PTY management, xterm.js rendering, and Electron IPC PTY handlers
+  - Removed `node-pty`, `@xterm/xterm`, `@xterm/addon-fit` dependencies
+  - Removed `@electron/rebuild` dev dependency and rebuild scripts
+  - Cleaned `electron/main.ts` and `electron/preload.ts` of all PTY code
+  - Removed `node-pty` webpack external from `next.config.ts`
+
+- **Ralph Wiggum integration** — Iterative AI development loop feature
+
+### Changed
+
+- **ViewToggle** — Removed "Sessions" option; only Bridge, Docs, Stack remain
+- **Board.tsx** — Stripped all session view logic, session state, and session-related imports
+- **Sidebar** — Removed `needsAttention` indicators
+- **ws-server.ts** — Removed SessionWatcher and PTY WebSocket handlers
+- **electron/types.d.ts** — Rewritten to match new preload API (plan events + startup only)
+- **`ProjectKanban` renamed to `ProjectBoard`** — Consistent with app's "Board" naming convention
+- **Dead code cleanup** — Removed unused `PinnedFolderItem` component
+- **Stale references** — Updated "sessions" language in SubfolderDropdown, LiveIndicator, folders API, url-utils, and test files
+- All documentation rewritten: README, ARCHITECTURE, API, COMPONENTS, DATA-MODELS, DEVELOPMENT
 
 ### Changed (previous)
 
@@ -35,8 +71,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
-- **Project status management** - Projects can be moved between kanban columns (considering/refining/doing/done) via a three-dot menu on each project card. Status is persisted to frontmatter in each project's `index.md`. Done projects are hidden from the kanban board. The project picker shows done projects in a separate view with restore-to-column functionality.
-  - Files: `src/lib/bridge/project-parser.ts`, `src/app/api/bridge/projects/status/route.ts` (new), `src/hooks/useBridgeProjects.ts`, `src/components/bridge/ProjectCard.tsx`, `src/components/bridge/ProjectKanban.tsx`, `src/components/bridge/ProjectPicker.tsx`
+- **Project status management** - Projects can be moved between board columns (considering/refining/doing/done) via a three-dot menu on each project card. Status is persisted to frontmatter in each project's `index.md`. Done projects are hidden from the board. The project picker shows done projects in a separate view with restore-to-column functionality.
+  - Files: `src/lib/bridge/project-parser.ts`, `src/app/api/bridge/projects/status/route.ts` (new), `src/hooks/useBridgeProjects.ts`, `src/components/bridge/ProjectCard.tsx`, `src/components/bridge/ProjectBoard.tsx`, `src/components/bridge/ProjectPicker.tsx`
 
 - **Expanded project discovery** - Project parser now scans both `projects/` and `libraries/*/projects/` folders. Projects without `index.md` or frontmatter are included with sensible defaults (folder name as title, "considering" as status). Projects are grouped by source folder in the picker (e.g., "Projects", "EverPro").
   - Files: `src/lib/bridge/project-parser.ts`, `src/lib/types.ts` (`source` and `relativePath` added to `BridgeProject`), `src/components/bridge/ProjectPicker.tsx`
@@ -53,11 +89,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - **`workingFolder` preference** - New user preference that sets the default scope for Docs, Stack, and Sessions views on initial load (when no localStorage scope exists). Set in `data/preferences.json` as `"workingFolder": "/path/to/folder"`. Falls back to home directory when not configured.
   - Files: `src/lib/db.ts`, `src/app/api/folders/route.ts`, `src/components/Board.tsx`
 
-- **Bridge view** - Weekly task management and project kanban integrated as a new view mode
+- **Bridge view** - Weekly task management and project board integrated as a new view mode
   - Weekly tasks with drag-and-drop reordering, inline title editing, checkbox toggling
   - Side panel for task details with full markdown editing
   - Inline editable notes section (zero-padding, borderless — just text on the page)
-  - Project kanban with four columns: considering, refining, doing
+  - Project board with four columns: considering, refining, doing
   - Clicking a project card opens its folder in the docs viewer with bridge as scope, project folder expanded, and index.md selected
   - Real-time updates via WebSocket events
   - Files: `src/components/bridge/*`, `src/hooks/useBridgeWeekly.ts`, `src/hooks/useBridgeProjects.ts`, `src/lib/bridge/*`, `src/app/api/bridge/*`

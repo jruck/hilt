@@ -183,7 +183,7 @@ export function SortablePinnedFolderItem({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="text-sm truncate">{folder.name}</span>
-            {hasRunning && <LiveIndicator title="Running sessions" />}
+            {hasRunning && <LiveIndicator title="Active" />}
           </div>
           <div className="text-xs text-[var(--text-tertiary)] truncate">{displayPath}</div>
         </div>

@@ -4,7 +4,7 @@
  * URL structure: /<viewPrefix>/<scopePath>
  * e.g. /docs/Users/jruck/work/bridge
  *      /bridge
- *      /sessions/Users/jruck/work/bridge
+ *      /stack/Users/jruck/work/bridge
  */
 
 export const VIEW_PREFIXES = ["bridge", "docs", "stack"] as const;

@@ -41,9 +41,10 @@ const child_process_1 = require("child_process");
 const DATA_DIR = path.join(electron_1.app.getPath("userData"), "data");
 process.env.DATA_DIR = DATA_DIR;
 const PLANS_DIR = path.join(process.env.HOME || "~", ".claude", "plans");
-// Track active windows and server process
+// Track active windows and server processes
 let mainWindow = null;
 let nextServer = null;
+let wsServer = null;
 let serverPort = null;
 // Queue startup activities until window is ready
 const pendingStartupActivities = [];
@@ -302,6 +303,43 @@ async function startNextServer() {
     });
 }
 /**
+ * Start the WebSocket server (handles real-time events + file watching)
+ * The WS server has its own lock file (~/.hilt-server.lock) to prevent duplicates,
+ * so if one is already running (e.g. from terminal dev:all), this will gracefully exit.
+ */
+function startWsServer() {
+    const projectDir = path.resolve(__dirname, "..");
+    // Ensure log directory exists
+    const logDir = path.join(electron_1.app.getPath("userData"), "logs");
+    if (!fs.existsSync(logDir)) {
+        fs.mkdirSync(logDir, { recursive: true });
+    }
+    const logPath = path.join(logDir, "ws-server.log");
+    const logStream = fs.createWriteStream(logPath, { flags: "a" });
+    logStream.write(`\n--- WS server starting at ${new Date().toISOString()} ---\n`);
+    wsServer = (0, child_process_1.spawn)("npm", ["run", "ws-server"], {
+        cwd: projectDir,
+        env: { ...process.env, FORCE_COLOR: "0" },
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: false,
+    });
+    wsServer.stdout?.pipe(logStream);
+    wsServer.stderr?.pipe(logStream);
+    wsServer.stdout?.on("data", (data) => {
+        console.log("[WS Server]", data.toString().trim());
+    });
+    wsServer.stderr?.on("data", (data) => {
+        console.error("[WS Server Error]", data.toString().trim());
+    });
+    wsServer.on("error", (err) => {
+        console.error("Failed to start WS server:", err);
+    });
+    wsServer.on("close", (code) => {
+        console.log(`WS server exited with code ${code}`);
+        wsServer = null;
+    });
+}
+/**
  * Create the main application window
  */
 async function createWindow() {
@@ -324,6 +362,21 @@ async function createWindow() {
     console.log("Starting Next.js server...");
     const port = await startNextServer();
     console.log(`Next.js server running on port ${port}`);
+    // Start the WS server (real-time events, file watching)
+    if (!electron_1.app.isPackaged) {
+        sendStartupActivity({
+            id: "ws-server",
+            label: "Starting WebSocket server",
+            status: "active",
+        });
+        startWsServer();
+        sendStartupActivity({
+            id: "ws-server",
+            label: "Starting WebSocket server",
+            status: "complete",
+            detail: "WS server launched",
+        });
+    }
     sendStartupActivity({
         id: "create-window",
         label: "Creating application window",
@@ -386,6 +439,33 @@ async function createWindow() {
       /* Add left padding to status bar for macOS traffic light buttons */
       [data-statusbar] { padding-left: 80px; }
     `);
+    });
+    // Keyboard shortcuts for back/forward navigation (Cmd+[ / Cmd+])
+    // Uses history.back()/forward() for SPA-style popstate navigation, not full page nav
+    mainWindow.webContents.on("before-input-event", (event, input) => {
+        if (!mainWindow)
+            return;
+        if (input.meta && input.type === "keyDown") {
+            if (input.key === "[") {
+                event.preventDefault();
+                mainWindow.webContents.executeJavaScript("window.history.back()");
+            }
+            else if (input.key === "]") {
+                event.preventDefault();
+                mainWindow.webContents.executeJavaScript("window.history.forward()");
+            }
+        }
+    });
+    // Trackpad swipe gestures for back/forward (macOS two-finger swipe)
+    mainWindow.on("swipe", (_event, direction) => {
+        if (!mainWindow)
+            return;
+        if (direction === "left") {
+            mainWindow.webContents.executeJavaScript("window.history.back()");
+        }
+        else if (direction === "right") {
+            mainWindow.webContents.executeJavaScript("window.history.forward()");
+        }
     });
     mainWindow.on("closed", () => {
         mainWindow = null;
@@ -462,6 +542,11 @@ electron_1.app.on("window-all-closed", () => {
         nextServer.kill();
         nextServer = null;
     }
+    // Kill the WS server
+    if (wsServer) {
+        wsServer.kill();
+        wsServer = null;
+    }
     // Clean up plan watcher
     if (plansWatcher) {
         plansWatcher.close();
@@ -479,6 +564,9 @@ electron_1.app.on("activate", () => {
 electron_1.app.on("before-quit", () => {
     if (nextServer) {
         nextServer.kill();
+    }
+    if (wsServer) {
+        wsServer.kill();
     }
     if (plansWatcher) {
         plansWatcher.close();

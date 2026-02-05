@@ -17,14 +17,14 @@ const RESTORE_OPTIONS: { key: BridgeProjectStatus; label: string }[] = [
   { key: "doing", label: "Doing" },
 ];
 
-interface ProjectKanbanProps {
+interface ProjectBoardProps {
   columns: Record<BridgeProjectStatus, BridgeProject[]>;
   onProjectClick?: (project: BridgeProject) => void;
   onStatusChange?: (project: BridgeProject, status: BridgeProjectStatus) => void;
   className?: string;
 }
 
-export function ProjectKanban({ columns, onProjectClick, onStatusChange, className }: ProjectKanbanProps) {
+export function ProjectBoard({ columns, onProjectClick, onStatusChange, className }: ProjectBoardProps) {
   const [showDone, setShowDone] = useState(false);
   const [restoreProject, setRestoreProject] = useState<BridgeProject | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<BridgeProjectStatus | null>(null);

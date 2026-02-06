@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   DndContext,
   DragEndEvent,
@@ -16,6 +16,13 @@ import {
 } from "@dnd-kit/sortable";
 import type { BridgeTask } from "@/lib/types";
 import { BridgeTaskItem } from "./BridgeTaskItem";
+import { parseLifecycle, type LifecycleState } from "@/lib/attribution";
+
+interface TaskSection {
+  key: LifecycleState;
+  label: string;
+  tasks: BridgeTask[];
+}
 
 interface BridgeTaskListProps {
   tasks: BridgeTask[];
@@ -38,6 +45,32 @@ export function BridgeTaskList({
 }: BridgeTaskListProps) {
   const [localTasks, setLocalTasks] = useState<BridgeTask[] | null>(null);
   const displayTasks = localTasks || tasks;
+
+  // Group tasks by lifecycle state (visual only, preserves markdown order within groups)
+  const sections = useMemo((): TaskSection[] => {
+    const grouped: Record<LifecycleState, BridgeTask[]> = {
+      new: [],
+      active: [],
+      review: [],
+      done: [],
+    };
+
+    for (const task of displayTasks) {
+      const { state } = parseLifecycle(task.title, task.done);
+      grouped[state].push(task);
+    }
+
+    const sectionDefs: { key: LifecycleState; label: string }[] = [
+      { key: "new", label: "New" },
+      { key: "active", label: "Tasks" },
+      { key: "review", label: "Needs Review" },
+      { key: "done", label: "Done" },
+    ];
+
+    return sectionDefs
+      .map(def => ({ ...def, tasks: grouped[def.key] }))
+      .filter(s => s.tasks.length > 0);
+  }, [displayTasks]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -90,17 +123,33 @@ export function BridgeTaskList({
           items={displayTasks.map(t => t.id)}
           strategy={verticalListSortingStrategy}
         >
-          <div className="space-y-1">
-            {displayTasks.map((task) => (
-              <BridgeTaskItem
-                key={task.id}
-                task={task}
-                isSelected={task.id === selectedTaskId}
-                onToggle={onToggle}
-                onUpdateTitle={onUpdateTitle}
-                onSelect={onSelectTask}
-                onDelete={onDeleteTask}
-              />
+          <div className="space-y-4">
+            {sections.map((section) => (
+              <div key={section.key}>
+                {/* Section header - skip for "Tasks" (active) since it's the default */}
+                {section.key !== "active" && (
+                  <h3 className="text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide mb-2 flex items-center gap-2">
+                    {section.key === "new" && <span className="text-yellow-500">●</span>}
+                    {section.key === "review" && <span className="text-blue-500">●</span>}
+                    {section.key === "done" && <span className="text-green-500">●</span>}
+                    {section.label}
+                    <span className="text-[var(--text-quaternary)]">({section.tasks.length})</span>
+                  </h3>
+                )}
+                <div className="space-y-1">
+                  {section.tasks.map((task) => (
+                    <BridgeTaskItem
+                      key={task.id}
+                      task={task}
+                      isSelected={task.id === selectedTaskId}
+                      onToggle={onToggle}
+                      onUpdateTitle={onUpdateTitle}
+                      onSelect={onSelectTask}
+                      onDelete={onDeleteTask}
+                    />
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </SortableContext>

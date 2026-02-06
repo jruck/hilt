@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { BridgeTask } from "@/lib/types";
 import { GripVertical, ChevronRight } from "lucide-react";
+import { parseAttribution } from "@/lib/attribution";
 
 interface BridgeTaskItemProps {
   task: BridgeTask;
@@ -27,6 +28,9 @@ export function BridgeTaskItem({
   const lastSavedTitle = useRef(task.title);
   const inputRef = useRef<HTMLInputElement>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Parse attribution from title (memoized)
+  const attribution = useMemo(() => parseAttribution(title), [title]);
 
   useEffect(() => {
     if (task.title !== lastSavedTitle.current) {
@@ -146,6 +150,16 @@ export function BridgeTaskItem({
             </span>
           </div>
         </div>
+
+        {/* Agent avatar */}
+        {attribution && (
+          <span
+            className="flex-shrink-0 text-sm cursor-default select-none"
+            title={`Assigned by ${attribution.agent}`}
+          >
+            {attribution.emoji}
+          </span>
+        )}
 
         {/* Open detail panel indicator */}
         <ChevronRight className={`flex-shrink-0 w-4 h-4 transition-colors ${

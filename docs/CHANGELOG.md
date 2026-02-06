@@ -6,6 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Added
+
+- **Add task button in top toolbar** - "+" button on the right side of the toolbar creates a new Bridge task. If not already on Bridge tab, switches to it first, then adds the task.
+  - Files: `src/components/Board.tsx`, `src/components/bridge/BridgeView.tsx`
+
 ### Fixed
 
 - **Bridge notes not saving** - Fixed stale closure bug where the `onChange` callback in `BridgeTaskEditor` was captured in TipTap's initial config and never updated. Added `onChangeRef` to keep the callback current, matching the existing pattern for `vaultPathRef` and `filePathRef`.

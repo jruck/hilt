@@ -11,7 +11,7 @@ const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.Docs
 const StackView = dynamic(() => import("./stack").then(m => ({ default: m.StackView })), { ssr: false });
 const BridgeView = dynamic(() => import("./bridge/BridgeView").then(m => ({ default: m.BridgeView })), { ssr: false });
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
-import { Search, X } from "lucide-react";
+import { Search, X, Plus } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 
 const HOME_DIR_STORAGE_KEY = "hilt-home-dir";
@@ -144,6 +144,7 @@ export function Board() {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [pendingAddTask, setPendingAddTask] = useState(false);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -212,8 +213,19 @@ export function Board() {
           <ViewToggle view={viewMode} onChange={setViewMode} />
         </div>
 
-        {/* Right: spacer */}
+        {/* Right: Add task button */}
         <div className="flex items-center ml-auto" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <button
+            onClick={() => {
+              if (viewMode !== "bridge") setViewMode("bridge");
+              setPendingAddTask(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-80 transition-opacity"
+            title="Add task"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add</span>
+          </button>
         </div>
       </div>
 
@@ -222,10 +234,14 @@ export function Board() {
         <div className="flex-1 flex flex-col overflow-hidden">
         {/* Conditional View: Bridge, Docs, or Stack */}
         {viewMode === "bridge" ? (
-          <BridgeView onNavigateToProject={(project) => {
-            // Scope into the project folder — DocsView auto-selects index.md
-            navigateTo("docs", project.path);
-          }} />
+          <BridgeView
+            pendingAddTask={pendingAddTask}
+            onTaskAdded={() => setPendingAddTask(false)}
+            onNavigateToProject={(project) => {
+              // Scope into the project folder — DocsView auto-selects index.md
+              navigateTo("docs", project.path);
+            }}
+          />
         ) : viewMode === "docs" ? (
           <DocsView
             scopePath={scopePath}

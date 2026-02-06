@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useBridgeWeekly } from "@/hooks/useBridgeWeekly";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
 import { WeekHeader } from "./WeekHeader";
@@ -13,10 +13,12 @@ import { Loader2 } from "lucide-react";
 import type { BridgeTask, BridgeProject } from "@/lib/types";
 
 interface BridgeViewProps {
+  pendingAddTask?: boolean;
+  onTaskAdded?: () => void;
   onNavigateToProject?: (project: BridgeProject) => void;
 }
 
-export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
+export function BridgeView({ pendingAddTask, onTaskAdded, onNavigateToProject }: BridgeViewProps) {
   const {
     data: weekly,
     isLoading: weeklyLoading,
@@ -44,6 +46,14 @@ export function BridgeView({ onNavigateToProject }: BridgeViewProps) {
   const resolvedTask = selectedTask && weekly
     ? weekly.tasks.find(t => t.id === selectedTask.id) ?? null
     : null;
+
+  // Handle pending add-task from toolbar button
+  useEffect(() => {
+    if (pendingAddTask) {
+      handleAddTask("New task");
+      onTaskAdded?.();
+    }
+  }, [pendingAddTask]);
 
   // Display sort: unchecked first, checked last, both in file order
   const displayTasks = useMemo(() => {

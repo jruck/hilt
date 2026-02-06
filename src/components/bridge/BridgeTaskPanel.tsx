@@ -14,6 +14,7 @@ const BridgeTaskEditor = dynamic(
 
 interface BridgeTaskPanelProps {
   task: BridgeTask;
+  autoFocusTitle?: boolean;
   vaultPath?: string;
   filePath?: string;
   onClose: () => void;
@@ -26,6 +27,7 @@ interface BridgeTaskPanelProps {
 
 export function BridgeTaskPanel({
   task,
+  autoFocusTitle,
   vaultPath,
   filePath,
   onClose,
@@ -42,6 +44,8 @@ export function BridgeTaskPanel({
   const lastSavedTitle = useRef(task.title);
   const lastSavedDetails = useRef(task.details.join("\n"));
   const menuRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
+  const editorAreaRef = useRef<HTMLDivElement>(null);
 
   const { data: projects } = useBridgeProjects();
 
@@ -70,6 +74,19 @@ export function BridgeTaskPanel({
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [showMenu]);
+
+  // Auto-focus and select title for newly added tasks
+  useEffect(() => {
+    if (autoFocusTitle && titleRef.current) {
+      titleRef.current.focus();
+      titleRef.current.select();
+    }
+  }, [autoFocusTitle, task.id]);
+
+  function focusEditor() {
+    const el = editorAreaRef.current?.querySelector("[contenteditable]") as HTMLElement;
+    el?.focus();
+  }
 
   function saveTitle(value: string) {
     const trimmed = value.trim();
@@ -115,13 +132,15 @@ export function BridgeTaskPanel({
       {/* Header */}
       <div className="flex-shrink-0 flex items-start gap-3 px-6 py-5 border-b border-[var(--border-default)]">
         <textarea
+          ref={titleRef}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onBlur={(e) => saveTitle(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
+            if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
               e.preventDefault();
-              e.currentTarget.blur();
+              saveTitle(e.currentTarget.value);
+              focusEditor();
             }
             if (e.key === "Escape") onClose();
           }}
@@ -239,7 +258,7 @@ export function BridgeTaskPanel({
       )}
 
       {/* Content — always editable */}
-      <div className="flex-1 overflow-y-auto px-6 py-4">
+      <div ref={editorAreaRef} className="flex-1 overflow-y-auto px-6 py-4">
         <BridgeTaskEditor
           markdown={fullMarkdown}
           onChange={handleContentChange}

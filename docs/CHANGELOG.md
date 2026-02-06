@@ -8,8 +8,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
-- **Add task button in top toolbar** - "+" button on the right side of the toolbar creates a new Bridge task. If not already on Bridge tab, switches to it first, then adds the task.
-  - Files: `src/components/Board.tsx`, `src/components/bridge/BridgeView.tsx`
+- **Add task button in top toolbar** - "+" button on the right side of the toolbar creates a new Bridge task. If not already on Bridge tab, switches to it first, then adds the task. Auto-focuses title in the detail panel with select-all so typing immediately replaces "New task". Enter/Tab moves focus to the details editor.
+  - Files: `src/components/Board.tsx`, `src/components/bridge/BridgeView.tsx`, `src/components/bridge/BridgeTaskPanel.tsx`
+
+### Changed
+
+- **Removed inline Add button from Bridge task list** - The toolbar Add button is now the single entry point for creating tasks. Removed the duplicate Add button next to the "Tasks" heading and the associated `autoFocus` logic from `BridgeTaskItem`.
+  - Files: `src/components/bridge/BridgeTaskList.tsx`, `src/components/bridge/BridgeTaskItem.tsx`
 
 ### Fixed
 

@@ -40,6 +40,7 @@ export function BridgeView({ addTaskTrigger = 0, onNavigateToProject }: BridgeVi
 
   const [showRecycleModal, setShowRecycleModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<BridgeTask | null>(null);
+  const [autoFocusPanel, setAutoFocusPanel] = useState(false);
 
   // Keep selected task in sync with latest data
   const resolvedTask = selectedTask && weekly
@@ -66,11 +67,13 @@ export function BridgeView({ addTaskTrigger = 0, onNavigateToProject }: BridgeVi
   function handleAddTask(title: string) {
     // Select immediately — the optimistic task has id "task-0"
     setSelectedTask({ id: "task-0", title, done: false, details: [], rawLines: [`- [ ] ${title}`], projectPath: null });
+    setAutoFocusPanel(true);
     addTask(title);
   }
 
   function handleSelectTask(task: BridgeTask) {
     setSelectedTask(prev => prev?.id === task.id ? null : task);
+    setAutoFocusPanel(false);
   }
 
   if (weeklyLoading && !weekly) {
@@ -106,7 +109,6 @@ export function BridgeView({ addTaskTrigger = 0, onNavigateToProject }: BridgeVi
           <BridgeTaskList
             tasks={displayTasks}
             selectedTaskId={resolvedTask?.id ?? null}
-            onAddTask={handleAddTask}
             onToggle={toggleTask}
             onReorder={reorderTasks}
             onUpdateTitle={updateTaskTitle}
@@ -153,6 +155,7 @@ export function BridgeView({ addTaskTrigger = 0, onNavigateToProject }: BridgeVi
         <div className="w-96 flex-shrink-0 overflow-visible">
           <BridgeTaskPanel
             task={resolvedTask}
+            autoFocusTitle={autoFocusPanel}
             vaultPath={weekly.vaultPath}
             filePath={weekly.filePath}
             onClose={() => setSelectedTask(null)}

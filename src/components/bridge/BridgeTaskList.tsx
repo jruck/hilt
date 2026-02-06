@@ -16,12 +16,10 @@ import {
 } from "@dnd-kit/sortable";
 import type { BridgeTask } from "@/lib/types";
 import { BridgeTaskItem } from "./BridgeTaskItem";
-import { Plus } from "lucide-react";
 
 interface BridgeTaskListProps {
   tasks: BridgeTask[];
   selectedTaskId: string | null;
-  onAddTask: (title: string) => void;
   onToggle: (id: string, done: boolean) => void;
   onReorder: (order: string[]) => void;
   onUpdateTitle: (id: string, title: string) => void;
@@ -32,7 +30,6 @@ interface BridgeTaskListProps {
 export function BridgeTaskList({
   tasks,
   selectedTaskId,
-  onAddTask,
   onToggle,
   onReorder,
   onUpdateTitle,
@@ -41,7 +38,6 @@ export function BridgeTaskList({
 }: BridgeTaskListProps) {
   const [localTasks, setLocalTasks] = useState<BridgeTask[] | null>(null);
   const displayTasks = localTasks || tasks;
-  const [focusNewTask, setFocusNewTask] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -84,17 +80,6 @@ export function BridgeTaskList({
         <h2 className="text-sm font-medium text-[var(--text-tertiary)] uppercase tracking-wide">
           Tasks
         </h2>
-        <button
-          onClick={() => {
-            onAddTask("New task");
-            setFocusNewTask(true);
-          }}
-          className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
-          title="Add task"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Add
-        </button>
       </div>
       <DndContext
         sensors={sensors}
@@ -106,17 +91,13 @@ export function BridgeTaskList({
           strategy={verticalListSortingStrategy}
         >
           <div className="space-y-1">
-            {displayTasks.map((task, idx) => (
+            {displayTasks.map((task) => (
               <BridgeTaskItem
                 key={task.id}
                 task={task}
                 isSelected={task.id === selectedTaskId}
-                autoFocus={focusNewTask && idx === 0}
                 onToggle={onToggle}
-                onUpdateTitle={(id, title) => {
-                  if (focusNewTask) setFocusNewTask(false);
-                  onUpdateTitle(id, title);
-                }}
+                onUpdateTitle={onUpdateTitle}
                 onSelect={onSelectTask}
                 onDelete={onDeleteTask}
               />

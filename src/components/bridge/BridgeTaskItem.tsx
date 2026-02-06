@@ -9,7 +9,6 @@ import { GripVertical, ChevronRight } from "lucide-react";
 interface BridgeTaskItemProps {
   task: BridgeTask;
   isSelected: boolean;
-  autoFocus?: boolean;
   onToggle: (id: string, done: boolean) => void;
   onUpdateTitle: (id: string, title: string) => void;
   onSelect: (task: BridgeTask) => void;
@@ -19,7 +18,6 @@ interface BridgeTaskItemProps {
 export function BridgeTaskItem({
   task,
   isSelected,
-  autoFocus,
   onToggle,
   onUpdateTitle,
   onSelect,
@@ -36,13 +34,6 @@ export function BridgeTaskItem({
       lastSavedTitle.current = task.title;
     }
   }, [task.title]);
-
-  useEffect(() => {
-    if (autoFocus && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
-    }
-  }, [autoFocus]);
 
   function promptDeleteIfEmpty(): boolean {
     if (title.trim() === "") {

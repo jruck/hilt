@@ -142,7 +142,10 @@ export function useBridgeWeekly() {
     }
 
     await fetch(`/api/bridge/tasks/${id}`, { method: "DELETE" });
-    mutate();
+    // No revalidation — the optimistic filter is the correct final state.
+    // Revalidating would re-fetch position-based IDs (task-0, task-1, ...)
+    // that shift after removal, causing React key collisions and a brief
+    // "checked off" flash when a deleted task's ID gets reused.
   }
 
   async function addTask(title: string): Promise<BridgeTask> {

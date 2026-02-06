@@ -144,7 +144,7 @@ export function Board() {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [pendingAddTask, setPendingAddTask] = useState(false);
+  const [addTaskTrigger, setAddTaskTrigger] = useState(0);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -218,7 +218,7 @@ export function Board() {
           <button
             onClick={() => {
               if (viewMode !== "bridge") setViewMode("bridge");
-              setPendingAddTask(true);
+              setAddTaskTrigger(c => c + 1);
             }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-80 transition-opacity"
             title="Add task"
@@ -235,8 +235,7 @@ export function Board() {
         {/* Conditional View: Bridge, Docs, or Stack */}
         {viewMode === "bridge" ? (
           <BridgeView
-            pendingAddTask={pendingAddTask}
-            onTaskAdded={() => setPendingAddTask(false)}
+            addTaskTrigger={addTaskTrigger}
             onNavigateToProject={(project) => {
               // Scope into the project folder — DocsView auto-selects index.md
               navigateTo("docs", project.path);

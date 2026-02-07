@@ -28,6 +28,11 @@ export function BridgeTaskItem({
   const lastSavedTitle = useRef(task.title);
   const inputRef = useRef<HTMLInputElement>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isTouch, setIsTouch] = useState(false);
+
+  useEffect(() => {
+    setIsTouch(window.matchMedia("(pointer: coarse)").matches);
+  }, []);
 
   // Parse attribution and lifecycle from title (memoized)
   const attribution = useMemo(() => parseAttribution(title), [title]);
@@ -107,18 +112,21 @@ export function BridgeTaskItem({
         } ${visuallyDone || isReview ? "opacity-50" : ""}`}
       >
         <div
-          className="flex items-center gap-2 px-3 py-2.5 cursor-pointer"
+          className={`flex items-center gap-2 px-3 py-2.5 cursor-pointer ${isTouch ? "select-none touch-manipulation" : ""}`}
           onClick={() => onSelect(task)}
+          {...(isTouch ? { ...attributes, ...listeners } : {})}
         >
-          {/* Drag handle */}
-          <button
-            {...attributes}
-            {...listeners}
-            onClick={(e) => e.stopPropagation()}
-            className="flex-shrink-0 cursor-grab text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] active:cursor-grabbing"
-          >
-            <GripVertical className="w-4 h-4" />
-          </button>
+          {/* Drag handle — desktop only, hidden on touch devices */}
+          {!isTouch && (
+            <button
+              {...attributes}
+              {...listeners}
+              onClick={(e) => e.stopPropagation()}
+              className="flex-shrink-0 cursor-grab text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] active:cursor-grabbing"
+            >
+              <GripVertical className="w-4 h-4" />
+            </button>
+          )}
 
           {/* Checkbox — review tasks show unchecked; clicking confirms by stripping marker */}
           <input
@@ -146,10 +154,11 @@ export function BridgeTaskItem({
                 ref={inputRef}
                 type="text"
                 value={displayTitle}
+                readOnly={isTouch}
                 onChange={(e) => setTitle(e.target.value)}
                 onClick={(e) => e.stopPropagation()}
                 onBlur={(e) => {
-                  if (!promptDeleteIfEmpty()) {
+                  if (!isTouch && !promptDeleteIfEmpty()) {
                     saveTitle(e.target.value);
                   }
                 }}
@@ -171,7 +180,7 @@ export function BridgeTaskItem({
                   visuallyDone
                     ? "line-through text-[var(--text-tertiary)]"
                     : "text-[var(--text-primary)]"
-                }`}
+                } ${isTouch ? "pointer-events-none" : ""}`}
               />
               <span className="text-sm invisible whitespace-pre [grid-area:1/1] pointer-events-none">
                 {displayTitle || " "}

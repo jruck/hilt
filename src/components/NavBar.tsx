@@ -29,7 +29,7 @@ export function NavBar({
       <nav
         className="fixed bottom-0 left-0 right-0 z-50 border-t border-[var(--border-default)] flex flex-col"
         style={{
-          paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)",
+          paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)",
           background: "var(--nav-mobile-bg)",
           backdropFilter: "blur(12px)",
           WebkitBackdropFilter: "blur(12px)",

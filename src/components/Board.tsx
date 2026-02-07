@@ -176,7 +176,7 @@ export function Board() {
 
       <div
         className="flex flex-1 overflow-hidden"
-        style={isMobile ? { paddingBottom: "calc(90px + env(safe-area-inset-bottom, 0px))" } : undefined}
+        style={undefined}
       >
         {/* Main content column */}
         <div className="flex-1 flex flex-col overflow-hidden">

@@ -5,6 +5,15 @@ button, [role="button"] {
   cursor: pointer;
 }
 
+/* Prevent all browser zoom behavior — this is an app, not a web form */
+html {
+  touch-action: manipulation;
+}
+
+input, textarea, select, [contenteditable] {
+  touch-action: manipulation;
+}
+
 /* ============================================
    THEME SYSTEM - Light theme (default)
    Elegant, warm, high-contrast light mode

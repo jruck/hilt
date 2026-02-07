@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { X, Trash2, FolderOpen, MoreVertical } from "lucide-react";
 import type { BridgeTask, BridgeProject } from "@/lib/types";
+import { parseLifecycle } from "@/lib/attribution";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
 import { ProjectPicker } from "./ProjectPicker";
 import dynamic from "next/dynamic";
@@ -88,9 +89,13 @@ export function BridgeTaskPanel({
     el?.focus();
   }
 
+  // Strip lifecycle emoji for display (🆕, ⁇ are markdown tags, not user-visible)
+  const displayTitle = useMemo(() => parseLifecycle(title, task.done).displayTitle, [title, task.done]);
+
   function saveTitle(value: string) {
     const trimmed = value.trim();
-    if (trimmed && trimmed !== lastSavedTitle.current) {
+    const lastDisplay = parseLifecycle(lastSavedTitle.current, task.done).displayTitle;
+    if (trimmed && trimmed !== lastDisplay) {
       lastSavedTitle.current = trimmed;
       onUpdateTitle(task.id, trimmed);
     } else if (!trimmed) {
@@ -133,7 +138,7 @@ export function BridgeTaskPanel({
       <div className="flex-shrink-0 flex items-start gap-3 px-6 py-5 border-b border-[var(--border-default)]">
         <textarea
           ref={titleRef}
-          value={title}
+          value={displayTitle}
           onChange={(e) => setTitle(e.target.value)}
           onBlur={(e) => saveTitle(e.target.value)}
           onKeyDown={(e) => {

@@ -5,7 +5,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { BridgeTask } from "@/lib/types";
 import { GripVertical, ChevronRight } from "lucide-react";
-import { parseAttribution } from "@/lib/attribution";
+import { parseAttribution, parseLifecycle } from "@/lib/attribution";
 
 interface BridgeTaskItemProps {
   task: BridgeTask;
@@ -29,8 +29,9 @@ export function BridgeTaskItem({
   const inputRef = useRef<HTMLInputElement>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  // Parse attribution from title (memoized)
+  // Parse attribution and lifecycle from title (memoized)
   const attribution = useMemo(() => parseAttribution(title), [title]);
+  const displayTitle = useMemo(() => parseLifecycle(title, task.done).displayTitle, [title, task.done]);
 
   useEffect(() => {
     if (task.title !== lastSavedTitle.current) {
@@ -49,7 +50,10 @@ export function BridgeTaskItem({
 
   function saveTitle(value: string) {
     const trimmed = value.trim();
-    if (trimmed && trimmed !== lastSavedTitle.current) {
+    // Compare against the displayed (stripped) version of the last saved title
+    // to avoid accidentally removing lifecycle markers on focus+blur
+    const lastDisplay = parseLifecycle(lastSavedTitle.current, task.done).displayTitle;
+    if (trimmed && trimmed !== lastDisplay) {
       lastSavedTitle.current = trimmed;
       onUpdateTitle(task.id, trimmed);
     } else if (!trimmed) {
@@ -117,7 +121,7 @@ export function BridgeTaskItem({
             <input
               ref={inputRef}
               type="text"
-              value={title}
+              value={displayTitle}
               onChange={(e) => setTitle(e.target.value)}
               onClick={(e) => e.stopPropagation()}
               onBlur={(e) => {
@@ -146,7 +150,7 @@ export function BridgeTaskItem({
               }`}
             />
             <span className="text-sm invisible whitespace-pre [grid-area:1/1] pointer-events-none">
-              {title || " "}
+              {displayTitle || " "}
             </span>
           </div>
         </div>

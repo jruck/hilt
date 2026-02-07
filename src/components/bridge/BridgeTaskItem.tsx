@@ -111,19 +111,16 @@ export function BridgeTaskItem({
         <div
           className={`flex items-center gap-2 px-3 ${isTouch ? "py-3" : "py-2.5"} cursor-pointer ${isTouch ? "select-none touch-manipulation" : ""}`}
           onClick={() => onSelect(task)}
-          {...(isTouch ? { ...attributes, ...listeners } : {})}
         >
-          {/* Drag handle — desktop only, hidden on touch devices */}
-          {!isTouch && (
-            <button
-              {...attributes}
-              {...listeners}
-              onClick={(e) => e.stopPropagation()}
-              className="flex-shrink-0 cursor-grab text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] active:cursor-grabbing"
-            >
-              <GripVertical className="w-4 h-4" />
-            </button>
-          )}
+          {/* Drag handle — always visible, only way to reorder */}
+          <button
+            {...attributes}
+            {...listeners}
+            onClick={(e) => e.stopPropagation()}
+            className={`flex-shrink-0 cursor-grab text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] active:cursor-grabbing ${isTouch ? "p-1 -m-1" : ""}`}
+          >
+            <GripVertical className={isTouch ? "w-5 h-5" : "w-4 h-4"} />
+          </button>
 
           {/* Checkbox — review tasks show unchecked; clicking confirms by stripping marker */}
           <input

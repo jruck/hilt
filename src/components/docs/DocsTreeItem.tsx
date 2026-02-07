@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronRight, ChevronDown, Folder, FolderOpen, FileText, FileCode, FileJson, File, Image } from "lucide-react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { FileNode } from "@/lib/types";
 
 // File icons by extension
@@ -65,6 +66,7 @@ export function DocsTreeItem({
   onToggleExpand,
   onSelect,
 }: DocsTreeItemProps) {
+  const isMobile = useIsMobile();
   const isDirectory = node.type === "directory";
   const isIgnored = node.ignored === true;
   const indent = depth * 16;
@@ -113,7 +115,7 @@ export function DocsTreeItem({
   return (
     <div
       className={`
-        flex items-center gap-1 px-2 py-1 text-sm
+        flex items-center gap-1 px-2 ${isMobile ? "py-2.5 text-[15px]" : "py-1 text-sm"}
         transition-colors duration-150
         ${isSelected && !isIgnored ? "bg-[var(--bg-tertiary)]" : isIgnored ? "" : "hover:bg-[var(--bg-secondary)]"}
         ${isIgnored ? "opacity-30" : !isViewable ? "opacity-50" : ""}
@@ -128,21 +130,21 @@ export function DocsTreeItem({
       {isDirectory && !isIgnored ? (
         <button
           onClick={handleChevronClick}
-          className="flex-shrink-0 w-4 h-4 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+          className={`flex-shrink-0 ${isMobile ? "w-5 h-5" : "w-4 h-4"} flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]`}
         >
           {isExpanded ? (
-            <ChevronDown className="w-3 h-3" />
+            <ChevronDown className={isMobile ? "w-4 h-4" : "w-3 h-3"} />
           ) : (
-            <ChevronRight className="w-3 h-3" />
+            <ChevronRight className={isMobile ? "w-4 h-4" : "w-3 h-3"} />
           )}
         </button>
       ) : (
-        <span className="w-4 flex-shrink-0" />
+        <span className={`${isMobile ? "w-5" : "w-4"} flex-shrink-0`} />
       )}
 
       {/* Icon */}
       <IconComponent
-        className={`w-4 h-4 flex-shrink-0 ${
+        className={`${isMobile ? "w-5 h-5" : "w-4 h-4"} flex-shrink-0 ${
           isIgnored
             ? "text-[var(--text-tertiary)]"
             : isDirectory

@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { Puzzle, User, Tag, ExternalLink, Server, Calendar, Check, X, Copy, FolderOpen, Sparkles, Bot } from "lucide-react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { PluginConfig } from "@/lib/claude-config/types";
 
 interface PluginDetailProps {
@@ -11,6 +12,7 @@ interface PluginDetailProps {
 }
 
 export function PluginDetail({ plugin, onToggleEnabled, onMCPServerClick }: PluginDetailProps) {
+  const isMobile = useIsMobile();
   const [copied, setCopied] = useState(false);
 
   const handleCopyPath = useCallback(async () => {
@@ -59,7 +61,7 @@ export function PluginDetail({ plugin, onToggleEnabled, onMCPServerClick }: Plug
             <button
               onClick={handleCopyPath}
               title="Copy path"
-              className="p-1.5 rounded-md text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+              className={`rounded-md text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors ${isMobile ? "p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center" : "p-1.5"}`}
             >
               {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
             </button>
@@ -67,7 +69,7 @@ export function PluginDetail({ plugin, onToggleEnabled, onMCPServerClick }: Plug
             <button
               onClick={handleRevealInFinder}
               title="Reveal in Finder"
-              className="p-1.5 rounded-md text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+              className={`rounded-md text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors ${isMobile ? "p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center" : "p-1.5"}`}
             >
               <FolderOpen className="w-4 h-4" />
             </button>
@@ -76,8 +78,9 @@ export function PluginDetail({ plugin, onToggleEnabled, onMCPServerClick }: Plug
               <button
                 onClick={() => onToggleEnabled(plugin, !plugin.enabled)}
                 className={`
-                  flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium
+                  flex items-center gap-1.5 px-3 rounded-md text-sm font-medium
                   transition-colors
+                  ${isMobile ? "py-2.5 min-h-[44px]" : "py-1.5"}
                   ${
                     plugin.enabled
                       ? "bg-green-500/10 text-green-600 hover:bg-green-500/20"
@@ -143,8 +146,8 @@ export function PluginDetail({ plugin, onToggleEnabled, onMCPServerClick }: Plug
                 <button
                   key={serverName}
                   onClick={() => onMCPServerClick?.(serverName)}
-                  className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded
-                    hover:bg-[var(--bg-tertiary)] transition-colors group"
+                  className={`flex items-center gap-2 w-full text-left px-2 rounded
+                    hover:bg-[var(--bg-tertiary)] transition-colors group ${isMobile ? "py-3 min-h-[48px]" : "py-1.5"}`}
                 >
                   <Server className="w-4 h-4 text-cyan-500" />
                   <span className="text-sm text-[var(--text-primary)] group-hover:text-[var(--accent-primary)]">

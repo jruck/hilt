@@ -19,6 +19,7 @@ import {
   ChevronDown,
   Puzzle,
 } from "lucide-react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { ConfigFile, ConfigFileType, ConfigLayer, ClaudeStack, MCPServerConfig, PluginConfig, AuthStatus } from "@/lib/claude-config/types";
 
 // Extended filter type that includes plugins
@@ -102,6 +103,7 @@ export function StackFileTree({
   typeFilter,
   searchQuery = "",
 }: StackFileTreeProps) {
+  const isMobile = useIsMobile();
   // Normalize search query for filtering
   const normalizedSearch = searchQuery.trim().toLowerCase();
 
@@ -240,16 +242,16 @@ export function StackFileTree({
             {/* Layer header */}
             <button
               onClick={() => toggleLayer(layer)}
-              className="w-full flex items-center gap-1 px-2 py-1 text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors uppercase tracking-wider"
+              className={`w-full flex items-center gap-1 px-2 text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors uppercase tracking-wider ${isMobile ? "py-2.5 min-h-[48px]" : "py-1"}`}
             >
-              <span className="flex-shrink-0 w-4 h-4 flex items-center justify-center text-[var(--text-tertiary)]">
+              <span className={`flex-shrink-0 flex items-center justify-center text-[var(--text-tertiary)] ${isMobile ? "w-5 h-5" : "w-4 h-4"}`}>
                 {isExpanded ? (
-                  <ChevronDown className="w-3 h-3" />
+                  <ChevronDown className={isMobile ? "w-4 h-4" : "w-3 h-3"} />
                 ) : (
-                  <ChevronRight className="w-3 h-3" />
+                  <ChevronRight className={isMobile ? "w-4 h-4" : "w-3 h-3"} />
                 )}
               </span>
-              <LayerIcon className="w-4 h-4 flex-shrink-0" />
+              <LayerIcon className={`flex-shrink-0 ${isMobile ? "w-5 h-5" : "w-4 h-4"}`} />
               <span className="flex-1 text-left">{layerConfig.label}</span>
               <span className="text-[10px] font-normal normal-case text-[var(--text-tertiary)]">
                 {totalItems} item{totalItems !== 1 ? "s" : ""}
@@ -303,8 +305,9 @@ export function StackFileTree({
                                   }
                                 }}
                                 className={`
-                                  w-full flex items-center gap-1 px-2 py-1 text-sm text-left
+                                  w-full flex items-center gap-1 px-2 text-sm text-left
                                   transition-colors
+                                  ${isMobile ? "py-2.5 min-h-[48px]" : "py-1"}
                                   ${
                                     !file.exists
                                       ? "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
@@ -316,11 +319,11 @@ export function StackFileTree({
                                 style={{ paddingLeft: "24px" }}
                               >
                                 {/* Spacer to align with chevron */}
-                                <span className="w-4 flex-shrink-0" />
-                                <Icon className={`w-4 h-4 flex-shrink-0 ${!file.exists ? "opacity-50" : config.color}`} />
+                                <span className={`flex-shrink-0 ${isMobile ? "w-5" : "w-4"}`} />
+                                <Icon className={`flex-shrink-0 ${isMobile ? "w-5 h-5" : "w-4 h-4"} ${!file.exists ? "opacity-50" : config.color}`} />
                                 <span className="truncate flex-1">{file.name}</span>
                                 {!file.exists && (
-                                  <Plus className="w-4 h-4 flex-shrink-0" />
+                                  <Plus className={`flex-shrink-0 ${isMobile ? "w-5 h-5" : "w-4 h-4"}`} />
                                 )}
                               </button>
                             );
@@ -345,8 +348,9 @@ export function StackFileTree({
                               key={`${server.name}-${server.source}`}
                               onClick={() => onSelectMCPServer?.(server)}
                               className={`
-                                w-full flex items-center gap-1 px-2 py-1 text-sm text-left
+                                w-full flex items-center gap-1 px-2 text-sm text-left
                                 transition-colors
+                                ${isMobile ? "py-2.5 min-h-[48px]" : "py-1"}
                                 ${
                                   isSelected
                                     ? "bg-[var(--bg-tertiary)]"
@@ -356,8 +360,8 @@ export function StackFileTree({
                               style={{ paddingLeft: "24px" }}
                             >
                               {/* Spacer to align with chevron */}
-                              <span className="w-4 flex-shrink-0" />
-                              <MCPIcon className={`w-4 h-4 flex-shrink-0 ${mcpConfig.color}`} />
+                              <span className={`flex-shrink-0 ${isMobile ? "w-5" : "w-4"}`} />
+                              <MCPIcon className={`flex-shrink-0 ${isMobile ? "w-5 h-5" : "w-4 h-4"} ${mcpConfig.color}`} />
                               <span className="truncate flex-1">{server.name}</span>
                               {/* Auth status indicator (only show if not "not-required") */}
                               {authIndicator && (
@@ -393,8 +397,9 @@ export function StackFileTree({
                               {/* Plugin header row */}
                               <div
                                 className={`
-                                  w-full flex items-center gap-1 px-2 py-1 text-sm text-left
+                                  w-full flex items-center gap-1 px-2 text-sm text-left
                                   transition-colors
+                                  ${isMobile ? "py-2.5 min-h-[48px]" : "py-1"}
                                   ${
                                     isSelected
                                       ? "bg-[var(--bg-tertiary)]"
@@ -410,23 +415,23 @@ export function StackFileTree({
                                       e.stopPropagation();
                                       togglePlugin(plugin.id);
                                     }}
-                                    className="w-4 h-4 flex-shrink-0 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+                                    className={`flex-shrink-0 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] ${isMobile ? "w-5 h-5" : "w-4 h-4"}`}
                                   >
                                     {isPluginExpanded ? (
-                                      <ChevronDown className="w-3 h-3" />
+                                      <ChevronDown className={isMobile ? "w-4 h-4" : "w-3 h-3"} />
                                     ) : (
-                                      <ChevronRight className="w-3 h-3" />
+                                      <ChevronRight className={isMobile ? "w-4 h-4" : "w-3 h-3"} />
                                     )}
                                   </button>
                                 ) : (
-                                  <span className="w-4 flex-shrink-0" />
+                                  <span className={`flex-shrink-0 ${isMobile ? "w-5" : "w-4"}`} />
                                 )}
                                 {/* Plugin content (clickable) */}
                                 <button
                                   onClick={() => onSelectPlugin?.(plugin)}
                                   className="flex items-center gap-1 flex-1 min-w-0"
                                 >
-                                  <Puzzle className={`w-4 h-4 flex-shrink-0 ${PLUGIN_COLOR}`} />
+                                  <Puzzle className={`flex-shrink-0 ${isMobile ? "w-5 h-5" : "w-4 h-4"} ${PLUGIN_COLOR}`} />
                                   <span className="truncate flex-1 text-left">{plugin.name}</span>
                                 </button>
                                 {/* Enabled/disabled indicator */}
@@ -452,8 +457,9 @@ export function StackFileTree({
                                         key={`${server.name}-${server.source}`}
                                         onClick={() => onSelectMCPServer?.(server)}
                                         className={`
-                                          w-full flex items-center gap-1 px-2 py-1 text-sm text-left
+                                          w-full flex items-center gap-1 px-2 text-sm text-left
                                           transition-colors
+                                          ${isMobile ? "py-2.5 min-h-[48px]" : "py-1"}
                                           ${
                                             isMCPSelected
                                               ? "bg-[var(--bg-tertiary)]"
@@ -462,8 +468,8 @@ export function StackFileTree({
                                         `}
                                         style={{ paddingLeft: "48px" }}
                                       >
-                                        <span className="w-4 flex-shrink-0" />
-                                        <Server className={`w-4 h-4 flex-shrink-0 ${mcpConfig.color}`} />
+                                        <span className={`flex-shrink-0 ${isMobile ? "w-5" : "w-4"}`} />
+                                        <Server className={`flex-shrink-0 ${isMobile ? "w-5 h-5" : "w-4 h-4"} ${mcpConfig.color}`} />
                                         <span className="truncate flex-1">{server.name}</span>
                                         {authIndicator && (
                                           <span
@@ -485,11 +491,11 @@ export function StackFileTree({
                                   {plugin.skillNames?.map((skillName) => (
                                     <div
                                       key={`skill-${skillName}`}
-                                      className="flex items-center gap-1 px-2 py-1 text-sm text-[var(--text-secondary)]"
+                                      className={`flex items-center gap-1 px-2 text-sm text-[var(--text-secondary)] ${isMobile ? "py-2.5 min-h-[48px]" : "py-1"}`}
                                       style={{ paddingLeft: "48px" }}
                                     >
-                                      <span className="w-4 flex-shrink-0" />
-                                      <Sparkles className="w-4 h-4 flex-shrink-0 text-rose-500" />
+                                      <span className={`flex-shrink-0 ${isMobile ? "w-5" : "w-4"}`} />
+                                      <Sparkles className={`flex-shrink-0 text-rose-500 ${isMobile ? "w-5 h-5" : "w-4 h-4"}`} />
                                       <span className="truncate flex-1">{skillName}</span>
                                     </div>
                                   ))}
@@ -498,11 +504,11 @@ export function StackFileTree({
                                   {plugin.agentNames?.map((agentName) => (
                                     <div
                                       key={`agent-${agentName}`}
-                                      className="flex items-center gap-1 px-2 py-1 text-sm text-[var(--text-secondary)]"
+                                      className={`flex items-center gap-1 px-2 text-sm text-[var(--text-secondary)] ${isMobile ? "py-2.5 min-h-[48px]" : "py-1"}`}
                                       style={{ paddingLeft: "48px" }}
                                     >
-                                      <span className="w-4 flex-shrink-0" />
-                                      <Bot className="w-4 h-4 flex-shrink-0 text-orange-500" />
+                                      <span className={`flex-shrink-0 ${isMobile ? "w-5" : "w-4"}`} />
+                                      <Bot className={`flex-shrink-0 text-orange-500 ${isMobile ? "w-5 h-5" : "w-4 h-4"}`} />
                                       <span className="truncate flex-1">{agentName}</span>
                                     </div>
                                   ))}

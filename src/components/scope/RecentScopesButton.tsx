@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Clock, Folder } from "lucide-react";
 import { getRecentScopes, initRecentScopes, type RecentScope } from "@/lib/recent-scopes";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 interface RecentScopesButtonProps {
   currentPath: string;
@@ -20,6 +21,7 @@ export function RecentScopesButton({
   const [refreshKey, setRefreshKey] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const isMobile = useIsMobile();
 
   // Initialize recent scopes from server on mount
   useEffect(() => {
@@ -93,14 +95,14 @@ export function RecentScopesButton({
       <button
         ref={buttonRef}
         onClick={handleToggle}
-        className={`p-1.5 rounded transition-colors ${
+        className={`rounded transition-colors ${
           isOpen
             ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]"
             : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
-        }`}
+        } ${isMobile ? "p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center" : "p-1.5"}`}
         title="Recent scopes"
       >
-        <Clock className="w-4 h-4" />
+        <Clock className={isMobile ? "w-5 h-5" : "w-4 h-4"} />
       </button>
 
       {isOpen && (

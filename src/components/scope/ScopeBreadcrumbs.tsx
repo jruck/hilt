@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { ChevronDown } from "lucide-react";
 import { SubfolderDropdown } from "./SubfolderDropdown";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 interface ScopeBreadcrumbsProps {
   value: string;
@@ -23,6 +24,7 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange, isPinned, onToggleP
   const containerRef = useRef<HTMLDivElement>(null);
   const lastSegmentRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -123,7 +125,7 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange, isPinned, onToggleP
         <button
           ref={isAtRoot ? lastSegmentRef : undefined}
           onClick={handleRootClick}
-          className="flex items-center gap-1 px-2 py-1 rounded text-[13px] transition-colors font-mono hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          className={`flex items-center gap-1 px-2 rounded text-[13px] transition-colors font-mono hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] ${isMobile ? "py-1.5 min-h-[32px]" : "py-1"}`}
           title="All Projects (root)"
         >
           <span>/</span>
@@ -150,7 +152,7 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange, isPinned, onToggleP
               <button
                 ref={isLast ? lastSegmentRef : undefined}
                 onClick={(e) => handleSegmentClick(segment, e)}
-                className="flex items-center gap-1 px-2 py-1 rounded text-[13px] transition-colors font-mono hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                className={`flex items-center gap-1 px-2 rounded text-[13px] transition-colors font-mono hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] ${isMobile ? "py-1.5 min-h-[32px]" : "py-1"}`}
               >
                 <span className="font-mono">{displayName}</span>
                 {isLast && (

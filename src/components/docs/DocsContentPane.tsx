@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Save, Loader2, AlertCircle, Copy, FolderOpen, Check, ExternalLink } from "lucide-react";
+import { Save, Loader2, AlertCircle, Copy, FolderOpen, Check, ExternalLink, MoreVertical } from "lucide-react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { DocsBreadcrumbs } from "./DocsBreadcrumbs";
 import { DocsEditToggle } from "./DocsEditToggle";
 import { DocsFallbackView } from "./DocsFallbackView";
@@ -89,6 +90,7 @@ export function DocsContentPane({
   onNavigateToFile,
   fileTree,
 }: DocsContentPaneProps) {
+  const isMobile = useIsMobile();
   const [saveError, setSaveError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -168,34 +170,103 @@ export function DocsContentPane({
     window.open(url, "_blank");
   }, [filePath, scopePath]);
 
+  // Mobile overflow menu state
+  const [showOverflow, setShowOverflow] = useState(false);
+  const overflowRef = useRef<HTMLDivElement>(null);
+
+  // Close overflow menu on outside click
+  useEffect(() => {
+    if (!showOverflow) return;
+    const handleClick = (e: MouseEvent) => {
+      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
+        setShowOverflow(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("touchstart", handleClick as EventListener);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("touchstart", handleClick as EventListener);
+    };
+  }, [showOverflow]);
+
+  // Close overflow menu when file changes
+  useEffect(() => {
+    setShowOverflow(false);
+  }, [filePath]);
+
   // File action buttons component for consistent UI across all file types
-  const FileActionButtons = useCallback(({ showNewTab = false }: { showNewTab?: boolean }) => (
-    <>
-      <button
-        onClick={handleCopyPath}
-        className="p-1.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
-        title="Copy path"
-      >
-        {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-      </button>
-      <button
-        onClick={handleRevealInFinder}
-        className="p-1.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
-        title="Reveal in Finder"
-      >
-        <FolderOpen className="w-4 h-4" />
-      </button>
-      {showNewTab && (
+  const FileActionButtons = useCallback(({ showNewTab = false }: { showNewTab?: boolean }) => {
+    if (isMobile) {
+      // Mobile: overflow menu
+      return (
+        <div ref={overflowRef} className="relative">
+          <button
+            onClick={() => setShowOverflow(v => !v)}
+            className="p-2 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+          >
+            <MoreVertical className="w-5 h-5" />
+          </button>
+          {showOverflow && (
+            <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] shadow-lg py-1">
+              <button
+                onClick={() => { handleCopyPath(); setShowOverflow(false); }}
+                className="flex items-center gap-3 w-full px-4 py-3 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
+              >
+                {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4 text-[var(--text-tertiary)]" />}
+                Copy path
+              </button>
+              <button
+                onClick={() => { handleRevealInFinder(); setShowOverflow(false); }}
+                className="flex items-center gap-3 w-full px-4 py-3 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
+              >
+                <FolderOpen className="w-4 h-4 text-[var(--text-tertiary)]" />
+                Reveal in Finder
+              </button>
+              {showNewTab && (
+                <button
+                  onClick={() => { handleOpenInNewTab(); setShowOverflow(false); }}
+                  className="flex items-center gap-3 w-full px-4 py-3 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
+                >
+                  <ExternalLink className="w-4 h-4 text-[var(--text-tertiary)]" />
+                  Open in new tab
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Desktop: inline buttons
+    return (
+      <>
         <button
-          onClick={handleOpenInNewTab}
+          onClick={handleCopyPath}
           className="p-1.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
-          title="Open in new tab"
+          title="Copy path"
         >
-          <ExternalLink className="w-4 h-4" />
+          {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
         </button>
-      )}
-    </>
-  ), [copied, handleCopyPath, handleRevealInFinder, handleOpenInNewTab]);
+        <button
+          onClick={handleRevealInFinder}
+          className="p-1.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+          title="Reveal in Finder"
+        >
+          <FolderOpen className="w-4 h-4" />
+        </button>
+        {showNewTab && (
+          <button
+            onClick={handleOpenInNewTab}
+            className="p-1.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+            title="Open in new tab"
+          >
+            <ExternalLink className="w-4 h-4" />
+          </button>
+        )}
+      </>
+    );
+  }, [copied, handleCopyPath, handleRevealInFinder, handleOpenInNewTab, isMobile, showOverflow]);
 
   // Handle breadcrumb navigation
   const handleBreadcrumbNavigate = useCallback(
@@ -427,6 +498,7 @@ export function DocsContentPane({
           scopePath={scopePath}
           fileTree={fileTree}
           onNavigateToFile={onNavigateToFile}
+          contentPadding={isMobile ? "px-4 py-4" : undefined}
         />
       </div>
     </div>

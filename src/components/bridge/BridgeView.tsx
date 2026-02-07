@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useBridgeWeekly } from "@/hooks/useBridgeWeekly";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { WeekHeader } from "./WeekHeader";
 import { BridgeTaskList } from "./BridgeTaskList";
 import { BridgeNotes } from "./BridgeNotes";
@@ -37,15 +38,34 @@ export function BridgeView({ addTaskTrigger = 0, onNavigateToProject }: BridgeVi
   } = useBridgeWeekly();
 
   const { data: projects, isLoading: projectsLoading, updateProjectStatus } = useBridgeProjects();
+  const isMobile = useIsMobile();
 
   const [showRecycleModal, setShowRecycleModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<BridgeTask | null>(null);
   const [autoFocusPanel, setAutoFocusPanel] = useState(false);
+  const [sheetVisible, setSheetVisible] = useState(false);
 
   // Keep selected task in sync with latest data
   const resolvedTask = selectedTask && weekly
     ? weekly.tasks.find(t => t.id === selectedTask.id) ?? null
     : null;
+
+  // Animate bottom sheet in on mobile when task is selected
+  useEffect(() => {
+    if (resolvedTask && isMobile) {
+      // Trigger slide-up animation after mount
+      const frame = requestAnimationFrame(() => setSheetVisible(true));
+      return () => cancelAnimationFrame(frame);
+    } else {
+      setSheetVisible(false);
+    }
+  }, [resolvedTask, isMobile]);
+
+  const closeSheet = useCallback(() => {
+    setSheetVisible(false);
+    // Wait for slide-down animation before clearing selection
+    setTimeout(() => setSelectedTask(null), 300);
+  }, []);
 
   // Handle add-task trigger from toolbar button (counter + ref prevents double-fires)
   const lastAddTrigger = useRef(0);
@@ -150,8 +170,8 @@ export function BridgeView({ addTaskTrigger = 0, onNavigateToProject }: BridgeVi
         )}
       </div>
 
-      {/* Side panel for task details */}
-      {resolvedTask && (
+      {/* Task detail panel — side panel on desktop, bottom sheet on mobile */}
+      {resolvedTask && !isMobile && (
         <div className="w-96 flex-shrink-0 overflow-visible">
           <BridgeTaskPanel
             task={resolvedTask}
@@ -167,7 +187,6 @@ export function BridgeView({ addTaskTrigger = 0, onNavigateToProject }: BridgeVi
               setSelectedTask(null);
             }}
             onNavigateToProject={(projectPath, vaultPath) => {
-              // Try to resolve from loaded projects first
               if (projects) {
                 const allProjects = Object.values(projects.columns).flat();
                 const project = allProjects.find(p => p.relativePath === projectPath);
@@ -176,7 +195,6 @@ export function BridgeView({ addTaskTrigger = 0, onNavigateToProject }: BridgeVi
                   return;
                 }
               }
-              // Fallback: construct absolute path and navigate directly
               if (vaultPath && onNavigateToProject) {
                 const absolutePath = `${vaultPath}/${projectPath}`;
                 onNavigateToProject({ path: absolutePath, relativePath: projectPath } as BridgeProject);
@@ -184,6 +202,62 @@ export function BridgeView({ addTaskTrigger = 0, onNavigateToProject }: BridgeVi
             }}
           />
         </div>
+      )}
+
+      {/* Mobile bottom sheet */}
+      {resolvedTask && isMobile && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-40 bg-black/30 transition-opacity duration-300"
+            style={{ opacity: sheetVisible ? 1 : 0 }}
+            onClick={closeSheet}
+          />
+          {/* Sheet */}
+          <div
+            className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--bg-primary)] rounded-t-2xl shadow-2xl transition-transform duration-300 ease-out"
+            style={{
+              maxHeight: "70vh",
+              transform: sheetVisible ? "translateY(0)" : "translateY(100%)",
+              paddingBottom: "env(safe-area-inset-bottom)",
+            }}
+          >
+            {/* Drag handle */}
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="w-12 h-1 rounded-full bg-[var(--text-tertiary)] opacity-40" />
+            </div>
+            <div className="overflow-y-auto" style={{ maxHeight: "calc(70vh - 24px)" }}>
+              <BridgeTaskPanel
+                task={resolvedTask}
+                autoFocusTitle={autoFocusPanel}
+                vaultPath={weekly.vaultPath}
+                filePath={weekly.filePath}
+                onClose={closeSheet}
+                onUpdateTitle={updateTaskTitle}
+                onUpdateDetails={updateTaskDetails}
+                onUpdateProject={updateTaskProject}
+                onDelete={(id) => {
+                  deleteTask(id);
+                  setSelectedTask(null);
+                }}
+                onNavigateToProject={(projectPath, vaultPath) => {
+                  if (projects) {
+                    const allProjects = Object.values(projects.columns).flat();
+                    const project = allProjects.find(p => p.relativePath === projectPath);
+                    if (project) {
+                      onNavigateToProject?.(project);
+                      return;
+                    }
+                  }
+                  if (vaultPath && onNavigateToProject) {
+                    const absolutePath = `${vaultPath}/${projectPath}`;
+                    onNavigateToProject({ path: absolutePath, relativePath: projectPath } as BridgeProject);
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

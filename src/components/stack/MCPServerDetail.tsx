@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { Server, Terminal, Globe, ExternalLink, User, Tag, Check, X, Pencil, Save, ShieldCheck, ShieldAlert, ShieldOff, ShieldQuestion, Copy, FolderOpen } from "lucide-react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { MCPServerConfig } from "@/lib/claude-config/types";
 
 interface MCPServerDetailProps {
@@ -11,6 +12,7 @@ interface MCPServerDetailProps {
 }
 
 export function MCPServerDetail({ server, onToggleEnabled, onServerUpdated }: MCPServerDetailProps) {
+  const isMobile = useIsMobile();
   const isFromPlugin = !!server.pluginId;
   const metadata = server.pluginMetadata;
   const isEditable = !isFromPlugin; // User-defined servers are editable
@@ -105,7 +107,7 @@ export function MCPServerDetail({ server, onToggleEnabled, onServerUpdated }: MC
             <button
               onClick={handleCopyPath}
               title="Copy path"
-              className="p-1.5 rounded-md text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+              className={`rounded-md text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors ${isMobile ? "p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center" : "p-1.5"}`}
             >
               {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
             </button>
@@ -113,7 +115,7 @@ export function MCPServerDetail({ server, onToggleEnabled, onServerUpdated }: MC
             <button
               onClick={handleRevealInFinder}
               title="Reveal in Finder"
-              className="p-1.5 rounded-md text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+              className={`rounded-md text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors ${isMobile ? "p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center" : "p-1.5"}`}
             >
               <FolderOpen className="w-4 h-4" />
             </button>
@@ -121,9 +123,9 @@ export function MCPServerDetail({ server, onToggleEnabled, onServerUpdated }: MC
             {isEditable && !isEditing && (
               <button
                 onClick={handleEdit}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium
+                className={`flex items-center gap-1.5 px-3 rounded-md text-sm font-medium
                   bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]
-                  transition-colors"
+                  transition-colors ${isMobile ? "py-2.5 min-h-[44px]" : "py-1.5"}`}
               >
                 <Pencil className="w-4 h-4" />
                 Edit
@@ -134,8 +136,9 @@ export function MCPServerDetail({ server, onToggleEnabled, onServerUpdated }: MC
               <button
                 onClick={() => onToggleEnabled(server, !server.enabled)}
                 className={`
-                  flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium
+                  flex items-center gap-1.5 px-3 rounded-md text-sm font-medium
                   transition-colors
+                  ${isMobile ? "py-2.5 min-h-[44px]" : "py-1.5"}
                   ${
                     server.enabled
                       ? "bg-green-500/10 text-green-600 hover:bg-green-500/20"

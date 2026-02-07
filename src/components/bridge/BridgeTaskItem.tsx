@@ -6,6 +6,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { BridgeTask } from "@/lib/types";
 import { GripVertical, ChevronRight } from "lucide-react";
 import { parseAttribution, parseLifecycle } from "@/lib/attribution";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 interface BridgeTaskItemProps {
   task: BridgeTask;
@@ -28,11 +29,7 @@ export function BridgeTaskItem({
   const lastSavedTitle = useRef(task.title);
   const inputRef = useRef<HTMLInputElement>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [isTouch, setIsTouch] = useState(false);
-
-  useEffect(() => {
-    setIsTouch(window.matchMedia("(pointer: coarse)").matches);
-  }, []);
+  const isTouch = useIsMobile();
 
   // Parse attribution and lifecycle from title (memoized)
   const attribution = useMemo(() => parseAttribution(title), [title]);
@@ -96,7 +93,7 @@ export function BridgeTaskItem({
       {hasDot && (
         <button
           onClick={() => onUpdateTitle(task.id, lifecycle.displayTitle)}
-          className={`absolute -left-4 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full transition-opacity hover:opacity-60 ${
+          className={`absolute -left-4 top-1/2 -translate-y-1/2 ${isTouch ? "w-3 h-3" : "w-2 h-2"} rounded-full transition-opacity hover:opacity-60 ${
             lifecycle.state === "new" ? "bg-yellow-500" : "bg-blue-500"
           }`}
           title={lifecycle.state === "new" ? "New — click to acknowledge" : "Needs review — click to confirm"}
@@ -112,7 +109,7 @@ export function BridgeTaskItem({
         } ${visuallyDone || isReview ? "opacity-50" : ""}`}
       >
         <div
-          className={`flex items-center gap-2 px-3 py-2.5 cursor-pointer ${isTouch ? "select-none touch-manipulation" : ""}`}
+          className={`flex items-center gap-2 px-3 ${isTouch ? "py-3" : "py-2.5"} cursor-pointer ${isTouch ? "select-none touch-manipulation" : ""}`}
           onClick={() => onSelect(task)}
           {...(isTouch ? { ...attributes, ...listeners } : {})}
         >
@@ -141,7 +138,7 @@ export function BridgeTaskItem({
               }
             }}
             onClick={(e) => e.stopPropagation()}
-            className="bridge-checkbox flex-shrink-0 w-4 h-4 cursor-pointer"
+            className={`bridge-checkbox flex-shrink-0 ${isTouch ? "w-5 h-5" : "w-4 h-4"} cursor-pointer`}
           />
 
           {/* Title area — flex-1 with fade mask pinned to row edge */}

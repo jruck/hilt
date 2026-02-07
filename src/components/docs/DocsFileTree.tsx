@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { FileNode } from "@/lib/types";
 import { DocsTreeItem } from "./DocsTreeItem";
 
@@ -107,6 +108,8 @@ export function DocsFileTree({
   isLoading,
   searchQuery,
 }: DocsFileTreeProps) {
+  const isMobile = useIsMobile();
+
   // Filter tree if search query is active
   const displayTree = useMemo(() => {
     if (!tree || !searchQuery?.trim()) {
@@ -116,7 +119,7 @@ export function DocsFileTree({
   }, [tree, searchQuery]);
 
   return (
-    <div className="flex flex-col h-full bg-[var(--bg-primary)] border-r border-[var(--border-default)]">
+    <div className={`flex flex-col h-full bg-[var(--bg-primary)] ${isMobile ? "" : "border-r border-[var(--border-default)]"}`}>
       {/* Tree content */}
       <div className="flex-1 overflow-auto py-1">
         {!displayTree ? (

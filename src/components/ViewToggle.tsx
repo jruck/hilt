@@ -16,6 +16,10 @@ export function getPrimaryView(viewMode: ViewMode): PrimaryView {
 interface ViewToggleProps {
   view: ViewMode;
   onChange: (view: ViewMode) => void;
+  /** When true, renders icon-only 48x48 buttons with no background pill (mobile) */
+  compact?: boolean;
+  /** Override icon size in pixels (default: 16) */
+  iconSize?: number;
 }
 
 const VIEW_CONFIG = [
@@ -24,7 +28,34 @@ const VIEW_CONFIG = [
   { id: "stack" as const, label: "Stack", icon: Layers, title: "Claude configuration stack" },
 ];
 
-export function ViewToggle({ view, onChange }: ViewToggleProps) {
+export function ViewToggle({ view, onChange, compact, iconSize }: ViewToggleProps) {
+  const size = iconSize ?? (compact ? 24 : 16);
+
+  if (compact) {
+    return (
+      <div className="flex items-center gap-1">
+        {VIEW_CONFIG.map(({ id, icon: Icon, title }) => (
+          <button
+            key={id}
+            onClick={() => onChange(id)}
+            className={`
+              flex items-center justify-center min-w-[48px] min-h-[48px] rounded-md
+              transition-colors
+              ${
+                view === id
+                  ? "text-[var(--text-primary)]"
+                  : "text-[var(--text-tertiary)]"
+              }
+            `}
+            title={title}
+          >
+            <Icon style={{ width: size, height: size }} />
+          </button>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center bg-[var(--bg-tertiary)] rounded-lg p-0.5">
       {VIEW_CONFIG.map(({ id, label, icon: Icon, title }) => (
@@ -42,7 +73,7 @@ export function ViewToggle({ view, onChange }: ViewToggleProps) {
           `}
           title={title}
         >
-          <Icon className="w-4 h-4" />
+          <Icon style={{ width: size, height: size }} />
           <span className="hidden sm:inline">{label}</span>
         </button>
       ))}

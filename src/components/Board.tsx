@@ -5,14 +5,14 @@ import { useScope } from "@/contexts/ScopeContext";
 import dynamic from "next/dynamic";
 import { ScopeBreadcrumbs, BrowseButton, RecentScopesButton } from "./scope";
 import { PinnedFoldersPopover } from "./scope/PinnedFoldersPopover";
-import { ViewToggle, ViewMode, getPrimaryView } from "./ViewToggle";
+import { ViewMode, getPrimaryView } from "./ViewToggle";
+import { NavBar } from "./NavBar";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.DocsView })), { ssr: false });
 const StackView = dynamic(() => import("./stack").then(m => ({ default: m.StackView })), { ssr: false });
 const BridgeView = dynamic(() => import("./bridge/BridgeView").then(m => ({ default: m.BridgeView })), { ssr: false });
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
-import { Search, X, Plus } from "lucide-react";
-import { ThemeToggle } from "./ThemeToggle";
 
 const HOME_DIR_STORAGE_KEY = "hilt-home-dir";
 
@@ -141,6 +141,7 @@ export function Board() {
   }, [isHydrated, workingFolder, setScopePath]);
 
   const pinnedFolders = usePinnedFolders();
+  const isMobile = useIsMobile();
 
   // Search state
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -164,74 +165,37 @@ export function Board() {
 
   return (
     <div className="flex flex-col h-dvh bg-[var(--bg-primary)]">
-      {/* Top Toolbar */}
+      {/* NavBar: top bar on desktop, fixed bottom bar on mobile */}
+      <NavBar
+        viewMode={viewMode}
+        setViewMode={setViewMode}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        setAddTaskTrigger={setAddTaskTrigger}
+      />
+
       <div
-        data-statusbar
-        className="relative flex items-center px-4 h-11 bg-[var(--bg-secondary)] border-b border-[var(--border-default)]"
-        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+        className="flex flex-1 overflow-hidden"
+        style={isMobile ? { paddingBottom: "calc(56px + env(safe-area-inset-bottom, 0px))" } : undefined}
       >
-        {/* Left: search, theme */}
-        <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          {/* Search */}
-          {searchQuery ? (
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-tertiary)]" />
-              <input
-                type="text"
-                placeholder="Search..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onBlur={(e) => {
-                  if (!e.target.value) setSearchQuery("");
-                }}
-                autoFocus
-                className="w-40 pl-8 pr-7 py-1.5 text-sm bg-[var(--bg-tertiary)] rounded text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none"
-              />
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setSearchQuery(" ")}
-              className="p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
-              title="Search"
-            >
-              <Search className="w-4 h-4" />
-            </button>
-          )}
-
-          {/* Theme toggle */}
-          <ThemeToggle />
-        </div>
-
-        {/* Center: View toggle (absolute center) */}
-        <div className="absolute left-1/2 -translate-x-1/2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <ViewToggle view={viewMode} onChange={setViewMode} />
-        </div>
-
-        {/* Right: Add task button */}
-        <div className="flex items-center ml-auto" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <button
-            onClick={() => {
-              if (viewMode !== "bridge") setViewMode("bridge");
-              setAddTaskTrigger(c => c + 1);
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-80 transition-opacity"
-            title="Add task"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add</span>
-          </button>
-        </div>
-      </div>
-
-      <div className="flex flex-1 overflow-hidden">
         {/* Main content column */}
         <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Mobile scope header — breadcrumb + browse at top of content */}
+        {isMobile && getPrimaryView(viewMode) !== "bridge" && (
+          <div className="flex-shrink-0 flex items-center gap-1 px-3 h-10 bg-[var(--bg-secondary)] border-b border-[var(--border-default)]">
+            {homeDir && (
+              <ScopeBreadcrumbs
+                value={scopePath}
+                homeDir={homeDir}
+                onChange={setScopePath}
+                isPinned={pinnedFolders.isPinned(scopePath)}
+                onTogglePin={() => pinnedFolders.togglePin(scopePath)}
+              />
+            )}
+            <BrowseButton onSelect={setScopePath} />
+          </div>
+        )}
+
         {/* Conditional View: Bridge, Docs, or Stack */}
         {viewMode === "bridge" ? (
           <BridgeView
@@ -255,8 +219,8 @@ export function Board() {
           </div>
         ) : null}
 
-        {/* Bottom toolbar — scope controls (hidden on Bridge view) */}
-        {getPrimaryView(viewMode) !== "bridge" && (
+        {/* Bottom toolbar — scope controls (hidden on Bridge view and on mobile) */}
+        {!isMobile && getPrimaryView(viewMode) !== "bridge" && (
           <div className="flex-shrink-0 mt-auto flex items-center gap-1 px-4 h-10 bg-[var(--bg-secondary)] border-t border-[var(--border-default)]">
             {homeDir && (
               <>

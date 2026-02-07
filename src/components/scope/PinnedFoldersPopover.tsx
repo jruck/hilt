@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Pin } from "lucide-react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import useSWR from "swr";
 import {
   DndContext,
@@ -42,6 +43,7 @@ export function PinnedFoldersPopover({
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const isMobile = useIsMobile();
 
   const { folders, unpinFolder, reorderFolders, setEmoji } = pinnedFolders;
 
@@ -118,14 +120,14 @@ export function PinnedFoldersPopover({
       <button
         ref={buttonRef}
         onClick={() => setIsOpen(!isOpen)}
-        className={`p-1.5 rounded transition-colors ${
+        className={`rounded transition-colors ${
           isOpen
             ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]"
             : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
-        }`}
+        } ${isMobile ? "p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center" : "p-1.5"}`}
         title="Pinned folders"
       >
-        <Pin className="w-4 h-4" />
+        <Pin className={isMobile ? "w-5 h-5" : "w-4 h-4"} />
       </button>
 
       {isOpen && (

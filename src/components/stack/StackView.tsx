@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { ChevronLeft } from "lucide-react";
 import { useClaudeStack } from "@/hooks/useClaudeStack";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { StackFileTree, type StackFilterType } from "./StackFileTree";
 import { StackContentPane } from "./StackContentPane";
 import { StackSummary } from "./StackSummary";
@@ -22,11 +24,13 @@ interface StackViewProps {
 
 export function StackView({ scopePath, searchQuery = "" }: StackViewProps) {
   const { stack, isLoading, isError, mutate } = useClaudeStack(scopePath);
+  const isMobile = useIsMobile();
   const [selectedFile, setSelectedFile] = useState<{ file: ConfigFile; layer: ConfigLayer } | null>(null);
   const [selectedMCPServer, setSelectedMCPServer] = useState<MCPServerConfig | null>(null);
   const [selectedPlugin, setSelectedPlugin] = useState<PluginConfig | null>(null);
   const [creatingFile, setCreatingFile] = useState<{ file: ConfigFile; layer: ConfigLayer } | null>(null);
   const [typeFilter, setTypeFilter] = useState<StackFilterType | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<"tree" | "detail">("tree");
 
   // Sidebar resize state
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -85,11 +89,6 @@ export function StackView({ scopePath, searchQuery = "" }: StackViewProps) {
     mutate();
   }, [mutate]);
 
-  const handleCreateFile = useCallback((file: ConfigFile, layer: ConfigLayer) => {
-    setCreatingFile({ file, layer });
-    setSelectedFile(null);
-  }, []);
-
   const handleCreateComplete = useCallback(() => {
     setCreatingFile(null);
     mutate();
@@ -104,19 +103,36 @@ export function StackView({ scopePath, searchQuery = "" }: StackViewProps) {
     setSelectedMCPServer(null);
     setSelectedPlugin(null);
     setCreatingFile(null);
-  }, []);
+    if (isMobile) setMobilePanel("detail");
+  }, [isMobile]);
 
   const handleSelectMCPServer = useCallback((server: MCPServerConfig) => {
     setSelectedMCPServer(server);
     setSelectedFile(null);
     setSelectedPlugin(null);
     setCreatingFile(null);
-  }, []);
+    if (isMobile) setMobilePanel("detail");
+  }, [isMobile]);
 
   const handleSelectPlugin = useCallback((plugin: PluginConfig) => {
     setSelectedPlugin(plugin);
     setSelectedFile(null);
     setSelectedMCPServer(null);
+    setCreatingFile(null);
+    if (isMobile) setMobilePanel("detail");
+  }, [isMobile]);
+
+  const handleCreateFile = useCallback((file: ConfigFile, layer: ConfigLayer) => {
+    setCreatingFile({ file, layer });
+    setSelectedFile(null);
+    if (isMobile) setMobilePanel("detail");
+  }, [isMobile]);
+
+  const handleMobileBack = useCallback(() => {
+    setMobilePanel("tree");
+    setSelectedFile(null);
+    setSelectedMCPServer(null);
+    setSelectedPlugin(null);
     setCreatingFile(null);
   }, []);
 
@@ -213,6 +229,90 @@ export function StackView({ scopePath, searchQuery = "" }: StackViewProps) {
     );
   }
 
+  // Determine the selected item name for mobile back button header
+  const selectedItemName = selectedPlugin
+    ? selectedPlugin.name
+    : selectedMCPServer
+      ? selectedMCPServer.name
+      : creatingFile?.file?.name || selectedFile?.file?.name || "";
+
+  // Detail content (shared between mobile and desktop)
+  const detailContent = selectedPlugin ? (
+    <PluginDetail
+      plugin={selectedPlugin}
+      onToggleEnabled={handleTogglePlugin}
+      onMCPServerClick={handlePluginMCPServerClick}
+    />
+  ) : selectedMCPServer ? (
+    <MCPServerDetail
+      server={selectedMCPServer}
+      onToggleEnabled={selectedMCPServer.pluginId ? handleToggleMCPServer : undefined}
+      onServerUpdated={handleFileUpdated}
+    />
+  ) : (
+    <StackContentPane
+      file={creatingFile?.file || selectedFile?.file || null}
+      layer={creatingFile?.layer || selectedFile?.layer || "project"}
+      scopePath={scopePath}
+      onFileUpdated={handleFileUpdated}
+      isCreating={!!creatingFile}
+      onCreateComplete={handleCreateComplete}
+      onCancelCreate={handleCancelCreate}
+    />
+  );
+
+  // Mobile: single-panel drill-down layout
+  if (isMobile) {
+    if (mobilePanel === "detail") {
+      return (
+        <div className="flex flex-col h-full">
+          {/* Back button header */}
+          <div className="flex items-center gap-2 px-4 h-11 border-b border-[var(--border-default)] bg-[var(--bg-secondary)] flex-shrink-0">
+            <button onClick={handleMobileBack} className="flex items-center gap-1 text-sm text-[var(--text-secondary)]">
+              <ChevronLeft className="w-4 h-4" />
+              <span>Back</span>
+            </button>
+            <span className="text-sm font-medium text-[var(--text-primary)] truncate">{selectedItemName}</span>
+          </div>
+          {/* Detail content */}
+          <div className="flex-1 overflow-hidden">
+            {detailContent}
+          </div>
+        </div>
+      );
+    }
+
+    // Tree panel (default on mobile)
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex-1 overflow-y-auto pt-1.5 pb-1">
+          <StackFileTree
+            layers={stack.layers}
+            mcpServers={stack.mcpServers}
+            plugins={stack.plugins}
+            selectedFile={selectedFile?.file || null}
+            selectedMCPServer={selectedMCPServer}
+            selectedPlugin={selectedPlugin}
+            onSelectFile={handleSelectFile}
+            onSelectMCPServer={handleSelectMCPServer}
+            onSelectPlugin={handleSelectPlugin}
+            onCreateFile={handleCreateFile}
+            typeFilter={typeFilter}
+            searchQuery={searchQuery}
+          />
+        </div>
+        <div className="border-t border-[var(--border-default)] flex-shrink-0">
+          <StackSummary
+            summary={stack.summary}
+            activeFilter={typeFilter}
+            onFilterChange={setTypeFilter}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop: two-column split layout
   return (
     <div className={`flex h-full ${isResizing ? "select-none" : ""}`}>
       {/* Sidebar - All layers with dividers */}
@@ -255,29 +355,7 @@ export function StackView({ scopePath, searchQuery = "" }: StackViewProps) {
 
       {/* Content pane */}
       <div className="flex-1 overflow-hidden">
-        {selectedPlugin ? (
-          <PluginDetail
-            plugin={selectedPlugin}
-            onToggleEnabled={handleTogglePlugin}
-            onMCPServerClick={handlePluginMCPServerClick}
-          />
-        ) : selectedMCPServer ? (
-          <MCPServerDetail
-            server={selectedMCPServer}
-            onToggleEnabled={selectedMCPServer.pluginId ? handleToggleMCPServer : undefined}
-            onServerUpdated={handleFileUpdated}
-          />
-        ) : (
-          <StackContentPane
-            file={creatingFile?.file || selectedFile?.file || null}
-            layer={creatingFile?.layer || selectedFile?.layer || "project"}
-            scopePath={scopePath}
-            onFileUpdated={handleFileUpdated}
-            isCreating={!!creatingFile}
-            onCreateComplete={handleCreateComplete}
-            onCancelCreate={handleCancelCreate}
-          />
-        )}
+        {detailContent}
       </div>
     </div>
   );

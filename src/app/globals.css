@@ -68,6 +68,9 @@ button, [role="button"] {
   --toolbar-hover-blue: #dbeafe;
   --toolbar-hover-emerald: #d1fae5;
 
+  /* Mobile nav */
+  --nav-mobile-bg: rgba(245, 244, 241, 0.85);
+
   /* Scrollbar */
   --scrollbar-track: #f0eeeb;
   --scrollbar-thumb: #c4bfb8;
@@ -132,6 +135,9 @@ button, [role="button"] {
   --toolbar-hover-blue: rgba(30, 64, 175, 0.9);
   --toolbar-hover-emerald: rgba(6, 78, 59, 0.9);
 
+  /* Mobile nav */
+  --nav-mobile-bg: rgba(26, 25, 24, 0.85);
+
   /* Scrollbar */
   --scrollbar-track: #1a1918;
   --scrollbar-thumb: #3d3b38;
@@ -143,6 +149,20 @@ button, [role="button"] {
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+}
+
+/* Touch device detection — CSS companion to useIsMobile() hook */
+@media (pointer: coarse) {
+  :root {
+    --is-touch: 1;
+  }
+}
+
+/* Safe area support for devices with notch/home indicator */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  :root {
+    --safe-area-bottom: env(safe-area-inset-bottom);
+  }
 }
 
 html, body {

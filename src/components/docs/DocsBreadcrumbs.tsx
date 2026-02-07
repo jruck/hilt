@@ -1,6 +1,7 @@
 "use client";
 
 import * as path from "path";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 interface DocsBreadcrumbsProps {
   filePath: string;
@@ -9,6 +10,7 @@ interface DocsBreadcrumbsProps {
 }
 
 export function DocsBreadcrumbs({ filePath, scopePath, onNavigate }: DocsBreadcrumbsProps) {
+  const isMobile = useIsMobile();
   // Get relative path from scope
   const relativePath = filePath.startsWith(scopePath)
     ? filePath.slice(scopePath.length).replace(/^\//, "")
@@ -40,7 +42,7 @@ export function DocsBreadcrumbs({ filePath, scopePath, onNavigate }: DocsBreadcr
   });
 
   return (
-    <nav className="flex items-center gap-0.5 overflow-x-auto">
+    <nav className={`flex items-center gap-0.5 overflow-x-auto ${isMobile ? "h-11 scrollbar-none" : ""}`}>
       {items.map((item, index) => (
         <span key={item.path} className="flex items-center flex-shrink-0">
           {index > 0 && (

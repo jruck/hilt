@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronLeft } from "lucide-react";
 import { useDocs } from "@/hooks/useDocs";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { DocsFileTree } from "./docs/DocsFileTree";
 import { DocsContentPane } from "./docs/DocsContentPane";
 import type { FileNode } from "@/lib/types";
@@ -51,6 +53,9 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
     saveFile,
     isSaving,
   } = useDocs(scopePath);
+
+  const isMobile = useIsMobile();
+  const [mobilePanel, setMobilePanel] = useState<"tree" | "content">("tree");
 
   // Sidebar resize state
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -108,7 +113,10 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
   // Handle file selection
   const handleFileSelect = useCallback((filePath: string) => {
     setSelectedPath(filePath);
-  }, [setSelectedPath]);
+    if (isMobile) {
+      setMobilePanel("content");
+    }
+  }, [setSelectedPath, isMobile]);
 
   // Find index.md in a folder node
   const findIndexFile = useCallback((folderPath: string): string | null => {
@@ -250,6 +258,72 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
     );
   }
 
+  // Extract filename for mobile back-button header
+  const selectedFileName = selectedPath ? selectedPath.split("/").pop() || "" : "";
+
+  // Mobile: single-panel drill-down with slide transition
+  if (isMobile) {
+    const showContent = mobilePanel === "content";
+    return (
+      <div className="flex-1 relative overflow-hidden">
+        {/* File tree panel - slides out left */}
+        <div
+          className="absolute inset-0 flex flex-col transition-transform duration-200 ease-out"
+          style={{ transform: showContent ? "translateX(-100%)" : "translateX(0)" }}
+        >
+          <DocsFileTree
+            tree={tree}
+            expandedPaths={expandedPaths}
+            selectedPath={selectedPath}
+            onToggleExpand={toggleExpanded}
+            onSelect={handleFileSelect}
+            isLoading={treeLoading}
+            searchQuery={searchQuery}
+          />
+        </div>
+
+        {/* Content panel - slides in from right */}
+        <div
+          className="absolute inset-0 flex flex-col transition-transform duration-200 ease-out"
+          style={{ transform: showContent ? "translateX(0)" : "translateX(100%)" }}
+        >
+          {/* Back button header */}
+          <div className="flex items-center gap-2 px-4 h-11 border-b border-[var(--border-default)] bg-[var(--bg-secondary)] flex-shrink-0">
+            <button
+              onClick={() => setMobilePanel("tree")}
+              className="flex items-center gap-1 text-sm text-[var(--text-secondary)]"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Back</span>
+            </button>
+            <span className="text-sm font-medium text-[var(--text-primary)] truncate">
+              {selectedFileName}
+            </span>
+          </div>
+          <DocsContentPane
+            filePath={selectedPath}
+            scopePath={scopePath}
+            content={fileContent}
+            fileMeta={fileMeta}
+            isLoading={fileLoading}
+            error={fileError}
+            isEditMode={isEditMode}
+            onEditModeChange={setEditMode}
+            editedContent={editedContent}
+            onContentChange={setEditedContent}
+            hasUnsavedChanges={hasUnsavedChanges}
+            onSave={saveFile}
+            isSaving={isSaving}
+            onNavigateToFolder={handleNavigateToFolder}
+            onNavigateToFile={handleNavigateToFile}
+            fileTree={tree}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop: two-column split layout
   return (
     <div className={`flex-1 flex overflow-hidden ${isResizing ? "select-none" : ""}`}>
       {/* File tree sidebar */}

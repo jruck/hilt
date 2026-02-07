@@ -87,22 +87,23 @@ export function BridgeTaskItem({
   // Review tasks look unchecked (pending user confirmation) even though markdown has [x]
   const visuallyDone = task.done && !isReview;
 
-  // Left border accent color for lifecycle states
-  const leftBorderClass = isNew
-    ? "border-l-amber-500"
+  // Left border accent using inset box-shadow (doesn't affect layout)
+  const leftAccentStyle = isNew
+    ? { boxShadow: "inset 3px 0 0 0 rgb(245 158 11)" } // amber-500
     : isReview
-    ? "border-l-blue-500"
-    : "";
+    ? { boxShadow: "inset 3px 0 0 0 rgb(59 130 246)" } // blue-500
+    : undefined;
 
   return (
     <div ref={setNodeRef} style={style} className="relative">
       {/* Task card */}
       <div
+        style={leftAccentStyle}
         className={`flex-1 min-w-0 rounded-lg border bg-[var(--bg-secondary)] transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
           isSelected
             ? "border-[var(--interactive-default)]"
             : "border-[var(--border-default)]"
-        } ${visuallyDone || isReview ? "opacity-50" : ""} ${leftBorderClass ? `border-l-[3px] ${leftBorderClass}` : ""}`}
+        } ${visuallyDone || isReview ? "opacity-50" : ""}`}
       >
         <div
           className={`flex items-center gap-2 px-3 ${isTouch ? "py-3" : "py-2.5"} cursor-pointer ${isTouch ? "select-none touch-manipulation" : ""}`}

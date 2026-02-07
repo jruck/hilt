@@ -27,15 +27,15 @@ export function NavBar({
   if (isMobile) {
     return (
       <nav
-        className="fixed bottom-0 left-0 right-0 z-50 border-t border-[var(--border-default)] flex items-center"
+        className="fixed bottom-0 left-0 right-0 z-50 border-t border-[var(--border-default)] flex flex-col"
         style={{
-          height: 56,
-          paddingBottom: "env(safe-area-inset-bottom)",
+          paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)",
           background: "var(--nav-mobile-bg)",
           backdropFilter: "blur(12px)",
           WebkitBackdropFilter: "blur(12px)",
         }}
       >
+        <div className="flex items-center h-14">
         {mobileSearchOpen ? (
           /* Search mode: full-width input takes over the bar */
           <div className="flex items-center gap-2 flex-1 px-3">
@@ -86,6 +86,7 @@ export function NavBar({
             </button>
           </div>
         )}
+        </div>
       </nav>
     );
   }

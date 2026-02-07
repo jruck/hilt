@@ -82,31 +82,27 @@ export function BridgeTaskItem({
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const hasDot = lifecycle.state === "new" || lifecycle.state === "review";
+  const isNew = lifecycle.state === "new";
   const isReview = lifecycle.state === "review";
   // Review tasks look unchecked (pending user confirmation) even though markdown has [x]
   const visuallyDone = task.done && !isReview;
 
+  // Left border accent color for lifecycle states
+  const leftBorderClass = isNew
+    ? "border-l-amber-500"
+    : isReview
+    ? "border-l-blue-500"
+    : "";
+
   return (
     <div ref={setNodeRef} style={style} className="relative">
-      {/* Lifecycle dot — positioned outside the left edge */}
-      {hasDot && (
-        <button
-          onClick={() => onUpdateTitle(task.id, lifecycle.displayTitle)}
-          className={`absolute -left-4 top-1/2 -translate-y-1/2 ${isTouch ? "w-3 h-3" : "w-2 h-2"} rounded-full transition-opacity hover:opacity-60 ${
-            lifecycle.state === "new" ? "bg-yellow-500" : "bg-blue-500"
-          }`}
-          title={lifecycle.state === "new" ? "New — click to acknowledge" : "Needs review — click to confirm"}
-        />
-      )}
-
       {/* Task card */}
       <div
         className={`flex-1 min-w-0 rounded-lg border bg-[var(--bg-secondary)] transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
           isSelected
             ? "border-[var(--interactive-default)]"
             : "border-[var(--border-default)]"
-        } ${visuallyDone || isReview ? "opacity-50" : ""}`}
+        } ${visuallyDone || isReview ? "opacity-50" : ""} ${leftBorderClass ? `border-l-[3px] ${leftBorderClass}` : ""}`}
       >
         <div
           className={`flex items-center gap-2 px-3 ${isTouch ? "py-3" : "py-2.5"} cursor-pointer ${isTouch ? "select-none touch-manipulation" : ""}`}

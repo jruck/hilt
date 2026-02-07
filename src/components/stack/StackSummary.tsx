@@ -163,16 +163,17 @@ export function StackSummary({ summary, activeFilter, onFilterChange }: StackSum
                   <p className="text-xs text-[var(--text-secondary)] text-left leading-relaxed mb-2">
                     {description}
                   </p>
-                  <button
+                  <span
+                    role="link"
                     onClick={(e) => {
                       e.stopPropagation();
                       openExternal(docsUrl);
                     }}
-                    className="inline-flex items-center gap-1 text-xs text-[var(--accent-primary)] hover:underline text-left"
+                    className="inline-flex items-center gap-1 text-xs text-[var(--accent-primary)] hover:underline text-left cursor-pointer"
                   >
                     <ExternalLink className="w-3 h-3 flex-shrink-0" />
                     View documentation
-                  </button>
+                  </span>
                   </div>
                 </div>
               )}

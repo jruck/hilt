@@ -26,68 +26,72 @@ export function NavBar({
 
   if (isMobile) {
     return (
-      <nav
-        className="fixed bottom-0 left-0 right-0 z-50 border-t border-[var(--border-default)] flex flex-col"
+      <div
+        className="fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none"
         style={{
-          paddingBottom: "calc(env(safe-area-inset-bottom) + 24px)",
-          background: "var(--nav-mobile-bg)",
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
+          paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)",
         }}
       >
-        <div className="flex items-center h-14">
-        {mobileSearchOpen ? (
-          /* Search mode: full-width input takes over the bar */
-          <div className="flex items-center gap-2 flex-1 px-3">
-            <Search className="flex-shrink-0 w-5 h-5 text-[var(--text-tertiary)]" />
-            <input
-              type="text"
-              placeholder="Search..."
-              value={searchQuery.trim() === "" ? "" : searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              autoFocus
-              className="flex-1 min-w-0 py-2 text-base bg-transparent text-[var(--text-primary)] placeholder-[var(--text-tertiary)] outline-none"
-            />
-            <button
-              onClick={() => {
-                setMobileSearchOpen(false);
-                setSearchQuery("");
-              }}
-              className="flex items-center justify-center min-w-[48px] min-h-[48px] text-[var(--text-secondary)]"
-            >
-              <X className="w-6 h-6" />
-            </button>
-          </div>
-        ) : (
-          /* Normal mode: icons evenly spaced */
-          <div className="flex items-center justify-evenly flex-1">
-            {/* Search */}
-            <button
-              onClick={() => setMobileSearchOpen(true)}
-              className="flex items-center justify-center min-w-[48px] min-h-[48px] text-[var(--text-secondary)]"
-              title="Search"
-            >
-              <Search className="w-6 h-6" />
-            </button>
+        <nav
+          className="pointer-events-auto rounded-full border border-white/20 shadow-lg shadow-black/20"
+          style={{
+            background: "rgba(255, 255, 255, 0.15)",
+            backdropFilter: "blur(20px) saturate(180%)",
+            WebkitBackdropFilter: "blur(20px) saturate(180%)",
+          }}
+        >
+          {mobileSearchOpen ? (
+            /* Search mode: expanded pill with input */
+            <div className="flex items-center gap-2 h-14 px-4">
+              <Search className="flex-shrink-0 w-5 h-5 text-[var(--text-tertiary)]" />
+              <input
+                type="text"
+                placeholder="Search..."
+                value={searchQuery.trim() === "" ? "" : searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                autoFocus
+                className="w-48 py-2 text-base bg-transparent text-[var(--text-primary)] placeholder-[var(--text-tertiary)] outline-none"
+              />
+              <button
+                onClick={() => {
+                  setMobileSearchOpen(false);
+                  setSearchQuery("");
+                }}
+                className="flex items-center justify-center w-10 h-10 text-[var(--text-secondary)]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          ) : (
+            /* Normal mode: compact floating pill */
+            <div className="flex items-center gap-1 h-14 px-2">
+              {/* Search */}
+              <button
+                onClick={() => setMobileSearchOpen(true)}
+                className="flex items-center justify-center w-12 h-12 rounded-full text-[var(--text-secondary)] active:bg-white/10 transition-colors"
+                title="Search"
+              >
+                <Search className="w-6 h-6" />
+              </button>
 
-            {/* View toggle (compact mode) */}
-            <ViewToggle view={viewMode} onChange={setViewMode} compact />
+              {/* View toggle (compact mode) */}
+              <ViewToggle view={viewMode} onChange={setViewMode} compact />
 
-            {/* Add button */}
-            <button
-              onClick={() => {
-                if (viewMode !== "bridge") setViewMode("bridge");
-                setAddTaskTrigger((c) => c + 1);
-              }}
-              className="flex items-center justify-center min-w-[48px] min-h-[48px] text-[var(--text-secondary)]"
-              title="Add task"
-            >
-              <Plus className="w-6 h-6" />
-            </button>
-          </div>
-        )}
-        </div>
-      </nav>
+              {/* Add button */}
+              <button
+                onClick={() => {
+                  if (viewMode !== "bridge") setViewMode("bridge");
+                  setAddTaskTrigger((c) => c + 1);
+                }}
+                className="flex items-center justify-center w-12 h-12 rounded-full text-[var(--text-secondary)] active:bg-white/10 transition-colors"
+                title="Add task"
+              >
+                <Plus className="w-6 h-6" />
+              </button>
+            </div>
+          )}
+        </nav>
+      </div>
     );
   }
 

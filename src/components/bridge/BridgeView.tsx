@@ -217,7 +217,7 @@ export function BridgeView({ addTaskTrigger = 0, onNavigateToProject }: BridgeVi
           <div
             className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--bg-primary)] rounded-t-2xl shadow-2xl transition-transform duration-300 ease-out"
             style={{
-              maxHeight: "70vh",
+              maxHeight: "85vh",
               transform: sheetVisible ? "translateY(0)" : "translateY(100%)",
               paddingBottom: "env(safe-area-inset-bottom)",
             }}
@@ -226,7 +226,7 @@ export function BridgeView({ addTaskTrigger = 0, onNavigateToProject }: BridgeVi
             <div className="flex justify-center pt-3 pb-1">
               <div className="w-12 h-1 rounded-full bg-[var(--text-tertiary)] opacity-40" />
             </div>
-            <div className="overflow-y-auto" style={{ maxHeight: "calc(70vh - 24px)" }}>
+            <div className="overflow-y-auto" style={{ maxHeight: "calc(85vh - 24px)" }}>
               <BridgeTaskPanel
                 task={resolvedTask}
                 autoFocusTitle={autoFocusPanel}

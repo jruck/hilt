@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Fixed
+
+- **Mobile bottom sheet too short** - Increased task detail bottom sheet maxHeight from 70vh to 85vh so "Add details" and delete dropdown are fully reachable.
+  - File: `src/components/bridge/BridgeView.tsx`
+
+- **Browser zoom on input focus** - Added viewport meta with `maximum-scale=1, user-scalable=no` to prevent iOS Safari from zooming when tapping text fields.
+  - File: `src/app/layout.tsx`
+
 ### Added
 
 - **Add task button in top toolbar** - "+" button on the right side of the toolbar creates a new Bridge task. If not already on Bridge tab, switches to it first, then adds the task. Auto-focuses title in the detail panel with select-all so typing immediately replaces "New task". Enter/Tab moves focus to the details editor.

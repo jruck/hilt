@@ -63,7 +63,7 @@ export function getAgentEmoji(agent: string): string {
 
 // Lifecycle markers
 const NEW_MARKER = "🆕";
-const REVIEW_MARKER = "‽";
+const REVIEW_MARKER = "⁉️";
 
 /**
  * Parse lifecycle state from a task title.

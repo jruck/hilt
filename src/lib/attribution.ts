@@ -67,29 +67,38 @@ const REVIEW_MARKER = "⁉️";
 
 /**
  * Parse lifecycle state from a task title.
- * Markers: 🆕 (new), ‽ (review/maybe-done)
- * Done state is determined by task.done, not title parsing.
+ * Markers: 🆕 (new, sub-status of to-do), ⁉️ (review, sub-status of done)
+ * - Unchecked + 🆕 → "new" (AI added, user hasn't seen yet)
+ * - Unchecked, no marker → "active" (normal to-do)
+ * - Checked + ⁉️ → "review" (AI proposes as complete, needs user confirmation)
+ * - Checked, no marker → "done" (confirmed done)
  */
 export function parseLifecycle(title: string, done: boolean): TaskLifecycle {
+  const trimmed = title.trim();
+
   if (done) {
+    if (trimmed.startsWith(REVIEW_MARKER)) {
+      return {
+        state: "review",
+        displayTitle: trimmed.slice(REVIEW_MARKER.length).trim(),
+      };
+    }
     return { state: "done", displayTitle: title };
   }
-  
-  const trimmed = title.trim();
-  
+
   if (trimmed.startsWith(NEW_MARKER)) {
     return {
       state: "new",
       displayTitle: trimmed.slice(NEW_MARKER.length).trim(),
     };
   }
-  
+
   if (trimmed.startsWith(REVIEW_MARKER)) {
     return {
       state: "review",
       displayTitle: trimmed.slice(REVIEW_MARKER.length).trim(),
     };
   }
-  
+
   return { state: "active", displayTitle: title };
 }

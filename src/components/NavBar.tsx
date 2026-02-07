@@ -27,19 +27,29 @@ export function NavBar({
   if (isMobile) {
     return (
       <div
-        className="fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none"
+        className="fixed bottom-0 left-0 right-0 z-50 pointer-events-none"
         style={{
-          paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)",
+          paddingBottom: "env(safe-area-inset-bottom)",
         }}
       >
-        <nav
-          className="pointer-events-auto rounded-full border border-white/20 shadow-lg shadow-black/20"
+        {/* Gradient fade behind the pill area */}
+        <div
+          className="absolute inset-x-0 bottom-0 pointer-events-none"
           style={{
-            background: "rgba(255, 255, 255, 0.15)",
-            backdropFilter: "blur(20px) saturate(180%)",
-            WebkitBackdropFilter: "blur(20px) saturate(180%)",
+            height: "calc(100px + env(safe-area-inset-bottom))",
+            background: "linear-gradient(to top, var(--bg-primary) 0%, transparent 100%)",
           }}
-        >
+        />
+        {/* Centered floating pill */}
+        <div className="relative flex justify-center pb-3">
+          <nav
+            className="pointer-events-auto rounded-full border border-white/20 shadow-lg shadow-black/20"
+            style={{
+              background: "rgba(255, 255, 255, 0.15)",
+              backdropFilter: "blur(20px) saturate(180%)",
+              WebkitBackdropFilter: "blur(20px) saturate(180%)",
+            }}
+          >
           {mobileSearchOpen ? (
             /* Search mode: expanded pill with input */
             <div className="flex items-center gap-2 h-14 px-4">
@@ -90,7 +100,8 @@ export function NavBar({
               </button>
             </div>
           )}
-        </nav>
+          </nav>
+        </div>
       </div>
     );
   }

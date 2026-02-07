@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import { Puzzle, User, Tag, ExternalLink, Server, Calendar, Check, X, Copy, FolderOpen, Sparkles, Bot } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { PluginConfig } from "@/lib/claude-config/types";
+import { openExternal } from "@/lib/openExternal";
 
 interface PluginDetailProps {
   plugin: PluginConfig;
@@ -270,26 +271,22 @@ export function PluginDetail({ plugin, onToggleEnabled, onMCPServerClick }: Plug
             {(plugin.homepage || plugin.repository) && (
               <div className="flex flex-wrap gap-2 pt-2">
                 {plugin.homepage && (
-                  <a
-                    href={plugin.homepage}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    onClick={() => openExternal(plugin.homepage!)}
                     className="inline-flex items-center gap-1 text-sm text-[var(--accent-primary)] hover:underline"
                   >
                     <ExternalLink className="w-3 h-3" />
                     Homepage
-                  </a>
+                  </button>
                 )}
                 {plugin.repository && (
-                  <a
-                    href={plugin.repository}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    onClick={() => openExternal(plugin.repository!)}
                     className="inline-flex items-center gap-1 text-sm text-[var(--accent-primary)] hover:underline"
                   >
                     <ExternalLink className="w-3 h-3" />
                     Repository
-                  </a>
+                  </button>
                 )}
               </div>
             )}

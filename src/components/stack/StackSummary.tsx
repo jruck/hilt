@@ -3,6 +3,7 @@
 import { FileText, Terminal, Sparkles, Bot, Webhook, Server, Settings, Key, ExternalLink, Puzzle } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { ClaudeStack, ConfigFileType } from "@/lib/claude-config/types";
+import { openExternal } from "@/lib/openExternal";
 import type { StackFilterType } from "./StackFileTree";
 
 interface StackSummaryProps {
@@ -162,16 +163,16 @@ export function StackSummary({ summary, activeFilter, onFilterChange }: StackSum
                   <p className="text-xs text-[var(--text-secondary)] text-left leading-relaxed mb-2">
                     {description}
                   </p>
-                  <a
-                    href={docsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openExternal(docsUrl);
+                    }}
                     className="inline-flex items-center gap-1 text-xs text-[var(--accent-primary)] hover:underline text-left"
-                    onClick={(e) => e.stopPropagation()}
                   >
                     <ExternalLink className="w-3 h-3 flex-shrink-0" />
                     View documentation
-                  </a>
+                  </button>
                   </div>
                 </div>
               )}

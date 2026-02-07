@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import { Server, Terminal, Globe, ExternalLink, User, Tag, Check, X, Pencil, Save, ShieldCheck, ShieldAlert, ShieldOff, ShieldQuestion, Copy, FolderOpen } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { MCPServerConfig } from "@/lib/claude-config/types";
+import { openExternal } from "@/lib/openExternal";
 
 interface MCPServerDetailProps {
   server: MCPServerConfig;
@@ -443,26 +444,22 @@ export function MCPServerDetail({ server, onToggleEnabled, onServerUpdated }: MC
                 {/* Links */}
                 <div className="flex flex-wrap gap-2 pt-2">
                   {metadata.homepage && (
-                    <a
-                      href={metadata.homepage}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      onClick={() => openExternal(metadata.homepage!)}
                       className="inline-flex items-center gap-1 text-sm text-[var(--accent-primary)] hover:underline"
                     >
                       <ExternalLink className="w-3 h-3" />
                       Homepage
-                    </a>
+                    </button>
                   )}
                   {metadata.repository && (
-                    <a
-                      href={metadata.repository}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      onClick={() => openExternal(metadata.repository!)}
                       className="inline-flex items-center gap-1 text-sm text-[var(--accent-primary)] hover:underline"
                     >
                       <ExternalLink className="w-3 h-3" />
                       Repository
-                    </a>
+                    </button>
                   )}
                 </div>
 

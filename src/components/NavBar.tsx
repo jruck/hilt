@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { ViewToggle, ViewMode } from "./ViewToggle";
 import { ThemeToggle } from "./ThemeToggle";
@@ -21,11 +22,12 @@ export function NavBar({
   setAddTaskTrigger,
 }: NavBarProps) {
   const isMobile = useIsMobile();
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   if (isMobile) {
     return (
       <nav
-        className="fixed bottom-0 left-0 right-0 z-50 border-t border-[var(--border-default)] flex items-center justify-evenly"
+        className="fixed bottom-0 left-0 right-0 z-50 border-t border-[var(--border-default)] flex items-center"
         style={{
           height: 56,
           paddingBottom: "env(safe-area-inset-bottom)",
@@ -34,33 +36,56 @@ export function NavBar({
           WebkitBackdropFilter: "blur(12px)",
         }}
       >
-        {/* Search toggle */}
-        <button
-          onClick={() => setSearchQuery(searchQuery.trim() ? "" : " ")}
-          className="flex items-center justify-center min-w-[48px] min-h-[48px] text-[var(--text-secondary)]"
-          title="Search"
-        >
-          {searchQuery.trim() ? (
-            <X className="w-6 h-6" />
-          ) : (
-            <Search className="w-6 h-6" />
-          )}
-        </button>
+        {mobileSearchOpen ? (
+          /* Search mode: full-width input takes over the bar */
+          <div className="flex items-center gap-2 flex-1 px-3">
+            <Search className="flex-shrink-0 w-5 h-5 text-[var(--text-tertiary)]" />
+            <input
+              type="text"
+              placeholder="Search..."
+              value={searchQuery.trim() === "" ? "" : searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              autoFocus
+              className="flex-1 min-w-0 py-2 text-base bg-transparent text-[var(--text-primary)] placeholder-[var(--text-tertiary)] outline-none"
+            />
+            <button
+              onClick={() => {
+                setMobileSearchOpen(false);
+                setSearchQuery("");
+              }}
+              className="flex items-center justify-center min-w-[48px] min-h-[48px] text-[var(--text-secondary)]"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+        ) : (
+          /* Normal mode: icons evenly spaced */
+          <div className="flex items-center justify-evenly flex-1">
+            {/* Search */}
+            <button
+              onClick={() => setMobileSearchOpen(true)}
+              className="flex items-center justify-center min-w-[48px] min-h-[48px] text-[var(--text-secondary)]"
+              title="Search"
+            >
+              <Search className="w-6 h-6" />
+            </button>
 
-        {/* View toggle (compact mode) */}
-        <ViewToggle view={viewMode} onChange={setViewMode} compact />
+            {/* View toggle (compact mode) */}
+            <ViewToggle view={viewMode} onChange={setViewMode} compact />
 
-        {/* Add button */}
-        <button
-          onClick={() => {
-            if (viewMode !== "bridge") setViewMode("bridge");
-            setAddTaskTrigger((c) => c + 1);
-          }}
-          className="flex items-center justify-center min-w-[48px] min-h-[48px] text-[var(--text-secondary)]"
-          title="Add task"
-        >
-          <Plus className="w-6 h-6" />
-        </button>
+            {/* Add button */}
+            <button
+              onClick={() => {
+                if (viewMode !== "bridge") setViewMode("bridge");
+                setAddTaskTrigger((c) => c + 1);
+              }}
+              className="flex items-center justify-center min-w-[48px] min-h-[48px] text-[var(--text-secondary)]"
+              title="Add task"
+            >
+              <Plus className="w-6 h-6" />
+            </button>
+          </div>
+        )}
       </nav>
     );
   }

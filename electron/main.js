@@ -467,6 +467,22 @@ async function createWindow() {
             mainWindow.webContents.executeJavaScript("window.history.forward()");
         }
     });
+    // Open external links in the default browser instead of inside Electron
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        if (url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")) {
+            return { action: "allow" };
+        }
+        electron_1.shell.openExternal(url);
+        return { action: "deny" };
+    });
+    mainWindow.webContents.on("will-navigate", (event, url) => {
+        // Allow navigation to the app itself
+        if (url.startsWith(`http://localhost:${serverPort}`))
+            return;
+        // Everything else opens in the default browser
+        event.preventDefault();
+        electron_1.shell.openExternal(url);
+    });
     mainWindow.on("closed", () => {
         mainWindow = null;
     });

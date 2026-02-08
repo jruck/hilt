@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, shell } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { spawn, ChildProcess } from "child_process";
@@ -498,6 +498,23 @@ async function createWindow() {
     } else if (direction === "right") {
       mainWindow.webContents.executeJavaScript("window.history.forward()");
     }
+  });
+
+  // Open external links in the default browser instead of inside Electron
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")) {
+      return { action: "allow" };
+    }
+    shell.openExternal(url);
+    return { action: "deny" };
+  });
+
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    // Allow navigation to the app itself
+    if (url.startsWith(`http://localhost:${serverPort}`)) return;
+    // Everything else opens in the default browser
+    event.preventDefault();
+    shell.openExternal(url);
   });
 
   mainWindow.on("closed", () => {

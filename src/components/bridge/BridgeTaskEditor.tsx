@@ -413,8 +413,10 @@ export function BridgeTaskEditor({
     contentInitialized.current = true;
     if (vaultPath) lastProcessedWithPaths.current = true;
     lastEmittedNorm.current = norm;
-    // setContent fires onUpdate — flag it so we skip
-    programmatic.current++;
+    // setContent fires onUpdate — flag it so we skip.
+    // But only if we're actually setting non-empty content (empty→empty won't fire onUpdate).
+    const willFireUpdate = processed.trim().length > 0 || editor.getText().trim().length > 0;
+    if (willFireUpdate) programmatic.current++;
     editor.commands.setContent(processed);
   }, [editor, markdown, vaultPath, filePath]);
 

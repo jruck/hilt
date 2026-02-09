@@ -41,10 +41,17 @@ export async function POST(request: NextRequest) {
     const newContent = template.replace(/\{\{date:YYYY-MM-DD\}\}/g, newWeek);
 
     // Insert carried tasks into ## Tasks section
+    // Details are stored without their leading indent (stripped on parse),
+    // so we must re-indent them when writing to the new file.
     const taskLines = carriedTasks.flatMap(t => {
       // Reset checkbox to unchecked for carried tasks
-      const titleLine = `- [ ] ${t.title}`;
-      return [titleLine, ...t.details];
+      const projPath = t.projectPath;
+      const titleText = projPath ? `[${t.title}](${projPath})` : t.title;
+      const titleLine = `- [ ] ${titleText}`;
+      const indentedDetails = t.details.map(line =>
+        line.trim() === "" ? "" : "\t" + line
+      );
+      return [titleLine, ...indentedDetails];
     });
 
     let finalContent: string;

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
+import { useScope } from "@/contexts/ScopeContext";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
@@ -77,6 +78,21 @@ function preprocessMarkdown(
     }
   );
 
+  // 1b. Convert regular wikilinks: [[target|display]] → [display](#wikilink:/abs/path)
+  result = result.replace(
+    /(?<!!)\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,
+    (_match, target: string, display?: string) => {
+      const trimmed = target.trim();
+      const label = display?.trim() || trimmed;
+      // Resolve to absolute path, append .md if no extension
+      let absPath = trimmed.startsWith("/")
+        ? trimmed
+        : resolvePath(fileDir, trimmed);
+      if (!/\.\w+$/.test(absPath)) absPath += ".md";
+      return `[${label}](#wikilink:${encodeURIComponent(absPath)})`;
+    }
+  );
+
   // 2. Convert relative image paths: ![alt](relative/path) but NOT absolute URLs
   // Also handles escaped brackets from tiptap-markdown: !\[alt\](url)
   result = result.replace(
@@ -125,8 +141,21 @@ function postprocessMarkdown(
 
   const fileDir = dirname(filePath);
 
-  // Convert image embeds: ![alt](/api/docs/raw?...) → ![alt](relative/path)
+  // Convert wikilink hashes back: [display](#wikilink:...) → [[target|display]]
   let result = md.replace(
+    /\[([^\]]+)\]\(#wikilink:([^)]+)\)/g,
+    (_match, display: string, encodedPath: string) => {
+      let absPath = decodeURIComponent(encodedPath);
+      // Strip .md extension for clean wikilinks
+      absPath = absPath.replace(/\.md$/, "");
+      // Make relative to file dir
+      const rel = relativePath(fileDir, absPath);
+      return display === rel ? `[[${rel}]]` : `[[${rel}|${display}]]`;
+    }
+  );
+
+  // Convert image embeds: ![alt](/api/docs/raw?...) → ![alt](relative/path)
+  result = result.replace(
     /!\\?\[([^\]]*?)\\?\]\(\/api\/docs\/raw\?path=([^&]+)&scope=[^)]+\)/g,
     (_match, alt: string, encodedPath: string) => {
       const absPath = decodeURIComponent(encodedPath);
@@ -300,9 +329,8 @@ export function BridgeTaskEditor({
     extensions: [
       StarterKit.configure({ heading: false }),
       Link.configure({
-        openOnClick: true,
+        openOnClick: false, // We handle clicks manually for wikilinks + external
         HTMLAttributes: {
-          target: "_blank",
           rel: "noopener noreferrer",
         },
       }),
@@ -432,6 +460,34 @@ export function BridgeTaskEditor({
       el.removeEventListener("drop", handleDrop, true);
     };
   }, [editor, readOnly]);
+
+  // Intercept wikilink clicks → navigate to Docs tab
+  const { navigateTo } = useScope();
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    function handleClick(e: MouseEvent) {
+      const anchor = (e.target as HTMLElement).closest("a");
+      if (!anchor) return;
+      const href = anchor.getAttribute("href");
+      if (!href) return;
+
+      if (href.startsWith("#wikilink:")) {
+        e.preventDefault();
+        e.stopPropagation();
+        const filePath = decodeURIComponent(href.replace("#wikilink:", ""));
+        navigateTo("docs", filePath);
+      } else if (href.startsWith("http://") || href.startsWith("https://")) {
+        // Open external links in new tab
+        e.preventDefault();
+        window.open(href, "_blank", "noopener,noreferrer");
+      }
+    }
+
+    el.addEventListener("click", handleClick);
+    return () => el.removeEventListener("click", handleClick);
+  }, [navigateTo]);
 
   return (
     <div ref={containerRef} className={`bridge-task-editor ${className ?? ""}`}>

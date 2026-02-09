@@ -115,6 +115,7 @@ export function BridgeTaskItem({
             {...listeners}
             onClick={(e) => e.stopPropagation()}
             className={`flex-shrink-0 cursor-grab text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] active:cursor-grabbing ${isTouch ? "p-1 -m-1" : ""}`}
+            style={{ touchAction: "none" }}
           >
             <GripVertical className={isTouch ? "w-5 h-5" : "w-4 h-4"} />
           </button>

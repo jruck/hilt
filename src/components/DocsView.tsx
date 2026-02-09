@@ -186,7 +186,7 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
     if (initialFileHandledRef.current) return;
     // Only run once per scope when tree loads and nothing is selected
     // Skip if an initialFilePath is pending
-    if (tree && !selectedPath && !treeLoading && !hasAutoSelectedRef.current && !initialFilePath) {
+    if (tree && !selectedPath && !treeLoading && !hasAutoSelectedRef.current && !initialFilePath && !isMobile) {
       hasAutoSelectedRef.current = true;
       const indexPath = findIndexFile(scopePath);
       if (indexPath) {
@@ -208,8 +208,8 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
         if (onScopeChange) {
           onScopeChange(folderPath);
         }
-        // For scope root, still try to find and select index.md
-        if (folderPath === scopePath) {
+        // For scope root, still try to find and select index.md (desktop only)
+        if (folderPath === scopePath && !isMobile) {
           const indexPath = findIndexFile(folderPath);
           if (indexPath) {
             setSelectedPath(indexPath);
@@ -219,17 +219,20 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
       } else {
         // Expand the folder in tree
         expandPath(folderPath);
-        // Auto-select index.md if it exists
-        const indexPath = findIndexFile(folderPath);
-        if (indexPath) {
-          setSelectedPath(indexPath);
-          return;
+        // Auto-select index.md if it exists (desktop only)
+        if (!isMobile) {
+          const indexPath = findIndexFile(folderPath);
+          if (indexPath) {
+            setSelectedPath(indexPath);
+            return;
+          }
         }
       }
-      // Deselect file if no index.md found
+      // Deselect file if no index.md found (or on mobile, go back to tree)
       setSelectedPath(null);
+      if (isMobile) setMobilePanel("tree");
     },
-    [scopePath, onScopeChange, expandPath, setSelectedPath, findIndexFile]
+    [scopePath, onScopeChange, expandPath, setSelectedPath, findIndexFile, isMobile]
   );
 
   // Navigate to file from wikilink

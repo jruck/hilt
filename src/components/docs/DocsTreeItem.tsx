@@ -77,13 +77,17 @@ export function DocsTreeItem({
 
     if (isDirectory) {
       onToggleExpand(node.path);
-      // Auto-select index.md if it exists in this folder
-      const indexFile = node.children?.find(
-        child => child.type === "file" &&
-        (child.name === "index.md" || child.name === "index.markdown" || child.name === "index.mdx")
-      );
-      if (indexFile) {
-        onSelect(indexFile.path);
+      // Auto-select index.md if it exists in this folder (desktop only)
+      // On mobile, the single-panel drill-down means clicking a folder should
+      // just expand it — the user should explicitly tap a file to navigate.
+      if (!isMobile) {
+        const indexFile = node.children?.find(
+          child => child.type === "file" &&
+          (child.name === "index.md" || child.name === "index.markdown" || child.name === "index.mdx")
+        );
+        if (indexFile) {
+          onSelect(indexFile.path);
+        }
       }
     } else {
       onSelect(node.path);

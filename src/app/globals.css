@@ -1287,21 +1287,43 @@ body [data-radix-popper-content-wrapper]::after {
   margin: 0.25em 0;
 }
 
+/* Legacy selector kept for compat with renderHTML path */
 .bridge-task-editor .ProseMirror ul[data-type="taskList"] li[data-type="taskItem"] {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: flex-start;
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: flex-start !important;
   gap: 0.4rem;
   margin: 0.125em 0;
 }
 
 .bridge-task-editor .ProseMirror ul[data-type="taskList"] li[data-type="taskItem"] > label {
-  flex-shrink: 0;
+  flex-shrink: 0 !important;
   margin-top: 0.2em;
 }
 
 .bridge-task-editor .ProseMirror ul[data-type="taskList"] li[data-type="taskItem"] > div {
-  flex: 1 1 0%;
+  flex: 1 1 0% !important;
+  min-width: 0;
+}
+
+/* Target NodeView-rendered task items (no data-type attr, but have data-checked + label > input[type=checkbox]) */
+.bridge-task-editor .ProseMirror ul[data-type="taskList"] > li {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: flex-start !important;
+  gap: 0.4rem;
+  margin: 0.125em 0;
+}
+
+.bridge-task-editor .ProseMirror ul[data-type="taskList"] > li > label {
+  flex-shrink: 0 !important;
+  margin-top: 0.2em;
+}
+
+.bridge-task-editor .ProseMirror ul[data-type="taskList"] > li > div {
+  flex: 1 1 0% !important;
   min-width: 0;
 }
 

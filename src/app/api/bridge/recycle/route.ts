@@ -4,7 +4,7 @@ import { listVaultDir, readVaultFile, writeVaultFileAtomic } from "@/lib/bridge/
 
 export async function POST(request: NextRequest) {
   try {
-    const { carry, newWeek } = await request.json();
+    const { carry, newWeek, notes } = await request.json();
 
     if (!Array.isArray(carry) || typeof newWeek !== "string") {
       return NextResponse.json(
@@ -62,6 +62,14 @@ export async function POST(request: NextRequest) {
       );
     } else {
       finalContent = newContent;
+    }
+
+    // Insert carried notes if provided
+    if (typeof notes === "string" && notes.trim()) {
+      finalContent = finalContent.replace(
+        "## Notes\n",
+        "## Notes\n" + notes.trim() + "\n"
+      );
     }
 
     const newFilename = `${newWeek}.md`;

@@ -6,8 +6,9 @@ import { X, RefreshCw } from "lucide-react";
 
 interface RecycleModalProps {
   tasks: BridgeTask[];
+  notes: string;
   onClose: () => void;
-  onRecycle: (carry: string[], newWeek: string) => Promise<void>;
+  onRecycle: (carry: string[], newWeek: string, notes?: string) => Promise<void>;
 }
 
 function getNextMonday(): string {
@@ -28,7 +29,7 @@ function getCurrentMonday(): string {
   return monday.toISOString().split("T")[0];
 }
 
-export function RecycleModal({ tasks, onClose, onRecycle }: RecycleModalProps) {
+export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalProps) {
   const incompleteTasks = tasks.filter(t => !t.done);
   const completedTasks = tasks.filter(t => t.done);
 
@@ -37,6 +38,9 @@ export function RecycleModal({ tasks, onClose, onRecycle }: RecycleModalProps) {
     new Set(incompleteTasks.map(t => t.id))
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const hasNotes = notes.trim().length > 0;
+  const [carryNotes, setCarryNotes] = useState(hasNotes);
+  const [notesText, setNotesText] = useState(notes);
 
   function toggleTask(id: string) {
     setSelected(prev => {
@@ -57,7 +61,11 @@ export function RecycleModal({ tasks, onClose, onRecycle }: RecycleModalProps) {
       const now = new Date();
       const day = now.getDay();
       const newWeek = day >= 1 ? getCurrentMonday() : getNextMonday();
-      await onRecycle(Array.from(selected), newWeek);
+      await onRecycle(
+        Array.from(selected),
+        newWeek,
+        carryNotes ? notesText.trim() : undefined
+      );
       onClose();
     } finally {
       setIsSubmitting(false);
@@ -130,6 +138,32 @@ export function RecycleModal({ tasks, onClose, onRecycle }: RecycleModalProps) {
             <p className="text-sm text-[var(--text-tertiary)]">
               No tasks from the current week.
             </p>
+          )}
+
+          {/* Notes carry-over */}
+          {hasNotes && (
+            <div className="mt-4 pt-4 border-t border-[var(--border-default)]">
+              <label className="flex items-center gap-2.5 cursor-pointer mb-2">
+                <input
+                  type="checkbox"
+                  checked={carryNotes}
+                  onChange={() => setCarryNotes(prev => !prev)}
+                  className="w-4 h-4 rounded border-[var(--border-default)] text-[var(--interactive-default)] focus:ring-[var(--interactive-default)]"
+                />
+                <span className="text-sm text-[var(--text-secondary)]">
+                  Carry notes forward
+                </span>
+              </label>
+              {carryNotes && (
+                <textarea
+                  value={notesText}
+                  onChange={e => setNotesText(e.target.value)}
+                  rows={4}
+                  className="w-full text-sm p-2.5 rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-primary)] resize-y focus:outline-none focus:border-[var(--interactive-default)]"
+                  placeholder="Edit notes before carrying forward..."
+                />
+              )}
+            </div>
           )}
         </div>
 

@@ -188,11 +188,11 @@ export function useBridgeWeekly() {
     mutate();
   }
 
-  async function recycle(carry: string[], newWeek: string) {
+  async function recycle(carry: string[], newWeek: string, notes?: string) {
     await fetch("/api/bridge/recycle", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ carry, newWeek }),
+      body: JSON.stringify({ carry, newWeek, notes }),
     });
     mutate();
   }

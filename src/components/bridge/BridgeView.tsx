@@ -164,6 +164,7 @@ export function BridgeView({ addTaskTrigger = 0, onNavigateToProject }: BridgeVi
         {showRecycleModal && (
           <RecycleModal
             tasks={weekly.tasks}
+            notes={weekly.notes}
             onClose={() => setShowRecycleModal(false)}
             onRecycle={recycle}
           />

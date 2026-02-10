@@ -8,7 +8,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
-- **Relative images not rendering in markdown** - Standard markdown images with relative paths (e.g., `![alt](file.png)`) were broken because the browser tried to load them from the app root. Now rewritten to `/api/docs/raw` URLs during markdown processing, matching the existing wikilink image handling.
+- **Relative images not rendering in markdown** - Standard markdown images with relative paths (e.g., `![alt](file.png)`) were broken because the browser tried to load them from the app root. Read mode rewrites paths during markdown processing; edit mode uses MDXEditor's `imagePreviewHandler` to resolve paths for display without modifying the underlying markdown.
   - File: `src/components/docs/DocsEditor.tsx`
 
 - **Mobile bottom sheet too short** - Increased task detail bottom sheet maxHeight from 70vh to 85vh so "Add details" and delete dropdown are fully reachable.

@@ -436,6 +436,17 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
       }
     }, [handleWikilinkClick]);
 
+    // Resolve relative image paths to /api/docs/raw URLs for preview
+    const imagePreviewHandler = useCallback(async (src: string) => {
+      if (/^(https?:\/\/|data:|\/api\/)/.test(src)) return src;
+      if (!currentFilePath || !scopePath) return src;
+      const dir = path.dirname(currentFilePath);
+      const absPath = src.startsWith("/")
+        ? path.join(scopePath, src)
+        : path.resolve(dir, src);
+      return `/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(scopePath)}`;
+    }, [currentFilePath, scopePath]);
+
     const plugins = [
       headingsPlugin(),
       listsPlugin(),
@@ -445,7 +456,7 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
       linkPlugin(),
       linkDialogPlugin(),
       tablePlugin(),
-      imagePlugin(),
+      imagePlugin({ imagePreviewHandler }),
       codeBlockPlugin({ defaultCodeBlockLanguage: "typescript" }),
       codeMirrorPlugin({
         codeBlockLanguages: {

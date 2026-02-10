@@ -322,6 +322,21 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
         result = result.slice(0, r.start) + r.replacement + result.slice(r.end);
       }
 
+      // Rewrite standard markdown images with relative paths to use /api/docs/raw
+      const currentDir = path.dirname(currentFilePath);
+      result = result.replace(
+        /!\[([^\]]*)\]\(([^)]+)\)/g,
+        (match, alt, src) => {
+          // Skip absolute URLs, data URIs, and already-rewritten API paths
+          if (/^(https?:\/\/|data:|\/api\/)/.test(src)) return match;
+          const absPath = src.startsWith("/")
+            ? path.join(scopePath, src)
+            : path.resolve(currentDir, src);
+          const url = `/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(scopePath)}`;
+          return `![${alt}](${url})`;
+        }
+      );
+
       return sanitiseForMdx(result);
     }, [markdown, currentFilePath, scopePath, fileTree, readOnly]);
 

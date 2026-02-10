@@ -15,10 +15,11 @@ import type { BridgeTask, BridgeProject } from "@/lib/types";
 
 interface BridgeViewProps {
   addTaskTrigger?: number;
+  searchQuery?: string;
   onNavigateToProject?: (project: BridgeProject) => void;
 }
 
-export function BridgeView({ addTaskTrigger = 0, onNavigateToProject }: BridgeViewProps) {
+export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToProject }: BridgeViewProps) {
   const {
     data: weekly,
     isLoading: weeklyLoading,
@@ -84,6 +85,39 @@ export function BridgeView({ addTaskTrigger = 0, onNavigateToProject }: BridgeVi
     return [...undone, ...done];
   }, [weekly]);
 
+  // Search filtering
+  const q = searchQuery.toLowerCase().trim();
+
+  const filteredTasks = useMemo(() => {
+    if (!q) return displayTasks;
+    return displayTasks.filter(t =>
+      t.title.toLowerCase().includes(q) ||
+      t.details.some(d => d.toLowerCase().includes(q))
+    );
+  }, [displayTasks, q]);
+
+  const showNotes = !q || (weekly?.notes ?? "").toLowerCase().includes(q);
+
+  const filteredColumns = useMemo(() => {
+    if (!projects || !q) return projects?.columns ?? null;
+    const result = {} as Record<string, typeof projects.columns[keyof typeof projects.columns]>;
+    for (const [status, list] of Object.entries(projects.columns)) {
+      result[status] = list.filter(p =>
+        p.title.toLowerCase().includes(q) ||
+        p.area.toLowerCase().includes(q) ||
+        p.tags.some(t => t.toLowerCase().includes(q)) ||
+        p.description.toLowerCase().includes(q)
+      );
+    }
+    return result as typeof projects.columns;
+  }, [projects, q]);
+
+  const hasFilteredTasks = filteredTasks.length > 0;
+  const hasFilteredProjects = filteredColumns
+    ? Object.values(filteredColumns).some(col => col.length > 0)
+    : false;
+  const hasAnyResults = hasFilteredTasks || showNotes || hasFilteredProjects;
+
   function handleAddTask(title: string) {
     // Select immediately — the optimistic task has id "task-0"
     setSelectedTask({ id: "task-0", title, done: false, details: [], rawLines: [`- [ ] ${title}`], projectPath: null });
@@ -126,29 +160,33 @@ export function BridgeView({ addTaskTrigger = 0, onNavigateToProject }: BridgeVi
             onWeekChange={setPreviewWeek}
           />
 
-          <BridgeTaskList
-            tasks={displayTasks}
-            selectedTaskId={resolvedTask?.id ?? null}
-            onToggle={toggleTask}
-            onReorder={reorderTasks}
-            onUpdateTitle={updateTaskTitle}
-            onDeleteTask={(id) => {
-              deleteTask(id);
-              if (selectedTask?.id === id) setSelectedTask(null);
-            }}
-            onSelectTask={handleSelectTask}
-          />
+          {hasFilteredTasks && (
+            <BridgeTaskList
+              tasks={filteredTasks}
+              selectedTaskId={resolvedTask?.id ?? null}
+              onToggle={toggleTask}
+              onReorder={reorderTasks}
+              onUpdateTitle={updateTaskTitle}
+              onDeleteTask={(id) => {
+                deleteTask(id);
+                if (selectedTask?.id === id) setSelectedTask(null);
+              }}
+              onSelectTask={handleSelectTask}
+            />
+          )}
 
-          <BridgeNotes
-            notes={weekly.notes}
-            vaultPath={weekly.vaultPath}
-            filePath={weekly.filePath}
-            onSave={updateNotes}
-          />
+          {showNotes && (
+            <BridgeNotes
+              notes={weekly.notes}
+              vaultPath={weekly.vaultPath}
+              filePath={weekly.filePath}
+              onSave={updateNotes}
+            />
+          )}
 
-          {projects && (
+          {filteredColumns && hasFilteredProjects && (
             <ProjectBoard
-              columns={projects.columns}
+              columns={filteredColumns}
               onProjectClick={(project) => onNavigateToProject?.(project)}
               onStatusChange={(project, status) => updateProjectStatus(project.path, status)}
             />
@@ -157,6 +195,12 @@ export function BridgeView({ addTaskTrigger = 0, onNavigateToProject }: BridgeVi
           {projectsLoading && !projects && (
             <div className="text-center text-[var(--text-tertiary)] py-4">
               <Loader2 className="w-4 h-4 animate-spin inline-block" />
+            </div>
+          )}
+
+          {q && !hasAnyResults && (
+            <div className="text-center text-[var(--text-tertiary)] py-12">
+              No matching items
             </div>
           )}
         </div>

@@ -73,6 +73,7 @@ export interface BridgeProject {
   area: string;
   tags: string[];
   source: string;          // Display group (e.g., "Projects", "EverPro", "Ventures")
+  description: string;     // Body text from index.md (post-frontmatter, minus H1)
 }
 
 export interface BridgeProjectsResponse {

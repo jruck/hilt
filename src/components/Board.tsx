@@ -200,6 +200,7 @@ export function Board() {
         {viewMode === "bridge" ? (
           <BridgeView
             addTaskTrigger={addTaskTrigger}
+            searchQuery={searchQuery}
             onNavigateToProject={(project) => {
               // Scope into the project folder — DocsView auto-selects index.md
               navigateTo("docs", project.path);

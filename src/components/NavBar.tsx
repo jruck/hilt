@@ -103,11 +103,14 @@ export function NavBar({
       className="relative flex items-center px-4 h-11 bg-[var(--bg-secondary)] border-b border-[var(--border-default)]"
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
-      {/* Left: search, theme */}
+      {/* Left: source, theme, search */}
       <div
         className="flex items-center gap-2"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
+        <SourceToggle />
+        <ThemeToggle />
+
         {/* Search */}
         {searchQuery ? (
           <div className="relative">
@@ -139,10 +142,6 @@ export function NavBar({
             <Search className="w-4 h-4" />
           </button>
         )}
-
-        {/* Theme toggle */}
-        <ThemeToggle />
-        <SourceToggle />
       </div>
 
       {/* Center: View toggle (absolute center) */}

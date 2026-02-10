@@ -8,11 +8,12 @@ const VALID_STATUSES: Set<string> = new Set(["considering", "refining", "doing",
  * Parse a project index.md file into partial project data.
  * Returns extracted fields, or defaults for missing/invalid content.
  */
-function parseIndexFile(content: string): { title: string | null; status: BridgeProjectStatus; area: string; tags: string[] } {
+function parseIndexFile(content: string): { title: string | null; status: BridgeProjectStatus; area: string; tags: string[]; description: string } {
   let title: string | null = null;
   let status: BridgeProjectStatus = "considering";
   let area = "";
   let tags: string[] = [];
+  let body = content;
 
   // Try parsing frontmatter
   if (content.startsWith("---")) {
@@ -38,8 +39,8 @@ function parseIndexFile(content: string): { title: string | null; status: Bridge
         tags = tagsStr.split(",").map(t => t.trim()).filter(Boolean);
       }
 
-      // Extract H1 from body after frontmatter
-      const body = content.slice(endIdx + 4);
+      // Body is everything after frontmatter
+      body = content.slice(endIdx + 4);
       const h1Match = body.match(/^#\s+(.+)$/m);
       if (h1Match) title = h1Match[1].trim();
     }
@@ -51,7 +52,10 @@ function parseIndexFile(content: string): { title: string | null; status: Bridge
     if (h1Match) title = h1Match[1].trim();
   }
 
-  return { title, status, area, tags };
+  // Description: body text with H1 line removed
+  const description = body.replace(/^#\s+.+$/m, "").trim();
+
+  return { title, status, area, tags, description };
 }
 
 /**
@@ -92,6 +96,7 @@ function scanProjectsDir(
     let status: BridgeProjectStatus = "considering";
     let area = "";
     let tags: string[] = [];
+    let description = "";
 
     // Try to read index.md for richer metadata
     if (fs.existsSync(indexPath)) {
@@ -102,6 +107,7 @@ function scanProjectsDir(
         status = parsed.status;
         area = parsed.area;
         tags = parsed.tags;
+        description = parsed.description;
       } catch {
         // Use defaults
       }
@@ -116,6 +122,7 @@ function scanProjectsDir(
       area,
       tags,
       source,
+      description,
     });
   }
 

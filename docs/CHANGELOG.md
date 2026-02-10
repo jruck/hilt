@@ -16,6 +16,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
+- **Bridge tab search filtering** - The NavBar search box now filters Bridge content live. Tasks filter by title and detail lines, notes section hides when content doesn't match, projects filter by title, area, tags, and index.md body content. Shows "No matching items" when everything is filtered out.
+  - Files: `src/lib/types.ts`, `src/lib/bridge/project-parser.ts`, `src/components/Board.tsx`, `src/components/bridge/BridgeView.tsx`
+
 - **Local/Remote source toggle** - Toolbar dropdown (next to theme toggle) to switch between local and remote Hilt instances. Detects current source via hostname, passes return URL via `?from=` param, persists local URL in localStorage for return navigation.
   - Files: `src/hooks/useSource.ts` (new), `src/components/SourceToggle.tsx` (new), `src/components/NavBar.tsx`
 

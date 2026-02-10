@@ -12,8 +12,9 @@ const fetcher = async (url: string) => {
   return res.json();
 };
 
-// localStorage keys for expanded paths
+// localStorage keys
 const EXPANDED_PATHS_KEY = "docs-expanded-paths";
+const FOLDER_SORT_KEY = "docs-folder-sort";
 
 function getStoredExpandedPaths(scope: string): Set<string> {
   if (typeof window === "undefined") return new Set();
@@ -39,6 +40,41 @@ function setStoredExpandedPaths(scope: string, paths: Set<string>) {
   }
 }
 
+export type FolderSortOrder = "alpha" | "date";
+
+function getStoredFolderSort(scope: string): Map<string, FolderSortOrder> {
+  if (typeof window === "undefined") return new Map();
+  try {
+    const stored = localStorage.getItem(FOLDER_SORT_KEY);
+    if (!stored) return new Map();
+    const data = JSON.parse(stored);
+    const scopeData = data[scope];
+    if (!scopeData) return new Map();
+    return new Map(Object.entries(scopeData) as [string, FolderSortOrder][]);
+  } catch {
+    return new Map();
+  }
+}
+
+function setStoredFolderSort(scope: string, sortMap: Map<string, FolderSortOrder>) {
+  if (typeof window === "undefined") return;
+  try {
+    const stored = localStorage.getItem(FOLDER_SORT_KEY);
+    const data = stored ? JSON.parse(stored) : {};
+    // Only store non-default (date) entries
+    const obj: Record<string, FolderSortOrder> = {};
+    sortMap.forEach((v, k) => { if (v === "date") obj[k] = v; });
+    if (Object.keys(obj).length > 0) {
+      data[scope] = obj;
+    } else {
+      delete data[scope];
+    }
+    localStorage.setItem(FOLDER_SORT_KEY, JSON.stringify(data));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export interface UseDocsResult {
   // Tree state
   tree: FileNode | null;
@@ -52,6 +88,10 @@ export interface UseDocsResult {
   toggleExpanded: (path: string) => void;
   expandPath: (path: string) => void;
   collapsePath: (path: string) => void;
+
+  // Folder sort
+  folderSortOrder: Map<string, FolderSortOrder>;
+  setFolderSort: (folderPath: string, order: FolderSortOrder) => void;
 
   // Selected file
   selectedPath: string | null;
@@ -140,6 +180,37 @@ export function useDocs(scopePath: string | null): UseDocsResult {
     setExpandedPaths((prev) => {
       const next = new Set(prev);
       next.delete(path);
+      return next;
+    });
+  }, []);
+
+  // Folder sort preferences
+  const [folderSortOrder, setFolderSortOrder] = useState<Map<string, FolderSortOrder>>(() =>
+    scopePath ? getStoredFolderSort(scopePath) : new Map()
+  );
+
+  // Sync sort prefs with scope changes
+  useEffect(() => {
+    if (scopePath) {
+      setFolderSortOrder(getStoredFolderSort(scopePath));
+    }
+  }, [scopePath]);
+
+  // Persist sort prefs on change
+  useEffect(() => {
+    if (scopePath) {
+      setStoredFolderSort(scopePath, folderSortOrder);
+    }
+  }, [scopePath, folderSortOrder]);
+
+  const setFolderSort = useCallback((folderPath: string, order: FolderSortOrder) => {
+    setFolderSortOrder((prev) => {
+      const next = new Map(prev);
+      if (order === "alpha") {
+        next.delete(folderPath);
+      } else {
+        next.set(folderPath, order);
+      }
       return next;
     });
   }, []);
@@ -354,6 +425,10 @@ export function useDocs(scopePath: string | null): UseDocsResult {
     toggleExpanded,
     expandPath,
     collapsePath,
+
+    // Folder sort
+    folderSortOrder,
+    setFolderSort,
 
     // Selected
     selectedPath,

@@ -16,6 +16,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
+- **Local/Remote source toggle** - Toolbar dropdown (next to theme toggle) to switch between local and remote Hilt instances. Detects current source via hostname, passes return URL via `?from=` param, persists local URL in localStorage for return navigation.
+  - Files: `src/hooks/useSource.ts` (new), `src/components/SourceToggle.tsx` (new), `src/components/NavBar.tsx`
+
+- **Per-folder sort order toggle (A-Z vs Recent)** - Docs file tree folders now have a three-dot menu to toggle between alphabetical (default) and "sort by recent" (descending modTime). Preference persists per scope in localStorage. Menu icon appears on hover (desktop) or always visible (mobile).
+  - Files: `src/hooks/useDocs.ts`, `src/components/docs/DocsFileTree.tsx`, `src/components/docs/DocsTreeItem.tsx`, `src/components/DocsView.tsx`
+
 - **Add task button in top toolbar** - "+" button on the right side of the toolbar creates a new Bridge task. If not already on Bridge tab, switches to it first, then adds the task. Auto-focuses title in the detail panel with select-all so typing immediately replaces "New task". Enter/Tab moves focus to the details editor.
   - Files: `src/components/Board.tsx`, `src/components/bridge/BridgeView.tsx`, `src/components/bridge/BridgeTaskPanel.tsx`
 

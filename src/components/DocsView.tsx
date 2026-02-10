@@ -32,6 +32,10 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
     toggleExpanded,
     expandPath,
 
+    // Folder sort
+    folderSortOrder,
+    setFolderSort,
+
     // Selected file
     selectedPath,
     setSelectedPath,
@@ -282,6 +286,8 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
             onSelect={handleFileSelect}
             isLoading={treeLoading}
             searchQuery={searchQuery}
+            folderSortOrder={folderSortOrder}
+            onSetFolderSort={setFolderSort}
           />
         </div>
 
@@ -339,6 +345,8 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
           onSelect={handleFileSelect}
           isLoading={treeLoading}
           searchQuery={searchQuery}
+          folderSortOrder={folderSortOrder}
+          onSetFolderSort={setFolderSort}
         />
         {/* Resize handle */}
         <div

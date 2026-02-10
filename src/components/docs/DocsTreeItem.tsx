@@ -1,8 +1,10 @@
 "use client";
 
-import { ChevronRight, ChevronDown, Folder, FolderOpen, FileText, FileCode, FileJson, File, Image } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { ChevronRight, ChevronDown, Folder, FolderOpen, FileText, FileCode, FileJson, File, Image, MoreVertical, Check } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { FileNode } from "@/lib/types";
+import type { FolderSortOrder } from "@/hooks/useDocs";
 
 // File icons by extension
 const FILE_ICONS: Record<string, typeof File> = {
@@ -56,6 +58,8 @@ interface DocsTreeItemProps {
   isSelected: boolean;
   onToggleExpand: (path: string) => void;
   onSelect: (path: string) => void;
+  sortOrder?: FolderSortOrder;
+  onSetFolderSort?: (folderPath: string, order: FolderSortOrder) => void;
 }
 
 export function DocsTreeItem({
@@ -65,11 +69,29 @@ export function DocsTreeItem({
   isSelected,
   onToggleExpand,
   onSelect,
+  sortOrder = "alpha",
+  onSetFolderSort,
 }: DocsTreeItemProps) {
   const isMobile = useIsMobile();
   const isDirectory = node.type === "directory";
   const isIgnored = node.ignored === true;
   const indent = depth * 16;
+
+  // Sort menu state (directories only)
+  const [showSortMenu, setShowSortMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!showSortMenu) return;
+    const handleClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowSortMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showSortMenu]);
 
   const handleClick = () => {
     // Ignored directories are not interactive
@@ -116,10 +138,12 @@ export function DocsTreeItem({
   const isViewable = !isIgnored && (isDirectory || (node.extension && VIEWABLE_EXTENSIONS.has(node.extension)));
   const isMarkdown = node.extension === "md" || node.extension === "markdown" || node.extension === "mdx";
 
+  const showSortButton = isDirectory && !isIgnored && onSetFolderSort;
+
   return (
     <div
       className={`
-        flex items-center gap-1 px-2 ${isMobile ? "py-2.5 text-[15px]" : "py-1 text-sm"}
+        group/row relative flex items-center gap-1 px-2 ${isMobile ? "py-2.5 text-[15px]" : "py-1 text-sm"}
         transition-colors duration-150
         ${isSelected && !isIgnored ? "bg-[var(--bg-tertiary)]" : isIgnored ? "" : "hover:bg-[var(--bg-secondary)]"}
         ${isIgnored ? "opacity-30" : !isViewable ? "opacity-50" : ""}
@@ -162,7 +186,60 @@ export function DocsTreeItem({
       />
 
       {/* Name */}
-      <span className="truncate">{node.name}</span>
+      <span className="truncate flex-1">{node.name}</span>
+
+      {/* Sort menu for directories */}
+      {showSortButton && (
+        <div ref={menuRef} className="relative flex-shrink-0">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowSortMenu((prev) => !prev);
+            }}
+            className={`
+              ${isMobile ? "w-6 h-6" : "w-5 h-5"} flex items-center justify-center rounded
+              text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]
+              ${isMobile || showSortMenu ? "opacity-100" : "opacity-0 group-hover/row:opacity-100"}
+              transition-opacity duration-150
+            `}
+            title="Sort order"
+          >
+            <MoreVertical className={isMobile ? "w-4 h-4" : "w-3.5 h-3.5"} />
+          </button>
+
+          {showSortMenu && (
+            <div
+              className="absolute right-0 top-full mt-1 z-50 min-w-[140px] rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] shadow-lg py-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+                onClick={() => {
+                  onSetFolderSort(node.path, "alpha");
+                  setShowSortMenu(false);
+                }}
+              >
+                <span className="w-4 flex items-center justify-center">
+                  {sortOrder === "alpha" && <Check className="w-3 h-3" />}
+                </span>
+                Sort A–Z
+              </button>
+              <button
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+                onClick={() => {
+                  onSetFolderSort(node.path, "date");
+                  setShowSortMenu(false);
+                }}
+              >
+                <span className="w-4 flex items-center justify-center">
+                  {sortOrder === "date" && <Check className="w-3 h-3" />}
+                </span>
+                Sort by recent
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

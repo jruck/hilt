@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { FileNode } from "@/lib/types";
+import type { FolderSortOrder } from "@/hooks/useDocs";
 import { DocsTreeItem } from "./DocsTreeItem";
 
 interface DocsFileTreeProps {
@@ -13,6 +14,8 @@ interface DocsFileTreeProps {
   onSelect: (path: string) => void;
   isLoading?: boolean;
   searchQuery?: string;
+  folderSortOrder: Map<string, FolderSortOrder>;
+  onSetFolderSort: (folderPath: string, order: FolderSortOrder) => void;
 }
 
 // Recursively filter file tree based on search query
@@ -47,6 +50,16 @@ function filterFileTree(node: FileNode, query: string): FileNode | null {
   return null;
 }
 
+// Sort children: directories first, then by the chosen order
+function sortChildren(children: FileNode[], order: FolderSortOrder): FileNode[] {
+  if (order === "alpha") return children; // server already returns alphabetical
+  // "date" — sort by modTime descending, dirs first
+  return [...children].sort((a, b) => {
+    if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+    return b.modTime - a.modTime;
+  });
+}
+
 function TreeItems({
   node,
   depth,
@@ -54,6 +67,8 @@ function TreeItems({
   selectedPath,
   onToggleExpand,
   onSelect,
+  folderSortOrder,
+  onSetFolderSort,
 }: {
   node: FileNode;
   depth: number;
@@ -61,9 +76,13 @@ function TreeItems({
   selectedPath: string | null;
   onToggleExpand: (path: string) => void;
   onSelect: (path: string) => void;
+  folderSortOrder: Map<string, FolderSortOrder>;
+  onSetFolderSort: (folderPath: string, order: FolderSortOrder) => void;
 }) {
   const isExpanded = expandedPaths.has(node.path);
   const isSelected = selectedPath === node.path;
+  const sortOrder = folderSortOrder.get(node.path) || "alpha";
+  const sortedChildren = node.children ? sortChildren(node.children, sortOrder) : undefined;
 
   return (
     <>
@@ -76,13 +95,15 @@ function TreeItems({
           isSelected={isSelected}
           onToggleExpand={onToggleExpand}
           onSelect={onSelect}
+          sortOrder={sortOrder}
+          onSetFolderSort={onSetFolderSort}
         />
       )}
 
       {/* Render children if expanded (or if root) */}
-      {node.type === "directory" && (isExpanded || depth < 0) && node.children && (
+      {node.type === "directory" && (isExpanded || depth < 0) && sortedChildren && (
         <>
-          {node.children.map((child) => (
+          {sortedChildren.map((child) => (
             <TreeItems
               key={child.path}
               node={child}
@@ -91,6 +112,8 @@ function TreeItems({
               selectedPath={selectedPath}
               onToggleExpand={onToggleExpand}
               onSelect={onSelect}
+              folderSortOrder={folderSortOrder}
+              onSetFolderSort={onSetFolderSort}
             />
           ))}
         </>
@@ -107,6 +130,8 @@ export function DocsFileTree({
   onSelect,
   isLoading,
   searchQuery,
+  folderSortOrder,
+  onSetFolderSort,
 }: DocsFileTreeProps) {
   const isMobile = useIsMobile();
 
@@ -138,6 +163,8 @@ export function DocsFileTree({
             selectedPath={selectedPath}
             onToggleExpand={onToggleExpand}
             onSelect={onSelect}
+            folderSortOrder={folderSortOrder}
+            onSetFolderSort={onSetFolderSort}
           />
         )}
       </div>

@@ -501,8 +501,13 @@ async function createWindow() {
   });
 
   // Open external links in the default browser instead of inside Electron
+  const isInternalUrl = (url: string) =>
+    url.startsWith("http://localhost") ||
+    url.startsWith("http://127.0.0.1") ||
+    url.startsWith("https://xochipilli.tailc0acaa.ts.net");
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")) {
+    if (isInternalUrl(url)) {
       return { action: "allow" };
     }
     shell.openExternal(url);
@@ -510,9 +515,7 @@ async function createWindow() {
   });
 
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    // Allow navigation to the app itself
-    if (url.startsWith(`http://localhost:${serverPort}`)) return;
-    // Everything else opens in the default browser
+    if (isInternalUrl(url)) return;
     event.preventDefault();
     shell.openExternal(url);
   });

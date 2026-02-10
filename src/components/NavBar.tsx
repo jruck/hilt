@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { ViewToggle, ViewMode } from "./ViewToggle";
 import { ThemeToggle } from "./ThemeToggle";
+import { SourceToggle } from "./SourceToggle";
 import { Search, X, Plus } from "lucide-react";
 
 interface NavBarProps {
@@ -141,6 +142,7 @@ export function NavBar({
 
         {/* Theme toggle */}
         <ThemeToggle />
+        <SourceToggle />
       </div>
 
       {/* Center: View toggle (absolute center) */}

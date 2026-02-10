@@ -11,6 +11,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - **Relative images not rendering in markdown** - Standard markdown images with relative paths (e.g., `![alt](file.png)`) were broken because the browser tried to load them from the app root. Read mode rewrites paths during markdown processing; edit mode uses MDXEditor's `imagePreviewHandler` to resolve paths for display without modifying the underlying markdown.
   - File: `src/components/docs/DocsEditor.tsx`
 
+- **Gray rectangles below images in edit mode** - Lexical's decorator `<span>` is `display: inline` with a background color, so its line-height creates a visible strip below inline-block image wrappers. Fixed by making the decorator transparent with zero line-height.
+  - File: `src/app/globals.css`
+
 - **Mobile bottom sheet too short** - Increased task detail bottom sheet maxHeight from 70vh to 85vh so "Add details" and delete dropdown are fully reachable.
   - File: `src/components/bridge/BridgeView.tsx`
 

@@ -173,6 +173,10 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
       expandPath(currentPath);
     }
     setSelectedPath(initialFilePath, { replace: true });
+    // On mobile, jump straight to the content pane
+    if (isMobile) {
+      setMobilePanel("content");
+    }
     onInitialFileConsumed?.();
   }, [tree, treeLoading, initialFilePath, scopePath, expandPath, setSelectedPath, onInitialFileConsumed]);
 
@@ -212,24 +216,24 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
         if (onScopeChange) {
           onScopeChange(folderPath);
         }
-        // For scope root, still try to find and select index.md (desktop only)
-        if (folderPath === scopePath && !isMobile) {
+        // For scope root, try to find and select index.md
+        if (folderPath === scopePath) {
           const indexPath = findIndexFile(folderPath);
           if (indexPath) {
             setSelectedPath(indexPath);
+            if (isMobile) setMobilePanel("content");
             return;
           }
         }
       } else {
         // Expand the folder in tree
         expandPath(folderPath);
-        // Auto-select index.md if it exists (desktop only)
-        if (!isMobile) {
-          const indexPath = findIndexFile(folderPath);
-          if (indexPath) {
-            setSelectedPath(indexPath);
-            return;
-          }
+        // Auto-select index.md if it exists
+        const indexPath = findIndexFile(folderPath);
+        if (indexPath) {
+          setSelectedPath(indexPath);
+          if (isMobile) setMobilePanel("content");
+          return;
         }
       }
       // Deselect file if no index.md found (or on mobile, go back to tree)

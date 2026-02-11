@@ -30,14 +30,16 @@ export function NavBar({
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Cmd+K: open search
+      // Cmd+K: toggle search
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         if (isMobile) {
-          setMobileSearchOpen(true);
+          setMobileSearchOpen((prev) => !prev);
+        } else if (searchQuery) {
+          setSearchQuery("");
+          searchInputRef.current?.blur();
         } else {
           setSearchQuery(" ");
-          // Focus will happen via autoFocus, but schedule a ref focus too
           setTimeout(() => searchInputRef.current?.focus(), 0);
         }
         return;

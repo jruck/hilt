@@ -143,51 +143,79 @@ export function NavBar({
       className="relative flex items-center px-4 h-11 bg-[var(--bg-secondary)] border-b border-[var(--border-default)]"
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
-      {/* Left: source, theme, search */}
+      {/* Left: source, theme, search — fills to center toggle */}
       <div
-        className="flex items-center gap-2"
+        className="flex items-center gap-2 flex-1 min-w-0 mr-4"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         <SourceToggle />
         <ThemeToggle />
 
-        {/* Search */}
-        {searchQuery ? (
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-tertiary)]" />
+        {/* Search — always rendered, animated expand/collapse */}
+        <div
+          className="relative flex items-center flex-1 min-w-0"
+          style={{ maxWidth: searchQuery ? "100%" : "32px", transition: "max-width 250ms cubic-bezier(0.4, 0, 0.2, 1)" }}
+        >
+          {/* Search icon — acts as button when collapsed, label when expanded */}
+          <button
+            onClick={() => {
+              if (!searchQuery) {
+                setSearchQuery(" ");
+                setTimeout(() => searchInputRef.current?.focus(), 0);
+              }
+            }}
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 z-10 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+            style={{ cursor: searchQuery ? "default" : "pointer" }}
+            tabIndex={searchQuery ? -1 : 0}
+            title="Search (⌘K)"
+          >
+            <Search className="w-3.5 h-3.5" style={{ transition: "transform 200ms ease" }} />
+          </button>
+
+          {/* Input + pill background */}
+          <div
+            className="w-full overflow-hidden rounded-full transition-all duration-250"
+            style={{
+              background: searchQuery ? "var(--bg-tertiary)" : "transparent",
+              opacity: searchQuery ? 1 : 0,
+              transition: "background 250ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease",
+            }}
+          >
             <input
               ref={searchInputRef}
               type="text"
               placeholder="Search..."
-              value={searchQuery}
+              value={searchQuery.trim() === "" ? "" : searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onBlur={(e) => {
-                if (!e.target.value) setSearchQuery("");
+                if (!e.target.value.trim()) setSearchQuery("");
               }}
-              autoFocus
-              className="w-40 pl-8 pr-7 py-1.5 text-sm bg-[var(--bg-tertiary)] rounded text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none"
+              className="w-full pl-8 pr-8 py-1.5 text-sm bg-transparent rounded-full text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none"
+              tabIndex={searchQuery ? 0 : -1}
             />
-            <button
-              onClick={() => setSearchQuery("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
           </div>
-        ) : (
+
+          {/* Clear button */}
           <button
-            onClick={() => setSearchQuery(" ")}
-            className="p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
-            title="Search"
+            onClick={() => {
+              setSearchQuery("");
+              searchInputRef.current?.blur();
+            }}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-all"
+            style={{
+              opacity: searchQuery ? 1 : 0,
+              pointerEvents: searchQuery ? "auto" : "none",
+              transition: "opacity 150ms ease",
+            }}
           >
-            <Search className="w-4 h-4" />
+            <X className="w-3.5 h-3.5" />
           </button>
-        )}
+        </div>
       </div>
 
-      {/* Center: View toggle (absolute center) */}
+      {/* Center: View toggle */}
       <div
-        className="absolute left-1/2 -translate-x-1/2"
+        className="flex-shrink-0"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         <ViewToggle view={viewMode} onChange={setViewMode} />
@@ -195,7 +223,7 @@ export function NavBar({
 
       {/* Right: Add task button */}
       <div
-        className="flex items-center ml-auto"
+        className="flex items-center justify-end flex-1 ml-4"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         <button

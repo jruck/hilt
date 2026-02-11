@@ -153,34 +153,46 @@ export function NavBar({
 
         {/* Search — always rendered, animated expand/collapse */}
         <div
-          className="relative flex items-center flex-1 min-w-0"
-          style={{ maxWidth: searchQuery ? "100%" : "32px", transition: "max-width 250ms cubic-bezier(0.4, 0, 0.2, 1)" }}
+          className="relative flex items-center"
+          style={{
+            flex: searchQuery ? "1 1 auto" : "0 0 auto",
+            minWidth: searchQuery ? 0 : "auto",
+            transition: "flex 250ms cubic-bezier(0.4, 0, 0.2, 1)",
+          }}
         >
-          {/* Search icon — acts as button when collapsed, label when expanded */}
+          {/* Collapsed: icon button matching ThemeToggle/SourceToggle sizing */}
           <button
             onClick={() => {
-              if (!searchQuery) {
-                setSearchQuery(" ");
-                setTimeout(() => searchInputRef.current?.focus(), 0);
-              }
+              setSearchQuery(" ");
+              setTimeout(() => searchInputRef.current?.focus(), 0);
             }}
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 z-10 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
-            style={{ cursor: searchQuery ? "default" : "pointer" }}
-            tabIndex={searchQuery ? -1 : 0}
+            className="p-1.5 rounded transition-all text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
+            style={{
+              opacity: searchQuery ? 0 : 1,
+              pointerEvents: searchQuery ? "none" : "auto",
+              position: searchQuery ? "absolute" : "relative",
+              left: searchQuery ? "8px" : undefined,
+              transition: "opacity 200ms ease",
+            }}
             title="Search (⌘K)"
           >
-            <Search className="w-3.5 h-3.5" style={{ transition: "transform 200ms ease" }} />
+            <Search className="w-4 h-4" />
           </button>
 
-          {/* Input + pill background */}
+          {/* Expanded: pill search bar */}
           <div
-            className="w-full overflow-hidden rounded-full transition-all duration-250"
+            className="relative w-full overflow-hidden rounded-full"
             style={{
-              background: searchQuery ? "var(--bg-tertiary)" : "transparent",
+              background: "var(--bg-tertiary)",
               opacity: searchQuery ? 1 : 0,
-              transition: "background 250ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease",
+              maxHeight: searchQuery ? "40px" : "0px",
+              pointerEvents: searchQuery ? "auto" : "none",
+              transition: "opacity 200ms ease, max-height 250ms cubic-bezier(0.4, 0, 0.2, 1)",
             }}
           >
+            <Search
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]"
+            />
             <input
               ref={searchInputRef}
               type="text"
@@ -193,23 +205,16 @@ export function NavBar({
               className="w-full pl-8 pr-8 py-1.5 text-sm bg-transparent rounded-full text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none"
               tabIndex={searchQuery ? 0 : -1}
             />
+            <button
+              onClick={() => {
+                setSearchQuery("");
+                searchInputRef.current?.blur();
+              }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
-
-          {/* Clear button */}
-          <button
-            onClick={() => {
-              setSearchQuery("");
-              searchInputRef.current?.blur();
-            }}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-all"
-            style={{
-              opacity: searchQuery ? 1 : 0,
-              pointerEvents: searchQuery ? "auto" : "none",
-              transition: "opacity 150ms ease",
-            }}
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
         </div>
       </div>
 

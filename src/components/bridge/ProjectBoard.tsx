@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { ArchiveRestore } from "lucide-react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { BridgeProject, BridgeProjectStatus } from "@/lib/types";
 import { ProjectCard } from "./ProjectCard";
 
@@ -9,6 +10,13 @@ const COLUMN_ORDER: { key: BridgeProjectStatus; label: string }[] = [
   { key: "considering", label: "Considering" },
   { key: "refining", label: "Refining" },
   { key: "doing", label: "Doing" },
+];
+
+// Reversed for mobile: in-progress first
+const COLUMN_ORDER_MOBILE: { key: BridgeProjectStatus; label: string }[] = [
+  { key: "doing", label: "Doing" },
+  { key: "refining", label: "Refining" },
+  { key: "considering", label: "Considering" },
 ];
 
 const RESTORE_OPTIONS: { key: BridgeProjectStatus; label: string }[] = [
@@ -25,9 +33,11 @@ interface ProjectBoardProps {
 }
 
 export function ProjectBoard({ columns, onProjectClick, onStatusChange, className }: ProjectBoardProps) {
+  const isMobile = useIsMobile();
   const [showDone, setShowDone] = useState(false);
   const [restoreProject, setRestoreProject] = useState<BridgeProject | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<BridgeProjectStatus | null>(null);
+  const columnOrder = isMobile ? COLUMN_ORDER_MOBILE : COLUMN_ORDER;
   const restoreRef = useRef<HTMLDivElement>(null);
 
   const doneProjects = columns.done ?? [];
@@ -72,7 +82,7 @@ export function ProjectBoard({ columns, onProjectClick, onStatusChange, classNam
   }, [restoreProject]);
 
   // Only check the visible columns (not done)
-  const hasProjects = COLUMN_ORDER.some(({ key }) => columns[key]?.length > 0);
+  const hasProjects = columnOrder.some(({ key }) => columns[key]?.length > 0);
 
   if (!hasProjects && doneProjects.length === 0) return null;
 
@@ -83,7 +93,7 @@ export function ProjectBoard({ columns, onProjectClick, onStatusChange, classNam
       </h2>
       {hasProjects && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" style={{ minWidth: 0 }}>
-          {COLUMN_ORDER.map(({ key, label }) => (
+          {columnOrder.map(({ key, label }) => (
             <div
               key={key}
               className={`min-w-0 rounded-lg p-2 -m-2 transition-colors ${

@@ -50,7 +50,7 @@ export function ProjectCard({ project, onClick, onStatusChange }: ProjectCardPro
         e.dataTransfer.setData("application/x-project-slug", project.slug);
         e.dataTransfer.effectAllowed = "move";
       }}
-      className="group relative rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-3 cursor-pointer hover:border-[var(--border-hover)] transition-colors"
+      className="group relative rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-2 cursor-pointer hover:border-[var(--border-hover)] transition-colors"
       onClick={() => onClick?.(project)}
     >
       <div className="flex items-start gap-1">
@@ -98,13 +98,13 @@ export function ProjectCard({ project, onClick, onStatusChange }: ProjectCardPro
         )}
       </div>
 
-      <div ref={pathContainerRef} className="mt-1 overflow-hidden marquee-container">
+      <div ref={pathContainerRef} className="mt-0.5 overflow-hidden marquee-container">
         <div ref={pathRef} className="marquee-path text-xs text-[var(--text-tertiary)]">
           {project.relativePath}
         </div>
       </div>
       {project.area && (
-        <div className="mt-1.5">
+        <div className="mt-1">
           <span className="inline-block text-xs px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
             {project.area}
           </span>

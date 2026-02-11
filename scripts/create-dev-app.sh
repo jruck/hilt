@@ -46,7 +46,8 @@ cat > "$APP_PATH/Contents/MacOS/launcher" << 'LAUNCHER_EOF'
 PROJECT_DIR="PLACEHOLDER_PROJECT_DIR"
 cd "$PROJECT_DIR"
 
-# Add nvm node to PATH without sourcing slow nvm.sh
+# Ensure node is in PATH (Finder doesn't inherit shell PATH)
+export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
 if [ -d "$HOME/.nvm/versions/node" ]; then
     NODE_DIR=$(ls -1 "$HOME/.nvm/versions/node" | tail -1)
     if [ -n "$NODE_DIR" ]; then

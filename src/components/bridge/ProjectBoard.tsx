@@ -82,7 +82,7 @@ export function ProjectBoard({ columns, onProjectClick, onStatusChange, classNam
         Projects
       </h2>
       {hasProjects && (
-        <div className="grid grid-cols-3 gap-3" style={{ minWidth: 0 }}>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" style={{ minWidth: 0 }}>
           {COLUMN_ORDER.map(({ key, label }) => (
             <div
               key={key}

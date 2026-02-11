@@ -65,7 +65,7 @@ function stripFrontmatter(markdown: string): string {
 /** Compact frontmatter display rendered above the editor content (read mode). */
 function FrontmatterDisplay({ fields }: { fields: Record<string, string> }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-6 py-2 min-h-[44px] text-[13px] font-mono border-b border-[var(--border-default)]">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 sm:px-6 py-2 text-[13px] font-mono border-b border-[var(--border-default)] flex-shrink-0">
       {Object.entries(fields).map(([key, value]) => (
         <span key={key} className="text-[var(--text-tertiary)]">
           <span className="font-medium">{key}:</span>{" "}
@@ -79,7 +79,7 @@ function FrontmatterDisplay({ fields }: { fields: Record<string, string> }) {
 /** Editable frontmatter displayed below the toolbar in edit mode. */
 function EditableFrontmatter({ fields, onChange }: { fields: Record<string, string>; onChange: (key: string, value: string) => void }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-6 py-2 min-h-[44px] text-[13px] font-mono border-b border-[var(--border-default)]">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 sm:px-6 py-2 text-[13px] font-mono border-b border-[var(--border-default)] flex-shrink-0">
       {Object.entries(fields).map(([key, value]) => (
         <label key={key} className="flex items-center gap-1 text-[var(--text-tertiary)]">
           <span className="font-medium">{key}:</span>

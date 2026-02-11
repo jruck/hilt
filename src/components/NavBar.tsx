@@ -160,39 +160,46 @@ export function NavBar({
             transition: "flex 250ms cubic-bezier(0.4, 0, 0.2, 1)",
           } as React.CSSProperties}
         >
-          {/* Collapsed: icon button matching ThemeToggle/SourceToggle sizing */}
-          <button
+          {/* Single search icon — animates position between collapsed and expanded */}
+          <div
             onClick={() => {
-              setSearchQuery(" ");
-              setTimeout(() => searchInputRef.current?.focus(), 0);
+              if (!searchQuery) {
+                setSearchQuery(" ");
+                setTimeout(() => searchInputRef.current?.focus(), 0);
+              }
             }}
-            className="p-1.5 rounded transition-all text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
+            className="absolute top-1/2 -translate-y-1/2 z-10 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
             style={{
-              opacity: searchQuery ? 0 : 1,
-              pointerEvents: searchQuery ? "none" : "auto",
-              position: searchQuery ? "absolute" : "relative",
-              left: searchQuery ? "8px" : undefined,
-              transition: "opacity 200ms ease",
+              left: searchQuery ? "10px" : "6px",
+              cursor: searchQuery ? "default" : "pointer",
+              transition: "left 250ms cubic-bezier(0.4, 0, 0.2, 1)",
             }}
             title="Search (⌘K)"
           >
             <Search className="w-4 h-4" />
-          </button>
+          </div>
+
+          {/* Collapsed: invisible spacer to hold the icon button size */}
+          <div
+            className="flex-shrink-0"
+            style={{
+              width: searchQuery ? "0px" : "28px",
+              height: "28px",
+              transition: "width 250ms cubic-bezier(0.4, 0, 0.2, 1)",
+              overflow: "hidden",
+            }}
+          />
 
           {/* Expanded: pill search bar */}
           <div
-            className="relative w-full overflow-hidden rounded-full"
+            className="relative overflow-hidden rounded-full"
             style={{
               background: "var(--bg-tertiary)",
+              flex: searchQuery ? "1 1 auto" : "0 0 0px",
               opacity: searchQuery ? 1 : 0,
-              maxHeight: searchQuery ? "40px" : "0px",
-              pointerEvents: searchQuery ? "auto" : "none",
-              transition: "opacity 200ms ease, max-height 250ms cubic-bezier(0.4, 0, 0.2, 1)",
+              transition: "flex 250ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease",
             }}
           >
-            <Search
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]"
-            />
             <input
               ref={searchInputRef}
               type="text"
@@ -211,6 +218,10 @@ export function NavBar({
                 searchInputRef.current?.blur();
               }}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+              style={{
+                opacity: searchQuery ? 1 : 0,
+                transition: "opacity 150ms ease",
+              }}
             >
               <X className="w-3.5 h-3.5" />
             </button>

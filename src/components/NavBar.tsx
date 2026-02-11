@@ -146,19 +146,19 @@ export function NavBar({
       {/* Left: source, theme, search — fills to center toggle */}
       <div
         className="flex items-center gap-2 flex-1 min-w-0 mr-4"
-        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
-        <SourceToggle />
-        <ThemeToggle />
+        <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><SourceToggle /></div>
+        <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><ThemeToggle /></div>
 
         {/* Search — always rendered, animated expand/collapse */}
         <div
           className="relative flex items-center"
           style={{
+            WebkitAppRegion: "no-drag",
             flex: searchQuery ? "1 1 auto" : "0 0 auto",
             minWidth: searchQuery ? 0 : "auto",
             transition: "flex 250ms cubic-bezier(0.4, 0, 0.2, 1)",
-          }}
+          } as React.CSSProperties}
         >
           {/* Collapsed: icon button matching ThemeToggle/SourceToggle sizing */}
           <button

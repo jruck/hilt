@@ -145,14 +145,14 @@ export function NavBar({
     >
       {/* Left: source, theme, search — fills to center toggle */}
       <div
-        className="flex items-center gap-2 flex-1 min-w-0 mr-4"
+        className="flex items-center gap-2 flex-1 min-w-0 mr-4 pointer-events-none"
       >
-        <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><SourceToggle /></div>
-        <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><ThemeToggle /></div>
+        <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><SourceToggle /></div>
+        <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><ThemeToggle /></div>
 
         {/* Search — always rendered, animated expand/collapse */}
         <div
-          className="relative flex items-center"
+          className="relative flex items-center pointer-events-auto"
           style={{
             WebkitAppRegion: "no-drag",
             flex: searchQuery ? "1 1 auto" : "0 0 auto",
@@ -228,16 +228,16 @@ export function NavBar({
 
       {/* Right: Add task button */}
       <div
-        className="flex items-center justify-end flex-1 ml-4"
-        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+        className="flex items-center justify-end flex-1 ml-4 pointer-events-none"
       >
         <button
           onClick={() => {
             if (viewMode !== "bridge") setViewMode("bridge");
             setAddTaskTrigger((c) => c + 1);
           }}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-80 transition-opacity"
+          className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-80 transition-opacity"
           title="Add task"
+          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
         >
           <Plus className="w-4 h-4" />
           <span>Add</span>

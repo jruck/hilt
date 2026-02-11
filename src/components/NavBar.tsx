@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { ViewToggle, ViewMode } from "./ViewToggle";
 import { ThemeToggle } from "./ThemeToggle";
@@ -24,6 +24,46 @@ export function NavBar({
 }: NavBarProps) {
   const isMobile = useIsMobile();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const VIEW_KEYS: Record<string, ViewMode> = { "1": "bridge", "2": "docs", "3": "stack" };
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      // Cmd+K: open search
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        if (isMobile) {
+          setMobileSearchOpen(true);
+        } else {
+          setSearchQuery(" ");
+          // Focus will happen via autoFocus, but schedule a ref focus too
+          setTimeout(() => searchInputRef.current?.focus(), 0);
+        }
+        return;
+      }
+
+      // Escape: close search
+      if (e.key === "Escape") {
+        if (searchQuery || mobileSearchOpen) {
+          e.preventDefault();
+          setSearchQuery("");
+          setMobileSearchOpen(false);
+          searchInputRef.current?.blur();
+          return;
+        }
+      }
+
+      // Cmd+1/2/3: switch tabs
+      if ((e.metaKey || e.ctrlKey) && VIEW_KEYS[e.key]) {
+        e.preventDefault();
+        setViewMode(VIEW_KEYS[e.key]);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [searchQuery, mobileSearchOpen, isMobile, setSearchQuery, setViewMode]);
 
   if (isMobile) {
     return (
@@ -116,6 +156,7 @@ export function NavBar({
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-tertiary)]" />
             <input
+              ref={searchInputRef}
               type="text"
               placeholder="Search..."
               value={searchQuery}

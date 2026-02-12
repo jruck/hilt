@@ -25,6 +25,8 @@ interface ViewToggleProps {
   cmdHeld?: boolean;
   /** Fixed top position for badges */
   badgeTop?: number;
+  /** Currently pressed shortcut key */
+  pressedKey?: string | null;
 }
 
 const VIEW_CONFIG = [
@@ -33,7 +35,7 @@ const VIEW_CONFIG = [
   { id: "stack" as const, label: "Stack", icon: Layers, title: "Claude configuration stack", shortcut: "3" },
 ];
 
-export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld, badgeTop = 48 }: ViewToggleProps) {
+export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld, badgeTop = 48, pressedKey }: ViewToggleProps) {
   const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [positions, setPositions] = useState<{ left: number }[]>([]);
 
@@ -104,9 +106,10 @@ export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld, badgeTo
             key={shortcut}
             className="fixed px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-default)] whitespace-nowrap pointer-events-none z-50"
             style={{
-              top: `${badgeTop}px`,
+              top: pressedKey === shortcut ? `${badgeTop - 4}px` : `${badgeTop}px`,
               left: positions[idx].left,
               transform: "translateX(-50%)",
+              transition: "top 150ms ease",
             }}
           >
             {shortcut}

@@ -153,14 +153,37 @@ export function NavBar({
       className="relative flex items-center px-4 h-11 bg-[var(--bg-secondary)] border-b border-[var(--border-default)]"
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
-      {/* Left: source, theme, search — fills to center toggle */}
+      {/* Left: Add task button */}
       <div
-        className="flex items-center gap-2 flex-1 min-w-0 mr-4 pointer-events-none"
+        className="flex items-center flex-1 mr-4 pointer-events-none"
       >
-        <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><SourceToggle /></div>
-        <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><ThemeToggle /></div>
+        <button
+          onClick={() => {
+            if (viewMode !== "bridge") setViewMode("bridge");
+            setAddTaskTrigger((c) => c + 1);
+          }}
+          className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-80 transition-opacity"
+          title="Add task (⌘J)"
+          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+        >
+          <Plus className="w-4 h-4" />
+          <span>Add</span>
+        </button>
+      </div>
 
-        {/* Search — always rendered, animated expand/collapse */}
+      {/* Center: View toggle */}
+      <div
+        className="flex-shrink-0"
+        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+      >
+        <ViewToggle view={viewMode} onChange={setViewMode} />
+      </div>
+
+      {/* Right: search, theme, source — fills from center toggle */}
+      <div
+        className="flex items-center justify-end gap-2 flex-1 min-w-0 ml-4 pointer-events-none"
+      >
+        {/* Search — expands to the left */}
         <div
           className="relative flex items-center pointer-events-auto"
           style={{
@@ -170,23 +193,41 @@ export function NavBar({
             transition: "flex 250ms cubic-bezier(0.4, 0, 0.2, 1)",
           } as React.CSSProperties}
         >
-          {/* Single search icon — animates position between collapsed and expanded */}
+          {/* Expanded: pill search bar */}
           <div
-            onClick={() => {
-              if (!searchQuery) {
-                setSearchQuery(" ");
-                setTimeout(() => searchInputRef.current?.focus(), 0);
-              }
-            }}
-            className="absolute top-1/2 -translate-y-1/2 z-10 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            className="relative overflow-hidden rounded-full"
             style={{
-              left: searchQuery ? "10px" : "6px",
-              cursor: searchQuery ? "default" : "pointer",
-              transition: "left 250ms cubic-bezier(0.4, 0, 0.2, 1)",
+              background: "var(--bg-tertiary)",
+              flex: searchQuery ? "1 1 auto" : "0 0 0px",
+              opacity: searchQuery ? 1 : 0,
+              transition: "flex 250ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease",
             }}
-            title="Search (⌘K)"
           >
-            <Search className="w-4 h-4" />
+            <button
+              onClick={() => {
+                setSearchQuery("");
+                searchInputRef.current?.blur();
+              }}
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+              style={{
+                opacity: searchQuery ? 1 : 0,
+                transition: "opacity 150ms ease",
+              }}
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Search..."
+              value={searchQuery.trim() === "" ? "" : searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onBlur={(e) => {
+                if (!e.target.value.trim()) setSearchQuery("");
+              }}
+              className="w-full pl-8 pr-8 py-1.5 text-sm bg-transparent rounded-full text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none"
+              tabIndex={searchQuery ? 0 : -1}
+            />
           </div>
 
           {/* Collapsed: invisible spacer to hold the icon button size */}
@@ -200,69 +241,28 @@ export function NavBar({
             }}
           />
 
-          {/* Expanded: pill search bar */}
+          {/* Single search icon — animates position */}
           <div
-            className="relative overflow-hidden rounded-full"
-            style={{
-              background: "var(--bg-tertiary)",
-              flex: searchQuery ? "1 1 auto" : "0 0 0px",
-              opacity: searchQuery ? 1 : 0,
-              transition: "flex 250ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease",
+            onClick={() => {
+              if (!searchQuery) {
+                setSearchQuery(" ");
+                setTimeout(() => searchInputRef.current?.focus(), 0);
+              }
             }}
+            className="absolute top-1/2 -translate-y-1/2 z-10 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            style={{
+              right: searchQuery ? "10px" : "6px",
+              cursor: searchQuery ? "default" : "pointer",
+              transition: "right 250ms cubic-bezier(0.4, 0, 0.2, 1)",
+            }}
+            title="Search (⌘K)"
           >
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder="Search..."
-              value={searchQuery.trim() === "" ? "" : searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onBlur={(e) => {
-                if (!e.target.value.trim()) setSearchQuery("");
-              }}
-              className="w-full pl-8 pr-8 py-1.5 text-sm bg-transparent rounded-full text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none"
-              tabIndex={searchQuery ? 0 : -1}
-            />
-            <button
-              onClick={() => {
-                setSearchQuery("");
-                searchInputRef.current?.blur();
-              }}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-              style={{
-                opacity: searchQuery ? 1 : 0,
-                transition: "opacity 150ms ease",
-              }}
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
+            <Search className="w-4 h-4" />
           </div>
         </div>
-      </div>
 
-      {/* Center: View toggle */}
-      <div
-        className="flex-shrink-0"
-        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-      >
-        <ViewToggle view={viewMode} onChange={setViewMode} />
-      </div>
-
-      {/* Right: Add task button */}
-      <div
-        className="flex items-center justify-end flex-1 ml-4 pointer-events-none"
-      >
-        <button
-          onClick={() => {
-            if (viewMode !== "bridge") setViewMode("bridge");
-            setAddTaskTrigger((c) => c + 1);
-          }}
-          className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-80 transition-opacity"
-          title="Add task"
-          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add</span>
-        </button>
+        <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><ThemeToggle /></div>
+        <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><SourceToggle /></div>
       </div>
     </div>
   );

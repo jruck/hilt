@@ -194,11 +194,12 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
     if (initialFileHandledRef.current) return;
     // Only run once per scope when tree loads and nothing is selected
     // Skip if an initialFilePath is pending
-    if (tree && !selectedPath && !treeLoading && !hasAutoSelectedRef.current && !initialFilePath && !isMobile) {
+    if (tree && !selectedPath && !treeLoading && !hasAutoSelectedRef.current && !initialFilePath) {
       hasAutoSelectedRef.current = true;
       const indexPath = findIndexFile(scopePath);
       if (indexPath) {
         setSelectedPath(indexPath, { replace: true });
+        if (isMobile) setMobilePanel("content");
       }
     }
   }, [tree, selectedPath, treeLoading, scopePath, findIndexFile, setSelectedPath, initialFilePath]);

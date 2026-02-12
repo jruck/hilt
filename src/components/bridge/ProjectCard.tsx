@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, FolderOpen } from "lucide-react";
 import type { BridgeProject, BridgeProjectStatus } from "@/lib/types";
 
 const STATUS_OPTIONS: { key: BridgeProjectStatus; label: string }[] = [
@@ -73,6 +73,13 @@ export function ProjectCard({ project, onClick, onStatusChange }: ProjectCardPro
       onClick={() => onClick?.(project)}
     >
       <div className="flex items-center gap-3">
+        <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center">
+          {project.icon ? (
+            <span className="text-base leading-none">{project.icon}</span>
+          ) : (
+            <FolderOpen className="w-4 h-4 text-[var(--text-tertiary)]" />
+          )}
+        </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-[var(--text-primary)] truncate leading-tight">
             {project.title}

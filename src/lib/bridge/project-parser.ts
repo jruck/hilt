@@ -25,10 +25,11 @@ const STATUS_ALIASES: Record<string, BridgeProjectStatus> = {
  * Parse a project index.md file into partial project data.
  * Returns extracted fields, or defaults for missing/invalid content.
  */
-function parseIndexFile(content: string): { title: string | null; status: BridgeProjectStatus; area: string; tags: string[]; description: string } {
+function parseIndexFile(content: string): { title: string | null; status: BridgeProjectStatus; area: string; icon: string; tags: string[]; description: string } {
   let title: string | null = null;
   let status: BridgeProjectStatus = "considering";
   let area = "";
+  let icon = "";
   let tags: string[] = [];
   let body = content;
 
@@ -56,6 +57,7 @@ function parseIndexFile(content: string): { title: string | null; status: Bridge
         }
       }
       area = fm.area || "";
+      icon = fm.icon || "";
       if (fm.tags) {
         const tagsStr = fm.tags.replace(/^\[|\]$/g, "");
         tags = tagsStr.split(",").map(t => t.trim()).filter(Boolean);
@@ -77,7 +79,7 @@ function parseIndexFile(content: string): { title: string | null; status: Bridge
   // Description: body text with H1 line removed
   const description = body.replace(/^#\s+.+$/m, "").trim();
 
-  return { title, status, area, tags, description };
+  return { title, status, area, icon, tags, description };
 }
 
 /**
@@ -117,6 +119,7 @@ function scanProjectsDir(
     let title = humanizeFolderName(entry.name);
     let status: BridgeProjectStatus = "considering";
     let area = "";
+    let icon = "";
     let tags: string[] = [];
     let description = "";
 
@@ -128,6 +131,7 @@ function scanProjectsDir(
         if (parsed.title) title = parsed.title;
         status = parsed.status;
         area = parsed.area;
+        icon = parsed.icon;
         tags = parsed.tags;
         description = parsed.description;
       } catch {
@@ -142,6 +146,7 @@ function scanProjectsDir(
       title,
       status,
       area,
+      icon,
       tags,
       source,
       description,

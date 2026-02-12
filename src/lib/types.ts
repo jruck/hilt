@@ -72,6 +72,7 @@ export interface BridgeProject {
   status: BridgeProjectStatus;
   area: string;
   tags: string[];
+  icon: string;            // Emoji icon from frontmatter (empty string if none)
   source: string;          // Display group (e.g., "Projects", "EverPro", "Ventures")
   description: string;     // Body text from index.md (post-frontmatter, minus H1)
 }

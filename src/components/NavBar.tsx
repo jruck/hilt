@@ -192,7 +192,7 @@ export function NavBar({
       <div
         className="flex items-center flex-1 mr-4 pointer-events-none"
       >
-        <div className="relative pointer-events-auto">
+        <div className="relative inline-flex pointer-events-auto">
           <button
             onClick={() => {
               if (viewMode !== "bridge") setViewMode("bridge");
@@ -287,7 +287,7 @@ export function NavBar({
                 setTimeout(() => searchInputRef.current?.focus(), 0);
               }
             }}
-            className="absolute top-1/2 -translate-y-1/2 z-10 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            className="absolute top-1/2 -translate-y-1/2 z-10 w-4 h-4 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
             style={{
               left: searchQuery ? "10px" : "calc(100% - 22px)",
               cursor: searchQuery ? "default" : "pointer",

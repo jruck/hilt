@@ -7,31 +7,13 @@ import { ThemeToggle } from "./ThemeToggle";
 import { SourceToggle } from "./SourceToggle";
 import { Search, X, Plus } from "lucide-react";
 
-/** Shortcut hint badge rendered via ref-based positioning */
-function ShortcutBadge({ label, visible, targetRef, barRef }: { label: string; visible: boolean; targetRef?: React.RefObject<HTMLElement | null>; barRef?: React.RefObject<HTMLElement | null> }) {
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
-
-  useEffect(() => {
-    if (!visible || !targetRef?.current) { setPos(null); return; }
-    const raf = requestAnimationFrame(() => {
-      if (!targetRef?.current) return;
-      const rect = targetRef.current.getBoundingClientRect();
-      const barBottom = barRef?.current ? barRef.current.getBoundingClientRect().bottom : rect.bottom;
-      setPos({ left: rect.left + rect.width / 2, top: barBottom + 4 });
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [visible, targetRef, barRef]);
-
-  if (!visible || !pos) return null;
-
+/** Shortcut hint badge — pure CSS positioning */
+function ShortcutBadge({ label, visible }: { label: string; visible: boolean }) {
+  if (!visible) return null;
   return (
     <span
-      className="fixed px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-default)] whitespace-nowrap pointer-events-none z-50"
-      style={{
-        top: pos.top,
-        left: pos.left,
-        transform: "translateX(-50%)",
-      }}
+      className="absolute left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-default)] whitespace-nowrap pointer-events-none z-50"
+      style={{ top: "calc(100% + 8px)" }}
     >
       {label}
     </span>
@@ -57,9 +39,6 @@ export function NavBar({
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [cmdHeld, setCmdHeld] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const toolbarRef = useRef<HTMLDivElement>(null);
-  const addBtnRef = useRef<HTMLButtonElement>(null);
-  const searchIconRef = useRef<HTMLDivElement>(null);
 
   const VIEW_KEYS: Record<string, ViewMode> = { "1": "bridge", "2": "docs", "3": "stack" };
 
@@ -209,7 +188,6 @@ export function NavBar({
   // Desktop: render the existing top bar
   return (
     <div
-      ref={toolbarRef}
       data-statusbar
       className="relative flex items-center px-4 h-11 bg-[var(--bg-secondary)] border-b border-[var(--border-default)]"
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
@@ -218,19 +196,20 @@ export function NavBar({
       <div
         className="flex items-center flex-1 mr-4 pointer-events-none"
       >
-        <button
-          ref={addBtnRef}
-          onClick={() => {
-            if (viewMode !== "bridge") setViewMode("bridge");
-            setAddTaskTrigger((c) => c + 1);
-          }}
-          className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-80 transition-opacity"
-          title="Add task (⌘J)"
-          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add</span>
-        </button>
+        <div className="relative pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+          <button
+            onClick={() => {
+              if (viewMode !== "bridge") setViewMode("bridge");
+              setAddTaskTrigger((c) => c + 1);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-80 transition-opacity"
+            title="Add task (⌘J)"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add</span>
+          </button>
+          <ShortcutBadge label="J" visible={cmdHeld} />
+        </div>
       </div>
 
       {/* Center: View toggle — absolutely centered in full toolbar width */}
@@ -238,7 +217,7 @@ export function NavBar({
         className="absolute left-1/2 -translate-x-1/2"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
-        <ViewToggle view={viewMode} onChange={setViewMode} cmdHeld={cmdHeld} barRef={toolbarRef} />
+        <ViewToggle view={viewMode} onChange={setViewMode} cmdHeld={cmdHeld} />
       </div>
 
       {/* Right: search, theme, source — fills from center toggle */}
@@ -305,7 +284,6 @@ export function NavBar({
 
           {/* Single search icon — travels from right (collapsed) to left of pill (expanded) */}
           <div
-            ref={searchIconRef}
             onClick={() => {
               if (!searchQuery) {
                 setSearchQuery(" ");
@@ -322,15 +300,12 @@ export function NavBar({
           >
             <Search className="w-4 h-4" />
           </div>
+          {!searchQuery && <ShortcutBadge label="K" visible={cmdHeld} />}
         </div>
 
         <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><ThemeToggle /></div>
         <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><SourceToggle /></div>
       </div>
-
-      {/* Shortcut badges — fixed position, aligned to toolbar bottom */}
-      <ShortcutBadge label="J" visible={cmdHeld} targetRef={addBtnRef} barRef={toolbarRef} />
-      <ShortcutBadge label="K" visible={cmdHeld && !searchQuery} targetRef={searchIconRef} barRef={toolbarRef} />
     </div>
   );
 }

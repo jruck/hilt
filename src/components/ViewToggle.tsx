@@ -1,6 +1,5 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
 import { FileText, Layers, Compass } from "lucide-react";
 
 // The underlying view mode stored in state/preferences
@@ -23,8 +22,6 @@ interface ViewToggleProps {
   iconSize?: number;
   /** Show keyboard shortcut hints (⌘ held) */
   cmdHeld?: boolean;
-  /** Ref to the toolbar bar for badge positioning */
-  barRef?: React.RefObject<HTMLElement | null>;
 }
 
 const VIEW_CONFIG = [
@@ -33,25 +30,7 @@ const VIEW_CONFIG = [
   { id: "stack" as const, label: "Stack", icon: Layers, title: "Claude configuration stack", shortcut: "3" },
 ];
 
-export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld, barRef }: ViewToggleProps) {
-  const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const [positions, setPositions] = useState<{ left: number; top: number }[]>([]);
-
-  useEffect(() => {
-    if (!cmdHeld) { setPositions([]); return; }
-    // Wait for layout to settle before measuring
-    const raf = requestAnimationFrame(() => {
-      const barBottom = barRef?.current ? barRef.current.getBoundingClientRect().bottom : 44;
-      setPositions(
-        btnRefs.current.map((el) => {
-          if (!el) return { left: 0, top: barBottom + 4 };
-          const rect = el.getBoundingClientRect();
-          return { left: rect.left + rect.width / 2, top: barBottom + 4 };
-        })
-      );
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [cmdHeld, barRef]);
+export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld }: ViewToggleProps) {
   const size = iconSize ?? (compact ? 24 : 16);
 
   if (compact) {
@@ -80,12 +59,10 @@ export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld, barRef 
   }
 
   return (
-    <>
-      <div className="flex items-center bg-[var(--bg-tertiary)] rounded-lg p-0.5">
-        {VIEW_CONFIG.map(({ id, label, icon: Icon, title, shortcut }, idx) => (
+    <div className="flex items-center bg-[var(--bg-tertiary)] rounded-lg p-0.5">
+      {VIEW_CONFIG.map(({ id, label, icon: Icon, title, shortcut }) => (
+        <div key={id} className="relative">
           <button
-            key={id}
-            ref={(el) => { btnRefs.current[idx] = el; }}
             onClick={() => onChange(id)}
             className={`
               flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium
@@ -101,23 +78,16 @@ export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld, barRef 
             <Icon style={{ width: size, height: size }} />
             <span className="hidden sm:inline">{label}</span>
           </button>
-        ))}
-      </div>
-      {cmdHeld && positions.length > 0 && VIEW_CONFIG.map(({ shortcut }, idx) => (
-        positions[idx] && (
-          <span
-            key={shortcut}
-            className="fixed px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-default)] whitespace-nowrap pointer-events-none z-50"
-            style={{
-              top: positions[idx].top,
-              left: positions[idx].left,
-              transform: "translateX(-50%)",
-            }}
-          >
-            {shortcut}
-          </span>
-        )
+          {cmdHeld && (
+            <span
+              className="absolute left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-default)] whitespace-nowrap pointer-events-none z-50"
+              style={{ top: "calc(100% + 8px)" }}
+            >
+              {shortcut}
+            </span>
+          )}
+        </div>
       ))}
-    </>
+    </div>
   );
 }

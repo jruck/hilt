@@ -63,8 +63,8 @@ export function NavBar({
         return;
       }
 
-      // Cmd+N: add task
-      if ((e.metaKey || e.ctrlKey) && e.key === "n") {
+      // Cmd+J: add task
+      if ((e.metaKey || e.ctrlKey) && e.key === "j") {
         e.preventDefault();
         if (viewMode !== "bridge") setViewMode("bridge");
         setAddTaskTrigger((c) => c + 1);

@@ -2,6 +2,7 @@
 
 import { House, Wifi } from "lucide-react";
 import { useSource, Source } from "@/hooks/useSource";
+import { useEventSocketContext } from "@/contexts/EventSocketContext";
 import { useState, useRef, useEffect, useCallback } from "react";
 
 const sourceOptions: {
@@ -15,6 +16,7 @@ const sourceOptions: {
 
 export function SourceToggle() {
   const { source, switchSource } = useSource();
+  const { connected } = useEventSocketContext();
   const [isOpen, setIsOpen] = useState(false);
   const [alignRight, setAlignRight] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -49,10 +51,13 @@ export function SourceToggle() {
       <button
         ref={buttonRef}
         onClick={() => (isOpen ? setIsOpen(false) : openDropdown())}
-        className="p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
-        title={`Source: ${source}`}
+        className="relative p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
+        title={`Source: ${source} (${connected ? "connected" : "disconnected"})`}
       >
         <CurrentIcon className="w-4 h-4" />
+        <span
+          className={`absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full ${connected ? "bg-emerald-500" : "bg-red-500"}`}
+        />
       </button>
 
       {isOpen && (

@@ -69,7 +69,7 @@ export function ProjectCard({ project, onClick, onStatusChange }: ProjectCardPro
         e.dataTransfer.setData("application/x-project-slug", project.slug);
         e.dataTransfer.effectAllowed = "move";
       }}
-      className="group rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-2 cursor-pointer hover:border-[var(--border-hover)] transition-colors"
+      className="group rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 pt-2 pb-2.5 cursor-pointer hover:border-[var(--border-hover)] transition-colors"
       onClick={() => onClick?.(project)}
     >
       <div className="flex items-center gap-3">

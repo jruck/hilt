@@ -60,12 +60,20 @@ export function NavBar({
       if ((e.metaKey || e.ctrlKey) && VIEW_KEYS[e.key]) {
         e.preventDefault();
         setViewMode(VIEW_KEYS[e.key]);
+        return;
+      }
+
+      // Cmd+N: add task
+      if ((e.metaKey || e.ctrlKey) && e.key === "n") {
+        e.preventDefault();
+        if (viewMode !== "bridge") setViewMode("bridge");
+        setAddTaskTrigger((c) => c + 1);
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [searchQuery, mobileSearchOpen, isMobile, setSearchQuery, setViewMode]);
+  }, [searchQuery, mobileSearchOpen, isMobile, setSearchQuery, setViewMode, viewMode, setAddTaskTrigger]);
 
   if (isMobile) {
     return (

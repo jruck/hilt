@@ -1,6 +1,6 @@
 "use client";
 
-import { House, Globe } from "lucide-react";
+import { House, Cloud } from "lucide-react";
 import { useSource, Source } from "@/hooks/useSource";
 import { useState, useRef, useEffect, useCallback } from "react";
 
@@ -10,7 +10,7 @@ const sourceOptions: {
   icon: typeof House;
 }[] = [
   { value: "local", label: "Local", icon: House },
-  { value: "remote", label: "Remote", icon: Globe },
+  { value: "remote", label: "Remote", icon: Cloud },
 ];
 
 export function SourceToggle() {
@@ -42,7 +42,7 @@ export function SourceToggle() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const CurrentIcon = source === "remote" ? Globe : House;
+  const CurrentIcon = source === "remote" ? Cloud : House;
 
   return (
     <div ref={containerRef} className="relative">

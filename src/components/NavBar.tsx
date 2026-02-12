@@ -139,15 +139,16 @@ export function NavBar({
         }}
       >
         <nav
-          className="pointer-events-auto rounded-full border border-white/20 shadow-lg shadow-black/20"
+          className={`pointer-events-auto rounded-full border border-white/20 shadow-lg shadow-black/20 ${mobileSearchOpen ? "mx-6 w-[calc(100%-48px)]" : ""}`}
           style={{
             background: "rgba(255, 255, 255, 0.15)",
             backdropFilter: "blur(20px) saturate(180%)",
             WebkitBackdropFilter: "blur(20px) saturate(180%)",
+            transition: "width 200ms ease",
           }}
         >
           {mobileSearchOpen ? (
-            /* Search mode: expanded pill with input */
+            /* Search mode: full-width pill with input */
             <div className="flex items-center gap-2 h-14 px-4">
               <Search className="flex-shrink-0 w-5 h-5 text-[var(--text-tertiary)]" />
               <input
@@ -156,7 +157,7 @@ export function NavBar({
                 value={searchQuery.trim() === "" ? "" : searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 autoFocus
-                className="w-48 py-2 text-base bg-transparent text-[var(--text-primary)] placeholder-[var(--text-tertiary)] outline-none"
+                className="flex-1 min-w-0 py-2 text-base bg-transparent text-[var(--text-primary)] placeholder-[var(--text-tertiary)] outline-none"
               />
               <button
                 onClick={() => {

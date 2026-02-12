@@ -1363,10 +1363,12 @@ body [data-radix-popper-content-wrapper]::after {
 }
 
 @keyframes marquee-mask {
-  0%, 10% { mask-image: linear-gradient(to right, black calc(100% - 32px), transparent); }
-  20%, 45% { mask-image: linear-gradient(to left, black calc(100% - 32px), transparent); }
-  55%, 80% { mask-image: linear-gradient(to left, black calc(100% - 32px), transparent); }
-  90%, 100% { mask-image: linear-gradient(to right, black calc(100% - 32px), transparent); }
+  0%, 8%   { mask-image: linear-gradient(to right, black 0%, black calc(100% - 32px), transparent 100%); }
+  14%      { mask-image: linear-gradient(to right, transparent 0%, black 32px, black calc(100% - 32px), transparent 100%); }
+  20%, 45% { mask-image: linear-gradient(to right, transparent 0%, black 32px, black 100%); }
+  55%, 80% { mask-image: linear-gradient(to right, transparent 0%, black 32px, black 100%); }
+  86%      { mask-image: linear-gradient(to right, transparent 0%, black 32px, black calc(100% - 32px), transparent 100%); }
+  92%, 100% { mask-image: linear-gradient(to right, black 0%, black calc(100% - 32px), transparent 100%); }
 }
 
 .marquee-path {

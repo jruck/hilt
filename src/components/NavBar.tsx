@@ -203,19 +203,6 @@ export function NavBar({
               transition: "flex 250ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease",
             }}
           >
-            <button
-              onClick={() => {
-                setSearchQuery("");
-                searchInputRef.current?.blur();
-              }}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-              style={{
-                opacity: searchQuery ? 1 : 0,
-                transition: "opacity 150ms ease",
-              }}
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
             <input
               ref={searchInputRef}
               type="text"
@@ -228,6 +215,19 @@ export function NavBar({
               className="w-full pl-8 pr-8 py-1.5 text-sm bg-transparent rounded-full text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none"
               tabIndex={searchQuery ? 0 : -1}
             />
+            <button
+              onClick={() => {
+                setSearchQuery("");
+                searchInputRef.current?.blur();
+              }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+              style={{
+                opacity: searchQuery ? 1 : 0,
+                transition: "opacity 150ms ease",
+              }}
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
 
           {/* Collapsed: invisible spacer to hold the icon button size */}
@@ -241,7 +241,7 @@ export function NavBar({
             }}
           />
 
-          {/* Single search icon — animates position */}
+          {/* Single search icon — travels from right (collapsed) to left of pill (expanded) */}
           <div
             onClick={() => {
               if (!searchQuery) {
@@ -251,9 +251,9 @@ export function NavBar({
             }}
             className="absolute top-1/2 -translate-y-1/2 z-10 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
             style={{
-              right: searchQuery ? "10px" : "6px",
+              left: searchQuery ? "10px" : "calc(100% - 22px)",
               cursor: searchQuery ? "default" : "pointer",
-              transition: "right 250ms cubic-bezier(0.4, 0, 0.2, 1)",
+              transition: "left 250ms cubic-bezier(0.4, 0, 0.2, 1)",
             }}
             title="Search (⌘K)"
           >

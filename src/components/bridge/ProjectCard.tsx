@@ -125,7 +125,7 @@ export function ProjectCard({ project, onClick, onStatusChange }: ProjectCardPro
           </span>
         )}
         <div ref={pathContainerRef} className={`overflow-hidden min-w-0 flex-1${isOverflowing ? " marquee-container" : ""}`}>
-          <div ref={pathRef} className={`text-xs text-[var(--text-tertiary)] whitespace-nowrap leading-tight${isOverflowing ? " marquee-path" : ""}`}>
+          <div ref={pathRef} className="marquee-path text-xs text-[var(--text-tertiary)] whitespace-nowrap leading-tight">
             {project.relativePath}
           </div>
         </div>

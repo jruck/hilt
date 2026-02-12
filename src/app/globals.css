@@ -1370,7 +1370,7 @@ body [data-radix-popper-content-wrapper]::after {
 }
 
 .marquee-path {
-  display: inline-block;
+  display: block;
   white-space: nowrap;
 }
 

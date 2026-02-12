@@ -1376,17 +1376,16 @@ body [data-radix-popper-content-wrapper]::after {
   content: "";
   position: absolute;
   top: 0;
-  bottom: 0;
+  height: 100%;
   width: 32px;
   z-index: 1;
   pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.3s ease;
 }
 
 .marquee-container::before {
   left: 0;
   background: linear-gradient(to right, var(--bg-secondary), transparent);
+  opacity: 0;
 }
 
 .marquee-container::after {
@@ -1400,23 +1399,27 @@ body [data-radix-popper-content-wrapper]::after {
 }
 
 .group:hover .marquee-container::before {
-  animation: marquee-fade-in 4s ease-in-out infinite;
+  animation: marquee-fade-in 4s linear infinite;
 }
 
 .group:hover .marquee-container::after {
-  animation: marquee-fade-out 4s ease-in-out infinite;
+  animation: marquee-fade-out 4s linear infinite;
 }
 
 @keyframes marquee-fade-in {
-  0%, 10% { opacity: 0; }
-  20%, 80% { opacity: 1; }
-  90%, 100% { opacity: 0; }
+  0%   { opacity: 0; }
+  15%  { opacity: 0; }
+  25%  { opacity: 1; }
+  75%  { opacity: 1; }
+  85%  { opacity: 0; }
+  100% { opacity: 0; }
 }
 
 @keyframes marquee-fade-out {
-  0%, 10% { opacity: 1; }
-  20%, 80% { opacity: 0; }
-  90%, 100% { opacity: 1; }
+  0%   { opacity: 1; }
+  15%  { opacity: 0; }
+  85%  { opacity: 0; }
+  100% { opacity: 1; }
 }
 
 /* Placeholder */

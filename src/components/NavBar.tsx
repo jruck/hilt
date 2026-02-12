@@ -228,9 +228,9 @@ export function NavBar({
         </button>
       </div>
 
-      {/* Center: View toggle */}
+      {/* Center: View toggle — absolutely centered in full toolbar width */}
       <div
-        className="flex-shrink-0"
+        className="absolute left-1/2 -translate-x-1/2"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         <ViewToggle view={viewMode} onChange={setViewMode} cmdHeld={cmdHeld} badgeTop={48} />

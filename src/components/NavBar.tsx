@@ -8,7 +8,7 @@ import { SourceToggle } from "./SourceToggle";
 import { Search, X, Plus } from "lucide-react";
 
 /** Shortcut hint badge rendered via ref-based positioning */
-function ShortcutBadge({ label, visible, targetRef, pressed }: { label: string; visible: boolean; targetRef?: React.RefObject<HTMLElement | null>; pressed?: boolean }) {
+function ShortcutBadge({ label, visible, targetRef }: { label: string; visible: boolean; targetRef?: React.RefObject<HTMLElement | null> }) {
   const [pos, setPos] = useState<{ left: number } | null>(null);
 
   useEffect(() => {
@@ -23,7 +23,7 @@ function ShortcutBadge({ label, visible, targetRef, pressed }: { label: string; 
     <span
       className="fixed px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-default)] whitespace-nowrap pointer-events-none z-50"
       style={{
-        top: pressed ? "44px" : "48px",
+        top: "48px",
         left: pos.left,
         transform: "translateX(-50%)",
         opacity: 1,
@@ -53,7 +53,6 @@ export function NavBar({
   const isMobile = useIsMobile();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [cmdHeld, setCmdHeld] = useState(false);
-  const [pressedKey, setPressedKey] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const searchIconRef = useRef<HTMLDivElement>(null);
@@ -81,10 +80,9 @@ export function NavBar({
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Track pressed shortcut key for animation
+      // Hide shortcut hints when a shortcut is pressed
       if ((e.metaKey || e.ctrlKey) && ["k", "j", "1", "2", "3"].includes(e.key)) {
-        setPressedKey(e.key.toUpperCase());
-        setTimeout(() => setPressedKey(null), 300);
+        setCmdHeld(false);
       }
 
       // Cmd+K: toggle search
@@ -234,7 +232,7 @@ export function NavBar({
         className="flex-shrink-0"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
-        <ViewToggle view={viewMode} onChange={setViewMode} cmdHeld={cmdHeld} badgeTop={48} pressedKey={pressedKey} />
+        <ViewToggle view={viewMode} onChange={setViewMode} cmdHeld={cmdHeld} badgeTop={48} />
       </div>
 
       {/* Right: search, theme, source — fills from center toggle */}
@@ -325,8 +323,8 @@ export function NavBar({
       </div>
 
       {/* Shortcut badges — fixed position, aligned to toolbar bottom */}
-      <ShortcutBadge label="J" visible={cmdHeld} targetRef={addBtnRef} pressed={pressedKey === "J"} />
-      <ShortcutBadge label="K" visible={cmdHeld && !searchQuery} targetRef={searchIconRef} pressed={pressedKey === "K"} />
+      <ShortcutBadge label="J" visible={cmdHeld} targetRef={addBtnRef} />
+      <ShortcutBadge label="K" visible={cmdHeld && !searchQuery} targetRef={searchIconRef} />
     </div>
   );
 }

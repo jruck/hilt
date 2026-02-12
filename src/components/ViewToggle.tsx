@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useEffect, useState } from "react";
 import { FileText, Layers, Compass } from "lucide-react";
 
 // The underlying view mode stored in state/preferences
@@ -22,6 +23,8 @@ interface ViewToggleProps {
   iconSize?: number;
   /** Show keyboard shortcut hints (⌘ held) */
   cmdHeld?: boolean;
+  /** Fixed top position for badges */
+  badgeTop?: number;
 }
 
 const VIEW_CONFIG = [
@@ -30,7 +33,20 @@ const VIEW_CONFIG = [
   { id: "stack" as const, label: "Stack", icon: Layers, title: "Claude configuration stack", shortcut: "3" },
 ];
 
-export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld }: ViewToggleProps) {
+export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld, badgeTop = 48 }: ViewToggleProps) {
+  const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [positions, setPositions] = useState<{ left: number }[]>([]);
+
+  useEffect(() => {
+    if (!cmdHeld) { setPositions([]); return; }
+    setPositions(
+      btnRefs.current.map((el) => {
+        if (!el) return { left: 0 };
+        const rect = el.getBoundingClientRect();
+        return { left: rect.left + rect.width / 2 };
+      })
+    );
+  }, [cmdHeld]);
   const size = iconSize ?? (compact ? 24 : 16);
 
   if (compact) {
@@ -59,10 +75,12 @@ export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld }: ViewT
   }
 
   return (
-    <div className="flex items-center bg-[var(--bg-tertiary)] rounded-lg p-0.5">
-      {VIEW_CONFIG.map(({ id, label, icon: Icon, title, shortcut }) => (
-        <div key={id} className="relative">
+    <>
+      <div className="flex items-center bg-[var(--bg-tertiary)] rounded-lg p-0.5">
+        {VIEW_CONFIG.map(({ id, label, icon: Icon, title, shortcut }, idx) => (
           <button
+            key={id}
+            ref={(el) => { btnRefs.current[idx] = el; }}
             onClick={() => onChange(id)}
             className={`
               flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium
@@ -78,19 +96,23 @@ export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld }: ViewT
             <Icon style={{ width: size, height: size }} />
             <span className="hidden sm:inline">{label}</span>
           </button>
-          {cmdHeld && (
-            <span
-              className="absolute -bottom-5 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-default)] whitespace-nowrap pointer-events-none shadow-sm"
-              style={{
-                opacity: 1,
-                animation: "shortcut-fade-in 150ms ease",
-              }}
-            >
-              {shortcut}
-            </span>
-          )}
-        </div>
+        ))}
+      </div>
+      {cmdHeld && positions.length > 0 && VIEW_CONFIG.map(({ shortcut }, idx) => (
+        positions[idx] && (
+          <span
+            key={shortcut}
+            className="fixed px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-default)] whitespace-nowrap pointer-events-none shadow-sm z-50"
+            style={{
+              top: `${badgeTop}px`,
+              left: positions[idx].left,
+              transform: "translateX(-50%)",
+            }}
+          >
+            {shortcut}
+          </span>
+        )
       ))}
-    </div>
+    </>
   );
 }

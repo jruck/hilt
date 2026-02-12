@@ -19,6 +19,7 @@ interface ProjectCardProps {
 
 export function ProjectCard({ project, onClick, onStatusChange }: ProjectCardProps) {
   const [showMenu, setShowMenu] = useState(false);
+  const [isOverflowing, setIsOverflowing] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const pathRef = useRef<HTMLDivElement>(null);
   const pathContainerRef = useRef<HTMLDivElement>(null);
@@ -29,8 +30,26 @@ export function ProjectCard({ project, onClick, onStatusChange }: ProjectCardPro
     const container = pathContainerRef.current;
     if (!el || !container) return;
     const overflow = el.scrollWidth - container.clientWidth;
-    el.style.setProperty("--marquee-offset", overflow > 0 ? `-${overflow}px` : "0px");
+    const overflows = overflow > 2; // small threshold for rounding
+    setIsOverflowing(overflows);
+    el.style.setProperty("--marquee-offset", overflows ? `-${overflow}px` : "0px");
   });
+
+  // Re-measure on resize
+  useEffect(() => {
+    const container = pathContainerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver(() => {
+      const el = pathRef.current;
+      if (!el) return;
+      const overflow = el.scrollWidth - container.clientWidth;
+      const overflows = overflow > 2;
+      setIsOverflowing(overflows);
+      el.style.setProperty("--marquee-offset", overflows ? `-${overflow}px` : "0px");
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!showMenu) return;
@@ -63,8 +82,8 @@ export function ProjectCard({ project, onClick, onStatusChange }: ProjectCardPro
               {project.area}
             </span>
           )}
-          <div ref={pathContainerRef} className="overflow-hidden marquee-container min-w-0">
-            <div ref={pathRef} className="marquee-path text-xs text-[var(--text-tertiary)] truncate">
+          <div ref={pathContainerRef} className={`overflow-hidden min-w-0${isOverflowing ? " marquee-container" : ""}`}>
+            <div ref={pathRef} className={`text-xs text-[var(--text-tertiary)] whitespace-nowrap${isOverflowing ? " marquee-path" : ""}`}>
               {project.relativePath}
             </div>
           </div>

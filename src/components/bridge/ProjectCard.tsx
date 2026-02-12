@@ -74,7 +74,7 @@ export function ProjectCard({ project, onClick, onStatusChange }: ProjectCardPro
     >
       <div className="flex items-center gap-3">
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-[var(--text-primary)] truncate">
+          <div className="text-sm font-medium text-[var(--text-primary)] truncate leading-snug">
             {project.title}
           </div>
         </div>
@@ -118,7 +118,7 @@ export function ProjectCard({ project, onClick, onStatusChange }: ProjectCardPro
       </div>
 
       {/* Byline: area + path — full card width for proper fade */}
-      <div className="flex items-center gap-2 mt-0.5">
+      <div className="flex items-center gap-2 mt-px">
         {project.area && (
           <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)] flex-shrink-0">
             {project.area}

@@ -4,6 +4,23 @@ import type { BridgeProject, BridgeProjectStatus, BridgeProjectsResponse } from 
 
 const VALID_STATUSES: Set<string> = new Set(["considering", "refining", "doing", "done"]);
 
+/** Map common status aliases to canonical board statuses */
+const STATUS_ALIASES: Record<string, BridgeProjectStatus> = {
+  "completed": "done",
+  "complete": "done",
+  "finished": "done",
+  "shipped": "done",
+  "in-progress": "doing",
+  "active": "doing",
+  "building": "doing",
+  "thinking": "considering",
+  "idea": "considering",
+  "planned": "refining",
+  "planning": "refining",
+  "scoping": "refining",
+  "designing": "refining",
+};
+
 /**
  * Parse a project index.md file into partial project data.
  * Returns extracted fields, or defaults for missing/invalid content.
@@ -30,8 +47,13 @@ function parseIndexFile(content: string): { title: string | null; status: Bridge
         }
       }
 
-      if (fm.status && VALID_STATUSES.has(fm.status)) {
-        status = fm.status as BridgeProjectStatus;
+      if (fm.status) {
+        const normalized = fm.status.toLowerCase();
+        if (VALID_STATUSES.has(normalized)) {
+          status = normalized as BridgeProjectStatus;
+        } else if (STATUS_ALIASES[normalized]) {
+          status = STATUS_ALIASES[normalized];
+        }
       }
       area = fm.area || "";
       if (fm.tags) {

@@ -13,9 +13,13 @@ function ShortcutBadge({ label, visible, targetRef, barRef }: { label: string; v
 
   useEffect(() => {
     if (!visible || !targetRef?.current) { setPos(null); return; }
-    const rect = targetRef.current.getBoundingClientRect();
-    const barBottom = barRef?.current ? barRef.current.getBoundingClientRect().bottom : rect.bottom;
-    setPos({ left: rect.left + rect.width / 2, top: barBottom + 4 });
+    const raf = requestAnimationFrame(() => {
+      if (!targetRef?.current) return;
+      const rect = targetRef.current.getBoundingClientRect();
+      const barBottom = barRef?.current ? barRef.current.getBoundingClientRect().bottom : rect.bottom;
+      setPos({ left: rect.left + rect.width / 2, top: barBottom + 4 });
+    });
+    return () => cancelAnimationFrame(raf);
   }, [visible, targetRef, barRef]);
 
   if (!visible || !pos) return null;

@@ -39,14 +39,18 @@ export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld, barRef 
 
   useEffect(() => {
     if (!cmdHeld) { setPositions([]); return; }
-    const barBottom = barRef?.current ? barRef.current.getBoundingClientRect().bottom : 44;
-    setPositions(
-      btnRefs.current.map((el) => {
-        if (!el) return { left: 0, top: barBottom + 4 };
-        const rect = el.getBoundingClientRect();
-        return { left: rect.left + rect.width / 2, top: barBottom + 4 };
-      })
-    );
+    // Wait for layout to settle before measuring
+    const raf = requestAnimationFrame(() => {
+      const barBottom = barRef?.current ? barRef.current.getBoundingClientRect().bottom : 44;
+      setPositions(
+        btnRefs.current.map((el) => {
+          if (!el) return { left: 0, top: barBottom + 4 };
+          const rect = el.getBoundingClientRect();
+          return { left: rect.left + rect.width / 2, top: barBottom + 4 };
+        })
+      );
+    });
+    return () => cancelAnimationFrame(raf);
   }, [cmdHeld, barRef]);
   const size = iconSize ?? (compact ? 24 : 16);
 

@@ -185,7 +185,7 @@ export function NavBar({
       >
         {/* Search — expands to the left */}
         <div
-          className="relative flex items-center pointer-events-auto"
+          className="relative flex items-center justify-end pointer-events-auto"
           style={{
             WebkitAppRegion: "no-drag",
             flex: searchQuery ? "1 1 auto" : "0 0 auto",
@@ -198,9 +198,9 @@ export function NavBar({
             className="relative overflow-hidden rounded-full"
             style={{
               background: "var(--bg-tertiary)",
-              flex: searchQuery ? "1 1 auto" : "0 0 0px",
+              width: searchQuery ? "100%" : "0px",
               opacity: searchQuery ? 1 : 0,
-              transition: "flex 250ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease",
+              transition: "width 250ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease",
             }}
           >
             <input

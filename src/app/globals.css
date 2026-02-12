@@ -1362,30 +1362,61 @@ body [data-radix-popper-content-wrapper]::after {
   90%, 100% { transform: translateX(0); }
 }
 
-@keyframes marquee-mask {
-  0%, 8%   { mask-image: linear-gradient(to right, black 0%, black calc(100% - 32px), transparent 100%); }
-  14%      { mask-image: linear-gradient(to right, transparent 0%, black 32px, black calc(100% - 32px), transparent 100%); }
-  20%, 45% { mask-image: linear-gradient(to right, transparent 0%, black 32px, black 100%); }
-  55%, 80% { mask-image: linear-gradient(to right, transparent 0%, black 32px, black 100%); }
-  86%      { mask-image: linear-gradient(to right, transparent 0%, black 32px, black calc(100% - 32px), transparent 100%); }
-  92%, 100% { mask-image: linear-gradient(to right, black 0%, black calc(100% - 32px), transparent 100%); }
-}
-
 .marquee-path {
   display: block;
   white-space: nowrap;
 }
 
 .marquee-container {
-  mask-image: linear-gradient(to right, black calc(100% - 32px), transparent);
+  position: relative;
+}
+
+.marquee-container::before,
+.marquee-container::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 32px;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.marquee-container::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bg-secondary), transparent);
+}
+
+.marquee-container::after {
+  right: 0;
+  background: linear-gradient(to left, var(--bg-secondary), transparent);
+  opacity: 1;
 }
 
 .group:hover .marquee-path {
   animation: marquee-scroll 4s ease-in-out infinite;
 }
 
-.group:hover .marquee-container {
-  animation: marquee-mask 4s ease-in-out infinite;
+.group:hover .marquee-container::before {
+  animation: marquee-fade-in 4s ease-in-out infinite;
+}
+
+.group:hover .marquee-container::after {
+  animation: marquee-fade-out 4s ease-in-out infinite;
+}
+
+@keyframes marquee-fade-in {
+  0%, 10% { opacity: 0; }
+  20%, 80% { opacity: 1; }
+  90%, 100% { opacity: 0; }
+}
+
+@keyframes marquee-fade-out {
+  0%, 10% { opacity: 1; }
+  20%, 80% { opacity: 0; }
+  90%, 100% { opacity: 1; }
 }
 
 /* Placeholder */

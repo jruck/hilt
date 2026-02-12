@@ -74,7 +74,7 @@ export function ProjectCard({ project, onClick, onStatusChange }: ProjectCardPro
     >
       <div className="flex items-center gap-3">
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-[var(--text-primary)] truncate leading-snug">
+          <div className="text-sm font-medium text-[var(--text-primary)] truncate leading-tight">
             {project.title}
           </div>
         </div>
@@ -118,14 +118,14 @@ export function ProjectCard({ project, onClick, onStatusChange }: ProjectCardPro
       </div>
 
       {/* Byline: area + path — full card width for proper fade */}
-      <div className="flex items-center gap-2 mt-px">
+      <div className="flex items-center gap-2">
         {project.area && (
           <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)] flex-shrink-0">
             {project.area}
           </span>
         )}
         <div ref={pathContainerRef} className={`overflow-hidden min-w-0 flex-1${isOverflowing ? " marquee-container" : ""}`}>
-          <div ref={pathRef} className={`text-xs text-[var(--text-tertiary)] whitespace-nowrap${isOverflowing ? " marquee-path" : ""}`}>
+          <div ref={pathRef} className={`text-xs text-[var(--text-tertiary)] whitespace-nowrap leading-tight${isOverflowing ? " marquee-path" : ""}`}>
             {project.relativePath}
           </div>
         </div>

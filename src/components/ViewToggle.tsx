@@ -20,8 +20,6 @@ interface ViewToggleProps {
   compact?: boolean;
   /** Override icon size in pixels (default: 16) */
   iconSize?: number;
-  /** Show keyboard shortcut hints (⌘ held) */
-  cmdHeld?: boolean;
 }
 
 const VIEW_CONFIG = [
@@ -30,7 +28,7 @@ const VIEW_CONFIG = [
   { id: "stack" as const, label: "Stack", icon: Layers, title: "Claude configuration stack", shortcut: "3" },
 ];
 
-export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld }: ViewToggleProps) {
+export function ViewToggle({ view, onChange, compact, iconSize }: ViewToggleProps) {
   const size = iconSize ?? (compact ? 24 : 16);
 
   if (compact) {
@@ -60,33 +58,24 @@ export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld }: ViewT
 
   return (
     <div className="flex items-center bg-[var(--bg-tertiary)] rounded-lg p-0.5">
-      {VIEW_CONFIG.map(({ id, label, icon: Icon, title, shortcut }) => (
-        <div key={id} className="relative">
-          <button
-            onClick={() => onChange(id)}
-            className={`
-              flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium
-              transition-colors
-              ${
-                view === id
-                  ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm"
-                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-              }
-            `}
-            title={title}
-          >
-            <Icon style={{ width: size, height: size }} />
-            <span className="hidden sm:inline">{label}</span>
-          </button>
-          {cmdHeld && (
-            <span
-              className="absolute left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-default)] whitespace-nowrap pointer-events-none z-50"
-              style={{ top: "calc(100% + 8px)" }}
-            >
-              {shortcut}
-            </span>
-          )}
-        </div>
+      {VIEW_CONFIG.map(({ id, label, icon: Icon, title }) => (
+        <button
+          key={id}
+          onClick={() => onChange(id)}
+          className={`
+            flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium
+            transition-colors
+            ${
+              view === id
+                ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm"
+                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            }
+          `}
+          title={title}
+        >
+          <Icon style={{ width: size, height: size }} />
+          <span className="hidden sm:inline">{label}</span>
+        </button>
       ))}
     </div>
   );

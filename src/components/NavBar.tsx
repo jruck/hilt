@@ -7,16 +7,41 @@ import { ThemeToggle } from "./ThemeToggle";
 import { SourceToggle } from "./SourceToggle";
 import { Search, X, Plus } from "lucide-react";
 
-/** Shortcut hint badge — pure CSS positioning */
-function ShortcutBadge({ label, visible }: { label: string; visible: boolean }) {
+const SHORTCUTS = [
+  { keys: "⌘ K", description: "Search" },
+  { keys: "⌘ J", description: "Add task" },
+  { keys: "⌘ 1", description: "Bridge" },
+  { keys: "⌘ 2", description: "Docs" },
+  { keys: "⌘ 3", description: "Stack" },
+  { keys: "Esc", description: "Close search" },
+];
+
+function ShortcutsPopup({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   if (!visible) return null;
   return (
-    <span
-      className="absolute left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-default)] whitespace-nowrap pointer-events-none z-50"
-      style={{ top: "calc(100% + 8px)" }}
-    >
-      {label}
-    </span>
+    <>
+      {/* Backdrop */}
+      <div className="fixed inset-0 z-[100]" onClick={onClose} />
+      {/* Popup */}
+      <div
+        className="fixed z-[101] rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-xl p-4 w-64"
+        style={{ top: "56px", left: "50%", transform: "translateX(-50%)" }}
+      >
+        <h3 className="text-xs font-semibold text-[var(--text-tertiary)] uppercase tracking-wider mb-3">
+          Keyboard Shortcuts
+        </h3>
+        <div className="space-y-2">
+          {SHORTCUTS.map(({ keys, description }) => (
+            <div key={keys} className="flex items-center justify-between">
+              <span className="text-sm text-[var(--text-secondary)]">{description}</span>
+              <kbd className="px-2 py-0.5 rounded text-xs font-mono bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-default)]">
+                {keys}
+              </kbd>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -37,37 +62,41 @@ export function NavBar({
 }: NavBarProps) {
   const isMobile = useIsMobile();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
-  const [cmdHeld, setCmdHeld] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const lastCmdPressRef = useRef<number>(0);
 
   const VIEW_KEYS: Record<string, ViewMode> = { "1": "bridge", "2": "docs", "3": "stack" };
 
-  // Track ⌘ key held state for shortcut hints
+  // Double-press ⌘ to toggle shortcuts popup
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Meta" || e.key === "Control") setCmdHeld(true);
+      if (e.key === "Meta" || e.key === "Control") {
+        const now = Date.now();
+        if (now - lastCmdPressRef.current < 400) {
+          setShowShortcuts((prev) => !prev);
+          lastCmdPressRef.current = 0; // reset so triple doesn't re-toggle
+        } else {
+          lastCmdPressRef.current = now;
+        }
+      } else {
+        // Any other key pressed with ⌘ means it's a shortcut, not a double-press
+        if (e.metaKey || e.ctrlKey) lastCmdPressRef.current = 0;
+        // Close popup on any shortcut use
+        if (showShortcuts) setShowShortcuts(false);
+      }
     }
-    function handleKeyUp(e: KeyboardEvent) {
-      if (e.key === "Meta" || e.key === "Control") setCmdHeld(false);
-    }
-    function handleBlur() { setCmdHeld(false); }
+    function handleBlur() { setShowShortcuts(false); }
     window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
     window.addEventListener("blur", handleBlur);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("blur", handleBlur);
     };
-  }, []);
+  }, [showShortcuts]);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Hide shortcut hints when a shortcut is pressed
-      if ((e.metaKey || e.ctrlKey) && ["k", "j", "1", "2", "3"].includes(e.key)) {
-        setCmdHeld(false);
-      }
-
       // Cmd+K: toggle search
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
@@ -208,7 +237,6 @@ export function NavBar({
             <Plus className="w-4 h-4" />
             <span>Add</span>
           </button>
-          <ShortcutBadge label="J" visible={cmdHeld} />
         </div>
       </div>
 
@@ -217,7 +245,7 @@ export function NavBar({
         className="absolute left-1/2 -translate-x-1/2 z-10 overflow-visible"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
-        <ViewToggle view={viewMode} onChange={setViewMode} cmdHeld={cmdHeld} />
+        <ViewToggle view={viewMode} onChange={setViewMode} />
       </div>
 
       {/* Right: search, theme, source — fills from center toggle */}
@@ -300,12 +328,13 @@ export function NavBar({
           >
             <Search className="w-4 h-4" />
           </div>
-          {!searchQuery && <ShortcutBadge label="K" visible={cmdHeld} />}
         </div>
 
         <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><ThemeToggle /></div>
         <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><SourceToggle /></div>
       </div>
+
+      <ShortcutsPopup visible={showShortcuts} onClose={() => setShowShortcuts(false)} />
     </div>
   );
 }

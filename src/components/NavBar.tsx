@@ -214,7 +214,7 @@ export function NavBar({
 
       {/* Center: View toggle — absolutely centered in full toolbar width */}
       <div
-        className="absolute left-1/2 -translate-x-1/2"
+        className="absolute left-1/2 -translate-x-1/2 z-10 overflow-visible"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         <ViewToggle view={viewMode} onChange={setViewMode} cmdHeld={cmdHeld} />

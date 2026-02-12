@@ -23,8 +23,8 @@ interface ViewToggleProps {
   iconSize?: number;
   /** Show keyboard shortcut hints (⌘ held) */
   cmdHeld?: boolean;
-  /** Fixed top position for badges */
-  badgeTop?: number;
+  /** Ref to the toolbar bar for badge positioning */
+  barRef?: React.RefObject<HTMLElement | null>;
 }
 
 const VIEW_CONFIG = [
@@ -33,20 +33,21 @@ const VIEW_CONFIG = [
   { id: "stack" as const, label: "Stack", icon: Layers, title: "Claude configuration stack", shortcut: "3" },
 ];
 
-export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld, badgeTop = 48 }: ViewToggleProps) {
+export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld, barRef }: ViewToggleProps) {
   const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const [positions, setPositions] = useState<{ left: number }[]>([]);
+  const [positions, setPositions] = useState<{ left: number; top: number }[]>([]);
 
   useEffect(() => {
     if (!cmdHeld) { setPositions([]); return; }
+    const barBottom = barRef?.current ? barRef.current.getBoundingClientRect().bottom : 44;
     setPositions(
       btnRefs.current.map((el) => {
-        if (!el) return { left: 0 };
+        if (!el) return { left: 0, top: barBottom + 4 };
         const rect = el.getBoundingClientRect();
-        return { left: rect.left + rect.width / 2 };
+        return { left: rect.left + rect.width / 2, top: barBottom + 4 };
       })
     );
-  }, [cmdHeld]);
+  }, [cmdHeld, barRef]);
   const size = iconSize ?? (compact ? 24 : 16);
 
   if (compact) {
@@ -104,7 +105,7 @@ export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld, badgeTo
             key={shortcut}
             className="fixed px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-default)] whitespace-nowrap pointer-events-none z-50"
             style={{
-              top: `${badgeTop}px`,
+              top: positions[idx].top,
               left: positions[idx].left,
               transform: "translateX(-50%)",
             }}

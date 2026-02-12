@@ -2,7 +2,6 @@
 
 import { House, Wifi } from "lucide-react";
 import { useSource, Source } from "@/hooks/useSource";
-import { useEventSocketContext } from "@/contexts/EventSocketContext";
 import { useState, useRef, useEffect, useCallback } from "react";
 
 const sourceOptions: {
@@ -16,7 +15,37 @@ const sourceOptions: {
 
 export function SourceToggle() {
   const { source, switchSource } = useSource();
-  const { connected } = useEventSocketContext();
+  const [connected, setConnected] = useState(true);
+
+  // Health check: ping the server periodically
+  useEffect(() => {
+    let mounted = true;
+
+    async function check() {
+      try {
+        const res = await fetch("/api/ws-port", { cache: "no-store" });
+        if (mounted) setConnected(res.ok);
+      } catch {
+        if (mounted) setConnected(false);
+      }
+    }
+
+    check();
+    const interval = setInterval(check, 15000);
+
+    // Also listen to browser online/offline events
+    function handleOnline() { check(); }
+    function handleOffline() { if (mounted) setConnected(false); }
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
   const [isOpen, setIsOpen] = useState(false);
   const [alignRight, setAlignRight] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);

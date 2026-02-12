@@ -102,7 +102,7 @@ export function ViewToggle({ view, onChange, compact, iconSize, cmdHeld, badgeTo
         positions[idx] && (
           <span
             key={shortcut}
-            className="fixed px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-default)] whitespace-nowrap pointer-events-none shadow-sm z-50"
+            className="fixed px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-default)] whitespace-nowrap pointer-events-none z-50"
             style={{
               top: `${badgeTop}px`,
               left: positions[idx].left,

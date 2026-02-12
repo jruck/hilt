@@ -21,7 +21,7 @@ function ShortcutBadge({ label, visible, targetRef }: { label: string; visible: 
 
   return (
     <span
-      className="fixed px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-default)] whitespace-nowrap pointer-events-none shadow-sm z-50"
+      className="fixed px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-default)] whitespace-nowrap pointer-events-none z-50"
       style={{
         top: "48px",
         left: pos.left,

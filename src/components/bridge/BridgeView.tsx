@@ -202,22 +202,21 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
             />
           )}
 
+          {filteredThoughtColumns && hasFilteredThoughts && (
+            <ThoughtBoard
+              columns={filteredThoughtColumns}
+              onThoughtClick={(thought) => {
+                onNavigateToProject?.({ path: thought.path, relativePath: thought.relativePath } as BridgeProject);
+              }}
+              onStatusChange={(thought, status) => updateThoughtStatus(thought.path, status)}
+            />
+          )}
+
           {filteredColumns && hasFilteredProjects && (
             <ProjectBoard
               columns={filteredColumns}
               onProjectClick={(project) => onNavigateToProject?.(project)}
               onStatusChange={(project, status) => updateProjectStatus(project.path, status)}
-            />
-          )}
-
-          {filteredThoughtColumns && hasFilteredThoughts && (
-            <ThoughtBoard
-              columns={filteredThoughtColumns}
-              onThoughtClick={(thought) => {
-                // Navigate to thought folder using the same project navigation
-                onNavigateToProject?.({ path: thought.path, relativePath: thought.relativePath } as BridgeProject);
-              }}
-              onStatusChange={(thought, status) => updateThoughtStatus(thought.path, status)}
             />
           )}
 

@@ -30,11 +30,6 @@ export function ThoughtCard({ thought, onClick, onStatusChange }: ThoughtCardPro
     return () => document.removeEventListener("mousedown", handleClick);
   }, [showMenu]);
 
-  // Truncate description to first sentence or ~80 chars
-  const excerpt = thought.description
-    ? thought.description.split("\n")[0].slice(0, 120) + (thought.description.length > 120 ? "…" : "")
-    : "";
-
   return (
     <div
       draggable={!!onStatusChange}
@@ -42,21 +37,21 @@ export function ThoughtCard({ thought, onClick, onStatusChange }: ThoughtCardPro
         e.dataTransfer.setData("application/x-thought-slug", thought.slug);
         e.dataTransfer.effectAllowed = "move";
       }}
-      className="group rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 pt-2 pb-2.5 cursor-pointer hover:border-[var(--border-hover)] transition-colors"
+      className="group rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2.5 py-1.5 cursor-pointer hover:border-[var(--border-hover)] transition-colors"
       onClick={() => onClick?.(thought)}
     >
-      <div className="flex items-center gap-3">
-        <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center">
+      <div className="flex items-center gap-2">
+        <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
           {thought.icon ? (
-            <span className="text-base leading-none">{thought.icon}</span>
+            <span className="text-sm leading-none">{thought.icon}</span>
           ) : (
-            <Lightbulb className="w-4 h-4 text-[var(--text-tertiary)]" />
+            <Lightbulb className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-[var(--text-primary)] truncate leading-tight">
+          <span className="text-sm text-[var(--text-primary)] truncate block">
             {thought.title}
-          </div>
+          </span>
         </div>
 
         {onStatusChange && (
@@ -94,20 +89,6 @@ export function ThoughtCard({ thought, onClick, onStatusChange }: ThoughtCardPro
           </div>
         )}
       </div>
-
-      {/* Excerpt */}
-      {excerpt && (
-        <div className="mt-1 text-xs text-[var(--text-tertiary)] line-clamp-2 leading-relaxed">
-          {excerpt}
-        </div>
-      )}
-
-      {/* Date */}
-      {thought.created && (
-        <div className="mt-1.5 text-[10px] text-[var(--text-tertiary)] opacity-60">
-          {thought.created}
-        </div>
-      )}
     </div>
   );
 }

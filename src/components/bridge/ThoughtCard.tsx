@@ -92,8 +92,8 @@ export function ThoughtCard({ thought, expanded, onClick, onStatusChange }: Thou
       </div>
 
       {expanded && thought.description && (
-        <div className="mt-1 ml-6 text-xs text-[var(--text-tertiary)] line-clamp-2 leading-relaxed">
-          {thought.description.split("\n")[0].slice(0, 120)}{thought.description.length > 120 ? "…" : ""}
+        <div className="mt-1 ml-6 text-xs text-[var(--text-tertiary)] line-clamp-4 leading-relaxed">
+          {thought.description.slice(0, 300)}{thought.description.length > 300 ? "…" : ""}
         </div>
       )}
 

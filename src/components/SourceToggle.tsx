@@ -14,8 +14,9 @@ const sourceOptions: {
 ];
 
 export function SourceToggle() {
-  const { source, switchSource } = useSource();
+  const { source, switchSource, remoteAvailable, switchError } = useSource();
   const [connected, setConnected] = useState(true);
+  const [switching, setSwitching] = useState(false);
 
   // Health check: ping the server periodically
   useEffect(() => {
@@ -33,7 +34,6 @@ export function SourceToggle() {
     check();
     const interval = setInterval(check, 15000);
 
-    // Also listen to browser online/offline events
     function handleOnline() { check(); }
     function handleOffline() { if (mounted) setConnected(false); }
     window.addEventListener("online", handleOnline);
@@ -46,6 +46,7 @@ export function SourceToggle() {
       window.removeEventListener("offline", handleOffline);
     };
   }, []);
+
   const [isOpen, setIsOpen] = useState(false);
   const [alignRight, setAlignRight] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -75,6 +76,24 @@ export function SourceToggle() {
 
   const CurrentIcon = source === "remote" ? Wifi : House;
 
+  async function handleSwitch(targetSource: Source) {
+    if (targetSource === source) {
+      setIsOpen(false);
+      return;
+    }
+
+    // Don't allow switching to remote if it's not available
+    if (targetSource === "remote" && remoteAvailable === false) {
+      return;
+    }
+
+    setIsOpen(false);
+    setSwitching(true);
+    await switchSource();
+    // If we're still here, the switch failed (didn't redirect)
+    setSwitching(false);
+  }
+
   return (
     <div ref={containerRef} className="relative">
       <button
@@ -91,7 +110,7 @@ export function SourceToggle() {
 
       {isOpen && (
         <div
-          className={`absolute top-full mt-1 z-50 min-w-[120px]
+          className={`absolute top-full mt-1 z-50 min-w-[140px]
                         bg-[var(--bg-elevated)] border border-[var(--border-default)]
                         rounded-lg shadow-lg overflow-hidden
                         ${alignRight ? "right-0" : "left-0"}`}
@@ -99,26 +118,50 @@ export function SourceToggle() {
           {sourceOptions.map((option) => {
             const Icon = option.icon;
             const isSelected = source === option.value;
+            const isRemoteOption = option.value === "remote";
+            const isDisabled = isRemoteOption && !isSelected && remoteAvailable === false;
+
             return (
               <button
                 key={option.value}
-                onClick={() => {
-                  setIsOpen(false);
-                  if (!isSelected) switchSource();
-                }}
+                onClick={() => handleSwitch(option.value)}
+                disabled={isDisabled || switching}
                 className={`flex items-center gap-2 w-full px-3 py-2 text-sm
-                           hover:bg-[var(--bg-tertiary)] transition-colors
-                           ${
-                             isSelected
+                           transition-colors
+                           ${isDisabled
+                             ? "text-[var(--text-tertiary)] cursor-not-allowed opacity-50"
+                             : isSelected
                                ? "text-[var(--interactive-default)] bg-[var(--bg-tertiary)]"
-                               : "text-[var(--text-primary)]"
+                               : "text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
                            }`}
+                title={isDisabled ? "Remote server not responding" : undefined}
               >
                 <Icon className="w-4 h-4" />
                 <span>{option.label}</span>
+                {isRemoteOption && !isSelected && (
+                  <span
+                    className={`ml-auto w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                      remoteAvailable === null
+                        ? "bg-yellow-500"
+                        : remoteAvailable
+                          ? "bg-emerald-500"
+                          : "bg-red-500"
+                    }`}
+                  />
+                )}
               </button>
             );
           })}
+        </div>
+      )}
+
+      {/* Switch error toast */}
+      {switchError && (
+        <div
+          className="absolute top-full mt-1 right-0 z-50 px-3 py-2 rounded-lg text-xs font-medium
+                     bg-red-500/10 text-red-500 border border-red-500/20 whitespace-nowrap"
+        >
+          {switchError}
         </div>
       )}
     </div>

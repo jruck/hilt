@@ -259,17 +259,24 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
               deleteTask(id);
               setSelectedTask(null);
             }}
-            onNavigateToProject={(projectPath, vaultPath) => {
+            onNavigateToProject={(projectPath, vpPath) => {
+              // Check projects
               if (projects) {
                 const allProjects = Object.values(projects.columns).flat();
                 const project = allProjects.find(p => p.relativePath === projectPath);
-                if (project) {
-                  onNavigateToProject?.(project);
+                if (project) { onNavigateToProject?.(project); return; }
+              }
+              // Check thoughts
+              if (thoughts) {
+                const allThoughts = Object.values(thoughts.columns).flat();
+                const thought = allThoughts.find(t => t.relativePath === projectPath);
+                if (thought) {
+                  onNavigateToProject?.({ path: thought.path, relativePath: thought.relativePath } as BridgeProject);
                   return;
                 }
               }
-              if (vaultPath && onNavigateToProject) {
-                const absolutePath = `${vaultPath}/${projectPath}`;
+              if (vpPath && onNavigateToProject) {
+                const absolutePath = `${vpPath}/${projectPath}`;
                 onNavigateToProject({ path: absolutePath, relativePath: projectPath } as BridgeProject);
               }
             }}
@@ -313,17 +320,22 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
                   deleteTask(id);
                   setSelectedTask(null);
                 }}
-                onNavigateToProject={(projectPath, vaultPath) => {
+                onNavigateToProject={(projectPath, vpPath) => {
                   if (projects) {
                     const allProjects = Object.values(projects.columns).flat();
                     const project = allProjects.find(p => p.relativePath === projectPath);
-                    if (project) {
-                      onNavigateToProject?.(project);
+                    if (project) { onNavigateToProject?.(project); return; }
+                  }
+                  if (thoughts) {
+                    const allThoughts = Object.values(thoughts.columns).flat();
+                    const thought = allThoughts.find(t => t.relativePath === projectPath);
+                    if (thought) {
+                      onNavigateToProject?.({ path: thought.path, relativePath: thought.relativePath } as BridgeProject);
                       return;
                     }
                   }
-                  if (vaultPath && onNavigateToProject) {
-                    const absolutePath = `${vaultPath}/${projectPath}`;
+                  if (vpPath && onNavigateToProject) {
+                    const absolutePath = `${vpPath}/${projectPath}`;
                     onNavigateToProject({ path: absolutePath, relativePath: projectPath } as BridgeProject);
                   }
                 }}

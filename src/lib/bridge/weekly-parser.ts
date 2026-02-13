@@ -70,22 +70,37 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
   const week = fm.week || "";
   const lines = body.split("\n");
 
-  // Find ## Tasks section
+  // Find section boundaries
+  let accomplishmentsStart = -1;
+  let accomplishmentsEnd = -1;
   let tasksStart = -1;
   let tasksEnd = lines.length;
   let notesStart = -1;
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.trim() === "## Tasks") {
+    const line = lines[i].trim();
+    if (line === "## Accomplishments") {
+      accomplishmentsStart = i + 1;
+    } else if (line === "## Tasks") {
+      if (accomplishmentsStart !== -1 && accomplishmentsEnd === -1) {
+        accomplishmentsEnd = i;
+      }
       tasksStart = i + 1;
-    } else if (line.trim() === "## Notes") {
+    } else if (line === "## Notes") {
+      if (accomplishmentsStart !== -1 && accomplishmentsEnd === -1) {
+        accomplishmentsEnd = i;
+      }
       if (tasksStart !== -1 && tasksEnd === lines.length) {
         tasksEnd = i;
       }
       notesStart = i + 1;
-    } else if (line.startsWith("## ") && tasksStart !== -1 && tasksEnd === lines.length) {
-      tasksEnd = i;
+    } else if (line.startsWith("## ")) {
+      if (accomplishmentsStart !== -1 && accomplishmentsEnd === -1) {
+        accomplishmentsEnd = i;
+      }
+      if (tasksStart !== -1 && tasksEnd === lines.length) {
+        tasksEnd = i;
+      }
     }
   }
 
@@ -147,6 +162,13 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
     }
   }
 
+  // Parse accomplishments
+  let accomplishments = "";
+  if (accomplishmentsStart !== -1) {
+    const end = accomplishmentsEnd !== -1 ? accomplishmentsEnd : lines.length;
+    accomplishments = lines.slice(accomplishmentsStart, end).join("\n").trim();
+  }
+
   // Parse notes
   let notes = "";
   if (notesStart !== -1) {
@@ -167,6 +189,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
     week,
     needsRecycle,
     tasks,
+    accomplishments,
     notes,
   };
 }
@@ -252,47 +275,65 @@ export function updateNotes(content: string, newNotes: string): string {
 }
 
 /**
+ * Update the accomplishments section of the weekly file.
+ */
+export function updateAccomplishments(content: string, newAccomplishments: string): string {
+  const parsed = parseWeeklyFile(content, "");
+  return rebuildContent(content, parsed.tasks, null, newAccomplishments);
+}
+
+/**
  * Rebuild the full file content from its parts.
- * If notes is null, preserve existing notes.
+ * If notes/accomplishments is null, preserve existing.
  */
 function rebuildContent(
   originalContent: string,
   tasks: BridgeTask[],
-  newNotes: string | null
+  newNotes: string | null,
+  newAccomplishments?: string | null,
 ): string {
+  const parsed = parseWeeklyFile(originalContent, "");
   const lines = originalContent.split("\n");
 
-  // Find section boundaries
-  let tasksHeadingIdx = -1;
-  let notesHeadingIdx = -1;
-
+  // Find the title line (# Week of ...) or frontmatter end
+  let preambleEnd = 0;
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].trim() === "## Tasks") {
-      tasksHeadingIdx = i;
-    } else if (lines[i].trim() === "## Notes") {
-      notesHeadingIdx = i;
+    if (lines[i].startsWith("# ")) {
+      preambleEnd = i + 1;
+      break;
     }
   }
+  // If no H1 found, use frontmatter end
+  if (preambleEnd === 0) {
+    const [, body] = parseFrontmatter(originalContent);
+    preambleEnd = originalContent.split("\n").length - body.split("\n").length;
+  }
 
-  // Build preamble (everything before ## Tasks, including the heading)
-  const preamble = tasksHeadingIdx !== -1
-    ? lines.slice(0, tasksHeadingIdx + 1).join("\n")
-    : lines.join("\n");
+  const preamble = lines.slice(0, preambleEnd).join("\n");
 
-  // Build tasks section (strip trailing blank lines from each task)
+  // Accomplishments
+  const accomplishments = newAccomplishments !== undefined && newAccomplishments !== null
+    ? newAccomplishments.trim()
+    : parsed.accomplishments;
+
+  // Tasks
   const taskLines = tasks.flatMap(t => t.rawLines);
   const tasksSection = taskLines.length > 0 ? taskLines.join("\n") : "";
 
-  // Build notes section
-  let notesContent: string;
-  if (newNotes !== null) {
-    notesContent = newNotes.trim();
-  } else if (notesHeadingIdx !== -1) {
-    notesContent = lines.slice(notesHeadingIdx + 1).join("\n").trim();
-  } else {
-    notesContent = "";
+  // Notes
+  const notesContent = newNotes !== null ? newNotes.trim() : parsed.notes;
+
+  const parts: string[] = [preamble];
+
+  if (accomplishments) {
+    parts.push("\n## Accomplishments\n" + accomplishments);
   }
 
-  const parts = [preamble, tasksSection, "\n## Notes", notesContent];
+  parts.push("\n## Tasks");
+  if (tasksSection) parts.push(tasksSection);
+
+  parts.push("\n## Notes");
+  if (notesContent) parts.push(notesContent);
+
   return parts.join("\n") + "\n";
 }

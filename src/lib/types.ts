@@ -55,6 +55,7 @@ export interface BridgeWeekly {
   week: string;            // "2026-01-27" from frontmatter
   needsRecycle: boolean;   // Current date in newer ISO week
   tasks: BridgeTask[];
+  accomplishments: string; // Raw markdown of ## Accomplishments section
   notes: string;           // Raw markdown of ## Notes section
   vaultPath: string;       // Absolute path to vault root
   filePath: string;        // Absolute path to the weekly .md file

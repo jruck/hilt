@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { parseWeeklyFile } from "@/lib/bridge/weekly-parser";
+import { parseWeeklyFile, updateAccomplishments } from "@/lib/bridge/weekly-parser";
 import { listVaultDir, readVaultFile, writeVaultFileAtomic } from "@/lib/bridge/vault";
 
 export async function POST(request: NextRequest) {
   try {
-    const { carry, newWeek, notes } = await request.json();
+    const { carry, newWeek, notes, accomplishments } = await request.json();
 
     if (!Array.isArray(carry) || typeof newWeek !== "string") {
       return NextResponse.json(
@@ -70,6 +70,12 @@ export async function POST(request: NextRequest) {
         "## Notes\n",
         "## Notes\n" + notes.trim() + "\n"
       );
+    }
+
+    // Save accomplishments to the outgoing (current) week file
+    if (typeof accomplishments === "string" && accomplishments.trim()) {
+      const updatedCurrent = updateAccomplishments(currentContent, accomplishments.trim());
+      await writeVaultFileAtomic(`lists/now/${currentFilename}`, updatedCurrent);
     }
 
     const newFilename = `${newWeek}.md`;

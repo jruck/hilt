@@ -8,7 +8,7 @@ interface RecycleModalProps {
   tasks: BridgeTask[];
   notes: string;
   onClose: () => void;
-  onRecycle: (carry: string[], newWeek: string, notes?: string) => Promise<void>;
+  onRecycle: (carry: string[], newWeek: string, notes?: string, accomplishments?: string) => Promise<void>;
 }
 
 function getNextMonday(): string {
@@ -41,6 +41,7 @@ export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalP
   const hasNotes = notes.trim().length > 0;
   const [carryNotes, setCarryNotes] = useState(hasNotes);
   const [notesText, setNotesText] = useState(notes);
+  const [accomplishmentsText, setAccomplishmentsText] = useState("");
 
   function toggleTask(id: string) {
     setSelected(prev => {
@@ -64,7 +65,8 @@ export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalP
       await onRecycle(
         Array.from(selected),
         newWeek,
-        carryNotes ? notesText.trim() : undefined
+        carryNotes ? notesText.trim() : undefined,
+        accomplishmentsText.trim() || undefined
       );
       onClose();
     } finally {
@@ -139,6 +141,20 @@ export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalP
               No tasks from the current week.
             </p>
           )}
+
+          {/* Accomplishments for outgoing week */}
+          <div className="mt-4 pt-4 border-t border-[var(--border-default)]">
+            <label className="block text-sm text-[var(--text-secondary)] mb-2">
+              What did you accomplish this week?
+            </label>
+            <textarea
+              value={accomplishmentsText}
+              onChange={e => setAccomplishmentsText(e.target.value)}
+              rows={4}
+              className="w-full text-sm p-2.5 rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-primary)] resize-y focus:outline-none focus:border-[var(--interactive-default)]"
+              placeholder="Shipped feature X, resolved bug Y, published article Z..."
+            />
+          </div>
 
           {/* Notes carry-over */}
           {hasNotes && (

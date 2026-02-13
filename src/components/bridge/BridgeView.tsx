@@ -33,6 +33,7 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
     updateTaskTitle,
     updateTaskProject,
     updateNotes,
+    updateAccomplishments,
     recycle,
     // Week preview (ephemeral)
     setPreviewWeek,
@@ -177,6 +178,20 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
             isPreviewingPast={isPreviewingPast}
             onWeekChange={setPreviewWeek}
           />
+
+          {weekly.accomplishments && (
+            <div>
+              <h2 className="text-sm font-medium text-[var(--text-tertiary)] uppercase tracking-wide mb-3">
+                Accomplishments
+              </h2>
+              <BridgeNotes
+                notes={weekly.accomplishments}
+                vaultPath={weekly.vaultPath}
+                filePath={weekly.filePath}
+                onSave={updateAccomplishments}
+              />
+            </div>
+          )}
 
           {hasFilteredTasks && (
             <BridgeTaskList

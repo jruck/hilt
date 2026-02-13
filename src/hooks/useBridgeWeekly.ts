@@ -188,11 +188,24 @@ export function useBridgeWeekly() {
     mutate();
   }
 
-  async function recycle(carry: string[], newWeek: string, notes?: string) {
+  async function updateAccomplishments(accomplishments: string, week?: string) {
+    if (data) {
+      mutate({ ...data, accomplishments }, false);
+    }
+
+    await fetch("/api/bridge/accomplishments", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accomplishments, week }),
+    });
+    mutate();
+  }
+
+  async function recycle(carry: string[], newWeek: string, notes?: string, accomplishments?: string) {
     await fetch("/api/bridge/recycle", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ carry, newWeek, notes }),
+      body: JSON.stringify({ carry, newWeek, notes, accomplishments }),
     });
     mutate();
   }
@@ -225,6 +238,7 @@ export function useBridgeWeekly() {
     updateTaskTitle,
     updateTaskProject,
     updateNotes,
+    updateAccomplishments,
     recycle,
   };
 }

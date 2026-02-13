@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { Search, X, ArchiveRestore } from "lucide-react";
 import type { BridgeProject, BridgeProjectStatus } from "@/lib/types";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
+import { useBridgeThoughts } from "@/hooks/useBridgeThoughts";
 
 const RESTORE_OPTIONS: { key: BridgeProjectStatus; label: string }[] = [
   { key: "considering", label: "Considering" },
@@ -18,6 +19,7 @@ interface ProjectPickerProps {
 
 export function ProjectPicker({ onSelect, onClose }: ProjectPickerProps) {
   const { data: projects, updateProjectStatus } = useBridgeProjects();
+  const { data: thoughts } = useBridgeThoughts();
   const [search, setSearch] = useState("");
   const [showDone, setShowDone] = useState(false);
   const [restoreProject, setRestoreProject] = useState<BridgeProject | null>(null);
@@ -74,21 +76,39 @@ export function ProjectPicker({ onSelect, onClose }: ProjectPickerProps) {
 
   const allDone: BridgeProject[] = projects?.columns.done ?? [];
 
-  const filtered = search.trim()
+  // Writing/thoughts as pickable items
+  const allThoughts: { title: string; relativePath: string; slug: string }[] = thoughts
+    ? Object.values(thoughts.columns).flat().map(t => ({
+        title: t.title,
+        relativePath: t.relativePath,
+        slug: t.slug,
+      }))
+    : [];
+
+  const q = search.toLowerCase().trim();
+
+  const filtered = q
     ? allActive.filter(p =>
-        p.title.toLowerCase().includes(search.toLowerCase()) ||
-        p.area.toLowerCase().includes(search.toLowerCase()) ||
-        p.slug.toLowerCase().includes(search.toLowerCase()) ||
-        p.source.toLowerCase().includes(search.toLowerCase())
+        p.title.toLowerCase().includes(q) ||
+        p.area.toLowerCase().includes(q) ||
+        p.slug.toLowerCase().includes(q) ||
+        p.source.toLowerCase().includes(q)
       )
     : allActive;
 
-  const filteredDone = search.trim()
+  const filteredThoughts = q
+    ? allThoughts.filter(t =>
+        t.title.toLowerCase().includes(q) ||
+        t.slug.toLowerCase().includes(q)
+      )
+    : allThoughts;
+
+  const filteredDone = q
     ? allDone.filter(p =>
-        p.title.toLowerCase().includes(search.toLowerCase()) ||
-        p.area.toLowerCase().includes(search.toLowerCase()) ||
-        p.slug.toLowerCase().includes(search.toLowerCase()) ||
-        p.source.toLowerCase().includes(search.toLowerCase())
+        p.title.toLowerCase().includes(q) ||
+        p.area.toLowerCase().includes(q) ||
+        p.slug.toLowerCase().includes(q) ||
+        p.source.toLowerCase().includes(q)
       )
     : allDone;
 
@@ -135,11 +155,30 @@ export function ProjectPicker({ onSelect, onClose }: ProjectPickerProps) {
       <div className="max-h-72 overflow-y-auto">
         {!showDone ? (
           <>
-            {grouped.length === 0 && (
+            {grouped.length === 0 && filteredThoughts.length === 0 && (
               <div className="px-3 py-4 text-center text-xs text-[var(--text-tertiary)]">
-                {allActive.length === 0 ? "No projects found" : "No matches"}
+                {allActive.length === 0 && allThoughts.length === 0 ? "No projects found" : "No matches"}
               </div>
             )}
+
+            {/* Writing projects */}
+            {filteredThoughts.length > 0 && (
+              <div>
+                <div className="px-3 pt-2.5 pb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">
+                  Writing
+                </div>
+                {filteredThoughts.map((thought) => (
+                  <button
+                    key={thought.relativePath}
+                    onClick={() => onSelect(thought.relativePath)}
+                    className="w-full text-left px-3 py-1.5 hover:bg-[var(--bg-secondary)] transition-colors"
+                  >
+                    <div className="text-sm text-[var(--text-primary)] truncate">{thought.title}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+
             {grouped.map(({ source, projects: groupProjects }) => (
               <div key={source}>
                 <div className="px-3 pt-2.5 pb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">

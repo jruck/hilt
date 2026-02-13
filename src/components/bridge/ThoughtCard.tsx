@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect } from "react";
 import { MoreHorizontal, Lightbulb } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { BridgeThought, BridgeThoughtStatus } from "@/lib/types";
 
 const STATUS_OPTIONS: { key: BridgeThoughtStatus; label: string }[] = [
@@ -30,6 +32,10 @@ export function ThoughtCard({ thought, expanded, onClick, onStatusChange }: Thou
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [showMenu]);
+
+  const displayedDescription = thought.description.length > 300
+    ? `${thought.description.slice(0, 300)}…`
+    : thought.description;
 
   return (
     <div
@@ -93,7 +99,29 @@ export function ThoughtCard({ thought, expanded, onClick, onStatusChange }: Thou
 
       {expanded && thought.description && (
         <div className="mt-1 ml-6 text-xs text-[var(--text-tertiary)] line-clamp-4 leading-relaxed">
-          {thought.description.slice(0, 300)}{thought.description.length > 300 ? "…" : ""}
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            skipHtml
+            components={{
+              h1: ({ children }) => <p className="leading-relaxed">{children}</p>,
+              h2: ({ children }) => <p className="leading-relaxed">{children}</p>,
+              h3: ({ children }) => <p className="leading-relaxed">{children}</p>,
+              h4: ({ children }) => <p className="leading-relaxed">{children}</p>,
+              h5: ({ children }) => <p className="leading-relaxed">{children}</p>,
+              h6: ({ children }) => <p className="leading-relaxed">{children}</p>,
+              p: ({ children }) => <p className="leading-relaxed">{children}</p>,
+              ul: ({ children }) => <ul className="pl-4 list-disc space-y-1">{children}</ul>,
+              ol: ({ children }) => <ol className="pl-4 list-decimal space-y-1">{children}</ol>,
+              li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+              strong: ({ children }) => <span>{children}</span>,
+              em: ({ children }) => <span>{children}</span>,
+              code: ({ children }) => <span>{children}</span>,
+              pre: ({ children }) => <pre className="m-0 p-0 whitespace-pre-wrap">{children}</pre>,
+              a: ({ children }) => <span className="underline decoration-dotted underline-offset-2">{children}</span>,
+            }}
+          >
+            {displayedDescription}
+          </ReactMarkdown>
         </div>
       )}
 

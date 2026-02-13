@@ -5,6 +5,7 @@ import { X, Trash2, FolderOpen, MoreVertical } from "lucide-react";
 import type { BridgeTask, BridgeProject } from "@/lib/types";
 import { parseLifecycle } from "@/lib/attribution";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
+import { useBridgeThoughts } from "@/hooks/useBridgeThoughts";
 import { ProjectPicker } from "./ProjectPicker";
 import dynamic from "next/dynamic";
 
@@ -49,6 +50,7 @@ export function BridgeTaskPanel({
   const editorAreaRef = useRef<HTMLDivElement>(null);
 
   const { data: projects } = useBridgeProjects();
+  const { data: thoughts } = useBridgeThoughts();
 
   useEffect(() => {
     if (task.title !== lastSavedTitle.current) {
@@ -113,14 +115,28 @@ export function BridgeTaskPanel({
     [task.id, onUpdateDetails]
   );
 
-  // Resolve project from relativePath
+  // Resolve project or thought from relativePath
   const linkedProject: BridgeProject | null = (() => {
-    if (!task.projectPath || !projects) return null;
-    const allProjects = Object.values(projects.columns).flat();
-    return allProjects.find(p => p.relativePath === task.projectPath) ?? null;
+    if (!task.projectPath) return null;
+    if (projects) {
+      const allProjects = Object.values(projects.columns).flat();
+      const found = allProjects.find(p => p.relativePath === task.projectPath);
+      if (found) return found;
+    }
+    return null;
+  })();
+
+  const linkedThought = (() => {
+    if (!task.projectPath || linkedProject) return null;
+    if (thoughts) {
+      const allThoughts = Object.values(thoughts.columns).flat();
+      return allThoughts.find(t => t.relativePath === task.projectPath) ?? null;
+    }
+    return null;
   })();
 
   const projectDisplayName = linkedProject?.title
+    ?? linkedThought?.title
     ?? task.projectPath?.split("/").pop()
     ?? null;
 

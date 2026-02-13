@@ -3,15 +3,17 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useBridgeWeekly } from "@/hooks/useBridgeWeekly";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
+import { useBridgeThoughts } from "@/hooks/useBridgeThoughts";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { WeekHeader } from "./WeekHeader";
 import { BridgeTaskList } from "./BridgeTaskList";
 import { BridgeNotes } from "./BridgeNotes";
 import { ProjectBoard } from "./ProjectBoard";
+import { ThoughtBoard } from "./ThoughtBoard";
 import { RecycleModal } from "./RecycleModal";
 import { BridgeTaskPanel } from "./BridgeTaskPanel";
 import { Loader2 } from "lucide-react";
-import type { BridgeTask, BridgeProject } from "@/lib/types";
+import type { BridgeTask, BridgeProject, BridgeThought } from "@/lib/types";
 
 interface BridgeViewProps {
   addTaskTrigger?: number;
@@ -39,6 +41,7 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
   } = useBridgeWeekly();
 
   const { data: projects, isLoading: projectsLoading, updateProjectStatus } = useBridgeProjects();
+  const { data: thoughts, isLoading: thoughtsLoading, updateThoughtStatus } = useBridgeThoughts();
   const isMobile = useIsMobile();
 
   const [showRecycleModal, setShowRecycleModal] = useState(false);
@@ -112,11 +115,26 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
     return result as typeof projects.columns;
   }, [projects, q]);
 
+  const filteredThoughtColumns = useMemo(() => {
+    if (!thoughts || !q) return thoughts?.columns ?? null;
+    const result = {} as Record<string, typeof thoughts.columns[keyof typeof thoughts.columns]>;
+    for (const [status, list] of Object.entries(thoughts.columns)) {
+      result[status] = list.filter(t =>
+        t.title.toLowerCase().includes(q) ||
+        t.description.toLowerCase().includes(q)
+      );
+    }
+    return result as typeof thoughts.columns;
+  }, [thoughts, q]);
+
   const hasFilteredTasks = filteredTasks.length > 0;
   const hasFilteredProjects = filteredColumns
     ? Object.values(filteredColumns).some(col => col.length > 0)
     : false;
-  const hasAnyResults = hasFilteredTasks || showNotes || hasFilteredProjects;
+  const hasFilteredThoughts = filteredThoughtColumns
+    ? Object.values(filteredThoughtColumns).some(col => col.length > 0)
+    : false;
+  const hasAnyResults = hasFilteredTasks || showNotes || hasFilteredProjects || hasFilteredThoughts;
 
   function handleAddTask(title: string) {
     // Select immediately — the optimistic task has id "task-0"
@@ -192,7 +210,18 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
             />
           )}
 
-          {projectsLoading && !projects && (
+          {filteredThoughtColumns && hasFilteredThoughts && (
+            <ThoughtBoard
+              columns={filteredThoughtColumns}
+              onThoughtClick={(thought) => {
+                // Navigate to thought folder using the same project navigation
+                onNavigateToProject?.({ path: thought.path, relativePath: thought.relativePath } as BridgeProject);
+              }}
+              onStatusChange={(thought, status) => updateThoughtStatus(thought.path, status)}
+            />
+          )}
+
+          {(projectsLoading || thoughtsLoading) && !projects && !thoughts && (
             <div className="text-center text-[var(--text-tertiary)] py-4">
               <Loader2 className="w-4 h-4 animate-spin inline-block" />
             </div>

@@ -81,3 +81,23 @@ export interface BridgeProjectsResponse {
   vaultPath: string;       // Absolute path to the bridge vault root
   columns: Record<BridgeProjectStatus, BridgeProject[]>;
 }
+
+// ============ Bridge Thoughts Types ============
+
+export type BridgeThoughtStatus = "next" | "later";
+
+export interface BridgeThought {
+  slug: string;            // Folder name
+  path: string;            // Absolute path to thought folder
+  relativePath: string;    // Path relative to vault root
+  title: string;           // H1 from index.md, or folder name fallback
+  status: BridgeThoughtStatus;
+  icon: string;            // Emoji icon from frontmatter (empty string if none)
+  created: string;         // ISO date string from frontmatter
+  description: string;     // Body text from index.md (post-frontmatter, minus H1)
+}
+
+export interface BridgeThoughtsResponse {
+  vaultPath: string;
+  columns: Record<BridgeThoughtStatus, BridgeThought[]>;
+}

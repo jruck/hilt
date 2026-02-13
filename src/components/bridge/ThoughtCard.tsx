@@ -11,11 +11,12 @@ const STATUS_OPTIONS: { key: BridgeThoughtStatus; label: string }[] = [
 
 interface ThoughtCardProps {
   thought: BridgeThought;
+  expanded?: boolean;
   onClick?: (thought: BridgeThought) => void;
   onStatusChange?: (thought: BridgeThought, status: BridgeThoughtStatus) => void;
 }
 
-export function ThoughtCard({ thought, onClick, onStatusChange }: ThoughtCardProps) {
+export function ThoughtCard({ thought, expanded, onClick, onStatusChange }: ThoughtCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -89,6 +90,18 @@ export function ThoughtCard({ thought, onClick, onStatusChange }: ThoughtCardPro
           </div>
         )}
       </div>
+
+      {expanded && thought.description && (
+        <div className="mt-1 ml-6 text-xs text-[var(--text-tertiary)] line-clamp-2 leading-relaxed">
+          {thought.description.split("\n")[0].slice(0, 120)}{thought.description.length > 120 ? "…" : ""}
+        </div>
+      )}
+
+      {expanded && thought.created && (
+        <div className="mt-1 ml-6 text-[10px] text-[var(--text-tertiary)] opacity-60">
+          {thought.created}
+        </div>
+      )}
     </div>
   );
 }

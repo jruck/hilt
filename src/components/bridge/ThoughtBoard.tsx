@@ -81,6 +81,7 @@ export function ThoughtBoard({ columns, onThoughtClick, onStatusChange, classNam
                 <ThoughtCard
                   key={thought.slug}
                   thought={thought}
+                  expanded={key === "next"}
                   onClick={onThoughtClick}
                   onStatusChange={onStatusChange}
                 />

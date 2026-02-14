@@ -125,15 +125,18 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
             projectPath: currentTask.projectPath,
           });
         }
-        // Check if title is a markdown link: [display text](path)
+        // Check if title contains a markdown link: [display text](path)
+        // Handles prefix text (emoji markers, etc.) before the link
         const titleRaw = taskMatch[2];
-        const linkMatch = titleRaw.match(/^\[(.+?)\]\((.+?)\)$/);
+        const linkMatch = titleRaw.match(/^(.*?)\[(.+?)\]\((.+?)\)(.*)$/);
         currentTask = {
-          titleLine: linkMatch ? linkMatch[1] : titleRaw,
+          titleLine: linkMatch
+            ? `${linkMatch[1]}${linkMatch[2]}${linkMatch[4]}`.trim()
+            : titleRaw,
           done: taskMatch[1] === "x",
           rawLines: [line],
           detailLines: [],
-          projectPath: linkMatch ? linkMatch[2] : null,
+          projectPath: linkMatch ? linkMatch[3] : null,
         };
       } else if (currentTask && line.match(/^[\t ]{2,}|^\t/)) {
         // Indented line belongs to current task

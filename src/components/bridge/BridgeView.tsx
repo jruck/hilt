@@ -12,6 +12,7 @@ import { ProjectBoard } from "./ProjectBoard";
 import { ThoughtBoard } from "./ThoughtBoard";
 import { RecycleModal } from "./RecycleModal";
 import { BridgeTaskPanel } from "./BridgeTaskPanel";
+import { parseLifecycle } from "@/lib/attribution";
 import { Loader2 } from "lucide-react";
 import type { BridgeTask, BridgeProject, BridgeThought } from "@/lib/types";
 
@@ -66,11 +67,24 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
     }
   }, [resolvedTask, isMobile]);
 
+  // Strip 🆕 marker when user navigates away from a task ("read receipt")
+  const markTaskRead = useCallback((task: BridgeTask | null) => {
+    if (task) {
+      const { state, displayTitle } = parseLifecycle(task.title, task.done);
+      if (state === "new") {
+        updateTaskTitle(task.id, displayTitle);
+      }
+    }
+  }, [updateTaskTitle]);
+
   const closeSheet = useCallback(() => {
     setSheetVisible(false);
     // Wait for slide-down animation before clearing selection
-    setTimeout(() => setSelectedTask(null), 300);
-  }, []);
+    setTimeout(() => {
+      markTaskRead(selectedTask);
+      setSelectedTask(null);
+    }, 300);
+  }, [selectedTask, markTaskRead]);
 
   // Handle add-task trigger from toolbar button (counter + ref prevents double-fires)
   const lastAddTrigger = useRef(0);
@@ -145,7 +159,17 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
   }
 
   function handleSelectTask(task: BridgeTask) {
-    setSelectedTask(prev => prev?.id === task.id ? null : task);
+    // Mark outgoing task as read before switching
+    if (selectedTask && selectedTask.id !== task.id) {
+      markTaskRead(selectedTask);
+    }
+    // Toggle: clicking same task closes it (and marks read)
+    if (selectedTask?.id === task.id) {
+      markTaskRead(selectedTask);
+      setSelectedTask(null);
+    } else {
+      setSelectedTask(task);
+    }
     setAutoFocusPanel(false);
   }
 
@@ -266,7 +290,7 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
             autoFocusTitle={autoFocusPanel}
             vaultPath={weekly.vaultPath}
             filePath={weekly.filePath}
-            onClose={() => setSelectedTask(null)}
+            onClose={() => { markTaskRead(resolvedTask); setSelectedTask(null); }}
             onUpdateTitle={updateTaskTitle}
             onUpdateDetails={updateTaskDetails}
             onUpdateProject={updateTaskProject}

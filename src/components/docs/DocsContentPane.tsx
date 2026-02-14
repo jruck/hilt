@@ -498,7 +498,7 @@ export function DocsContentPane({
           scopePath={scopePath}
           fileTree={fileTree}
           onNavigateToFile={onNavigateToFile}
-          contentPadding={isMobile ? "px-3 py-3" : undefined}
+          contentPadding={isMobile ? "px-2 py-2" : undefined}
         />
       </div>
     </div>

@@ -1103,6 +1103,12 @@ body [data-radix-popper-content-wrapper]::after {
   padding: 24px 48px !important;
 }
 
+@media (max-width: 639px) {
+  .docs-editor-wrapper .mdxeditor-root-contenteditable {
+    padding: 8px 8px !important;
+  }
+}
+
 /* Fix gray rectangle below images in edit mode.
    Lexical's decorator span is display:inline with a background color,
    so its line-height creates a visible strip below inline-block images. */

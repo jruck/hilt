@@ -536,7 +536,7 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
               prose-table:border-collapse
               prose-th:border prose-th:border-[var(--border-default)] prose-th:px-3 prose-th:py-2
               prose-td:border prose-td:border-[var(--border-default)] prose-td:px-3 prose-td:py-2
-              outline-none ${contentPadding ?? "px-12 py-6"}`}
+              outline-none ${contentPadding ?? "px-8 py-4"}`}
             className={`${themeClass} h-full flex-1`}
           />
         </EditorErrorBoundary>

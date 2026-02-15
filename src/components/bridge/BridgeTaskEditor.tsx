@@ -314,6 +314,8 @@ export function BridgeTaskEditor({
   const lastEmittedNorm = useRef(normalizeMd(markdown));
   // Start at 1 to skip the onUpdate fired by useEditor's initial empty content
   const programmatic = useRef(1);
+  // Guard against sync overwriting editor state right after user interaction (e.g. checkbox toggle)
+  const lastUserEditTime = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const focusedRef = useRef(false);
 
@@ -389,6 +391,7 @@ export function BridgeTaskEditor({
       const norm = normalizeMd(md);
       if (norm === lastEmittedNorm.current) return;
       lastEmittedNorm.current = norm;
+      lastUserEditTime.current = Date.now();
       onChangeRef.current?.(md);
     },
   });
@@ -410,6 +413,8 @@ export function BridgeTaskEditor({
     if (!needsInit && norm === lastEmittedNorm.current && !pathsJustArrived) return;
     // Don't overwrite the editor while the user is actively editing
     if (!needsInit && focusedRef.current) return;
+    // Don't overwrite within 1s of a user edit (e.g. checkbox toggle doesn't set focus)
+    if (!needsInit && Date.now() - lastUserEditTime.current < 1000) return;
     contentInitialized.current = true;
     if (vaultPath) lastProcessedWithPaths.current = true;
     lastEmittedNorm.current = norm;

@@ -1106,6 +1106,7 @@ body [data-radix-popper-content-wrapper]::after {
 @media (max-width: 639px) {
   .docs-editor-wrapper .mdxeditor-root-contenteditable {
     padding: 8px 8px !important;
+    padding-bottom: 100px !important;
   }
 }
 

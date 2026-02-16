@@ -13,6 +13,7 @@ const SHORTCUTS = [
   { keys: "⌘ 1", description: "Bridge" },
   { keys: "⌘ 2", description: "Docs" },
   { keys: "⌘ 3", description: "Stack" },
+  { keys: "⌘ 4", description: "Briefings" },
   { keys: "Esc", description: "Close search" },
 ];
 
@@ -66,7 +67,7 @@ export function NavBar({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const lastCmdPressRef = useRef<number>(0);
 
-  const VIEW_KEYS: Record<string, ViewMode> = { "1": "bridge", "2": "docs", "3": "stack" };
+  const VIEW_KEYS: Record<string, ViewMode> = { "1": "bridge", "2": "docs", "3": "stack", "4": "briefings" };
 
   // Double-press ⌘ to toggle shortcuts popup
   useEffect(() => {

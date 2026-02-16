@@ -12,6 +12,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.DocsView })), { ssr: false });
 const StackView = dynamic(() => import("./stack").then(m => ({ default: m.StackView })), { ssr: false });
 const BridgeView = dynamic(() => import("./bridge/BridgeView").then(m => ({ default: m.BridgeView })), { ssr: false });
+const BriefingsView = dynamic(() => import("./briefings/BriefingsView").then(m => ({ default: m.BriefingsView })), { ssr: false });
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
 
 const HOME_DIR_STORAGE_KEY = "hilt-home-dir";
@@ -34,6 +35,7 @@ export function Board() {
   const viewMode: ViewMode = urlViewMode === "bridge" ? "bridge"
     : urlViewMode === "docs" ? "docs"
     : urlViewMode === "stack" ? "stack"
+    : urlViewMode === "briefings" ? "briefings"
     : "bridge"; // fallback
 
   // Unified setter
@@ -44,6 +46,8 @@ export function Board() {
       setUrlViewMode("docs");
     } else if (mode === "stack") {
       setUrlViewMode("stack");
+    } else if (mode === "briefings") {
+      setUrlViewMode("briefings");
     }
   }, [setUrlViewMode]);
 
@@ -181,7 +185,7 @@ export function Board() {
         {/* Main content column */}
         <div className="flex-1 flex flex-col overflow-hidden">
         {/* Mobile scope header — breadcrumb + browse at top of content */}
-        {isMobile && getPrimaryView(viewMode) !== "bridge" && (
+        {isMobile && getPrimaryView(viewMode) !== "bridge" && getPrimaryView(viewMode) !== "briefings" && (
           <div className="flex-shrink-0 flex items-center gap-1 px-3 h-10 bg-[var(--bg-secondary)] border-b border-[var(--border-default)]">
             {homeDir && (
               <ScopeBreadcrumbs
@@ -218,10 +222,12 @@ export function Board() {
           <div className="flex-1 overflow-hidden">
             <StackView scopePath={scopePath} searchQuery={searchQuery} />
           </div>
+        ) : viewMode === "briefings" ? (
+          <BriefingsView />
         ) : null}
 
         {/* Bottom toolbar — scope controls (hidden on Bridge view and on mobile) */}
-        {!isMobile && getPrimaryView(viewMode) !== "bridge" && (
+        {!isMobile && getPrimaryView(viewMode) !== "bridge" && getPrimaryView(viewMode) !== "briefings" && (
           <div className="flex-shrink-0 mt-auto flex items-center gap-1 px-4 h-10 bg-[var(--bg-secondary)] border-t border-[var(--border-default)]">
             {homeDir && (
               <>

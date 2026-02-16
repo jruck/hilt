@@ -1,12 +1,12 @@
 "use client";
 
-import { FileText, Layers, Compass } from "lucide-react";
+import { FileText, Layers, Compass, Newspaper } from "lucide-react";
 
 // The underlying view mode stored in state/preferences
-export type ViewMode = "docs" | "stack" | "bridge";
+export type ViewMode = "docs" | "stack" | "bridge" | "briefings";
 
 // Primary view categories (same as ViewMode now)
-export type PrimaryView = "docs" | "stack" | "bridge";
+export type PrimaryView = "docs" | "stack" | "bridge" | "briefings";
 
 // Helper to derive primary view from viewMode
 export function getPrimaryView(viewMode: ViewMode): PrimaryView {
@@ -26,6 +26,7 @@ const VIEW_CONFIG = [
   { id: "bridge" as const, label: "Bridge", icon: Compass, title: "Bridge weekly tasks & projects", shortcut: "1" },
   { id: "docs" as const, label: "Docs", icon: FileText, title: "Documentation", shortcut: "2" },
   { id: "stack" as const, label: "Stack", icon: Layers, title: "Claude configuration stack", shortcut: "3" },
+  { id: "briefings" as const, label: "Briefings", icon: Newspaper, title: "Daily briefings", shortcut: "4" },
 ];
 
 export function ViewToggle({ view, onChange, compact, iconSize }: ViewToggleProps) {

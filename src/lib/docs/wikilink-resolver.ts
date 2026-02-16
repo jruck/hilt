@@ -89,9 +89,24 @@ export function resolveWikilink(
       `${resolved}.markdown`,
     ];
 
+    // If we have a file tree, check against it for paths inside scope
+    if (fileTree) {
+      const fileMap = buildFileMap(fileTree, scopePath);
+      for (const candidate of candidates) {
+        if (candidate.startsWith(scopePath)) {
+          const relPath = candidate.slice(scopePath.length + 1).toLowerCase();
+          const match = fileMap.get(relPath) || fileMap.get(relPath.replace(/\.[^/.]+$/, ""));
+          if (match) {
+            return { absolutePath: match, exists: true, displayName };
+          }
+        }
+      }
+    }
+
+    // Accept relative paths even outside scope — they may point to files
+    // in a parent directory (e.g., ../../references/foo from a nested scope)
     for (const candidate of candidates) {
-      if (candidate.startsWith(scopePath)) {
-        // We can't check existence here without async, so return as potentially valid
+      if (candidate.startsWith("/")) {
         return { absolutePath: candidate, exists: true, displayName };
       }
     }

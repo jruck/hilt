@@ -6,6 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Changed
+
+- **Updated app icons** - Electron mac app icon now uses latest dagger art (was stale from Jan build). Favicon updated to transparent-background dagger emoji (no dark gradient).
+  - Files: `build/icon.icns`, `src/app/favicon.ico`, `public/favicon.ico`
+
 ### Fixed
 
 - **Electron app black screen on launch** - Dev server port detection (`checkDevServer`) accepted any HTTP response with status < 500, so it mistakenly connected to the WebSocket server (ports 3001/3002) instead of Next.js. Fixed by requiring a 2xx response with `text/html` content-type.

@@ -89,8 +89,11 @@ async function findAvailablePort(startPort) {
 async function checkDevServer(port) {
     return new Promise((resolve) => {
         const http = require("http");
-        const req = http.request({ hostname: "localhost", port, method: "HEAD", timeout: 2000 }, (res) => {
-            resolve(res.statusCode < 500);
+        const req = http.request({ hostname: "localhost", port, path: "/", method: "GET", timeout: 2000 }, (res) => {
+            // Must be a 2xx response with HTML content (not just any HTTP server like the WS server)
+            const contentType = res.headers["content-type"] || "";
+            resolve(res.statusCode >= 200 && res.statusCode < 300 && contentType.includes("text/html"));
+            res.resume(); // Drain the response
         });
         req.on("error", () => resolve(false));
         req.on("timeout", () => {
@@ -431,11 +434,6 @@ async function createWindow() {
         // Now that renderer is ready, flush any pending startup activities
         flushPendingStartupActivities();
         mainWindow?.webContents.insertCSS(`
-      /* Hide Next.js dev indicator */
-      [data-nextjs-dialog-overlay],
-      [data-nextjs-toast],
-      nextjs-portal { display: none !important; }
-
       /* Add left padding to status bar for macOS traffic light buttons */
       [data-statusbar] { padding-left: 80px; }
     `);
@@ -468,18 +466,19 @@ async function createWindow() {
         }
     });
     // Open external links in the default browser instead of inside Electron
+    const isInternalUrl = (url) => url.startsWith("http://localhost") ||
+        url.startsWith("http://127.0.0.1") ||
+        url.startsWith("https://xochipilli.tailc0acaa.ts.net");
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-        if (url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")) {
+        if (isInternalUrl(url)) {
             return { action: "allow" };
         }
         electron_1.shell.openExternal(url);
         return { action: "deny" };
     });
     mainWindow.webContents.on("will-navigate", (event, url) => {
-        // Allow navigation to the app itself
-        if (url.startsWith(`http://localhost:${serverPort}`))
+        if (isInternalUrl(url))
             return;
-        // Everything else opens in the default browser
         event.preventDefault();
         electron_1.shell.openExternal(url);
     });

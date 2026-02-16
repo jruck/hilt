@@ -199,7 +199,9 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
       const indexPath = findIndexFile(scopePath);
       if (indexPath) {
         setSelectedPath(indexPath, { replace: true });
-        if (isMobile) setMobilePanel("content");
+        // On mobile, don't auto-switch to content pane on initial load —
+        // user clicking Docs tab expects to see the file tree, not the index file.
+        // Content auto-opens only when navigating to a specific project (via initialFilePath).
       }
     }
   }, [tree, selectedPath, treeLoading, scopePath, findIndexFile, setSelectedPath, initialFilePath]);

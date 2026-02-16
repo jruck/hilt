@@ -542,8 +542,8 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
         btn.type = 'button';
         btn.innerHTML = copyIcon;
         btn.addEventListener('click', () => {
-          const cmContent = wrapper.querySelector('.cm-content');
-          const text = cmContent?.textContent || '';
+          const lines = wrapper.querySelectorAll('.cm-line');
+          const text = Array.from(lines).map(l => l.textContent || '').join('\n');
           navigator.clipboard.writeText(text).then(() => {
             btn.innerHTML = checkIcon;
             setTimeout(() => { btn.innerHTML = copyIcon; }, 1500);

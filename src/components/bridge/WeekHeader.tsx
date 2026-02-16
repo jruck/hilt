@@ -14,12 +14,20 @@ interface WeekHeaderProps {
 
 function formatWeekDate(week: string): string {
   try {
-    const date = new Date(week + "T00:00:00");
-    return date.toLocaleDateString("en-US", {
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-    });
+    const monday = new Date(week + "T00:00:00");
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+
+    const monMonth = monday.toLocaleDateString("en-US", { month: "long" });
+    const sunMonth = sunday.toLocaleDateString("en-US", { month: "long" });
+    const monDay = monday.getDate();
+    const sunDay = sunday.getDate();
+    const year = sunday.getFullYear();
+
+    if (monMonth === sunMonth) {
+      return `${monMonth} ${monDay} – ${sunDay}, ${year}`;
+    }
+    return `${monMonth} ${monDay} – ${sunMonth} ${sunDay}, ${year}`;
   } catch {
     return week;
   }
@@ -27,11 +35,19 @@ function formatWeekDate(week: string): string {
 
 function formatWeekShort(week: string): string {
   try {
-    const date = new Date(week + "T00:00:00");
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    });
+    const monday = new Date(week + "T00:00:00");
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+
+    const monMonth = monday.toLocaleDateString("en-US", { month: "short" });
+    const sunMonth = sunday.toLocaleDateString("en-US", { month: "short" });
+    const monDay = monday.getDate();
+    const sunDay = sunday.getDate();
+
+    if (monMonth === sunMonth) {
+      return `${monMonth} ${monDay} – ${sunDay}`;
+    }
+    return `${monMonth} ${monDay} – ${sunMonth} ${sunDay}`;
   } catch {
     return week;
   }

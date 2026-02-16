@@ -81,6 +81,7 @@ interface MetricRowProps {
   items: MetricItem[];
 }
 export function MetricRow({ items }: MetricRowProps) {
+  if (!items || items.length === 0) return null;
   return (
     <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: `repeat(${Math.min(items.length, 4)}, 1fr)` }}>
       {items.map((item, i) => (
@@ -156,6 +157,7 @@ interface TimelineProps {
   events: TimelineEvent[];
 }
 export function Timeline({ events }: TimelineProps) {
+  if (!events || events.length === 0) return null;
   return (
     <div className="mb-4 space-y-0">
       {events.map((event, i) => (

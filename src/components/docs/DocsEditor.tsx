@@ -29,6 +29,7 @@ import {
   type MDXEditorMethods,
 } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
+import { MermaidBlock } from "./MermaidBlock";
 import type { FileNode } from "@/lib/types";
 import { resolveWikilink, parseWikilinks, parseImageWikilinks } from "@/lib/docs/wikilink-resolver";
 import * as path from "path";
@@ -457,7 +458,16 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
       linkDialogPlugin(),
       tablePlugin(),
       imagePlugin({ imagePreviewHandler }),
-      codeBlockPlugin({ defaultCodeBlockLanguage: "typescript" }),
+      codeBlockPlugin({
+        defaultCodeBlockLanguage: "typescript",
+        codeBlockEditorDescriptors: [
+          {
+            priority: 100,
+            match: (language) => language === "mermaid",
+            Editor: ({ code }) => <MermaidBlock code={code} />,
+          },
+        ],
+      }),
       codeMirrorPlugin({
         codeBlockLanguages: {
           js: "JavaScript",
@@ -479,6 +489,7 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
           yml: "YAML",
           md: "Markdown",
           markdown: "Markdown",
+          mermaid: "Mermaid",
           "": "Plain Text",
           text: "Plain Text",
         },

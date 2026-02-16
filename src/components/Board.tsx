@@ -136,15 +136,18 @@ export function Board() {
   // Track if we've done the initial redirect (to prevent re-redirecting when user navigates to root)
   const hasInitialRedirected = useRef(false);
 
-  // Default to workingFolder on initial load
+  // Default to workingFolder on initial load — only when URL has no scope
   useEffect(() => {
     // Wait for workingFolder to be loaded (undefined = still loading)
     if (workingFolder === undefined) return;
     if (isHydrated && !hasInitialRedirected.current) {
       hasInitialRedirected.current = true;
-      setScopePath(workingFolder);
+      // Only apply default if URL didn't already provide a scope
+      if (!scopePath) {
+        setScopePath(workingFolder);
+      }
     }
-  }, [isHydrated, workingFolder, setScopePath]);
+  }, [isHydrated, workingFolder, setScopePath, scopePath]);
 
   const pinnedFolders = usePinnedFolders();
   const isMobile = useIsMobile();

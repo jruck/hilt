@@ -14,6 +14,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - **Code block copy button** - Markdown code blocks in read mode show a copy-to-clipboard button on hover (top-right corner). Language dropdown and delete button are hidden in read mode. Uses MutationObserver to handle CodeMirror's async rendering.
   - Files: `src/components/docs/DocsEditor.tsx`, `src/app/globals.css`
 
+### Fixed
+
+- **Page refresh resets to bridge folder** - Two issues: (1) Board's initial-load effect unconditionally set the scope to `workingFolder`, ignoring the scope already parsed from the URL — now only applies the default when URL has no scope. (2) ScopeContext's mount-time `replaceState` rebuilt the URL from view+scope, stripping the `?doc=` query param — now preserves existing query params.
+  - Files: `src/components/Board.tsx`, `src/contexts/ScopeContext.tsx`
+
 ### Changed
 
 - **Updated app icons** - Electron mac app icon now uses latest dagger art (was stale from Jan build). Favicon updated to transparent-background dagger emoji (no dark gradient).

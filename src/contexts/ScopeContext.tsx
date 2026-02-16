@@ -103,13 +103,15 @@ export function ScopeProvider({
   }, []);
 
   // Initialize history state on mount if not already set
+  // Preserve existing query params (e.g., ?doc=) so they survive the replaceState
   useEffect(() => {
     if (typeof window !== "undefined" && !window.history.state?.scope) {
+      const search = window.location.search;
       if (viewMode) {
-        const url = buildViewUrl(viewMode, scopePath);
+        const url = buildViewUrl(viewMode, scopePath) + search;
         window.history.replaceState({ scope: scopePath }, "", url);
       } else {
-        window.history.replaceState({ scope: scopePath }, "", window.location.pathname);
+        window.history.replaceState({ scope: scopePath }, "", window.location.pathname + search);
       }
     }
   }, []);

@@ -526,8 +526,59 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
     const themeClass = resolvedTheme === "dark" ? "dark-theme dark-editor" : "light-theme light-editor";
     const proseInvert = resolvedTheme === "dark" ? "prose-invert" : "";
 
+    // Inject copy buttons into code blocks in read mode.
+    // Uses MutationObserver because CodeMirror editors mount asynchronously.
+    useEffect(() => {
+      if (!readOnly || !containerRef.current) return;
+
+      const copyIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
+      const checkIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
+
+      const addCopyButton = (wrapper: Element) => {
+        if (wrapper.querySelector('.docs-code-copy-btn')) return;
+        const btn = document.createElement('button');
+        btn.className = 'docs-code-copy-btn';
+        btn.title = 'Copy code';
+        btn.type = 'button';
+        btn.innerHTML = copyIcon;
+        btn.addEventListener('click', () => {
+          const cmContent = wrapper.querySelector('.cm-content');
+          const text = cmContent?.textContent || '';
+          navigator.clipboard.writeText(text).then(() => {
+            btn.innerHTML = checkIcon;
+            setTimeout(() => { btn.innerHTML = copyIcon; }, 1500);
+          });
+        });
+        wrapper.classList.add('docs-code-block-wrapper');
+        wrapper.appendChild(btn);
+      };
+
+      // Handle already-rendered code blocks
+      const container = containerRef.current;
+      container.querySelectorAll('[class*="_codeMirrorWrapper"]').forEach(addCopyButton);
+
+      // Watch for new code blocks mounting asynchronously
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          for (const node of mutation.addedNodes) {
+            if (!(node instanceof HTMLElement)) continue;
+            if (node.className?.includes?.('_codeMirrorWrapper')) {
+              addCopyButton(node);
+            }
+            node.querySelectorAll?.('[class*="_codeMirrorWrapper"]').forEach(addCopyButton);
+          }
+        }
+      });
+      observer.observe(container, { childList: true, subtree: true });
+
+      return () => {
+        observer.disconnect();
+        container.querySelectorAll('.docs-code-copy-btn').forEach(btn => btn.remove());
+      };
+    }, [readOnly, markdown]);
+
     return (
-      <div ref={containerRef} className={`flex flex-col ${wrapperClassName ? wrapperClassName : "h-full docs-editor-wrapper"}`}>
+      <div ref={containerRef} className={`flex flex-col ${wrapperClassName ? wrapperClassName : "h-full docs-editor-wrapper"} ${readOnly ? "docs-read-mode" : ""}`}>
         {readOnly && frontmatterFields && <FrontmatterDisplay fields={frontmatterFields} />}
         {!readOnly && portalReady && frontmatterFields && portalTargetRef.current &&
           createPortal(

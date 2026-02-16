@@ -11,6 +11,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - **Collapsible docs sidebar** - Unified sidebar layout replaces separate mobile/desktop implementations. Desktop: sidebar slides out to the left when collapsed, content expands to fill; state persisted to localStorage. Mobile: sidebar overlays as a drawer from the left with backdrop; selecting a file auto-closes it. Toggle button (PanelLeftOpen/Close icons) in content header works on both form factors. Navigation intent is respected: navigating from bridge/briefings closes sidebar on mobile (shows content immediately); switching to Docs tab opens it.
   - Files: `src/components/DocsView.tsx`, `src/components/docs/DocsContentPane.tsx`
 
+- **Code block copy button** - Markdown code blocks in read mode show a copy-to-clipboard button on hover (top-right corner). Language dropdown and delete button are hidden in read mode. Uses MutationObserver to handle CodeMirror's async rendering.
+  - Files: `src/components/docs/DocsEditor.tsx`, `src/app/globals.css`
+
 ### Changed
 
 - **Updated app icons** - Electron mac app icon now uses latest dagger art (was stale from Jan build). Favicon updated to transparent-background dagger emoji (no dark gradient).

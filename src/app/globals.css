@@ -1168,6 +1168,49 @@ body [data-radix-popper-content-wrapper]::after {
 }
 
 /* ============================================
+   Code Block: Read Mode (copy button, hide edit controls)
+   ============================================ */
+
+/* Hide language dropdown and delete button in read mode */
+.docs-read-mode [class*="_codeMirrorToolbar"] {
+  display: none !important;
+}
+
+/* Code block wrapper — position context for copy button */
+.docs-read-mode .docs-code-block-wrapper {
+  position: relative;
+}
+
+/* Copy button injected via JS in read mode */
+.docs-read-mode .docs-code-copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 150ms, color 150ms, background 150ms;
+}
+
+.docs-read-mode .docs-code-block-wrapper:hover .docs-code-copy-btn {
+  opacity: 1;
+}
+
+.docs-read-mode .docs-code-copy-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+/* ============================================
    Bridge Task Editor (Tiptap / ProseMirror)
    ============================================ */
 .bridge-task-editor .ProseMirror {

@@ -11,9 +11,8 @@ const SHORTCUTS = [
   { keys: "⌘ K", description: "Search" },
   { keys: "⌘ J", description: "Add task" },
   { keys: "⌘ 1", description: "Bridge" },
-  { keys: "⌘ 2", description: "Briefings" },
-  { keys: "⌘ 3", description: "Docs" },
-  { keys: "⌘ 4", description: "Stack" },
+  { keys: "⌘ 2", description: "Docs" },
+  { keys: "⌘ 3", description: "Stack" },
   { keys: "Esc", description: "Close search" },
 ];
 
@@ -52,7 +51,6 @@ interface NavBarProps {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   setAddTaskTrigger: React.Dispatch<React.SetStateAction<number>>;
-  briefingUnread?: boolean;
 }
 
 export function NavBar({
@@ -61,7 +59,6 @@ export function NavBar({
   searchQuery,
   setSearchQuery,
   setAddTaskTrigger,
-  briefingUnread,
 }: NavBarProps) {
   const isMobile = useIsMobile();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
@@ -69,7 +66,7 @@ export function NavBar({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const lastCmdPressRef = useRef<number>(0);
 
-  const VIEW_KEYS: Record<string, ViewMode> = { "1": "bridge", "2": "briefings", "3": "docs", "4": "stack" };
+  const VIEW_KEYS: Record<string, ViewMode> = { "1": "bridge", "2": "docs", "3": "stack" };
 
   // Double-press ⌘ to toggle shortcuts popup
   useEffect(() => {
@@ -197,7 +194,7 @@ export function NavBar({
               </button>
 
               {/* View toggle (compact mode) */}
-              <ViewToggle view={viewMode} onChange={setViewMode} compact briefingUnread={briefingUnread} />
+              <ViewToggle view={viewMode} onChange={setViewMode} compact />
 
               {/* Add button */}
               <button
@@ -248,7 +245,7 @@ export function NavBar({
         className="absolute left-1/2 -translate-x-1/2 z-10 overflow-visible"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
-        <ViewToggle view={viewMode} onChange={setViewMode} briefingUnread={briefingUnread} />
+        <ViewToggle view={viewMode} onChange={setViewMode} />
       </div>
 
       {/* Right: search, theme, source — fills from center toggle */}

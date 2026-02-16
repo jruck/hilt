@@ -12,9 +12,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.DocsView })), { ssr: false });
 const StackView = dynamic(() => import("./stack").then(m => ({ default: m.StackView })), { ssr: false });
 const BridgeView = dynamic(() => import("./bridge/BridgeView").then(m => ({ default: m.BridgeView })), { ssr: false });
-const BriefingsView = dynamic(() => import("./briefings/BriefingsView").then(m => ({ default: m.BriefingsView })), { ssr: false });
 import { usePinnedFolders } from "@/hooks/usePinnedFolders";
-import { useBriefingsList } from "@/hooks/useBriefings";
 
 const HOME_DIR_STORAGE_KEY = "hilt-home-dir";
 
@@ -34,21 +32,14 @@ export function Board() {
 
   // Derive ViewMode from URL prefix
   const viewMode: ViewMode = urlViewMode === "bridge" ? "bridge"
-    : urlViewMode === "briefings" ? "briefings"
     : urlViewMode === "docs" ? "docs"
     : urlViewMode === "stack" ? "stack"
     : "bridge"; // fallback
-
-  // Briefings unread state
-  const { latest: latestBriefing } = useBriefingsList();
-  const briefingUnread = latestBriefing ? !latestBriefing.readAt : false;
 
   // Unified setter
   const setViewMode = useCallback((mode: ViewMode) => {
     if (mode === "bridge") {
       setUrlViewMode("bridge");
-    } else if (mode === "briefings") {
-      setUrlViewMode("briefings");
     } else if (mode === "docs") {
       setUrlViewMode("docs");
     } else if (mode === "stack") {
@@ -181,7 +172,6 @@ export function Board() {
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         setAddTaskTrigger={setAddTaskTrigger}
-        briefingUnread={briefingUnread}
       />
 
       <div
@@ -191,7 +181,7 @@ export function Board() {
         {/* Main content column */}
         <div className="flex-1 flex flex-col overflow-hidden">
         {/* Mobile scope header — breadcrumb + browse at top of content */}
-        {isMobile && getPrimaryView(viewMode) !== "bridge" && getPrimaryView(viewMode) !== "briefings" && (
+        {isMobile && getPrimaryView(viewMode) !== "bridge" && (
           <div className="flex-shrink-0 flex items-center gap-1 px-3 h-10 bg-[var(--bg-secondary)] border-b border-[var(--border-default)]">
             {homeDir && (
               <ScopeBreadcrumbs
@@ -216,8 +206,6 @@ export function Board() {
               navigateTo("docs", project.path);
             }}
           />
-        ) : viewMode === "briefings" ? (
-          <BriefingsView searchQuery={searchQuery} />
         ) : viewMode === "docs" ? (
           <DocsView
             scopePath={scopePath}
@@ -233,7 +221,7 @@ export function Board() {
         ) : null}
 
         {/* Bottom toolbar — scope controls (hidden on Bridge view and on mobile) */}
-        {!isMobile && getPrimaryView(viewMode) !== "bridge" && getPrimaryView(viewMode) !== "briefings" && (
+        {!isMobile && getPrimaryView(viewMode) !== "bridge" && (
           <div className="flex-shrink-0 mt-auto flex items-center gap-1 px-4 h-10 bg-[var(--bg-secondary)] border-t border-[var(--border-default)]">
             {homeDir && (
               <>

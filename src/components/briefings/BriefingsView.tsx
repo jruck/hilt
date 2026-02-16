@@ -1,6 +1,7 @@
 "use client";
 
 import { useBriefings } from "@/hooks/useBriefings";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { BriefingHeader } from "./BriefingHeader";
 import { BriefingContent } from "./BriefingContent";
 import { Loader2, Newspaper } from "lucide-react";
@@ -14,6 +15,7 @@ export function BriefingsView() {
     isLoadingList,
     isLoadingContent,
   } = useBriefings();
+  const isMobile = useIsMobile();
 
   // Loading state
   if (isLoadingList) {
@@ -41,7 +43,7 @@ export function BriefingsView() {
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-2xl mx-auto px-6 py-6">
+        <div className={`max-w-2xl mx-auto px-6 py-6 ${isMobile ? "pb-[100px]" : ""}`}>
           {/* Header with date selector */}
           {selectedDate && (
             <BriefingHeader

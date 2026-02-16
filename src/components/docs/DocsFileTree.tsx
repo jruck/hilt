@@ -146,7 +146,7 @@ export function DocsFileTree({
   return (
     <div className={`flex flex-col h-full bg-[var(--bg-primary)] ${isMobile ? "" : "border-r border-[var(--border-default)]"}`}>
       {/* Tree content */}
-      <div className="flex-1 overflow-auto py-1">
+      <div className={`flex-1 overflow-auto py-1 ${isMobile ? "pb-[100px]" : ""}`}>
         {!displayTree ? (
           <div className="flex items-center justify-center h-full text-[var(--text-tertiary)] text-sm">
             {isLoading ? "Loading..." : searchQuery?.trim() ? "No matching files" : "Select a scope to browse files"}

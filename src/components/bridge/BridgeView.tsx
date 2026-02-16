@@ -193,7 +193,7 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
     <div className="flex-1 flex overflow-hidden">
       {/* Main content */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-6 py-8 space-y-8">
+        <div className={`max-w-3xl mx-auto px-6 py-8 space-y-8 ${isMobile ? "pb-[100px]" : ""}`}>
           <WeekHeader
             week={weekly.week}
             needsRecycle={weekly.needsRecycle}

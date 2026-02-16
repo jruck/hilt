@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTheme } from "@/hooks/useTheme";
 
 interface MermaidBlockProps {
   code: string;
@@ -9,7 +10,8 @@ interface MermaidBlockProps {
 export function MermaidBlock({ code }: MermaidBlockProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
-  const idRef = useRef(`mermaid-${Math.random().toString(36).slice(2, 10)}`);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
   useEffect(() => {
     let cancelled = false;
@@ -19,22 +21,37 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
         const mermaid = (await import("mermaid")).default;
         mermaid.initialize({
           startOnLoad: false,
-          theme: "dark",
-          themeVariables: {
-            darkMode: true,
-            background: "transparent",
-            primaryColor: "#3b82f6",
-            primaryTextColor: "#e5e7eb",
-            primaryBorderColor: "#4b5563",
-            lineColor: "#6b7280",
-            secondaryColor: "#1e3a5f",
-            tertiaryColor: "#1f2937",
-            fontFamily: "ui-sans-serif, system-ui, sans-serif",
-            fontSize: "14px",
-          },
+          theme: isDark ? "dark" : "default",
+          themeVariables: isDark
+            ? {
+                darkMode: true,
+                background: "transparent",
+                primaryColor: "#1e3a5f",
+                primaryTextColor: "#e5e7eb",
+                primaryBorderColor: "#4b5563",
+                lineColor: "#6b7280",
+                secondaryColor: "#1e3a5f",
+                tertiaryColor: "#1f2937",
+                fontFamily: "ui-sans-serif, system-ui, sans-serif",
+                fontSize: "14px",
+              }
+            : {
+                darkMode: false,
+                background: "transparent",
+                primaryColor: "#e0ecff",
+                primaryTextColor: "#1f2937",
+                primaryBorderColor: "#93b4e0",
+                lineColor: "#9ca3af",
+                secondaryColor: "#dbeafe",
+                tertiaryColor: "#f3f4f6",
+                fontFamily: "ui-sans-serif, system-ui, sans-serif",
+                fontSize: "14px",
+              },
         });
 
-        const { svg } = await mermaid.render(idRef.current, code.trim());
+        // Mermaid caches rendered IDs — use a fresh one each render
+        const renderId = `mermaid-${Math.random().toString(36).slice(2, 10)}`;
+        const { svg } = await mermaid.render(renderId, code.trim());
         if (!cancelled && containerRef.current) {
           containerRef.current.innerHTML = svg;
           setError(null);
@@ -48,7 +65,7 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
 
     render();
     return () => { cancelled = true; };
-  }, [code]);
+  }, [code, isDark]);
 
   if (error) {
     return (

@@ -104,7 +104,9 @@ function sanitiseForMdx(markdown: string): string {
   return parts
     .map((part, i) => {
       if (i % 2 === 1) {
-        // Code block — escape all JSX-like chars
+        // Mermaid blocks are rendered by a custom component — don't escape
+        if (part.startsWith("```mermaid")) return part;
+        // Other code blocks — escape all JSX-like chars
         return part.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/{/g, "&#123;").replace(/}/g, "&#125;");
       }
       // Outside code blocks:

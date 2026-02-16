@@ -29,7 +29,6 @@ const VIEW_CONFIG = [
   { id: "briefings" as const, label: "Briefing", icon: CalendarDays, title: "Daily briefing", shortcut: "1" },
   { id: "bridge" as const, label: "Bridge", icon: Compass, title: "Bridge weekly tasks & projects", shortcut: "2" },
   { id: "docs" as const, label: "Docs", icon: FileText, title: "Documentation", shortcut: "3" },
-  { id: "stack" as const, label: "Stack", icon: Layers, title: "Claude configuration stack", shortcut: "4" },
 ];
 
 export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActive }: ViewToggleProps) {

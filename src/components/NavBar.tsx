@@ -5,7 +5,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { ViewToggle, ViewMode } from "./ViewToggle";
 import { ThemeToggle } from "./ThemeToggle";
 import { SourceToggle } from "./SourceToggle";
-import { Search, X, Plus } from "lucide-react";
+import { Search, X, Plus, Layers } from "lucide-react";
 
 const SHORTCUTS = [
   { keys: "⌘ K", description: "Search" },
@@ -13,7 +13,7 @@ const SHORTCUTS = [
   { keys: "⌘ 1", description: "Briefing" },
   { keys: "⌘ 2", description: "Bridge" },
   { keys: "⌘ 3", description: "Docs" },
-  { keys: "⌘ 4", description: "Stack" },
+  { keys: "⌘ 4", description: "Settings" },
   { keys: "Esc", description: "Close search" },
 ];
 
@@ -208,6 +208,17 @@ export function NavBar({
               >
                 <Plus className="w-6 h-6" />
               </button>
+
+              {/* Settings (Stack) */}
+              <button
+                onClick={() => setViewMode("stack")}
+                className={`flex items-center justify-center w-12 h-12 rounded-full active:bg-white/10 transition-colors ${
+                  viewMode === "stack" ? "text-[var(--text-primary)]" : "text-[var(--text-tertiary)]"
+                }`}
+                title="Settings"
+              >
+                <Layers className="w-5 h-5" />
+              </button>
             </div>
           )}
         </nav>
@@ -333,6 +344,18 @@ export function NavBar({
 
         <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><ThemeToggle /></div>
         <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><SourceToggle /></div>
+        <button
+          onClick={() => setViewMode("stack")}
+          className={`pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
+            viewMode === "stack"
+              ? "text-[var(--text-primary)] bg-[var(--bg-tertiary)]"
+              : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+          }`}
+          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+          title="Settings (⌘4)"
+        >
+          <Layers className="w-4 h-4" />
+        </button>
       </div>
 
       <ShortcutsPopup visible={showShortcuts} onClose={() => setShowShortcuts(false)} />

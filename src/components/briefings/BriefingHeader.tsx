@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Newspaper, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
 interface BriefingHeaderProps {
   selectedDate: string;
@@ -63,8 +63,6 @@ export function BriefingHeader({
 
   return (
     <div className="flex items-center gap-2 text-[var(--text-primary)]">
-      <Newspaper className="w-5 h-5 text-[var(--text-tertiary)]" />
-
       <div className="relative" ref={dropdownRef}>
         {hasMultiple ? (
           <button

@@ -1429,6 +1429,29 @@ body [data-radix-popper-content-wrapper]::after {
   100% { opacity: 1; }
 }
 
+/* ============================================
+   Dev Mode (double-tap Command to toggle)
+   ============================================ */
+
+/* Hide dev tools by default (but NOT error overlays — those always show) */
+[data-nextjs-toast],
+nextjs-portal,
+[data-feedback-toolbar] {
+  display: none !important;
+}
+
+/* Reveal when dev mode is active (double-tap Command) */
+body[data-dev-mode] [data-nextjs-toast],
+body[data-dev-mode] nextjs-portal,
+body[data-dev-mode] [data-feedback-toolbar] {
+  display: revert !important;
+}
+
+/* Error overlay always visible regardless of dev mode */
+[data-nextjs-dialog-overlay] {
+  display: revert !important;
+}
+
 /* Placeholder */
 .bridge-task-editor .ProseMirror p.is-editor-empty:first-child::before {
   color: var(--text-tertiary);

@@ -43,7 +43,7 @@ export function BriefingsView() {
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto">
-        <div className={`max-w-2xl mx-auto px-6 py-6 ${isMobile ? "pb-[100px]" : ""}`}>
+        <div className={`max-w-3xl mx-auto px-6 py-8 space-y-8 ${isMobile ? "pb-[100px]" : ""}`}>
           {/* Header with date selector */}
           {selectedDate && (
             <BriefingHeader

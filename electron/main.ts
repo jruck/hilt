@@ -71,9 +71,12 @@ async function checkDevServer(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const http = require("http");
     const req = http.request(
-      { hostname: "localhost", port, method: "HEAD", timeout: 2000 },
-      (res: { statusCode: number }) => {
-        resolve(res.statusCode < 500);
+      { hostname: "localhost", port, path: "/", method: "GET", timeout: 2000 },
+      (res: { statusCode: number; headers: Record<string, string>; resume: () => void }) => {
+        // Must be a 2xx response with HTML content (not just any HTTP server like the WS server)
+        const contentType = res.headers["content-type"] || "";
+        resolve(res.statusCode >= 200 && res.statusCode < 300 && contentType.includes("text/html"));
+        res.resume(); // Drain the response
       }
     );
     req.on("error", () => resolve(false));
@@ -465,11 +468,6 @@ async function createWindow() {
     flushPendingStartupActivities();
 
     mainWindow?.webContents.insertCSS(`
-      /* Hide Next.js dev indicator */
-      [data-nextjs-dialog-overlay],
-      [data-nextjs-toast],
-      nextjs-portal { display: none !important; }
-
       /* Add left padding to status bar for macOS traffic light buttons */
       [data-statusbar] { padding-left: 80px; }
     `);

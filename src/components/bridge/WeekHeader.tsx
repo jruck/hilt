@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { CalendarDays, RefreshCw, ChevronDown, ArrowLeft } from "lucide-react";
+import { RefreshCw, ChevronDown, ArrowLeft } from "lucide-react";
 
 interface WeekHeaderProps {
   week: string;
@@ -82,8 +82,6 @@ export function WeekHeader({
       )}
 
       <div className="flex items-center gap-2 text-[var(--text-primary)]">
-        <CalendarDays className="w-5 h-5 text-[var(--text-tertiary)]" />
-
         {/* Week heading with optional dropdown */}
         <div className="relative" ref={dropdownRef}>
           {hasOtherWeeks ? (

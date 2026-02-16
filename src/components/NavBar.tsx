@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { ViewToggle, ViewMode } from "./ViewToggle";
 import { ThemeToggle } from "./ThemeToggle";
@@ -70,6 +70,15 @@ export function NavBar({
   const lastCmdPressRef = useRef<number>(0);
 
   const VIEW_KEYS: Record<string, ViewMode> = { "1": "briefings", "2": "bridge", "3": "docs", "4": "stack" };
+
+  // Sync shortcuts/dev mode to body attribute for CSS-driven dev tool visibility
+  useEffect(() => {
+    if (showShortcuts) {
+      document.body.setAttribute("data-dev-mode", "");
+    } else {
+      document.body.removeAttribute("data-dev-mode");
+    }
+  }, [showShortcuts]);
 
   // Double-press ⌘ to toggle shortcuts popup
   useEffect(() => {
@@ -221,13 +230,11 @@ export function NavBar({
   return (
     <div
       data-statusbar
-      className="relative flex items-center px-4 h-11 bg-[var(--bg-secondary)] border-b border-[var(--border-default)]"
-      style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+      className="grid h-11 bg-[var(--bg-secondary)] border-b border-[var(--border-default)] px-4 items-center gap-4"
+      style={{ WebkitAppRegion: "drag", gridTemplateColumns: "1fr auto 1fr" } as React.CSSProperties}
     >
       {/* Left: Add task button */}
-      <div
-        className="flex items-center flex-1 mr-4 pointer-events-none"
-      >
+      <div className="flex items-center pointer-events-none">
         <div className="relative pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
           <button
             onClick={() => {
@@ -243,17 +250,17 @@ export function NavBar({
         </div>
       </div>
 
-      {/* Center: View toggle — absolutely centered in full toolbar width */}
+      {/* Center: View toggle */}
       <div
-        className="absolute left-1/2 -translate-x-1/2 z-10 overflow-visible"
+        className="flex items-center justify-center"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         <ViewToggle view={viewMode} onChange={setViewMode} unreadTabs={unreadTabs} />
       </div>
 
-      {/* Right: search, theme, source — fills from center toggle */}
+      {/* Right: search, stack, theme, source */}
       <div
-        className="flex items-center justify-end gap-2 flex-1 min-w-0 ml-4 pointer-events-none"
+        className="flex items-center justify-end gap-2 min-w-0 pointer-events-none"
       >
         {/* Search — expands to the left */}
         <div
@@ -333,8 +340,6 @@ export function NavBar({
           </div>
         </div>
 
-        <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><ThemeToggle /></div>
-        <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><SourceToggle /></div>
         <button
           onClick={() => setViewMode("stack")}
           className={`pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
@@ -347,6 +352,8 @@ export function NavBar({
         >
           <Layers className="w-4 h-4" />
         </button>
+        <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><ThemeToggle /></div>
+        <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><SourceToggle /></div>
       </div>
 
       <ShortcutsPopup visible={showShortcuts} onClose={() => setShowShortcuts(false)} />

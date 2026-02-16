@@ -8,6 +8,9 @@ interface BriefingContentProps {
 }
 
 export function BriefingContent({ content }: BriefingContentProps) {
+  // Strip leading h1 — redundant with the header we display above
+  const displayContent = content.replace(/^\s*#\s+.+\n*/, "");
+
   return (
     <div className="briefing-content prose prose-invert max-w-none
       prose-headings:text-[var(--text-primary)] prose-headings:font-semibold
@@ -27,7 +30,7 @@ export function BriefingContent({ content }: BriefingContentProps) {
       prose-hr:border-[var(--border-default)] prose-hr:my-6
       prose-blockquote:border-l-[var(--border-default)] prose-blockquote:text-[var(--text-tertiary)]
     ">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayContent}</ReactMarkdown>
     </div>
   );
 }

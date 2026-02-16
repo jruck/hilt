@@ -8,6 +8,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
+- **Electron app black screen on launch** - Dev server port detection (`checkDevServer`) accepted any HTTP response with status < 500, so it mistakenly connected to the WebSocket server (ports 3001/3002) instead of Next.js. Fixed by requiring a 2xx response with `text/html` content-type.
+  - File: `electron/main.ts`
+
 - **Relative images not rendering in markdown** - Standard markdown images with relative paths (e.g., `![alt](file.png)`) were broken because the browser tried to load them from the app root. Read mode rewrites paths during markdown processing; edit mode uses MDXEditor's `imagePreviewHandler` to resolve paths for display without modifying the underlying markdown.
   - File: `src/components/docs/DocsEditor.tsx`
 

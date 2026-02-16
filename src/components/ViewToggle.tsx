@@ -23,6 +23,8 @@ interface ViewToggleProps {
   iconSize?: number;
   /** Called when user double-taps the already-active tab (mobile refresh) */
   onDoubleTapActive?: () => void;
+  /** Set of tab ids that should show an unread indicator dot */
+  unreadTabs?: Set<string>;
 }
 
 const VIEW_CONFIG = [
@@ -31,7 +33,7 @@ const VIEW_CONFIG = [
   { id: "docs" as const, label: "Docs", icon: FileText, title: "Documentation", shortcut: "3" },
 ];
 
-export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActive }: ViewToggleProps) {
+export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActive, unreadTabs }: ViewToggleProps) {
   const size = iconSize ?? (compact ? 24 : 16);
   const lastTapRef = React.useRef<{ id: string; time: number }>({ id: "", time: 0 });
 
@@ -54,7 +56,7 @@ export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActiv
             key={id}
             onClick={() => handleTap(id)}
             className={`
-              flex items-center justify-center min-w-[48px] min-h-[48px] rounded-md
+              relative flex items-center justify-center min-w-[48px] min-h-[48px] rounded-md
               transition-colors
               ${
                 view === id
@@ -65,6 +67,9 @@ export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActiv
             title={title}
           >
             <Icon style={{ width: size, height: size }} />
+            {unreadTabs?.has(id) && view !== id && (
+              <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-blue-500" />
+            )}
           </button>
         ))}
       </div>
@@ -78,7 +83,7 @@ export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActiv
           key={id}
           onClick={() => onChange(id)}
           className={`
-            flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium
+            relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium
             transition-colors
             ${
               view === id
@@ -90,6 +95,9 @@ export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActiv
         >
           <Icon style={{ width: size, height: size }} />
           <span className="hidden sm:inline">{label}</span>
+          {unreadTabs?.has(id) && view !== id && (
+            <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-blue-500" />
+          )}
         </button>
       ))}
     </div>

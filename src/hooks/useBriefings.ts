@@ -72,6 +72,7 @@ export function useBriefings() {
           // Mark as read
           localStorage.setItem(LAST_READ_KEY, data.date);
           setHasUnread(false);
+          window.dispatchEvent(new Event("briefing-read"));
         }
       })
       .catch((err) => {

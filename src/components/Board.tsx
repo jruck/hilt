@@ -8,6 +8,7 @@ import { PinnedFoldersPopover } from "./scope/PinnedFoldersPopover";
 import { ViewMode, getPrimaryView } from "./ViewToggle";
 import { NavBar } from "./NavBar";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useBriefingUnread } from "@/hooks/useBriefingUnread";
 import { PullToRefresh } from "./PullToRefresh";
 
 const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.DocsView })), { ssr: false });
@@ -147,6 +148,7 @@ export function Board() {
 
   const pinnedFolders = usePinnedFolders();
   const isMobile = useIsMobile();
+  const { hasUnread: hasBriefingUnread } = useBriefingUnread();
 
   // Search state
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -184,6 +186,7 @@ export function Board() {
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         setAddTaskTrigger={setAddTaskTrigger}
+        unreadTabs={hasBriefingUnread ? new Set(["briefings"]) : undefined}
       />
 
       <div

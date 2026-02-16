@@ -52,6 +52,7 @@ interface NavBarProps {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   setAddTaskTrigger: React.Dispatch<React.SetStateAction<number>>;
+  unreadTabs?: Set<string>;
 }
 
 export function NavBar({
@@ -60,6 +61,7 @@ export function NavBar({
   searchQuery,
   setSearchQuery,
   setAddTaskTrigger,
+  unreadTabs,
 }: NavBarProps) {
   const isMobile = useIsMobile();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
@@ -195,7 +197,7 @@ export function NavBar({
               </button>
 
               {/* View toggle (compact mode) */}
-              <ViewToggle view={viewMode} onChange={setViewMode} compact onDoubleTapActive={() => window.location.reload()} />
+              <ViewToggle view={viewMode} onChange={setViewMode} compact onDoubleTapActive={() => window.location.reload()} unreadTabs={unreadTabs} />
 
               {/* Add button */}
               <button
@@ -246,7 +248,7 @@ export function NavBar({
         className="absolute left-1/2 -translate-x-1/2 z-10 overflow-visible"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
-        <ViewToggle view={viewMode} onChange={setViewMode} />
+        <ViewToggle view={viewMode} onChange={setViewMode} unreadTabs={unreadTabs} />
       </div>
 
       {/* Right: search, theme, source — fills from center toggle */}

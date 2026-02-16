@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { FileText, Layers, Compass, Newspaper } from "lucide-react";
+import { FileText, Layers, Compass, CalendarDays } from "lucide-react";
 
 // The underlying view mode stored in state/preferences
 export type ViewMode = "docs" | "stack" | "bridge" | "briefings";
@@ -26,7 +26,7 @@ interface ViewToggleProps {
 }
 
 const VIEW_CONFIG = [
-  { id: "briefings" as const, label: "Briefings", icon: Newspaper, title: "Daily briefings", shortcut: "1" },
+  { id: "briefings" as const, label: "Briefing", icon: CalendarDays, title: "Daily briefing", shortcut: "1" },
   { id: "bridge" as const, label: "Bridge", icon: Compass, title: "Bridge weekly tasks & projects", shortcut: "2" },
   { id: "docs" as const, label: "Docs", icon: FileText, title: "Documentation", shortcut: "3" },
   { id: "stack" as const, label: "Stack", icon: Layers, title: "Claude configuration stack", shortcut: "4" },

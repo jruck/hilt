@@ -10,7 +10,7 @@ import { Search, X, Plus } from "lucide-react";
 const SHORTCUTS = [
   { keys: "⌘ K", description: "Search" },
   { keys: "⌘ J", description: "Add task" },
-  { keys: "⌘ 1", description: "Briefings" },
+  { keys: "⌘ 1", description: "Briefing" },
   { keys: "⌘ 2", description: "Bridge" },
   { keys: "⌘ 3", description: "Docs" },
   { keys: "⌘ 4", description: "Stack" },

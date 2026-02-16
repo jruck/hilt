@@ -10,10 +10,10 @@ import { Search, X, Plus } from "lucide-react";
 const SHORTCUTS = [
   { keys: "⌘ K", description: "Search" },
   { keys: "⌘ J", description: "Add task" },
-  { keys: "⌘ 1", description: "Bridge" },
-  { keys: "⌘ 2", description: "Docs" },
-  { keys: "⌘ 3", description: "Stack" },
-  { keys: "⌘ 4", description: "Briefings" },
+  { keys: "⌘ 1", description: "Briefings" },
+  { keys: "⌘ 2", description: "Bridge" },
+  { keys: "⌘ 3", description: "Docs" },
+  { keys: "⌘ 4", description: "Stack" },
   { keys: "Esc", description: "Close search" },
 ];
 
@@ -67,7 +67,7 @@ export function NavBar({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const lastCmdPressRef = useRef<number>(0);
 
-  const VIEW_KEYS: Record<string, ViewMode> = { "1": "bridge", "2": "docs", "3": "stack", "4": "briefings" };
+  const VIEW_KEYS: Record<string, ViewMode> = { "1": "briefings", "2": "bridge", "3": "docs", "4": "stack" };
 
   // Double-press ⌘ to toggle shortcuts popup
   useEffect(() => {

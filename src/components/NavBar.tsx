@@ -71,14 +71,34 @@ export function NavBar({
 
   const VIEW_KEYS: Record<string, ViewMode> = { "1": "briefings", "2": "bridge", "3": "docs", "4": "stack" };
 
-  // Sync shortcuts/dev mode to body attribute for CSS-driven dev tool visibility
+  // Sync shortcuts/dev mode — hide/show dev tools via JS (CSS selectors don't reliably hit shadow DOM elements)
   useEffect(() => {
+    const selectors = "nextjs-portal, [data-nextjs-toast], [data-feedback-toolbar]";
+    document.querySelectorAll(selectors).forEach((el) => {
+      (el as HTMLElement).style.display = showShortcuts ? "" : "none";
+    });
     if (showShortcuts) {
       document.body.setAttribute("data-dev-mode", "");
     } else {
       document.body.removeAttribute("data-dev-mode");
     }
   }, [showShortcuts]);
+
+  // Also hide dev tools on initial mount (they may inject after first render)
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      if (document.body.hasAttribute("data-dev-mode")) return;
+      document.querySelectorAll("nextjs-portal, [data-nextjs-toast], [data-feedback-toolbar]").forEach((el) => {
+        (el as HTMLElement).style.display = "none";
+      });
+    });
+    observer.observe(document.body, { childList: true, subtree: false });
+    // Initial pass
+    document.querySelectorAll("nextjs-portal, [data-nextjs-toast], [data-feedback-toolbar]").forEach((el) => {
+      (el as HTMLElement).style.display = "none";
+    });
+    return () => observer.disconnect();
+  }, []);
 
   // Double-press ⌘ to toggle shortcuts popup
   useEffect(() => {

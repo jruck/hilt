@@ -208,17 +208,6 @@ export function NavBar({
               >
                 <Plus className="w-6 h-6" />
               </button>
-
-              {/* Settings (Stack) */}
-              <button
-                onClick={() => setViewMode("stack")}
-                className={`flex items-center justify-center w-12 h-12 rounded-full active:bg-white/10 transition-colors ${
-                  viewMode === "stack" ? "text-[var(--text-primary)]" : "text-[var(--text-tertiary)]"
-                }`}
-                title="Settings"
-              >
-                <Layers className="w-5 h-5" />
-              </button>
             </div>
           )}
         </nav>

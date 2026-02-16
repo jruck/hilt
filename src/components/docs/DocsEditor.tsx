@@ -106,8 +106,9 @@ function sanitiseForMdx(markdown: string): string {
       if (i % 2 === 1) {
         // Mermaid blocks are rendered by a custom component — don't escape
         if (part.startsWith("```mermaid")) return part;
-        // Other code blocks — escape all JSX-like chars
-        return part.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/{/g, "&#123;").replace(/}/g, "&#125;");
+        // Other code blocks — escape angle brackets (MDX treats them as JSX)
+        // Note: { } are safe inside fenced code blocks per MDX spec
+        return part.replace(/</g, "&lt;").replace(/>/g, "&gt;");
       }
       // Outside code blocks:
       // a) Replace <br> tags with newlines

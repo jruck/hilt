@@ -1,6 +1,7 @@
 "use client";
 
 import * as path from "path";
+import { useEffect, useRef } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 
 interface DocsBreadcrumbsProps {
@@ -41,8 +42,17 @@ export function DocsBreadcrumbs({ filePath, scopePath, onNavigate }: DocsBreadcr
     });
   });
 
+  const navRef = useRef<HTMLElement>(null);
+
+  // Auto-scroll to the right so the filename is visible
+  useEffect(() => {
+    if (navRef.current) {
+      navRef.current.scrollLeft = navRef.current.scrollWidth;
+    }
+  }, [filePath]);
+
   return (
-    <nav className={`flex items-center gap-0.5 overflow-x-auto ${isMobile ? "h-11 scrollbar-none" : ""}`}>
+    <nav ref={navRef} className={`flex items-center gap-0.5 overflow-x-auto scrollbar-none ${isMobile ? "h-11" : ""}`}>
       {items.map((item, index) => (
         <span key={item.path} className="flex items-center flex-shrink-0">
           {index > 0 && (

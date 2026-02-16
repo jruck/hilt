@@ -195,7 +195,7 @@ export function NavBar({
               </button>
 
               {/* View toggle (compact mode) */}
-              <ViewToggle view={viewMode} onChange={setViewMode} compact />
+              <ViewToggle view={viewMode} onChange={setViewMode} compact onDoubleTapActive={() => window.location.reload()} />
 
               {/* Add button */}
               <button

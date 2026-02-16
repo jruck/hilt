@@ -8,6 +8,7 @@ import { PinnedFoldersPopover } from "./scope/PinnedFoldersPopover";
 import { ViewMode, getPrimaryView } from "./ViewToggle";
 import { NavBar } from "./NavBar";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { PullToRefresh } from "./PullToRefresh";
 
 const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.DocsView })), { ssr: false });
 const StackView = dynamic(() => import("./stack").then(m => ({ default: m.StackView })), { ssr: false });
@@ -151,6 +152,13 @@ export function Board() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [addTaskTrigger, setAddTaskTrigger] = useState(0);
 
+  // Pull-to-refresh: full page reload (simplest, most reliable for PWA)
+  const handleRefresh = useCallback(async () => {
+    window.location.reload();
+    // Return a promise that never resolves — page will reload
+    return new Promise<void>(() => {});
+  }, []);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -182,10 +190,11 @@ export function Board() {
         className="flex flex-1 overflow-hidden"
         style={undefined}
       >
-        {/* Main content column */}
+        {/* Main content column — wrapped in PullToRefresh on mobile */}
+        {isMobile && <PullToRefresh onRefresh={handleRefresh}>
         <div className="flex-1 flex flex-col overflow-hidden">
         {/* Mobile scope header — breadcrumb + browse at top of content */}
-        {isMobile && getPrimaryView(viewMode) !== "bridge" && getPrimaryView(viewMode) !== "briefings" && (
+        {getPrimaryView(viewMode) !== "bridge" && getPrimaryView(viewMode) !== "briefings" && (
           <div className="flex-shrink-0 flex items-center gap-1 px-3 h-10 bg-[var(--bg-secondary)] border-b border-[var(--border-default)]">
             {homeDir && (
               <ScopeBreadcrumbs
@@ -200,13 +209,40 @@ export function Board() {
           </div>
         )}
 
-        {/* Conditional View: Bridge, Docs, or Stack */}
+        {/* Conditional View */}
         {viewMode === "bridge" ? (
           <BridgeView
             addTaskTrigger={addTaskTrigger}
             searchQuery={searchQuery}
             onNavigateToProject={(project) => {
-              // Scope into the project folder — DocsView auto-selects index.md
+              navigateTo("docs", project.path);
+            }}
+          />
+        ) : viewMode === "docs" ? (
+          <DocsView
+            scopePath={scopePath}
+            onScopeChange={setScopePath}
+            searchQuery={searchQuery}
+            initialFilePath={docsInitialFile}
+            onInitialFileConsumed={() => setDocsInitialFile(null)}
+          />
+        ) : viewMode === "stack" ? (
+          <div className="flex-1 overflow-hidden">
+            <StackView scopePath={scopePath} searchQuery={searchQuery} />
+          </div>
+        ) : viewMode === "briefings" ? (
+          <BriefingsView />
+        ) : null}
+        </div>
+        </PullToRefresh>}
+
+        {!isMobile && <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Conditional View */}
+        {viewMode === "bridge" ? (
+          <BridgeView
+            addTaskTrigger={addTaskTrigger}
+            searchQuery={searchQuery}
+            onNavigateToProject={(project) => {
               navigateTo("docs", project.path);
             }}
           />
@@ -226,8 +262,8 @@ export function Board() {
           <BriefingsView />
         ) : null}
 
-        {/* Bottom toolbar — scope controls (hidden on Bridge view and on mobile) */}
-        {!isMobile && getPrimaryView(viewMode) !== "bridge" && getPrimaryView(viewMode) !== "briefings" && (
+        {/* Bottom toolbar — scope controls (desktop only) */}
+        {getPrimaryView(viewMode) !== "bridge" && getPrimaryView(viewMode) !== "briefings" && (
           <div className="flex-shrink-0 mt-auto flex items-center gap-1 px-4 h-10 bg-[var(--bg-secondary)] border-t border-[var(--border-default)]">
             {homeDir && (
               <>
@@ -253,7 +289,7 @@ export function Board() {
             />
           </div>
         )}
-        </div>{/* end main content column */}
+        </div>}
       </div>
     </div>
   );

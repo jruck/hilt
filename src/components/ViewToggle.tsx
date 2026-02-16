@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { FileText, Layers, Compass, Newspaper } from "lucide-react";
 
 // The underlying view mode stored in state/preferences
@@ -20,6 +21,8 @@ interface ViewToggleProps {
   compact?: boolean;
   /** Override icon size in pixels (default: 16) */
   iconSize?: number;
+  /** Called when user double-taps the already-active tab (mobile refresh) */
+  onDoubleTapActive?: () => void;
 }
 
 const VIEW_CONFIG = [
@@ -29,8 +32,20 @@ const VIEW_CONFIG = [
   { id: "briefings" as const, label: "Briefings", icon: Newspaper, title: "Daily briefings", shortcut: "4" },
 ];
 
-export function ViewToggle({ view, onChange, compact, iconSize }: ViewToggleProps) {
+export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActive }: ViewToggleProps) {
   const size = iconSize ?? (compact ? 24 : 16);
+  const lastTapRef = React.useRef<{ id: string; time: number }>({ id: "", time: 0 });
+
+  const handleTap = React.useCallback((id: ViewMode) => {
+    const now = Date.now();
+    if (id === view && onDoubleTapActive && now - lastTapRef.current.time < 400 && lastTapRef.current.id === id) {
+      onDoubleTapActive();
+      lastTapRef.current = { id: "", time: 0 };
+    } else {
+      onChange(id);
+      lastTapRef.current = { id, time: now };
+    }
+  }, [view, onChange, onDoubleTapActive]);
 
   if (compact) {
     return (
@@ -38,7 +53,7 @@ export function ViewToggle({ view, onChange, compact, iconSize }: ViewToggleProp
         {VIEW_CONFIG.map(({ id, icon: Icon, title }) => (
           <button
             key={id}
-            onClick={() => onChange(id)}
+            onClick={() => handleTap(id)}
             className={`
               flex items-center justify-center min-w-[48px] min-h-[48px] rounded-md
               transition-colors

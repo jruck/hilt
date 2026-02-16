@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft } from "lucide-react";
 import { useDocs } from "@/hooks/useDocs";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { DocsFileTree } from "./docs/DocsFileTree";
@@ -13,6 +12,7 @@ const MIN_SIDEBAR_WIDTH = 180;
 const MAX_SIDEBAR_WIDTH = 500;
 const DEFAULT_SIDEBAR_WIDTH = 256;
 const STORAGE_KEY = "docs-sidebar-width";
+const SIDEBAR_OPEN_KEY = "docs-sidebar-open";
 
 interface DocsViewProps {
   scopePath: string;
@@ -59,7 +59,23 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
   } = useDocs(scopePath);
 
   const isMobile = useIsMobile();
-  const [mobilePanel, setMobilePanel] = useState<"tree" | "content">("tree");
+
+  // Sidebar open/closed state
+  // Desktop: persist to localStorage; Mobile: derive from navigation intent
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (isMobile) return true; // Default open when switching to Docs tab
+    if (typeof window === "undefined") return true;
+    const stored = localStorage.getItem(SIDEBAR_OPEN_KEY);
+    if (stored !== null) return stored === "true";
+    return true;
+  });
+
+  // Persist desktop sidebar open state
+  useEffect(() => {
+    if (!isMobile) {
+      localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen));
+    }
+  }, [sidebarOpen, isMobile]);
 
   // Sidebar resize state
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -114,13 +130,18 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
     };
   }, [isResizing]);
 
-  // Handle file selection
+  // Handle file selection — close sidebar on mobile
   const handleFileSelect = useCallback((filePath: string) => {
     setSelectedPath(filePath);
     if (isMobile) {
-      setMobilePanel("content");
+      setSidebarOpen(false);
     }
   }, [setSelectedPath, isMobile]);
+
+  // Toggle sidebar
+  const handleToggleSidebar = useCallback(() => {
+    setSidebarOpen(prev => !prev);
+  }, []);
 
   // Find index.md in a folder node
   const findIndexFile = useCallback((folderPath: string): string | null => {
@@ -173,12 +194,14 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
       expandPath(currentPath);
     }
     setSelectedPath(initialFilePath, { replace: true });
-    // On mobile, jump straight to the content pane
+    // Navigation intent: navigating to a specific file
+    // Mobile: close sidebar to show content immediately
+    // Desktop: keep sidebar open (user can see both)
     if (isMobile) {
-      setMobilePanel("content");
+      setSidebarOpen(false);
     }
     onInitialFileConsumed?.();
-  }, [tree, treeLoading, initialFilePath, scopePath, expandPath, setSelectedPath, onInitialFileConsumed]);
+  }, [tree, treeLoading, initialFilePath, scopePath, expandPath, setSelectedPath, onInitialFileConsumed, isMobile]);
 
   // Clear the handled ref once selectedPath commits (non-null means setSelectedPath took effect)
   useEffect(() => {
@@ -199,9 +222,6 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
       const indexPath = findIndexFile(scopePath);
       if (indexPath) {
         setSelectedPath(indexPath, { replace: true });
-        // On mobile, don't auto-switch to content pane on initial load —
-        // user clicking Docs tab expects to see the file tree, not the index file.
-        // Content auto-opens only when navigating to a specific project (via initialFilePath).
       }
     }
   }, [tree, selectedPath, treeLoading, scopePath, findIndexFile, setSelectedPath, initialFilePath]);
@@ -224,7 +244,7 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
           const indexPath = findIndexFile(folderPath);
           if (indexPath) {
             setSelectedPath(indexPath);
-            if (isMobile) setMobilePanel("content");
+            if (isMobile) setSidebarOpen(false);
             return;
           }
         }
@@ -235,13 +255,13 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
         const indexPath = findIndexFile(folderPath);
         if (indexPath) {
           setSelectedPath(indexPath);
-          if (isMobile) setMobilePanel("content");
+          if (isMobile) setSidebarOpen(false);
           return;
         }
       }
-      // Deselect file if no index.md found (or on mobile, go back to tree)
+      // Deselect file if no index.md found — on mobile, open sidebar to show tree
       setSelectedPath(null);
-      if (isMobile) setMobilePanel("tree");
+      if (isMobile) setSidebarOpen(true);
     },
     [scopePath, onScopeChange, expandPath, setSelectedPath, findIndexFile, isMobile]
   );
@@ -272,78 +292,22 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
     );
   }
 
-  // Extract filename for mobile back-button header
-  const selectedFileName = selectedPath ? selectedPath.split("/").pop() || "" : "";
-
-  // Mobile: single-panel drill-down with slide transition
-  if (isMobile) {
-    const showContent = mobilePanel === "content";
-    return (
-      <div className="flex-1 relative overflow-hidden">
-        {/* File tree panel - slides out left */}
-        <div
-          className="absolute inset-0 flex flex-col transition-transform duration-200 ease-out"
-          style={{ transform: showContent ? "translateX(-100%)" : "translateX(0)" }}
-        >
-          <DocsFileTree
-            tree={tree}
-            expandedPaths={expandedPaths}
-            selectedPath={selectedPath}
-            onToggleExpand={toggleExpanded}
-            onSelect={handleFileSelect}
-            isLoading={treeLoading}
-            searchQuery={searchQuery}
-            folderSortOrder={folderSortOrder}
-            onSetFolderSort={setFolderSort}
-          />
-        </div>
-
-        {/* Content panel - slides in from right */}
-        <div
-          className="absolute inset-0 flex flex-col transition-transform duration-200 ease-out"
-          style={{ transform: showContent ? "translateX(0)" : "translateX(100%)" }}
-        >
-          {/* Back button header */}
-          <div className="flex items-center gap-2 px-4 h-11 border-b border-[var(--border-default)] bg-[var(--bg-secondary)] flex-shrink-0">
-            <button
-              onClick={() => setMobilePanel("tree")}
-              className="flex items-center gap-1 text-sm text-[var(--text-secondary)]"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              <span>Back</span>
-            </button>
-            <span className="text-sm font-medium text-[var(--text-primary)] truncate">
-              {selectedFileName}
-            </span>
-          </div>
-          <DocsContentPane
-            filePath={selectedPath}
-            scopePath={scopePath}
-            content={fileContent}
-            fileMeta={fileMeta}
-            isLoading={fileLoading}
-            error={fileError}
-            isEditMode={isEditMode}
-            onEditModeChange={setEditMode}
-            editedContent={editedContent}
-            onContentChange={setEditedContent}
-            hasUnsavedChanges={hasUnsavedChanges}
-            onSave={saveFile}
-            isSaving={isSaving}
-            onNavigateToFolder={handleNavigateToFolder}
-            onNavigateToFile={handleNavigateToFile}
-            fileTree={tree}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  // Desktop: two-column split layout
+  // Unified layout: collapsible sidebar + content pane
   return (
-    <div className={`flex-1 flex overflow-hidden ${isResizing ? "select-none" : ""}`}>
-      {/* File tree sidebar */}
-      <div className="flex-shrink-0 relative" style={{ width: sidebarWidth }}>
+    <div className={`flex-1 flex overflow-hidden relative ${isResizing ? "select-none" : ""}`}>
+      {/* Sidebar */}
+      <div
+        className="flex-shrink-0 relative flex flex-col transition-transform duration-200 ease-out"
+        style={{
+          width: isMobile ? "85vw" : sidebarWidth,
+          transform: sidebarOpen ? "translateX(0)" : "translateX(-100%)",
+          position: isMobile ? "absolute" : "relative",
+          // On mobile: overlay as drawer from left
+          ...(isMobile ? { top: 0, left: 0, bottom: 0, zIndex: 30 } : {}),
+          // On desktop when closed: collapse out of flow
+          ...(!isMobile && !sidebarOpen ? { position: "absolute", top: 0, left: 0, bottom: 0, zIndex: 30 } : {}),
+        }}
+      >
         <DocsFileTree
           tree={tree}
           expandedPaths={expandedPaths}
@@ -355,16 +319,26 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
           folderSortOrder={folderSortOrder}
           onSetFolderSort={setFolderSort}
         />
-        {/* Resize handle */}
-        <div
-          className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-[var(--accent-primary)] transition-colors ${
-            isResizing ? "bg-[var(--accent-primary)]" : "bg-transparent"
-          }`}
-          onMouseDown={handleResizeStart}
-        />
+        {/* Resize handle — desktop only, when sidebar open */}
+        {!isMobile && sidebarOpen && (
+          <div
+            className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-[var(--accent-primary)] transition-colors ${
+              isResizing ? "bg-[var(--accent-primary)]" : "bg-transparent"
+            }`}
+            onMouseDown={handleResizeStart}
+          />
+        )}
       </div>
 
-      {/* Content pane */}
+      {/* Backdrop — mobile only, when sidebar open */}
+      {isMobile && sidebarOpen && (
+        <div
+          className="absolute inset-0 z-20 bg-black/40 transition-opacity duration-200"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Content pane — always visible, fills remaining space */}
       <DocsContentPane
         filePath={selectedPath}
         scopePath={scopePath}
@@ -382,6 +356,8 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
         onNavigateToFolder={handleNavigateToFolder}
         onNavigateToFile={handleNavigateToFile}
         fileTree={tree}
+        onToggleSidebar={handleToggleSidebar}
+        sidebarOpen={sidebarOpen}
       />
     </div>
   );

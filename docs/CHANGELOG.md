@@ -6,6 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Added
+
+- **Collapsible docs sidebar** - Unified sidebar layout replaces separate mobile/desktop implementations. Desktop: sidebar slides out to the left when collapsed, content expands to fill; state persisted to localStorage. Mobile: sidebar overlays as a drawer from the left with backdrop; selecting a file auto-closes it. Toggle button (PanelLeftOpen/Close icons) in content header works on both form factors. Navigation intent is respected: navigating from bridge/briefings closes sidebar on mobile (shows content immediately); switching to Docs tab opens it.
+  - Files: `src/components/DocsView.tsx`, `src/components/docs/DocsContentPane.tsx`
+
 ### Changed
 
 - **Updated app icons** - Electron mac app icon now uses latest dagger art (was stale from Jan build). Favicon updated to transparent-background dagger emoji (no dark gradient).

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Save, Loader2, AlertCircle, Copy, FolderOpen, Check, ExternalLink, MoreVertical } from "lucide-react";
+import { Save, Loader2, AlertCircle, Copy, FolderOpen, Check, ExternalLink, MoreVertical, PanelLeftOpen, PanelLeftClose } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { DocsBreadcrumbs } from "./DocsBreadcrumbs";
 import { DocsEditToggle } from "./DocsEditToggle";
@@ -70,6 +70,8 @@ interface DocsContentPaneProps {
   onNavigateToFolder: (path: string) => void;
   onNavigateToFile: (path: string) => void;
   fileTree: FileNode | null;
+  onToggleSidebar?: () => void;
+  sidebarOpen?: boolean;
 }
 
 export function DocsContentPane({
@@ -89,6 +91,8 @@ export function DocsContentPane({
   onNavigateToFolder,
   onNavigateToFile,
   fileTree,
+  onToggleSidebar,
+  sidebarOpen,
 }: DocsContentPaneProps) {
   const isMobile = useIsMobile();
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -268,6 +272,17 @@ export function DocsContentPane({
     );
   }, [copied, handleCopyPath, handleRevealInFinder, handleOpenInNewTab, isMobile, showOverflow]);
 
+  // Sidebar toggle button for content header
+  const SidebarToggle = onToggleSidebar ? (
+    <button
+      onClick={onToggleSidebar}
+      className="p-1.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors flex-shrink-0"
+      title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+    >
+      {sidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
+    </button>
+  ) : null;
+
   // Handle breadcrumb navigation
   const handleBreadcrumbNavigate = useCallback(
     (path: string) => {
@@ -285,8 +300,15 @@ export function DocsContentPane({
   // No file selected
   if (!filePath) {
     return (
-      <div className="flex-1 flex items-center justify-center text-[var(--text-tertiary)]">
-        <p className="text-sm">Select a file to view</p>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {onToggleSidebar && !sidebarOpen && (
+          <div className="flex items-center px-4 py-2 border-b border-[var(--border-default)] min-h-[44px]">
+            {SidebarToggle}
+          </div>
+        )}
+        <div className="flex-1 flex items-center justify-center text-[var(--text-tertiary)]">
+          <p className="text-sm">Select a file to view</p>
+        </div>
       </div>
     );
   }
@@ -318,11 +340,14 @@ export function DocsContentPane({
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
-          <DocsBreadcrumbs
-            filePath={filePath}
-            scopePath={scopePath}
-            onNavigate={handleBreadcrumbNavigate}
-          />
+          <div className="flex items-center gap-2 min-w-0">
+            {SidebarToggle}
+            <DocsBreadcrumbs
+              filePath={filePath}
+              scopePath={scopePath}
+              onNavigate={handleBreadcrumbNavigate}
+            />
+          </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <FileActionButtons showNewTab />
           </div>
@@ -337,11 +362,14 @@ export function DocsContentPane({
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
-          <DocsBreadcrumbs
-            filePath={filePath}
-            scopePath={scopePath}
-            onNavigate={handleBreadcrumbNavigate}
-          />
+          <div className="flex items-center gap-2 min-w-0">
+            {SidebarToggle}
+            <DocsBreadcrumbs
+              filePath={filePath}
+              scopePath={scopePath}
+              onNavigate={handleBreadcrumbNavigate}
+            />
+          </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <FileActionButtons showNewTab />
           </div>
@@ -356,11 +384,14 @@ export function DocsContentPane({
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
-          <DocsBreadcrumbs
-            filePath={filePath}
-            scopePath={scopePath}
-            onNavigate={handleBreadcrumbNavigate}
-          />
+          <div className="flex items-center gap-2 min-w-0">
+            {SidebarToggle}
+            <DocsBreadcrumbs
+              filePath={filePath}
+              scopePath={scopePath}
+              onNavigate={handleBreadcrumbNavigate}
+            />
+          </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <FileActionButtons />
           </div>
@@ -376,11 +407,14 @@ export function DocsContentPane({
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
-          <DocsBreadcrumbs
-            filePath={filePath}
-            scopePath={scopePath}
-            onNavigate={handleBreadcrumbNavigate}
-          />
+          <div className="flex items-center gap-2 min-w-0">
+            {SidebarToggle}
+            <DocsBreadcrumbs
+              filePath={filePath}
+              scopePath={scopePath}
+              onNavigate={handleBreadcrumbNavigate}
+            />
+          </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <FileActionButtons />
             {/* Save button */}
@@ -423,11 +457,14 @@ export function DocsContentPane({
       <div className="flex-1 flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
-          <DocsBreadcrumbs
-            filePath={filePath}
-            scopePath={scopePath}
-            onNavigate={handleBreadcrumbNavigate}
-          />
+          <div className="flex items-center gap-2 min-w-0">
+            {SidebarToggle}
+            <DocsBreadcrumbs
+              filePath={filePath}
+              scopePath={scopePath}
+              onNavigate={handleBreadcrumbNavigate}
+            />
+          </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <FileActionButtons />
           </div>
@@ -450,11 +487,14 @@ export function DocsContentPane({
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
-        <DocsBreadcrumbs
-          filePath={filePath}
-          scopePath={scopePath}
-          onNavigate={handleBreadcrumbNavigate}
-        />
+        <div className="flex items-center gap-2 min-w-0">
+          {SidebarToggle}
+          <DocsBreadcrumbs
+            filePath={filePath}
+            scopePath={scopePath}
+            onNavigate={handleBreadcrumbNavigate}
+          />
+        </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
           <FileActionButtons />

@@ -101,8 +101,8 @@ Edit `.env` with your settings:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `HILT_WORKING_FOLDER` | Yes | Root folder containing your code and projects (e.g., `~/work` or `~/projects`). Pick a directory that holds your work — not your home folder, which has too much unrelated cruft. |
-| `BRIDGE_VAULT_PATH` | No | Path to your Bridge vault for weekly tasks and notes. Defaults to `HILT_WORKING_FOLDER`. |
+| `HILT_WORKING_FOLDER` | Yes | Root folder where your knowledge base, working code, and other important context live downstream (e.g., `~/work` or `~/projects`). Not your home folder. |
+| `BRIDGE_VAULT_PATH` | No | Path to your knowledge base (weekly tasks, projects, notes). Defaults to `HILT_WORKING_FOLDER`. |
 | `NEXT_PUBLIC_REMOTE_HOST` | No | Hostname for remote access (e.g., a Tailscale machine name). When set, Hilt shows a local/remote switcher. |
 
 ### Running the App

@@ -194,7 +194,8 @@ export function resolveWikilink(
     }
   }
 
-  // Not found
+  // Not found — vault-relative paths (e.g., "libraries/everpro/...")
+  // are resolved asynchronously via the resolve-links API
   return { absolutePath: null, exists: false, displayName };
 }
 

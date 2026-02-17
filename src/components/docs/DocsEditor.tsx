@@ -247,6 +247,64 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
       };
     }, [readOnly]);
 
+    // Async resolution for vault-relative wikilinks (paths like "libraries/everpro/..."
+    // that can't be resolved client-side without filesystem access)
+    const [asyncResolvedLinks, setAsyncResolvedLinks] = useState<Map<string, string>>(new Map());
+
+    useEffect(() => {
+      if (!markdown || !currentFilePath || !scopePath || !readOnly) {
+        setAsyncResolvedLinks(new Map());
+        return;
+      }
+
+      const body = stripFrontmatter(markdown);
+      const wikilinks = parseWikilinks(body);
+      const imageWikilinks = parseImageWikilinks(body);
+      const allTargets = [
+        ...wikilinks.map(l => l.target),
+        ...imageWikilinks.map(l => l.target),
+      ];
+
+      // Find targets that the synchronous resolver can't resolve
+      const needsResolve: string[] = [];
+      for (const target of allTargets) {
+        const resolved = resolveWikilink(target, currentFilePath, scopePath, fileTree || null);
+        if (!resolved.exists && target.includes("/") && !target.startsWith("/")) {
+          needsResolve.push(target);
+        }
+      }
+
+      if (needsResolve.length === 0) {
+        setAsyncResolvedLinks(new Map());
+        return;
+      }
+
+      let cancelled = false;
+      fetch("/api/docs/resolve-links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targets: [...new Set(needsResolve)],
+          currentFile: currentFilePath,
+          scope: scopePath,
+        }),
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (cancelled) return;
+          const map = new Map<string, string>();
+          if (data.resolved) {
+            for (const [target, resolvedPath] of Object.entries(data.resolved)) {
+              if (resolvedPath) map.set(target, resolvedPath as string);
+            }
+          }
+          setAsyncResolvedLinks(map);
+        })
+        .catch(() => {});
+
+      return () => { cancelled = true; };
+    }, [markdown, currentFilePath, scopePath, fileTree, readOnly]);
+
     // Process markdown to convert wikilinks to standard markdown links for display
     // Only process in read mode - in edit mode, show raw [[wikilink]] syntax
     // (processing in edit mode causes MDXEditor to save expanded URLs back to files)
@@ -272,6 +330,11 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
       for (const img of imageWikilinks) {
         // Use the same resolver as regular wikilinks to support Obsidian-style filename search
         const resolved = resolveWikilink(img.target, currentFilePath, scopePath, fileTree || null);
+        // Check async resolution for vault-relative paths
+        if (!resolved.exists && asyncResolvedLinks.has(img.target)) {
+          resolved.absolutePath = asyncResolvedLinks.get(img.target)!;
+          resolved.exists = true;
+        }
         let imagePath: string;
 
         if (resolved.exists && resolved.absolutePath) {
@@ -304,6 +367,11 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
       const wikilinks = parseWikilinks(body);
       for (const link of wikilinks) {
         const resolved = resolveWikilink(link.target, currentFilePath, scopePath, fileTree || null);
+        // Check async resolution for vault-relative paths
+        if (!resolved.exists && asyncResolvedLinks.has(link.target)) {
+          resolved.absolutePath = asyncResolvedLinks.get(link.target)!;
+          resolved.exists = true;
+        }
 
         // Convert to markdown link format
         // Use hash links to prevent browser navigation, with data encoded in the hash
@@ -342,7 +410,7 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
       );
 
       return sanitiseForMdx(result);
-    }, [markdown, currentFilePath, scopePath, fileTree, readOnly]);
+    }, [markdown, currentFilePath, scopePath, fileTree, readOnly, asyncResolvedLinks]);
 
     // Update editor when processed markdown changes
     useEffect(() => {

@@ -269,6 +269,15 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
   // Navigate to file from wikilink
   const handleNavigateToFile = useCallback(
     (filePath: string) => {
+      // If file is outside current scope, change scope to its parent directory
+      if (!filePath.startsWith(scopePath + "/") && onScopeChange) {
+        const parentDir = filePath.replace(/\/[^/]+$/, "");
+        onScopeChange(parentDir);
+        // setSelectedPath will be called after scope change re-renders
+        setTimeout(() => setSelectedPath(filePath), 0);
+        return;
+      }
+
       // Expand parent folders
       const parts = filePath.split("/");
       let currentPath = "";
@@ -280,7 +289,7 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
       }
       setSelectedPath(filePath);
     },
-    [scopePath, expandPath, setSelectedPath]
+    [scopePath, expandPath, setSelectedPath, onScopeChange]
   );
 
   // No scope selected

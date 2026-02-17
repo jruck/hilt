@@ -16,6 +16,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
+- **Vault-relative wikilinks not resolving** - Obsidian-style wikilinks like `[[libraries/everpro/...]]` (no `./` or `../` prefix) couldn't resolve when scoped to a subdirectory because the client-side resolver only searched within the current scope's file tree. Added server-side `/api/docs/resolve-links` endpoint that walks up ancestor directories to find matches. DocsEditor now async-resolves unresolved vault-relative links on file load. Cross-scope navigation also handled: clicking a resolved link outside the current scope changes the scope to the file's parent directory.
+  - Files: `src/lib/docs/wikilink-resolver.ts`, `src/app/api/docs/resolve-links/route.ts`, `src/components/docs/DocsEditor.tsx`, `src/components/DocsView.tsx`
+
 - **Page refresh resets to bridge folder** - Two issues: (1) Board's initial-load effect unconditionally set the scope to `workingFolder`, ignoring the scope already parsed from the URL — now only applies the default when URL has no scope. (2) ScopeContext's mount-time `replaceState` rebuilt the URL from view+scope, stripping the `?doc=` query param — now preserves existing query params.
   - Files: `src/components/Board.tsx`, `src/contexts/ScopeContext.tsx`
 

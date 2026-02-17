@@ -216,7 +216,7 @@ hilt/
 ### 1. View Routing Flow
 
 ```
-URL: /bridge or /docs/Users/jruck/work/project or /stack/Users/jruck/work/project
+URL: /bridge or /docs/Users/you/work/project or /stack/Users/you/work/project
          │
          ▼
 [[...path]]/page.tsx (catch-all route)
@@ -568,7 +568,7 @@ interface UserPreferences {
 - Vault path configured in preferences (`bridgeVaultPath`)
 
 ### 3. Scope Context and URL Routing
-- URLs encode both view mode and scope: `/bridge`, `/docs/Users/jruck/work/project`, `/stack/...`
+- URLs encode both view mode and scope: `/bridge`, `/docs/Users/you/work/project`, `/stack/...`
 - `ScopeContext` manages scope + view state, syncs with browser history
 - `replaceViewMode` used for initial redirect (no history entry)
 - `navigateTo` for atomic view + scope changes (single history entry)

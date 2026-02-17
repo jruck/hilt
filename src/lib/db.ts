@@ -135,7 +135,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   recentScopes: [],
   viewMode: "bridge",
   folderEmojis: {},
-  workingFolder: "/Users/jruck/work/bridge",
+  workingFolder: process.env.HILT_WORKING_FOLDER || undefined,
 };
 
 function readPreferencesFile(): UserPreferences {
@@ -310,7 +310,7 @@ export async function setViewMode(mode: string): Promise<void> {
 // Bridge vault path
 export async function getBridgeVaultPath(): Promise<string> {
   const prefs = readPreferencesFile();
-  return prefs.bridgeVaultPath || process.env.BRIDGE_VAULT_PATH || path.join(process.env.HOME || "~", "work/bridge");
+  return prefs.bridgeVaultPath || process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || path.join(process.env.HOME || "~", "work");
 }
 
 export async function setBridgeVaultPath(vaultPath: string): Promise<void> {

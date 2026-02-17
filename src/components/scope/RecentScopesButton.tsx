@@ -71,7 +71,7 @@ export function RecentScopesButton({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isOpen]);
 
-  // Get home folder name (e.g., "jruck" from "/Users/jruck")
+  // Get home folder name (e.g., "username" from "/Users/username")
   const homeFolderName = homeDir ? homeDir.split("/").filter(Boolean).pop() || "" : "";
 
   const displayPath = (path: string) => {

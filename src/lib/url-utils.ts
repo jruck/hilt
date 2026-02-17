@@ -2,9 +2,9 @@
  * URL-based view mode routing helpers.
  *
  * URL structure: /<viewPrefix>/<scopePath>
- * e.g. /docs/Users/jruck/work/bridge
+ * e.g. /docs/Users/me/work/projects
  *      /bridge
- *      /stack/Users/jruck/work/bridge
+ *      /stack/Users/me/work/projects
  */
 
 export const VIEW_PREFIXES = ["bridge", "docs", "stack", "briefings"] as const;

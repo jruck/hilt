@@ -136,7 +136,7 @@ If rebase has conflicts (main diverged significantly):
 ~/.hilt/
 └── workspaces/
     └── <session-id>/
-        ├── .source → /Users/jruck/Work/my-app  (symlink for reference)
+        ├── .source → /Users/you/Work/my-app  (symlink for reference)
         └── workspace/                           (the actual worktree)
             ├── src/
             ├── package.json

@@ -42,7 +42,7 @@ const [scopePath, setScopePath] = useState<string>(() => {
 - Return filtered results
 
 ```typescript
-// GET /api/sessions?scope=/Users/jruck/Work/Code
+// GET /api/sessions?scope=/Users/you/Work/Code
 const scopePath = searchParams.get('scope');
 if (scopePath) {
   sessions = sessions.filter(s => s.projectPath?.startsWith(scopePath));
@@ -80,7 +80,7 @@ Replace the static cwd display with an interactive folder picker:
 UI Design:
 ```
 ┌─────────────────────────────────────────────────────┐
-│ 📁 /Users/jruck/Work/Code  ▼                        │
+│ 📁 /Users/you/Work/Code  ▼                        │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -89,9 +89,9 @@ Clicking opens a dropdown:
 ┌─────────────────────────────────────────────────────┐
 │ Recent Folders                                      │
 │ ─────────────────────────────────────────────────── │
-│ 📁 /Users/jruck/Work/Code/hilt            │
-│ 📁 /Users/jruck/Bridge                              │
-│ 📁 /Users/jruck                                     │
+│ 📁 /Users/you/Work/Code/hilt            │
+│ 📁 /Users/you/Bridge                              │
+│ 📁 /Users/you                                     │
 │ ─────────────────────────────────────────────────── │
 │ 📂 Browse...                                        │
 └─────────────────────────────────────────────────────┘
@@ -162,7 +162,7 @@ Ensure the PTY spawns in the correct directory (already supports this via `proje
 
 - **Invalid path**: Show error, don't change scope
 - **No sessions in scope**: Show empty state with message
-- **Nested scopes**: `/Users/jruck/Work` includes `/Users/jruck/Work/Code/project`
+- **Nested scopes**: `/Users/you/Work` includes `/Users/you/Work/Code/project`
 - **Draft prompts**: Keep drafts global (not scoped) since they're not tied to a folder yet
 
 ## Testing Plan

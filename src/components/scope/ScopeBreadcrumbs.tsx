@@ -15,7 +15,7 @@ interface ScopeBreadcrumbsProps {
 
 interface Segment {
   name: string;      // Display name (e.g., "Work")
-  fullPath: string;  // Full path up to this segment (e.g., "/Users/jruck/Work")
+  fullPath: string;  // Full path up to this segment (e.g., "/Users/me/Work")
 }
 
 export function ScopeBreadcrumbs({ value, homeDir, onChange, isPinned, onTogglePin }: ScopeBreadcrumbsProps) {
@@ -45,7 +45,7 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange, isPinned, onToggleP
   // Check if we're at root (all projects)
   const isAtRoot = !value;
 
-  // Get home folder name (e.g., "jruck" from "/Users/jruck")
+  // Get home folder name (e.g., "username" from "/Users/username")
   const homeFolderName = homeDir ? homeDir.split("/").filter(Boolean).pop() || "" : "";
 
   // Parse path into segments starting from root
@@ -107,7 +107,7 @@ export function ScopeBreadcrumbs({ value, homeDir, onChange, isPinned, onToggleP
     setIsDropdownOpen(false);
   };
 
-  // Get display name for a segment (use home folder name like "jruck" for home path)
+  // Get display name for a segment (use home folder name for home path)
   const getDisplayName = (segment: Segment): string => {
     if (segment.fullPath === homeDir) {
       return homeFolderName;

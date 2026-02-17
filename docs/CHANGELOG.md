@@ -4,6 +4,19 @@ All notable changes to Hilt are documented in this file.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
+## [Unreleased]
+
+### Changed
+
+- **Externalize configuration for public sharing** - Moved all hardcoded personal values (working folder, remote hostname) to environment variables loaded from `.env`. Added `.env.example` with documented configuration options. Electron main process now loads `.env` at startup so remote access works correctly in the desktop app. Scrubbed personal paths from source code comments and documentation examples.
+  - Files: `src/lib/db.ts`, `src/hooks/useSource.ts`, `electron/main.ts`
+
+### Added
+
+- **MIT LICENSE file** - Added formal license file to match README declaration.
+- **`.env.example`** - Template documenting required and optional configuration variables (`HILT_WORKING_FOLDER`, `BRIDGE_VAULT_PATH`, `NEXT_PUBLIC_REMOTE_HOST`).
+- **README Configuration section** - Setup instructions for copying `.env.example` and configuring environment variables.
+
 ## [3.0.0] - 2026-02-17
 
 Adds the Briefing tab as a new primary view, plus collapsible docs sidebar, vault-relative wikilinks, code block copy buttons, and numerous docs/bridge improvements.
@@ -78,7 +91,7 @@ Adds the Briefing tab as a new primary view, plus collapsible docs sidebar, vaul
 - **Project status "thinking" renamed to "considering"** - Better reflects the deliberative nature of the initial project stage. Updated across all files: project parser, board columns, picker restore options.
   - Files: `src/lib/bridge/project-parser.ts`, `src/components/bridge/ProjectBoard.tsx`, `src/components/bridge/ProjectPicker.tsx`, `src/components/bridge/ProjectCard.tsx`, `src/app/api/bridge/projects/status/route.ts`
 
-- **URL-based view mode routing** - Active view (bridge/docs/stack) is now encoded as the first URL path segment. Browser Back/Forward naturally switches between views. URL structure: `/docs/Users/jruck/work/bridge`, `/bridge`, `/stack/Users/jruck/work/bridge`. Legacy URLs without prefix (e.g., `/Users/jruck/...`) are resolved from server prefs via `replaceState`.
+- **URL-based view mode routing** - Active view (bridge/docs/stack) is now encoded as the first URL path segment. Browser Back/Forward naturally switches between views. URL structure: `/docs/Users/you/work/project`, `/bridge`, `/stack/Users/you/work/project`. Legacy URLs without prefix are resolved from server prefs via `replaceState`.
   - Files: `src/lib/url-utils.ts` (new), `src/app/[[...path]]/page.tsx`, `src/contexts/ScopeContext.tsx`, `src/components/Board.tsx`, `src/hooks/useDocs.ts`, `src/components/DocsView.tsx`
   - Added `navigateTo(mode, scope)` to ScopeContext for atomic view+scope changes (single history entry)
   - Fixed double-push on Bridge→Docs project navigation: `navigateTo` replaces separate `setScopePath`+`setViewMode` calls
@@ -851,7 +864,7 @@ Major release introducing Tree View visualization, collapsible sidebar, and sign
   - Migration for users with 'kanban' stored in localStorage
 
 - **Scope Navigation** - URL path-based routing instead of query params
-  - URL now reflects scope directly: `/Users/jruck/Work/Code/project`
+  - URL now reflects scope directly: `/Users/you/Work/Code/project`
   - Root "/" shows all projects
   - Files: `src/app/[[...path]]/page.tsx`, `src/components/scope/*`
 

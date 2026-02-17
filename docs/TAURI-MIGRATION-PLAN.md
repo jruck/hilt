@@ -1112,7 +1112,7 @@ pub fn parse_session_file(path: &Path) -> Option<Session> {
 
 fn decode_project_path(encoded: &str) -> String {
     // Claude encodes paths by replacing / with -
-    // e.g., "-Users-jruck-Work-Code" -> "/Users/jruck/Work/Code"
+    // e.g., "-Users-you-Work-Code" -> "/Users/you/Work/Code"
     if encoded.starts_with('-') {
         encoded.replacen('-', "/", 1).replace('-', "/")
     } else {

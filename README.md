@@ -87,8 +87,23 @@ Inspect and edit Claude's configuration across all four layers:
 git clone https://github.com/jruck/hilt.git
 cd hilt
 npm install
-mkdir -p ~/.hilt/data
 ```
+
+### Configuration
+
+Copy the example environment file and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your settings:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `HILT_WORKING_FOLDER` | Yes | Root folder containing your code and projects (e.g., `~/work` or `~/projects`). Pick a directory that holds your work — not your home folder, which has too much unrelated cruft. |
+| `BRIDGE_VAULT_PATH` | No | Path to your Bridge vault for weekly tasks and notes. Defaults to `HILT_WORKING_FOLDER`. |
+| `NEXT_PUBLIC_REMOTE_HOST` | No | Hostname for remote access (e.g., a Tailscale machine name). When set, Hilt shows a local/remote switcher. |
 
 ### Running the App
 

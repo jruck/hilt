@@ -282,8 +282,8 @@ Dialog for creating new configuration files.
 Clickable path navigation with inline pin button.
 
 ```typescript
-// Path: /Users/jruck/Work/Code/myproject
-// Renders: / > Users > jruck > Work > Code > myproject
+// Path: /Users/you/Work/Code/myproject
+// Renders: / > Users > you > Work > Code > myproject
 //          ^   ^       ^       ^      ^      ^
 //          All clickable segments
 ```

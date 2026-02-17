@@ -123,7 +123,7 @@ async function findExistingDevServer(ports: number[]): Promise<number | null> {
 #!/bin/bash
 # Hilt Dev Launcher - delegates server management to Electron
 
-PROJECT_DIR="/Users/jruck/bridge/tools/hilt"
+PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_DIR"
 
 # Add nvm node to PATH

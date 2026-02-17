@@ -37,6 +37,22 @@ const electron_1 = require("electron");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
 const child_process_1 = require("child_process");
+// Load .env file so Electron has access to the same env vars as Next.js
+const envPath = path.join(__dirname, "..", ".env");
+if (fs.existsSync(envPath)) {
+    for (const line of fs.readFileSync(envPath, "utf-8").split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#"))
+            continue;
+        const eqIdx = trimmed.indexOf("=");
+        if (eqIdx === -1)
+            continue;
+        const key = trimmed.slice(0, eqIdx).trim();
+        const val = trimmed.slice(eqIdx + 1).trim();
+        if (!process.env[key])
+            process.env[key] = val;
+    }
+}
 // Set DATA_DIR to Electron's userData path before anything else
 const DATA_DIR = path.join(electron_1.app.getPath("userData"), "data");
 process.env.DATA_DIR = DATA_DIR;
@@ -466,9 +482,10 @@ async function createWindow() {
         }
     });
     // Open external links in the default browser instead of inside Electron
+    const remoteHost = process.env.NEXT_PUBLIC_REMOTE_HOST;
     const isInternalUrl = (url) => url.startsWith("http://localhost") ||
         url.startsWith("http://127.0.0.1") ||
-        url.startsWith("https://xochipilli.tailc0acaa.ts.net");
+        (remoteHost ? url.startsWith(`https://${remoteHost}`) : false);
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
         if (isInternalUrl(url)) {
             return { action: "allow" };

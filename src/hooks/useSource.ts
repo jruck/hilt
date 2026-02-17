@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 
-const REMOTE_HOST = "xochipilli.tailc0acaa.ts.net";
+const REMOTE_HOST = process.env.NEXT_PUBLIC_REMOTE_HOST || "";
 const LOCAL_FALLBACK = "http://localhost:3000";
 const STORAGE_KEY = "hilt-local-url";
 const PROBE_TIMEOUT_MS = 3000;
@@ -13,6 +13,7 @@ export type Source = "local" | "remote";
 
 /** Probe whether the remote server is reachable */
 async function probeRemote(): Promise<boolean> {
+  if (!REMOTE_HOST) return false;
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
@@ -70,6 +71,9 @@ export function useSource() {
   // Poll remote availability when on local
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    // No remote host configured — skip polling entirely
+    if (!REMOTE_HOST) return;
 
     // When on remote, we know it's available
     if (isRemote) {

@@ -56,8 +56,10 @@ export function BridgeTaskItem({
   const isTouch = useIsMobile();
 
   // Parse attribution and lifecycle from title (memoized)
+  // Strip attribution first, then lifecycle markers from display
   const attribution = useMemo(() => parseAttribution(title), [title]);
-  const lifecycle = useMemo(() => parseLifecycle(title, task.done), [title, task.done]);
+  const titleWithoutAttribution = attribution ? attribution.displayTitle : title;
+  const lifecycle = useMemo(() => parseLifecycle(titleWithoutAttribution, task.done), [titleWithoutAttribution, task.done]);
   const displayTitle = lifecycle.displayTitle;
 
   useEffect(() => {

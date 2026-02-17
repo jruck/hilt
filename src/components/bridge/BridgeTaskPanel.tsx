@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { X, Trash2, FolderOpen, MoreVertical, Copy } from "lucide-react";
 import type { BridgeTask, BridgeProject } from "@/lib/types";
-import { parseLifecycle } from "@/lib/attribution";
+import { parseAttribution, parseLifecycle } from "@/lib/attribution";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
 import { useBridgeThoughts } from "@/hooks/useBridgeThoughts";
 import { ProjectPicker } from "./ProjectPicker";
@@ -92,7 +92,12 @@ export function BridgeTaskPanel({
   }
 
   // Strip lifecycle emoji for display (🆕, ⁇ are markdown tags, not user-visible)
-  const displayTitle = useMemo(() => parseLifecycle(title, task.done).displayTitle, [title, task.done]);
+  // Strip attribution then lifecycle markers from display
+  const displayTitle = useMemo(() => {
+    const attr = parseAttribution(title);
+    const withoutAttr = attr ? attr.displayTitle : title;
+    return parseLifecycle(withoutAttr, task.done).displayTitle;
+  }, [title, task.done]);
 
   function saveTitle(value: string) {
     const trimmed = value.trim();

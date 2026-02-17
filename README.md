@@ -155,7 +155,7 @@ Most folders are optional — if they don't exist, the corresponding view sectio
 
 ### Running the App
 
-The best way to use Hilt is through the Electron app in dev mode. It runs as a native macOS window with live reloading, so you see changes from your agents in real time:
+The best way to use Hilt is through the Electron app in dev mode. It runs as a native macOS window with live reloading, so you see changes from your agents in real time — and changes you make to the app itself:
 
 ```bash
 npm run electron:dev

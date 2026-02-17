@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { X, Trash2, FolderOpen, MoreVertical } from "lucide-react";
+import { X, Trash2, FolderOpen, MoreVertical, Copy } from "lucide-react";
 import type { BridgeTask, BridgeProject } from "@/lib/types";
 import { parseLifecycle } from "@/lib/attribution";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
@@ -142,6 +142,34 @@ export function BridgeTaskPanel({
 
   const fullMarkdown = task.details.join("\n");
 
+  const [copyFeedback, setCopyFeedback] = useState(false);
+
+  function copyAsMarkdown() {
+    const lines: string[] = [];
+    // Source file for vault context
+    if (filePath) {
+      const vaultRelative = vaultPath ? filePath.replace(vaultPath + "/", "") : filePath;
+      lines.push(`> Source: \`${vaultRelative}\``);
+      lines.push("");
+    }
+    // Task title with checkbox
+    lines.push(`- [${task.done ? "x" : " "}] ${task.title}${task.dueDate ? ` [due:: ${task.dueDate}]` : ""}`);
+    // Project link
+    if (task.projectPath) {
+      lines.push(`  - Project: \`${task.projectPath}\``);
+    }
+    // Details
+    if (task.details.length > 0 && task.details.some(l => l.trim())) {
+      lines.push("");
+      lines.push(...task.details);
+    }
+    navigator.clipboard.writeText(lines.join("\n")).then(() => {
+      setCopyFeedback(true);
+      setTimeout(() => setCopyFeedback(false), 1500);
+    });
+    setShowMenu(false);
+  }
+
   return (
     <div className="relative flex flex-col h-full bg-[var(--bg-primary)] border-l border-[var(--border-default)]">
       {/* Retract edge — full-height clickable strip on the left border */}
@@ -192,6 +220,14 @@ export function BridgeTaskPanel({
                 <FolderOpen className="w-4 h-4 text-[var(--text-tertiary)]" />
                 {task.projectPath ? "Change project" : "Attach project"}
               </button>
+              <button
+                onClick={copyAsMarkdown}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
+              >
+                <Copy className="w-4 h-4 text-[var(--text-tertiary)]" />
+                {copyFeedback ? "Copied!" : "Copy as markdown"}
+              </button>
+              <div className="my-1 border-t border-[var(--border-default)]" />
               <button
                 onClick={() => {
                   setShowMenu(false);

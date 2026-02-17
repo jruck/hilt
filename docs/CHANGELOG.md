@@ -4,7 +4,9 @@ All notable changes to Hilt are documented in this file.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
-## [Unreleased]
+## [3.0.0] - 2026-02-17
+
+Adds the Briefing tab as a new primary view, plus collapsible docs sidebar, vault-relative wikilinks, code block copy buttons, and numerous docs/bridge improvements.
 
 ### Added
 

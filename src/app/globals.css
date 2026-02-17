@@ -230,31 +230,31 @@ body {
    MDXEditor Light Theme
    ============================================ */
 .light-theme.light-editor {
-  --accentBase: #f8fafc;
-  --accentBgSubtle: #f1f5f9;
-  --accentBg: #e2e8f0;
-  --accentBgHover: #cbd5e1;
-  --accentBgActive: #94a3b8;
-  --accentLine: #cbd5e1;
-  --accentBorder: #94a3b8;
-  --accentBorderHover: #64748b;
+  --accentBase: var(--bg-primary);
+  --accentBgSubtle: var(--bg-secondary);
+  --accentBg: var(--border-default);
+  --accentBgHover: var(--border-strong);
+  --accentBgActive: #9a9894;
+  --accentLine: var(--border-strong);
+  --accentBorder: #9a9894;
+  --accentBorderHover: #7a7874;
   --accentSolid: #9333ea;
   --accentSolidHover: #7c3aed;
-  --accentText: #475569;
-  --accentTextContrast: #0f172a;
+  --accentText: #5a5856;
+  --accentTextContrast: var(--text-primary);
 
   --baseBase: #ffffff;
-  --baseBgSubtle: #f8fafc;
-  --baseBg: #f1f5f9;
-  --baseBgHover: #e2e8f0;
-  --baseBgActive: #cbd5e1;
-  --baseLine: #e2e8f0;
-  --baseBorder: #cbd5e1;
-  --baseBorderHover: #94a3b8;
-  --baseSolid: #94a3b8;
-  --baseSolidHover: #64748b;
-  --baseText: #475569;
-  --baseTextContrast: #0f172a;
+  --baseBgSubtle: var(--bg-primary);
+  --baseBg: var(--bg-secondary);
+  --baseBgHover: var(--border-default);
+  --baseBgActive: var(--border-strong);
+  --baseLine: var(--border-default);
+  --baseBorder: var(--border-strong);
+  --baseBorderHover: #9a9894;
+  --baseSolid: #9a9894;
+  --baseSolidHover: #7a7874;
+  --baseText: #5a5856;
+  --baseTextContrast: var(--text-primary);
 
   --admonitionTipBg: rgba(34, 197, 94, 0.1);
   --admonitionTipBorder: #16a34a;
@@ -270,31 +270,31 @@ body {
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
   background-color: #ffffff;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .light-theme .mdxeditor-toolbar {
-  background-color: #f8fafc;
-  border-bottom: 1px solid #e2e8f0;
+  background-color: var(--bg-primary);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .light-theme [role="listbox"],
 .light-theme [data-radix-popper-content-wrapper] {
   background-color: #ffffff !important;
-  color: #0f172a !important;
-  border: 1px solid #e2e8f0 !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-default) !important;
   border-radius: 6px !important;
 }
 
 .light-theme [role="option"] {
-  color: #334155 !important;
+  color: var(--text-secondary) !important;
   background-color: transparent !important;
 }
 
 .light-theme [role="option"]:hover,
 .light-theme [role="option"][data-highlighted] {
-  background-color: #f1f5f9 !important;
-  color: #0f172a !important;
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
 }
 
 .light-theme [role="option"][aria-selected="true"],
@@ -305,26 +305,26 @@ body {
 
 .light-theme [role="combobox"],
 .light-theme button[class*="selectTrigger"] {
-  background-color: #f1f5f9 !important;
-  color: #334155 !important;
-  border: 1px solid #e2e8f0 !important;
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid var(--border-default) !important;
 }
 
 .light-theme [role="combobox"]:hover,
 .light-theme button[class*="selectTrigger"]:hover {
-  background-color: #e2e8f0 !important;
-  border-color: #cbd5e1 !important;
+  background-color: var(--border-default) !important;
+  border-color: var(--border-strong) !important;
 }
 
 .light-theme [role="combobox"] span,
 .light-theme button[class*="selectTrigger"] span {
-  color: #334155 !important;
+  color: var(--text-secondary) !important;
 }
 
 .light-theme [role="combobox"] svg,
 .light-theme button[class*="selectTrigger"] svg {
-  color: #64748b !important;
-  fill: #64748b !important;
+  color: #7a7874 !important;
+  fill: #7a7874 !important;
 }
 
 .light-theme .mdxeditor-root-contenteditable {
@@ -332,11 +332,11 @@ body {
 }
 
 .light-theme [contenteditable] {
-  color: #334155;
+  color: var(--text-secondary);
 }
 
 .light-theme [contenteditable] p {
-  color: #334155;
+  color: var(--text-secondary);
 }
 
 /* Light theme table styling */
@@ -357,24 +357,24 @@ body {
 .light-theme table td[class*="AlignedCell"] {
   padding: 0.25rem 0.5rem !important;
   border: none !important;
-  border-bottom: 1px solid #e2e8f0 !important;
+  border-bottom: 1px solid var(--border-default) !important;
   background-color: transparent !important;
-  color: #334155 !important;
+  color: var(--text-secondary) !important;
   vertical-align: middle !important;
 }
 
 .light-theme table th[class*="AlignedCell"] ~ th[class*="AlignedCell"],
 .light-theme table td[class*="AlignedCell"] ~ td[class*="AlignedCell"] {
-  border-left: 1px solid #e2e8f0 !important;
+  border-left: 1px solid var(--border-default) !important;
 }
 
 .light-theme table tr:nth-child(2) th[class*="AlignedCell"] {
-  border-top: 1px solid #e2e8f0 !important;
+  border-top: 1px solid var(--border-default) !important;
 }
 
 .light-theme table th[class*="AlignedCell"] {
   font-weight: 600 !important;
-  color: #0f172a !important;
+  color: var(--text-primary) !important;
 }
 
 .light-theme table button {
@@ -386,7 +386,7 @@ body {
 }
 
 .light-theme table button:hover {
-  background-color: #e2e8f0 !important;
+  background-color: var(--border-default) !important;
   border-radius: 4px !important;
 }
 
@@ -402,7 +402,7 @@ body {
 /* Light theme dialogs */
 .light-theme [role="dialog"] {
   background-color: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
+  border: 1px solid var(--border-default) !important;
   border-radius: 8px !important;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1) !important;
 }
@@ -413,14 +413,14 @@ body {
 }
 
 .light-theme [role="dialog"] [role="radio"] {
-  background-color: #f1f5f9 !important;
-  border: 1px solid #e2e8f0 !important;
-  color: #334155 !important;
+  background-color: var(--bg-secondary) !important;
+  border: 1px solid var(--border-default) !important;
+  color: var(--text-secondary) !important;
 }
 
 .light-theme [role="dialog"] [role="radio"]:hover {
-  background-color: #e2e8f0 !important;
-  border-color: #cbd5e1 !important;
+  background-color: var(--border-default) !important;
+  border-color: var(--border-strong) !important;
 }
 
 .light-theme [role="dialog"] [role="radio"][aria-checked="true"] {
@@ -430,27 +430,27 @@ body {
 }
 
 .light-theme [role="dialog"] button {
-  background-color: #f1f5f9 !important;
-  border: 1px solid #e2e8f0 !important;
-  color: #334155 !important;
+  background-color: var(--bg-secondary) !important;
+  border: 1px solid var(--border-default) !important;
+  color: var(--text-secondary) !important;
 }
 
 .light-theme [role="dialog"] button:hover {
-  background-color: #e2e8f0 !important;
-  border-color: #cbd5e1 !important;
-  color: #0f172a !important;
+  background-color: var(--border-default) !important;
+  border-color: var(--border-strong) !important;
+  color: var(--text-primary) !important;
 }
 
 .light-theme [role="dialog"] button svg,
 .light-theme [role="dialog"] [role="radio"] svg {
-  color: #475569 !important;
+  color: #5a5856 !important;
   fill: none !important;
   stroke: currentColor !important;
 }
 
 .light-theme [role="dialog"] button:hover svg,
 .light-theme [role="dialog"] [role="radio"]:hover svg {
-  color: #0f172a !important;
+  color: var(--text-primary) !important;
 }
 
 .light-theme [role="dialog"] [role="radio"][aria-checked="true"] svg {
@@ -459,35 +459,35 @@ body {
 
 /* Light theme CodeMirror */
 .light-theme .cm-editor {
-  background-color: #f8fafc !important;
-  color: #334155 !important;
+  background-color: var(--bg-primary) !important;
+  color: var(--text-secondary) !important;
   border-radius: 8px !important;
 }
 
 .light-theme .cm-editor .cm-scroller {
-  background-color: #f8fafc !important;
+  background-color: var(--bg-primary) !important;
 }
 
 .light-theme .cm-editor .cm-content {
-  color: #334155 !important;
+  color: var(--text-secondary) !important;
 }
 
 .light-theme .cm-editor .cm-gutters {
-  background-color: #f8fafc !important;
-  color: #94a3b8 !important;
-  border-right: 1px solid #e2e8f0 !important;
+  background-color: var(--bg-primary) !important;
+  color: #9a9894 !important;
+  border-right: 1px solid var(--border-default) !important;
 }
 
 .light-theme .cm-editor .cm-gutter-lint {
-  background-color: #f8fafc !important;
+  background-color: var(--bg-primary) !important;
 }
 
 .light-theme .cm-editor .cm-activeLineGutter {
-  background-color: #e2e8f0 !important;
+  background-color: var(--border-default) !important;
 }
 
 .light-theme .cm-editor .cm-activeLine {
-  background-color: rgba(226, 232, 240, 0.5) !important;
+  background-color: rgba(232, 230, 227, 0.5) !important;
 }
 
 .light-theme .cm-editor .cm-selectionBackground {
@@ -495,12 +495,12 @@ body {
 }
 
 .light-theme .cm-editor .cm-cursor {
-  border-left-color: #0f172a !important;
+  border-left-color: var(--text-primary) !important;
 }
 
 /* Light theme syntax highlighting */
 .light-theme .cm-editor .cm-line {
-  color: #334155 !important;
+  color: var(--text-secondary) !important;
 }
 
 .light-theme .cm-editor .tok-keyword {
@@ -517,7 +517,7 @@ body {
 }
 
 .light-theme .cm-editor .tok-comment {
-  color: #94a3b8 !important;
+  color: #9a9894 !important;
   font-style: italic;
 }
 
@@ -527,7 +527,7 @@ body {
 }
 
 .light-theme .cm-editor .tok-variableName {
-  color: #334155 !important;
+  color: var(--text-secondary) !important;
 }
 
 .light-theme .cm-editor .tok-propertyName {
@@ -539,15 +539,15 @@ body {
 }
 
 .light-theme .cm-editor .tok-operator {
-  color: #64748b !important;
+  color: #7a7874 !important;
 }
 
 .light-theme .cm-editor .tok-punctuation {
-  color: #64748b !important;
+  color: #7a7874 !important;
 }
 
 .light-theme .cm-editor .tok-bracket {
-  color: #64748b !important;
+  color: #7a7874 !important;
 }
 
 .light-theme .cm-editor .tok-regexp {
@@ -563,8 +563,8 @@ body {
 }
 
 .light-theme [data-lexical-decorator="true"] {
-  background-color: #f8fafc !important;
-  border: 1px solid #e2e8f0 !important;
+  background-color: var(--bg-primary) !important;
+  border: 1px solid var(--border-default) !important;
   border-radius: 8px !important;
   margin: 0.5rem 0 !important;
 }
@@ -1066,7 +1066,7 @@ body [data-radix-popper-content-wrapper]::after {
 
 /* Operators */
 .dark-theme .cm-editor .tok-operator {
-  color: #94a3b8 !important;
+  color: #a1a09e !important;
 }
 
 /* Punctuation */

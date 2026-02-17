@@ -666,9 +666,10 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
               prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:bg-[var(--bg-tertiary)] prose-code:text-[var(--text-secondary)] prose-code:before:content-none prose-code:after:content-none
               prose-pre:rounded-lg prose-pre:bg-[var(--bg-tertiary)]
               prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
-              prose-table:border-collapse
+              prose-table:border-collapse prose-table:bg-[var(--bg-primary)]
+              prose-thead:bg-[var(--bg-secondary)]
               prose-th:border prose-th:border-[var(--border-default)] prose-th:px-3 prose-th:py-2
-              prose-td:border prose-td:border-[var(--border-default)] prose-td:px-3 prose-td:py-2
+              prose-td:border prose-td:border-[var(--border-default)] prose-td:px-3 prose-td:py-2 prose-td:bg-[var(--bg-primary)]
               outline-none ${contentPadding ?? "px-12 py-6"}`}
             className={`${themeClass} h-full flex-1`}
           />

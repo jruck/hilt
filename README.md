@@ -155,21 +155,20 @@ Most folders are optional — if they don't exist, the corresponding view sectio
 
 ### Running the App
 
-**Browser Mode:**
+The best way to use Hilt is through the Electron app in dev mode. It runs as a native macOS window with live reloading, so you see changes from your agents in real time:
+
+```bash
+npm run electron:dev
+```
+
+You can also run it in the browser if you prefer:
+
 ```bash
 npm run dev:all
 ```
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-**Native macOS App:**
-```bash
-npm run electron:dev
-```
-
-**Build for Distribution:**
-```bash
-npm run electron:build
-```
+A compiled Electron build (`npm run electron:build`) exists for wider distribution but isn't necessary for day-to-day use.
 
 ## Documentation
 

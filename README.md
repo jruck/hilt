@@ -1,6 +1,6 @@
 # 🗡️ Hilt
 
-A shared context space for you and your AI agents. The handle by which you wield AI for good.
+A shared context space for you and your AI agents. A handle by which to wield AI for good.
 
 Hilt is a viewer and light editor built on top of the file system — the common interface where humans and agents already meet. It doesn't have its own chat. You talk to your agents wherever you already do: Claude Code, Codex, OpenClaw, or whatever you use. Hilt gives both of you a structured window into the same knowledge base, tasks, briefings, and configuration — so your agents can keep you updated, calibrate their work with you, surface things that need your attention, and help you track your own priorities.
 

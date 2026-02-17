@@ -16,6 +16,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - **MIT LICENSE file** - Added formal license file to match README declaration.
 - **`.env.example`** - Template documenting required and optional configuration variables (`HILT_WORKING_FOLDER`, `BRIDGE_VAULT_PATH`, `NEXT_PUBLIC_REMOTE_HOST`).
 - **README Configuration section** - Setup instructions for copying `.env.example` and configuring environment variables.
+- **README screenshots** - Added Briefing, Bridge, and Docs view screenshots using demo content.
+- **README folder structure** - Documented expected folder layout for briefings, weekly lists, projects, thoughts, libraries, and meta.
+- **README philosophy** - Updated intro to describe Hilt as a shared human-agent context space. Added note about agent protocols.
 
 ## [3.0.0] - 2026-02-17
 

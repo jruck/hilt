@@ -19,6 +19,10 @@ Hilt provides four views via the top navigation:
 | **Docs** | Browse and edit the markdown and code files in your knowledge base |
 | **Stack** | Inspect and edit Claude's configuration hierarchy (CLAUDE.md, MCP servers, plugins, skills) |
 
+![Briefing view](docs/screenshots/briefing.png)
+![Bridge view](docs/screenshots/bridge.png)
+![Docs view](docs/screenshots/docs.png)
+
 ## Features
 
 ### Briefing View

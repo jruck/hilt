@@ -126,14 +126,15 @@ your-working-folder/
 ├── thoughts/                  ← Bridge view: ideas and backlog
 │   └── some-idea/
 │       └── index.md           (frontmatter: status, icon, created)
-├── libraries/                 ← Bridge view: library-scoped projects
+├── libraries/                 ← Shared libraries (each its own git repo)
 │   └── my-library/
-│       └── projects/
-│           └── sub-project/
-│               └── index.md
-└── meta/
+│       ├── projects/
+│       │   └── sub-project/
+│       │       └── index.md
+│       └── ...                (library's own structure)
+└── meta/                      ← Templates and operating protocols
     └── templates/
-        └── weekly-list.md     ← Template for new weekly lists (optional)
+        └── weekly-list.md
 ```
 
 Most folders are optional — if they don't exist, the corresponding view section is simply empty. The Docs view browses any folder you point it at; it has no fixed structure requirements.
@@ -145,6 +146,10 @@ Most folders are optional — if they don't exist, the corresponding view sectio
 **Projects** (`projects/*/index.md`) use frontmatter to track status (`considering`, `refining`, `doing`, `done`), which maps to columns on the project board.
 
 **Thoughts** (`thoughts/*/index.md`) use frontmatter status (`next`, `later`) for prioritization.
+
+**Libraries** (`libraries/`) are for external, shared libraries. Your working folder is your personal knowledge base, but libraries are where you store other libraries you use or share with other people. Each library inside this folder should be its own git repository — the `libraries/` folder itself is gitignored so its contents don't get committed to your personal knowledge base. Each library is shared with whoever is appropriate for that library's scope. Hilt's views (Briefing, Bridge, Docs) look across both your personal folders and all libraries, so you get a unified view of your own work and everything you're collaborating on.
+
+**Meta** (`meta/`) holds templates and operating protocols — instructions for how Hilt and your AI agents should generate content. The `meta/templates/weekly-list.md` template defines the structure for new weekly task lists. You can add other templates and protocol documents here that your agents reference when producing briefings, project updates, or other structured output.
 
 ### Running the App
 

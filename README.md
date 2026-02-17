@@ -6,6 +6,8 @@ Hilt is a viewer and light editor built on top of the file system — the common
 
 It's designed to be used by agents as much as by humans. Your agents write briefings, manage tasks, and update project status. You read, review, adjust, and steer. Hilt is where that loop becomes visible.
 
+**A note on agent protocols:** Hilt defines the folder structure and file formats, but the instructions that tell your agents *how* to generate content — when to write a briefing, how to break down a project, what to put in a weekly list — currently live outside of Hilt, in each agent's own configuration (CLAUDE.md files, system prompts, custom skills, etc.). Over time, we'd like to bake the common protocols into Hilt itself. For now, there's some trial and error getting agents to produce well-structured output for a new setup. The `meta/` folder is a start — you can put templates and protocol documents there for your agents to reference.
+
 ## Views
 
 Hilt provides four views via the top navigation:

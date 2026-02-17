@@ -109,6 +109,43 @@ Edit `.env` with your settings:
 | `BRIDGE_VAULT_PATH` | No | Path to your knowledge base (weekly tasks, projects, notes). Only needed if it lives outside your working folder. Defaults to `HILT_WORKING_FOLDER`. |
 | `NEXT_PUBLIC_REMOTE_HOST` | No | Hostname for remote access (e.g., a Tailscale machine name). When set, Hilt shows a local/remote switcher. |
 
+### Folder Structure
+
+Hilt reads from a known folder structure inside your working folder (or `BRIDGE_VAULT_PATH` if set separately). You can create these yourself, or let your agents create them as they produce output.
+
+```
+your-working-folder/
+├── briefings/                 ← Briefing view: daily markdown files
+│   └── 2026-02-17.md          (one per day, YYYY-MM-DD.md)
+├── lists/
+│   └── now/                   ← Bridge view: weekly task lists
+│       └── 2026-02-17.md      (one per week, YYYY-MM-DD.md)
+├── projects/                  ← Bridge view: project folders
+│   └── my-project/
+│       └── index.md           (frontmatter: status, area, tags)
+├── thoughts/                  ← Bridge view: ideas and backlog
+│   └── some-idea/
+│       └── index.md           (frontmatter: status, icon, created)
+├── libraries/                 ← Bridge view: library-scoped projects
+│   └── my-library/
+│       └── projects/
+│           └── sub-project/
+│               └── index.md
+└── meta/
+    └── templates/
+        └── weekly-list.md     ← Template for new weekly lists (optional)
+```
+
+Most folders are optional — if they don't exist, the corresponding view section is simply empty. The Docs view browses any folder you point it at; it has no fixed structure requirements.
+
+**Briefings** (`briefings/YYYY-MM-DD.md`) are markdown files with optional YAML frontmatter (`title`, `summary`). Your agents write these to keep you updated.
+
+**Weekly lists** (`lists/now/YYYY-MM-DD.md`) contain `## Tasks` and `## Notes` sections with checkbox task items. Hilt reads the most recent file.
+
+**Projects** (`projects/*/index.md`) use frontmatter to track status (`considering`, `refining`, `doing`, `done`), which maps to columns on the project board.
+
+**Thoughts** (`thoughts/*/index.md`) use frontmatter status (`next`, `later`) for prioritization.
+
 ### Running the App
 
 **Browser Mode:**

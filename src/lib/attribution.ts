@@ -45,7 +45,9 @@ export function parseAttribution(title: string): Attribution | null {
   
   const agent = match[1].trim();
   const agentLower = agent.toLowerCase();
-  const emoji = AGENT_AVATARS[agentLower] || "🤖";
+  // If the attribution is already an emoji, use it directly
+  const isEmoji = /^\p{Emoji_Presentation}$/u.test(agent) || /^\p{Extended_Pictographic}$/u.test(agent);
+  const emoji = isEmoji ? agent : (AGENT_AVATARS[agentLower] || "🤖");
   const displayTitle = title.replace(ATTRIBUTION_REGEX, "").trim();
   
   return {

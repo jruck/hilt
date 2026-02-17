@@ -73,7 +73,7 @@ Edit `.env` with your settings:
 | `NEXT_PUBLIC_REMOTE_HOST` | No | Hostname for remote access (e.g., a Tailscale machine name). When set, Hilt shows a local/remote switcher. |
 
 > [!TIP]
-> **Want to try it first?** Set `HILT_WORKING_FOLDER=./demo` to explore Hilt with sample briefings, tasks, projects, and thoughts — no setup needed. This is the same content shown in the screenshots above.
+> **Want to try it first?** Set `HILT_WORKING_FOLDER=./docs/demo` to explore Hilt with sample briefings, tasks, projects, and thoughts — no setup needed. This is the same content shown in the screenshots above.
 
 ### Run
 

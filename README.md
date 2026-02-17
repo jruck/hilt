@@ -1,10 +1,6 @@
-<img src="public/icon-192.png" width="80" align="left" style="margin-right: 16px;" />
-
-# Hilt
+# <img src="public/icon-192.png" width="40" /> Hilt
 
 A project dashboard with daily briefings, weekly task management, a markdown docs viewer, and a Claude configuration inspector.
-
-<br clear="left" />
 
 ## Core Concepts
 
@@ -128,27 +124,19 @@ Detailed documentation is available in the [`docs/`](docs/) folder:
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Browser (localhost:3000)                                       │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  Next.js React App                                         │  │
-│  │  Briefing • Bridge • Docs • Stack                           │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-              │                    │                    │
-              ▼                    ▼                    ▼
-   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-   │  Next.js API     │  │  WebSocket       │  │  Event Server    │
-   │  port 3000       │  │  port 3001       │  │  port 3002       │
-   └──────────────────┘  └──────────────────┘  └──────────────────┘
-              │                    │                    │
-              ▼                    ▼                    ▼
-   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-   │  Bridge Vault    │  │  Claude Config   │  │  File Watchers   │
-   │  (configurable)  │  │  ~/.claude/      │  │  Real-time       │
-   │                  │  │                  │  │  events           │
-   └──────────────────┘  └──────────────────┘  └──────────────────┘
+```mermaid
+graph TD
+    subgraph Browser["Browser (localhost:3000)"]
+        App["Next.js React App<br/>Briefing · Bridge · Docs · Stack"]
+    end
+
+    App --> API["Next.js API<br/>port 3000"]
+    App --> WS["WebSocket<br/>port 3001"]
+    App --> Events["Event Server<br/>port 3002"]
+
+    API --> Vault["Bridge Vault<br/>(configurable)"]
+    WS --> Config["Claude Config<br/>~/.claude/"]
+    Events --> Watchers["File Watchers<br/>Real-time events"]
 ```
 
 ## Tech Stack

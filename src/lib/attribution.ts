@@ -25,6 +25,7 @@ const AGENT_AVATARS: Record<string, string> = {
   "number one": "🔢",
   "chief": "👨‍⚕️",
   "jordy": "🔧",
+  "geordi": "🌈",
   "justin": "👤",
 };
 

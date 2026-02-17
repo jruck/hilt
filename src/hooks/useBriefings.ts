@@ -15,8 +15,6 @@ interface BriefingDetail {
   content: string;
 }
 
-const LAST_READ_KEY = "hilt-briefing-last-read";
-
 export function useBriefings() {
   const [briefings, setBriefings] = useState<BriefingSummary[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -29,14 +27,17 @@ export function useBriefings() {
   const fetchList = useCallback(async () => {
     setIsLoadingList(true);
     try {
-      const res = await fetch("/api/bridge/briefings");
-      if (!res.ok) throw new Error("Failed to fetch briefings");
-      const data: BriefingSummary[] = await res.json();
+      const [listRes, stateRes] = await Promise.all([
+        fetch("/api/bridge/briefings"),
+        fetch("/api/bridge/briefings/read-state"),
+      ]);
+      if (!listRes.ok) throw new Error("Failed to fetch briefings");
+      const data: BriefingSummary[] = await listRes.json();
       setBriefings(data);
 
-      // Check for unread
-      const lastRead = localStorage.getItem(LAST_READ_KEY);
-      if (data.length > 0 && data[0].date !== lastRead) {
+      // Check for unread via server state
+      const state = stateRes.ok ? await stateRes.json() : { lastRead: null };
+      if (data.length > 0 && data[0].date !== state.lastRead) {
         setHasUnread(true);
       }
 
@@ -69,9 +70,13 @@ export function useBriefings() {
       .then((data: BriefingDetail) => {
         if (!cancelled) {
           setBriefing(data);
-          // Mark as read
-          localStorage.setItem(LAST_READ_KEY, data.date);
+          // Mark as read via server (syncs across devices)
           setHasUnread(false);
+          fetch("/api/bridge/briefings/read-state", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ lastRead: data.date }),
+          }).catch(() => {});
           window.dispatchEvent(new Event("briefing-read"));
         }
       })

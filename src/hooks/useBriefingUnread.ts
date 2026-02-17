@@ -2,11 +2,10 @@
 
 import { useState, useEffect } from "react";
 
-const LAST_READ_KEY = "hilt-briefing-last-read";
-
 /**
  * Lightweight hook that checks if there's an unread briefing.
- * Polls the briefing list API on mount and when the tab becomes visible.
+ * Read state is stored server-side (briefings/.briefing-state.json)
+ * so it syncs across devices via Obsidian Sync.
  */
 export function useBriefingUnread() {
   const [hasUnread, setHasUnread] = useState(false);
@@ -16,14 +15,18 @@ export function useBriefingUnread() {
 
     async function check() {
       try {
-        const res = await fetch("/api/bridge/briefings");
-        if (!res.ok) return;
-        const list = await res.json();
+        const [listRes, stateRes] = await Promise.all([
+          fetch("/api/bridge/briefings"),
+          fetch("/api/bridge/briefings/read-state"),
+        ]);
+        if (!listRes.ok || !stateRes.ok) return;
+
+        const list = await listRes.json();
+        const state = await stateRes.json();
         if (cancelled || list.length === 0) return;
 
         const latestDate = list[0].date;
-        const lastRead = localStorage.getItem(LAST_READ_KEY);
-        setHasUnread(latestDate !== lastRead);
+        setHasUnread(latestDate !== state.lastRead);
       } catch {
         // Silently fail — don't show indicator if we can't check
       }
@@ -51,8 +54,16 @@ export function useBriefingUnread() {
   }, []);
 
   const markRead = (date: string) => {
-    localStorage.setItem(LAST_READ_KEY, date);
+    // Optimistic update
     setHasUnread(false);
+    // Persist to server (syncs via Obsidian Sync)
+    fetch("/api/bridge/briefings/read-state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lastRead: date }),
+    }).catch(() => {
+      // If server write fails, state will re-check on next visibility change
+    });
   };
 
   return { hasUnread, markRead };

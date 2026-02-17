@@ -6,8 +6,8 @@ import type { BridgeThought, BridgeThoughtStatus } from "@/lib/types";
 import { ThoughtCard } from "./ThoughtCard";
 
 const COLUMN_ORDER: { key: BridgeThoughtStatus; label: string }[] = [
-  { key: "next", label: "Next" },
   { key: "later", label: "Later" },
+  { key: "next", label: "Next" },
 ];
 
 interface ThoughtBoardProps {

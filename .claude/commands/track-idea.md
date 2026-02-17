@@ -1,6 +1,6 @@
 # /track-idea Command
 
-Track a feature idea using Nimbalyst's inline tracker syntax.
+Track a feature idea using inline tracker syntax.
 
 ## Overview
 
@@ -18,12 +18,12 @@ If you're working on a plan document (has `planStatus` frontmatter):
 
 ### 2. In Related Feature Plan
 If the idea is related to a specific feature/component:
-- Checks for a plan document for that feature in `nimbalyst-local/plans/`
+- Checks for a plan document for that feature in `local/plans/`
 - If found, adds the idea there for context
 
 ### 3. In Global Ideas Tracker
 Otherwise (general idea or no specific context):
-- Adds to `nimbalyst-local/tracker/ideas.md`
+- Adds to `local/tracker/ideas.md`
 - Creates the file with proper structure if it doesn't exist
 
 ## Idea Tracker Syntax
@@ -90,7 +90,7 @@ Generate a unique ULID (Universally Unique Lexicographically Sortable Identifier
 
 ## Ideas Tracker File Structure
 
-If creating `nimbalyst-local/tracker/ideas.md`, use this template:
+If creating `local/tracker/ideas.md`, use this template:
 
 ```markdown
 # Ideas

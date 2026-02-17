@@ -10,13 +10,13 @@ First, determine if this is:
 
 1. **Parse the request** - Understand what UI/screen/feature the user wants to mock up
 
-2. **Check for style guide** - Look for `nimbalyst-local/existing-screens/style-guide.mockup.html`
+2. **Check for style guide** - Look for `local/existing-screens/style-guide.mockup.html`
    - **If style guide DOES NOT EXIST**:
      - Use the Task tool to spawn a sub-agent that will:
        - Explore the codebase to understand the app's look and feel
        - Find the theme files, CSS variables, color palette, and typography
        - Identify common UI patterns, component styles, and spacing conventions
-       - Create `nimbalyst-local/existing-screens/style-guide.mockup.html` - a comprehensive visual reference showing:
+       - Create `local/existing-screens/style-guide.mockup.html` - a comprehensive visual reference showing:
          - Color palette (primary, secondary, accent colors, grays, semantic colors like error/success/warning)
          - Typography scale (headings H1-H6, body text, captions, with actual font families, sizes, weights, line heights)
          - Spacing scale (common padding/margin values used in the app)
@@ -29,12 +29,12 @@ First, determine if this is:
    - **If style guide EXISTS**:
      - Read it to understand the app's design system
 
-3. **Create mockup file** - Create `nimbalyst-local/mockups/[descriptive-name].mockup.html`
+3. **Create mockup file** - Create `local/mockups/[descriptive-name].mockup.html`
 
 4. **Build the mockup** - Write HTML with inline CSS that matches the style guide, ensuring consistency with the existing app
 
 5. **Verify visually** - Use the Task tool to spawn a sub-agent that will:
-   - Capture screenshot with `mcp__nimbalyst-mcp__capture_mockup_screenshot`
+   - Capture screenshot with `screenshot capture tool`
    - Analyze for layout issues or problems
    - Fix with Edit tool if needed
    - Re-capture and iterate until correct
@@ -52,14 +52,14 @@ First, determine if this is:
 
 ### Directory Structure
 
-- `nimbalyst-local/existing-screens/` - Cached replicas of existing UI screens
-- `nimbalyst-local/mockups/` - Modified copies showing proposed changes
+- `local/existing-screens/` - Cached replicas of existing UI screens
+- `local/mockups/` - Modified copies showing proposed changes
 
 ### Workflow
 
 1. **Identify the screen** - Determine which existing screen/component is being modified
 
-2. **Check for cached replica** - Look in `nimbalyst-local/existing-screens/` for `[screen-name].mockup.html`
+2. **Check for cached replica** - Look in `local/existing-screens/` for `[screen-name].mockup.html`
 
 3. **If cached replica EXISTS**:
    - Use the Task tool to spawn a sub-agent that will:
@@ -80,14 +80,14 @@ First, determine if this is:
      - Spawn additional sub-agents if needed to cover different aspects (layout, typography, colors, icons)
      - If a screenshot was provided, use it as the reference to match pixel-for-pixel
      - **Note**: This is screen-specific analysis, not app-wide styling research
-   - Create `nimbalyst-local/existing-screens/[screen-name].mockup.html` - a **pixel-perfect** HTML/CSS replica including:
+   - Create `local/existing-screens/[screen-name].mockup.html` - a **pixel-perfect** HTML/CSS replica including:
      - Exact colors from the existing CSS
      - Exact typography (font family, size, weight, line height)
      - Exact spacing and dimensions
      - All visual details (shadows, borders, hover states if relevant)
    - Verify the replica visually with screenshot capture - iterate until it matches the original exactly
 
-5. **Copy to mockups** - Copy the existing-screen replica to `nimbalyst-local/mockups/[descriptive-name].mockup.html`
+5. **Copy to mockups** - Copy the existing-screen replica to `local/mockups/[descriptive-name].mockup.html`
 
 6. **Apply modifications** - Edit the copy in mockups to include the proposed changes, keeping modifications **in full color**
 
@@ -115,7 +115,7 @@ Use standalone HTML with inline CSS. No external dependencies.
 
 ## User Annotations
 
-The user can draw on mockups (circles, arrows, highlights). These annotations are **NOT** in the HTML source - you can only see them by capturing a screenshot with `mcp__nimbalyst-mcp__capture_mockup_screenshot`.
+The user can draw on mockups (circles, arrows, highlights). These annotations are **NOT** in the HTML source - you can only see them by capturing a screenshot with `screenshot capture tool`.
 
 When the user draws annotations:
 1. Capture a screenshot to see what they marked

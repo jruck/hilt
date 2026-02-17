@@ -4,7 +4,7 @@ Create a tracking item (bug, task, idea, or decision) in the appropriate trackin
 
 ## Tracking System Overview
 
-Tracking items are organized by type in `nimbalyst-local/tracker/`:
+Tracking items are organized by type in `local/tracker/`:
 - **Bugs** (bugs.md): Issues and defects that need fixing
 - **Tasks** (tasks.md): Work items and todos
 - **Ideas** (ideas.md): Feature ideas and improvements
@@ -16,7 +16,7 @@ The command should intelligently choose where to place tracking items:
 
 1. **In current plan document** - If working within a plan file (has `planStatus` frontmatter), add the item to a relevant section (e.g., "Known Issues", "Tasks", "Ideas")
 2. **In related plan document** - If the item relates to a specific feature/component, check for a plan document for that feature in the plans directory
-3. **In global tracker** - Default to `nimbalyst-local/tracker/[type]s.md` for general items
+3. **In global tracker** - Default to `local/tracker/[type]s.md` for general items
 
 This keeps related items together for better context and organization.
 
@@ -98,7 +98,7 @@ Where `[type]` is one of: `bug`, `task`, `idea`, or `decision`
 1. **Parse the type** from the command
 2. **Generate ULID** for the unique item ID
 3. **Determine priority** based on description
-4. **Add to appropriate tracker file** in `nimbalyst-local/tracker/[type]s.md`
+4. **Add to appropriate tracker file** in `local/tracker/[type]s.md`
 5. **Confirm** to the user where the item was tracked
 
 **Examples:**

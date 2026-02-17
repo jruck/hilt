@@ -8,7 +8,7 @@ Plans are structured markdown documents with YAML frontmatter that track feature
 
 ## File Location and Naming
 
-**Location**: `nimbalyst-local/plans/[descriptive-name].md`
+**Location**: `local/plans/[descriptive-name].md`
 
 **Naming conventions**:
 - Use kebab-case: `user-authentication-system.md`
@@ -163,7 +163,7 @@ When the user types `/plan [description]`:
 2. Choose appropriate `planType`, `priority`, and `status`
 3. Generate unique `planId` from description (kebab-case)
 4. Set `created` to today's date, `updated` to current timestamp (use new Date().toISOString())
-5. Create file in `nimbalyst-local/plans/` with proper frontmatter
+5. Create file in `local/plans/` with proper frontmatter
 6. Include relevant sections based on plan type
 
 ## Related Commands

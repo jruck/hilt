@@ -1,6 +1,6 @@
 # /track-bug Command
 
-Track a bug using Nimbalyst's inline tracker syntax.
+Track a bug using inline tracker syntax.
 
 ## Overview
 
@@ -18,12 +18,12 @@ If you're working on a plan document (has `planStatus` frontmatter):
 
 ### 2. In Related Feature Plan
 If the bug is related to a specific feature/component:
-- Checks for a plan document for that feature in `nimbalyst-local/plans/`
+- Checks for a plan document for that feature in `local/plans/`
 - If found, adds the bug there for context
 
 ### 3. In Global Bug Tracker
 Otherwise (general bug or no specific context):
-- Adds to `nimbalyst-local/tracker/bugs.md`
+- Adds to `local/tracker/bugs.md`
 - Creates the file with proper structure if it doesn't exist
 
 ## Bug Tracker Syntax
@@ -90,7 +90,7 @@ Generate a unique ULID (Universally Unique Lexicographically Sortable Identifier
 
 ## Bug Tracker File Structure
 
-If creating `nimbalyst-local/tracker/bugs.md`, use this template:
+If creating `local/tracker/bugs.md`, use this template:
 
 ```markdown
 # Bugs

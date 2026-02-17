@@ -1,4 +1,0 @@
-## New
-
-- [ ] Your first task
-

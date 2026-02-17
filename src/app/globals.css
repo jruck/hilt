@@ -1481,6 +1481,83 @@ body [data-radix-popper-content-wrapper]::after {
 }
 
 /* ============================================
+   Briefing Footnotes
+   ============================================ */
+
+/* Footnote reference links (superscript in body text) */
+.briefing-content [data-footnote-ref] {
+  font-size: 0.7em;
+  vertical-align: super;
+  line-height: 0;
+  text-decoration: none !important;
+  color: var(--interactive-default) !important;
+  font-weight: 500;
+  padding: 0 1px;
+  transition: color 150ms ease;
+}
+
+.briefing-content [data-footnote-ref]:hover {
+  color: var(--interactive-hover) !important;
+}
+
+/* Footnotes section at bottom */
+.briefing-content [data-footnotes] {
+  margin-top: 2rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border-default);
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+}
+
+/* Hide the default "Footnotes" heading that remark-gfm inserts */
+.briefing-content [data-footnotes] > h2 {
+  display: none;
+}
+
+/* Footnote list */
+.briefing-content [data-footnotes] ol {
+  list-style: none !important;
+  padding-left: 0 !important;
+  margin: 0 !important;
+  counter-reset: footnote;
+}
+
+.briefing-content [data-footnotes] ol li {
+  counter-increment: footnote;
+  position: relative;
+  padding-left: 1.75em;
+  margin-bottom: 0.35em !important;
+  color: var(--text-tertiary) !important;
+  line-height: 1.5;
+}
+
+.briefing-content [data-footnotes] ol li::before {
+  content: counter(footnote) ".";
+  position: absolute;
+  left: 0;
+  color: var(--text-tertiary);
+  font-size: 0.85em;
+  font-weight: 500;
+  opacity: 0.7;
+  min-width: 1.25em;
+  text-align: right;
+}
+
+/* Back-reference arrow — make subtle */
+.briefing-content [data-footnote-backref] {
+  text-decoration: none !important;
+  color: var(--interactive-default) !important;
+  font-size: 0.75em;
+  margin-left: 0.25em;
+  opacity: 0.5;
+  transition: opacity 150ms ease;
+}
+
+.briefing-content [data-footnote-backref]:hover {
+  opacity: 1;
+}
+
+/* ============================================
    Dev Mode (double-tap Command to toggle)
    ============================================ */
 

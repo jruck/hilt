@@ -1,4 +1,4 @@
-# <img src="public/icon-192.png" width="40" /> Hilt
+# 🗡️ Hilt
 
 A project dashboard with daily briefings, weekly task management, a markdown docs viewer, and a Claude configuration inspector.
 

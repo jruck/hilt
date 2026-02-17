@@ -52,7 +52,13 @@ function filterFileTree(node: FileNode, query: string): FileNode | null {
 
 // Sort children: directories first, then by the chosen order
 function sortChildren(children: FileNode[], order: FolderSortOrder): FileNode[] {
-  if (order === "alpha") return children; // server already returns alphabetical
+  if (order === "alpha") {
+    // Return a new sorted array (not the original reference) so React detects the change
+    return [...children].sort((a, b) => {
+      if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    });
+  }
   // "date" — sort by modTime descending, dirs first
   return [...children].sort((a, b) => {
     if (a.type !== b.type) return a.type === "directory" ? -1 : 1;

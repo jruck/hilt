@@ -45,6 +45,7 @@ export type FolderSortOrder = "alpha" | "date";
 function getStoredFolderSort(scope: string): Map<string, FolderSortOrder> {
   if (typeof window === "undefined") return new Map();
   try {
+    // Try localStorage first (fast, synchronous) — server state loads async
     const stored = localStorage.getItem(FOLDER_SORT_KEY);
     if (!stored) return new Map();
     const data = JSON.parse(stored);
@@ -70,8 +71,33 @@ function setStoredFolderSort(scope: string, sortMap: Map<string, FolderSortOrder
       delete data[scope];
     }
     localStorage.setItem(FOLDER_SORT_KEY, JSON.stringify(data));
+
+    // Also persist to server (syncs across devices via Obsidian Sync)
+    fetch("/api/bridge/preferences", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "folderSort", value: data }),
+    }).catch(() => {});
   } catch {
     // Ignore storage errors
+  }
+}
+
+/** Load folder sort prefs from server and merge into state */
+async function loadServerFolderSort(scope: string): Promise<Map<string, FolderSortOrder> | null> {
+  try {
+    const res = await fetch("/api/bridge/preferences");
+    if (!res.ok) return null;
+    const prefs = await res.json();
+    const data = prefs.folderSort;
+    if (!data) return null;
+    const scopeData = data[scope];
+    if (!scopeData) return null;
+    // Sync to localStorage too
+    localStorage.setItem(FOLDER_SORT_KEY, JSON.stringify(data));
+    return new Map(Object.entries(scopeData) as [string, FolderSortOrder][]);
+  } catch {
+    return null;
   }
 }
 
@@ -189,10 +215,16 @@ export function useDocs(scopePath: string | null): UseDocsResult {
     scopePath ? getStoredFolderSort(scopePath) : new Map()
   );
 
-  // Sync sort prefs with scope changes
+  // Sync sort prefs with scope changes — load from localStorage immediately, then server
   useEffect(() => {
     if (scopePath) {
       setFolderSortOrder(getStoredFolderSort(scopePath));
+      // Load from server (may have newer state from another device)
+      loadServerFolderSort(scopePath).then((serverSort) => {
+        if (serverSort && serverSort.size > 0) {
+          setFolderSortOrder(serverSort);
+        }
+      });
     }
   }, [scopePath]);
 

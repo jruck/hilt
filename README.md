@@ -12,7 +12,7 @@ It's designed to be used by agents as much as by humans. Your agents write brief
 - [Getting Started](#getting-started) — Install, configure, run
 - [Folder Structure](#folder-structure) — How your knowledge base is organized
 - [Architecture](#architecture) — System design and tech stack
-- [Contributing](#contributing)
+- [Contributing](#contributing) — Guidelines and detailed docs
 
 ## Views
 

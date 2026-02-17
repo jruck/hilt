@@ -48,6 +48,7 @@ export interface BridgeTask {
   details: string[];       // Indented sub-bullet lines (raw markdown)
   rawLines: string[];      // All lines in this task block
   projectPath: string | null;  // Relative path from vault root, or null
+  dueDate: string | null;      // YYYY-MM-DD from [due:: ...] inline field
 }
 
 export interface BridgeWeekly {

@@ -107,7 +107,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
   // Parse tasks
   const tasks: BridgeTask[] = [];
   if (tasksStart !== -1) {
-    let currentTask: { titleLine: string; done: boolean; rawLines: string[]; detailLines: string[]; projectPath: string | null } | null = null;
+    let currentTask: { titleLine: string; done: boolean; rawLines: string[]; detailLines: string[]; projectPath: string | null; dueDate: string | null } | null = null;
 
     for (let i = tasksStart; i < tasksEnd; i++) {
       const line = lines[i];
@@ -123,20 +123,26 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
             details: currentTask.detailLines,
             rawLines: currentTask.rawLines,
             projectPath: currentTask.projectPath,
+            dueDate: currentTask.dueDate,
           });
         }
         // Check if title contains a markdown link: [display text](path)
         // Handles prefix text (emoji markers, etc.) before the link
         const titleRaw = taskMatch[2];
-        const linkMatch = titleRaw.match(/^(.*?)\[(.+?)\]\((.+?)\)(.*)$/);
+        // Extract Dataview inline field [due:: YYYY-MM-DD]
+        const dueMatch = titleRaw.match(/\[due::\s*(\d{4}-\d{2}-\d{2})\]/);
+        const dueDate = dueMatch ? dueMatch[1] : null;
+        const titleWithoutDue = dueMatch ? titleRaw.replace(dueMatch[0], "").trim() : titleRaw;
+        const linkMatch = titleWithoutDue.match(/^(.*?)\[(.+?)\]\((.+?)\)(.*)$/);
         currentTask = {
           titleLine: linkMatch
             ? `${linkMatch[1]}${linkMatch[2]}${linkMatch[4]}`.trim()
-            : titleRaw,
+            : titleWithoutDue,
           done: taskMatch[1] === "x",
           rawLines: [line],
           detailLines: [],
           projectPath: linkMatch ? linkMatch[3] : null,
+          dueDate,
         };
       } else if (currentTask && line.match(/^[\t ]{2,}|^\t/)) {
         // Indented line belongs to current task
@@ -161,6 +167,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
         details: currentTask.detailLines,
         rawLines: currentTask.rawLines,
         projectPath: currentTask.projectPath,
+        dueDate: currentTask.dueDate,
       });
     }
   }
@@ -211,6 +218,7 @@ export function addTask(content: string, title: string, projectPath?: string): s
     details: [],
     rawLines: [`- [ ] ${titleText}`],
     projectPath: projectPath ?? null,
+    dueDate: null,
   };
   // Re-index existing tasks
   const reindexed = parsed.tasks.map((t, i) => ({ ...t, id: `task-${i + 1}` }));
@@ -263,7 +271,7 @@ export function updateTask(
     // Re-indent details for file storage
     const indentedDetails = details.map(addOneIndent);
     const rawLines = [titleLine, ...indentedDetails];
-    return { ...task, done, title, details, rawLines, projectPath: projPath };
+    return { ...task, done, title, details, rawLines, projectPath: projPath, dueDate: task.dueDate };
   });
 
   return rebuildContent(content, updatedTasks, null);

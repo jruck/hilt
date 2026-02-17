@@ -157,6 +157,7 @@ export function useBridgeWeekly() {
       details: [],
       rawLines: [`- [ ] ${title}`],
       projectPath: null,
+      dueDate: null,
     };
     if (data) {
       const reindexed = data.tasks.map((t, i) => ({ ...t, id: `task-${i + 1}` }));

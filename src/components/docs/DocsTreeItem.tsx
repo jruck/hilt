@@ -69,13 +69,17 @@ export function DocsTreeItem({
   isSelected,
   onToggleExpand,
   onSelect,
-  sortOrder = "alpha",
+  sortOrder: sortOrderProp = "alpha",
   onSetFolderSort,
 }: DocsTreeItemProps) {
   const isMobile = useIsMobile();
   const isDirectory = node.type === "directory";
   const isIgnored = node.ignored === true;
   const indent = depth * 16;
+  // Local sort state for immediate UI feedback
+  const [localSortOrder, setLocalSortOrder] = useState(sortOrderProp);
+  useEffect(() => { setLocalSortOrder(sortOrderProp); }, [sortOrderProp]);
+  const sortOrder = localSortOrder;
 
   // Sort menu state (directories only)
   const [showSortMenu, setShowSortMenu] = useState(false);
@@ -212,30 +216,25 @@ export function DocsTreeItem({
               className="absolute right-0 top-full mt-1 z-50 min-w-[140px] rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] shadow-lg py-1"
               onClick={(e) => e.stopPropagation()}
             >
-              <button
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
-                onClick={() => {
-                  onSetFolderSort(node.path, "alpha");
-                  setShowSortMenu(false);
-                }}
-              >
-                <span className="w-4 flex items-center justify-center">
-                  {sortOrder === "alpha" && <Check className="w-3 h-3" />}
-                </span>
-                Sort A–Z
-              </button>
-              <button
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
-                onClick={() => {
-                  onSetFolderSort(node.path, "date");
-                  setShowSortMenu(false);
-                }}
-              >
-                <span className="w-4 flex items-center justify-center">
-                  {sortOrder === "date" && <Check className="w-3 h-3" />}
-                </span>
-                Sort by recent
-              </button>
+              {([
+                { key: "alpha" as const, label: "Sort A–Z" },
+                { key: "date" as const, label: "Most recent" },
+              ]).map(({ key, label }) => (
+                <button
+                  key={key}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors whitespace-nowrap"
+                  onClick={() => {
+                    setLocalSortOrder(key);
+                    onSetFolderSort(node.path, key);
+                    setShowSortMenu(false);
+                  }}
+                >
+                  <span className="w-4 flex-shrink-0 flex items-center justify-center">
+                    {sortOrder === key && <Check className="w-3 h-3" />}
+                  </span>
+                  {label}
+                </button>
+              ))}
             </div>
           )}
         </div>

@@ -15,15 +15,13 @@ const STORAGE_KEY = "docs-sidebar-width";
 const SIDEBAR_OPEN_KEY = "docs-sidebar-open";
 
 interface DocsViewProps {
-  scopePath: string;
-  onScopeChange?: (path: string) => void;
+  scopePath: string;  // Always = workingFolder (tree root)
+  focusedPath?: string;  // URL path to expand+select
+  onPathChange?: (path: string) => void;  // Called when user clicks file -> update URL
   searchQuery?: string;
-  /** When set, expands parent folders and selects this file on load. Cleared after use. */
-  initialFilePath?: string | null;
-  onInitialFileConsumed?: () => void;
 }
 
-export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePath, onInitialFileConsumed }: DocsViewProps) {
+export function DocsView({ scopePath, focusedPath, onPathChange, searchQuery }: DocsViewProps) {
   const {
     // Tree
     tree,
@@ -31,6 +29,7 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
     expandedPaths,
     toggleExpanded,
     expandPath,
+    expandPaths,
 
     // Folder sort
     folderSortOrder,
@@ -133,33 +132,33 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
   // Handle file selection — close sidebar on mobile
   const handleFileSelect = useCallback((filePath: string) => {
     setSelectedPath(filePath);
+    onPathChange?.(filePath);
     if (isMobile) {
       setSidebarOpen(false);
     }
-  }, [setSelectedPath, isMobile]);
+  }, [setSelectedPath, isMobile, onPathChange]);
 
   // Toggle sidebar
   const handleToggleSidebar = useCallback(() => {
     setSidebarOpen(prev => !prev);
   }, []);
 
+  // Find a node in the tree by absolute path
+  const findNodeByPath = useCallback((root: FileNode | null, targetPath: string): FileNode | null => {
+    if (!root) return null;
+    if (root.path === targetPath) return root;
+    if (root.children) {
+      for (const child of root.children) {
+        const found = findNodeByPath(child, targetPath);
+        if (found) return found;
+      }
+    }
+    return null;
+  }, []);
+
   // Find index.md in a folder node
   const findIndexFile = useCallback((folderPath: string): string | null => {
-    if (!tree) return null;
-
-    // Find the folder node in the tree
-    const findNode = (node: FileNode, targetPath: string): FileNode | null => {
-      if (node.path === targetPath) return node;
-      if (node.children) {
-        for (const child of node.children) {
-          const found = findNode(child, targetPath);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
-
-    const folderNode = findNode(tree, folderPath);
+    const folderNode = findNodeByPath(tree, folderPath);
     if (!folderNode?.children) return null;
 
     const indexFile = folderNode.children.find(
@@ -167,117 +166,111 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
       (child.name === "index.md" || child.name === "index.markdown" || child.name === "index.mdx")
     );
     return indexFile?.path || null;
-  }, [tree]);
+  }, [tree, findNodeByPath]);
 
-  // Handle initialFilePath: expand parents and select the file once tree loads
+  // Handle focusedPath: expand parents and select the file when it changes
   // Ref blocks auto-select from racing with uncommitted selectedPath state
-  const consumedInitialFileRef = useRef<string | null>(null);
-  const initialFileHandledRef = useRef(false);
+  const lastFocusedPathRef = useRef<string | null>(null);
+  const focusedPathHandledRef = useRef(false);
   useEffect(() => {
-    if (!initialFilePath) {
-      consumedInitialFileRef.current = null;
+    if (!focusedPath) {
+      lastFocusedPathRef.current = null;
       return;
     }
     if (!tree || treeLoading) return;
-    if (consumedInitialFileRef.current === initialFilePath) return;
-    consumedInitialFileRef.current = initialFilePath;
+    if (lastFocusedPathRef.current === focusedPath) return;
+    lastFocusedPathRef.current = focusedPath;
+
+    // Only process paths that are under scopePath (files, not just the root)
+    if (!focusedPath.startsWith(scopePath + "/")) return;
 
     // Block auto-select synchronously — selectedPath won't commit until next render
-    initialFileHandledRef.current = true;
+    focusedPathHandledRef.current = true;
 
-    // Expand folders between scope root and the file
-    const relative = initialFilePath.slice(scopePath.length + 1);
+    // Collect all folders to expand between scope root and the focused path
+    const relative = focusedPath.slice(scopePath.length + 1);
     const parts = relative.split("/");
+    const pathsToExpand: string[] = [];
     let currentPath = scopePath;
-    for (let i = 0; i < parts.length - 1; i++) { // -1 to skip filename
+    for (let i = 0; i < parts.length - 1; i++) { // -1 to skip last segment
       currentPath = `${currentPath}/${parts[i]}`;
-      expandPath(currentPath);
+      pathsToExpand.push(currentPath);
     }
-    setSelectedPath(initialFilePath, { replace: true });
-    // Navigation intent: navigating to a specific file
+
+    // Check if focusedPath is a folder — if so, expand it and select index.md
+    const focusedNode = findNodeByPath(tree, focusedPath);
+    if (focusedNode && focusedNode.type === "directory") {
+      pathsToExpand.push(focusedPath);
+      // Expand all parent folders + the target folder in one atomic update
+      expandPaths(pathsToExpand);
+      const indexPath = findIndexFile(focusedPath);
+      if (indexPath) {
+        setSelectedPath(indexPath, { replace: true });
+      } else {
+        // No index.md — just expand the folder, deselect file
+        setSelectedPath(null);
+      }
+    } else {
+      // Expand all parent folders in one atomic update
+      expandPaths(pathsToExpand);
+      setSelectedPath(focusedPath, { replace: true });
+    }
+    // Navigation intent: navigating to a specific file/folder
     // Mobile: close sidebar to show content immediately
     // Desktop: keep sidebar open (user can see both)
     if (isMobile) {
       setSidebarOpen(false);
     }
-    onInitialFileConsumed?.();
-  }, [tree, treeLoading, initialFilePath, scopePath, expandPath, setSelectedPath, onInitialFileConsumed, isMobile]);
+  }, [tree, treeLoading, focusedPath, scopePath, expandPaths, setSelectedPath, isMobile, findNodeByPath, findIndexFile]);
 
   // Clear the handled ref once selectedPath commits (non-null means setSelectedPath took effect)
   useEffect(() => {
-    if (selectedPath && initialFileHandledRef.current) {
-      initialFileHandledRef.current = false;
+    if (selectedPath && focusedPathHandledRef.current) {
+      focusedPathHandledRef.current = false;
     }
   }, [selectedPath]);
 
   // Auto-select root index.md on initial load (when no file is selected)
   const hasAutoSelectedRef = useRef(false);
   useEffect(() => {
-    // Skip if initialFilePath effect already called setSelectedPath (state pending commit)
-    if (initialFileHandledRef.current) return;
+    // Skip if focusedPath effect already called setSelectedPath (state pending commit)
+    if (focusedPathHandledRef.current) return;
     // Only run once per scope when tree loads and nothing is selected
-    // Skip if an initialFilePath is pending
-    if (tree && !selectedPath && !treeLoading && !hasAutoSelectedRef.current && !initialFilePath) {
+    // Skip if a focusedPath is pending
+    if (tree && !selectedPath && !treeLoading && !hasAutoSelectedRef.current && !focusedPath) {
       hasAutoSelectedRef.current = true;
       const indexPath = findIndexFile(scopePath);
       if (indexPath) {
         setSelectedPath(indexPath, { replace: true });
       }
     }
-  }, [tree, selectedPath, treeLoading, scopePath, findIndexFile, setSelectedPath, initialFilePath]);
+  }, [tree, selectedPath, treeLoading, scopePath, findIndexFile, setSelectedPath, focusedPath]);
 
   // Reset auto-selection flag when scope changes
   useEffect(() => {
     hasAutoSelectedRef.current = false;
   }, [scopePath]);
 
-  // Navigate to folder (expand it in tree and optionally change scope)
+  // Navigate to folder — expand it in tree and select index.md if available
   const handleNavigateToFolder = useCallback(
     (folderPath: string) => {
-      // If navigating to scope or above, change scope
-      if (!folderPath.startsWith(scopePath) || folderPath === scopePath) {
-        if (onScopeChange) {
-          onScopeChange(folderPath);
-        }
-        // For scope root, try to find and select index.md
-        if (folderPath === scopePath) {
-          const indexPath = findIndexFile(folderPath);
-          if (indexPath) {
-            setSelectedPath(indexPath);
-            if (isMobile) setSidebarOpen(false);
-            return;
-          }
-        }
-      } else {
-        // Expand the folder in tree
-        expandPath(folderPath);
-        // Auto-select index.md if it exists
-        const indexPath = findIndexFile(folderPath);
-        if (indexPath) {
-          setSelectedPath(indexPath);
-          if (isMobile) setSidebarOpen(false);
-          return;
-        }
+      expandPath(folderPath);
+      const indexPath = findIndexFile(folderPath);
+      if (indexPath) {
+        setSelectedPath(indexPath);
+        onPathChange?.(indexPath);
+        if (isMobile) setSidebarOpen(false);
+        return;
       }
-      // Deselect file if no index.md found — on mobile, open sidebar to show tree
       setSelectedPath(null);
       if (isMobile) setSidebarOpen(true);
     },
-    [scopePath, onScopeChange, expandPath, setSelectedPath, findIndexFile, isMobile]
+    [expandPath, setSelectedPath, findIndexFile, isMobile, onPathChange]
   );
 
   // Navigate to file from wikilink
   const handleNavigateToFile = useCallback(
     (filePath: string) => {
-      // If file is outside current scope, change scope to its parent directory
-      if (!filePath.startsWith(scopePath + "/") && onScopeChange) {
-        const parentDir = filePath.replace(/\/[^/]+$/, "");
-        onScopeChange(parentDir);
-        // setSelectedPath will be called after scope change re-renders
-        setTimeout(() => setSelectedPath(filePath), 0);
-        return;
-      }
-
       // Expand parent folders
       const parts = filePath.split("/");
       let currentPath = "";
@@ -288,18 +281,10 @@ export function DocsView({ scopePath, onScopeChange, searchQuery, initialFilePat
         }
       }
       setSelectedPath(filePath);
+      onPathChange?.(filePath);
     },
-    [scopePath, expandPath, setSelectedPath, onScopeChange]
+    [scopePath, expandPath, setSelectedPath, onPathChange]
   );
-
-  // No scope selected
-  if (!scopePath) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-[var(--text-tertiary)]">
-        <p className="text-sm">Select a scope from the toolbar to browse documents</p>
-      </div>
-    );
-  }
 
   // Unified layout: collapsible sidebar + content pane
   return (

@@ -13,7 +13,7 @@ const SHORTCUTS = [
   { keys: "⌘ 1", description: "Briefing" },
   { keys: "⌘ 2", description: "Bridge" },
   { keys: "⌘ 3", description: "Docs" },
-  { keys: "⌘ 4", description: "Settings" },
+  { keys: "⌘ 4", description: "People" },
   { keys: "Esc", description: "Close search" },
 ];
 
@@ -69,7 +69,7 @@ export function NavBar({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const lastCmdPressRef = useRef<number>(0);
 
-  const VIEW_KEYS: Record<string, ViewMode> = { "1": "briefings", "2": "bridge", "3": "docs", "4": "stack" };
+  const VIEW_KEYS: Record<string, ViewMode> = { "1": "briefings", "2": "bridge", "3": "docs", "4": "people" };
 
   // Sync shortcuts/dev mode — hide/show dev tools via JS (CSS selectors don't reliably hit shadow DOM elements)
   useEffect(() => {
@@ -368,7 +368,7 @@ export function NavBar({
               : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
           }`}
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-          title="Settings (⌘4)"
+          title="Settings"
         >
           <Layers className="w-4 h-4" />
         </button>

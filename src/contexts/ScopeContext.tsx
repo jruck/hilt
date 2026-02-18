@@ -1,7 +1,6 @@
 "use client";
 
 import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react';
-import { recordScopeVisit } from '@/lib/recent-scopes';
 import { buildViewUrl, parseViewUrl, ViewPrefix } from '@/lib/url-utils';
 
 const SCOPE_STORAGE_KEY = "hilt-scope";
@@ -43,7 +42,6 @@ export function ScopeProvider({
     setScopePathInternal(path);
     if (typeof window !== "undefined") {
       localStorage.setItem(SCOPE_STORAGE_KEY, path);
-      recordScopeVisit(path);
       const currentView = viewModeRef.current;
       if (currentView) {
         const url = buildViewUrl(currentView, path);
@@ -71,7 +69,6 @@ export function ScopeProvider({
     viewModeRef.current = mode;
     if (typeof window !== "undefined") {
       localStorage.setItem(SCOPE_STORAGE_KEY, scope);
-      recordScopeVisit(scope);
       const url = buildViewUrl(mode, scope);
       window.history.pushState({ scope }, "", url);
     }

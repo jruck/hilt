@@ -1,11 +1,9 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useScope } from "@/contexts/ScopeContext";
 import dynamic from "next/dynamic";
-import { ScopeBreadcrumbs, BrowseButton, RecentScopesButton } from "./scope";
-import { PinnedFoldersPopover } from "./scope/PinnedFoldersPopover";
-import { ViewMode, getPrimaryView } from "./ViewToggle";
+import { ViewMode } from "./ViewToggle";
 import { NavBar } from "./NavBar";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBriefingUnread } from "@/hooks/useBriefingUnread";
@@ -15,9 +13,7 @@ const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.Docs
 const StackView = dynamic(() => import("./stack").then(m => ({ default: m.StackView })), { ssr: false });
 const BridgeView = dynamic(() => import("./bridge/BridgeView").then(m => ({ default: m.BridgeView })), { ssr: false });
 const BriefingsView = dynamic(() => import("./briefings/BriefingsView").then(m => ({ default: m.BriefingsView })), { ssr: false });
-import { usePinnedFolders } from "@/hooks/usePinnedFolders";
-
-const HOME_DIR_STORAGE_KEY = "hilt-home-dir";
+const PeopleView = dynamic(() => import("./people/PeopleView").then(m => ({ default: m.PeopleView })), { ssr: false });
 
 export function Board() {
   // Scope path and view mode from context — URL-based routing
@@ -26,18 +22,16 @@ export function Board() {
   // Track if we've hydrated from localStorage (to prevent hydration mismatch)
   const [isHydrated, setIsHydrated] = useState(false);
 
-  // Initialize with empty/default values for SSR, then hydrate from localStorage
-  const [homeDir, setHomeDir] = useState<string>("");
   // Default scope for all views — fetched from server preferences
   // undefined = not yet loaded, string = resolved path (always has a value once loaded)
   const [workingFolder, setWorkingFolder] = useState<string | undefined>(undefined);
-  const [docsInitialFile, setDocsInitialFile] = useState<string | null>(null);
 
   // Derive ViewMode from URL prefix
   const viewMode: ViewMode = urlViewMode === "bridge" ? "bridge"
     : urlViewMode === "docs" ? "docs"
     : urlViewMode === "stack" ? "stack"
     : urlViewMode === "briefings" ? "briefings"
+    : urlViewMode === "people" ? "people"
     : "bridge"; // fallback
 
   // Unified setter
@@ -50,17 +44,13 @@ export function Board() {
       setUrlViewMode("stack");
     } else if (mode === "briefings") {
       setUrlViewMode("briefings");
+    } else if (mode === "people") {
+      setUrlViewMode("people");
     }
   }, [setUrlViewMode]);
 
-  // Hydrate from localStorage (for homeDir) and server after mount
+  // Hydrate after mount
   useEffect(() => {
-    const cachedHomeDir = localStorage.getItem(HOME_DIR_STORAGE_KEY) || "";
-
-    if (cachedHomeDir) {
-      setHomeDir(cachedHomeDir);
-    }
-
     // Always open to Bridge when no view prefix in URL (e.g., Electron app startup)
     if (!urlViewMode) {
       replaceViewMode("bridge");
@@ -83,73 +73,18 @@ export function Board() {
   }, [viewMode, isHydrated]);
 
 
-  // Fetch home directory after hydration (if not cached) and validate scope if set
+  // Fetch workingFolder from server
   useEffect(() => {
     if (!isHydrated) return;
+    if (workingFolder !== undefined) return;
 
-    // If we already have homeDir from cache, just validate scope and fetch workingFolder
-    if (homeDir) {
-      // Fetch workingFolder preference (needed for initial scope default)
-      if (workingFolder === undefined) {
-        fetch("/api/folders")
-          .then((res) => res.json())
-          .then((data) => {
-            setWorkingFolder(data.workingFolder || data.homeDir);
-          })
-          .catch(() => setWorkingFolder(homeDir));
-      }
-      // Only validate if scope looks suspicious (not empty and not under cached homeDir)
-      if (scopePath && !scopePath.startsWith(homeDir)) {
-        fetch(`/api/folders?validate=${encodeURIComponent(scopePath)}`)
-          .then((res) => res.json())
-          .then((data) => {
-            if (!data.valid) {
-              setScopePath(workingFolder || homeDir);
-            }
-          })
-          .catch(console.error);
-      }
-      return;
-    }
-
-    // No cache, need to fetch homeDir and workingFolder
     fetch("/api/folders")
       .then((res) => res.json())
-      .then(async (data) => {
-        setHomeDir(data.homeDir);
-        localStorage.setItem(HOME_DIR_STORAGE_KEY, data.homeDir);
+      .then((data) => {
         setWorkingFolder(data.workingFolder || data.homeDir);
-
-        // Validate current scope path if set
-        if (scopePath && scopePath !== data.homeDir) {
-          const validateRes = await fetch(`/api/folders?validate=${encodeURIComponent(scopePath)}`);
-          const validateData = await validateRes.json();
-          if (!validateData.valid) {
-            setScopePath(data.workingFolder || data.homeDir);
-          }
-        }
       })
       .catch(console.error);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHydrated]);
-
-  // Track if we've done the initial redirect (to prevent re-redirecting when user navigates to root)
-  const hasInitialRedirected = useRef(false);
-
-  // Default to workingFolder on initial load — only when URL has no scope
-  useEffect(() => {
-    // Wait for workingFolder to be loaded (undefined = still loading)
-    if (workingFolder === undefined) return;
-    if (isHydrated && !hasInitialRedirected.current) {
-      hasInitialRedirected.current = true;
-      // Only apply default if URL didn't already provide a scope
-      if (!scopePath) {
-        setScopePath(workingFolder);
-      }
-    }
-  }, [isHydrated, workingFolder, setScopePath, scopePath]);
-
-  const pinnedFolders = usePinnedFolders();
+  }, [isHydrated, workingFolder]);
   const isMobile = useIsMobile();
   const { hasUnread: hasBriefingUnread } = useBriefingUnread();
 
@@ -199,22 +134,6 @@ export function Board() {
         {/* Main content column — wrapped in PullToRefresh on mobile */}
         {isMobile && <PullToRefresh onRefresh={handleRefresh}>
         <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Mobile scope header — breadcrumb + browse at top of content */}
-        {getPrimaryView(viewMode) !== "bridge" && getPrimaryView(viewMode) !== "briefings" && (
-          <div className="flex-shrink-0 flex items-center gap-1 px-3 h-10 bg-[var(--bg-secondary)] border-b border-[var(--border-default)]">
-            {homeDir && (
-              <ScopeBreadcrumbs
-                value={scopePath}
-                homeDir={homeDir}
-                onChange={setScopePath}
-                isPinned={pinnedFolders.isPinned(scopePath)}
-                onTogglePin={() => pinnedFolders.togglePin(scopePath)}
-              />
-            )}
-            <BrowseButton onSelect={setScopePath} />
-          </div>
-        )}
-
         {/* Conditional View */}
         {viewMode === "bridge" ? (
           <BridgeView
@@ -226,18 +145,19 @@ export function Board() {
           />
         ) : viewMode === "docs" ? (
           <DocsView
-            scopePath={scopePath}
-            onScopeChange={setScopePath}
+            scopePath={workingFolder || ""}
+            focusedPath={scopePath}
+            onPathChange={setScopePath}
             searchQuery={searchQuery}
-            initialFilePath={docsInitialFile}
-            onInitialFileConsumed={() => setDocsInitialFile(null)}
           />
         ) : viewMode === "stack" ? (
           <div className="flex-1 overflow-hidden">
-            <StackView scopePath={scopePath} searchQuery={searchQuery} />
+            <StackView scopePath={workingFolder || ""} searchQuery={searchQuery} />
           </div>
         ) : viewMode === "briefings" ? (
           <BriefingsView />
+        ) : viewMode === "people" ? (
+          <PeopleView searchQuery={searchQuery} />
         ) : null}
         </div>
         </PullToRefresh>}
@@ -254,47 +174,20 @@ export function Board() {
           />
         ) : viewMode === "docs" ? (
           <DocsView
-            scopePath={scopePath}
-            onScopeChange={setScopePath}
+            scopePath={workingFolder || ""}
+            focusedPath={scopePath}
+            onPathChange={setScopePath}
             searchQuery={searchQuery}
-            initialFilePath={docsInitialFile}
-            onInitialFileConsumed={() => setDocsInitialFile(null)}
           />
         ) : viewMode === "stack" ? (
           <div className="flex-1 overflow-hidden">
-            <StackView scopePath={scopePath} searchQuery={searchQuery} />
+            <StackView scopePath={workingFolder || ""} searchQuery={searchQuery} />
           </div>
         ) : viewMode === "briefings" ? (
           <BriefingsView />
+        ) : viewMode === "people" ? (
+          <PeopleView searchQuery={searchQuery} />
         ) : null}
-
-        {/* Bottom toolbar — scope controls (desktop only) */}
-        {getPrimaryView(viewMode) !== "bridge" && getPrimaryView(viewMode) !== "briefings" && (
-          <div className="flex-shrink-0 mt-auto flex items-center gap-1 px-4 h-10 bg-[var(--bg-secondary)] border-t border-[var(--border-default)]">
-            {homeDir && (
-              <>
-                <ScopeBreadcrumbs
-                  value={scopePath}
-                  homeDir={homeDir}
-                  onChange={setScopePath}
-                  isPinned={pinnedFolders.isPinned(scopePath)}
-                  onTogglePin={() => pinnedFolders.togglePin(scopePath)}
-                />
-                <RecentScopesButton
-                  currentPath={scopePath}
-                  homeDir={homeDir}
-                  onSelect={setScopePath}
-                />
-              </>
-            )}
-            <BrowseButton onSelect={setScopePath} />
-            <PinnedFoldersPopover
-              currentScope={scopePath}
-              onScopeChange={setScopePath}
-              pinnedFolders={pinnedFolders}
-            />
-          </div>
-        )}
         </div>}
       </div>
     </div>

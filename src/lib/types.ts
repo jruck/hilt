@@ -103,3 +103,41 @@ export interface BridgeThoughtsResponse {
   vaultPath: string;
   columns: Record<BridgeThoughtStatus, BridgeThought[]>;
 }
+
+// ============ People Types ============
+
+export interface BridgePerson {
+  slug: string;              // Filename without .md (e.g., "amrit")
+  name: string;              // H1 from file (e.g., "Amrit")
+  type: "person" | "group";  // From frontmatter type field
+  description: string;       // From index.md descriptions (e.g., "Product counterpart")
+  nextTopics: string[];      // Bullet items from ## Next section
+  meetingCount: number;       // Number of linked meetings (inline + Granola)
+  lastMeetingDate: string | null;  // ISO date of most recent meeting
+  created: string;           // From frontmatter
+  updated: string;           // From frontmatter
+}
+
+export interface PersonMeeting {
+  source: "inline" | "granola" | "next";  // Where it came from
+  date: string;                    // ISO date (YYYY-MM-DD)
+  title: string;                   // Meeting title or "Notes" for inline
+  // For inline meetings (from ## Notes):
+  notes?: string;                  // Raw markdown of the dated section
+  // For Granola meetings:
+  filePath?: string;               // Path to meeting .md file
+  transcriptPath?: string;         // Path to transcript file
+  summary?: string;                // Full meeting body (markdown)
+}
+
+export interface PersonDetail extends BridgePerson {
+  nextRaw: string;                 // Raw markdown of ## Next section
+  nextDate: string | null;         // YYYY-MM-DD from "date: ..." line in ## Next, or null
+  meetings: PersonMeeting[];       // Sorted timeline (newest first), not merged
+  personFilePath: string;          // Absolute path to person .md file (for editing)
+}
+
+export interface BridgePeopleResponse {
+  vaultPath: string;
+  people: BridgePerson[];          // Flat list, not columns
+}

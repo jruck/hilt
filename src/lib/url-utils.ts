@@ -7,7 +7,7 @@
  *      /stack/Users/me/work/projects
  */
 
-export const VIEW_PREFIXES = ["bridge", "docs", "stack", "briefings"] as const;
+export const VIEW_PREFIXES = ["bridge", "docs", "stack", "briefings", "people"] as const;
 export type ViewPrefix = (typeof VIEW_PREFIXES)[number];
 
 export function isViewPrefix(s: string): s is ViewPrefix {

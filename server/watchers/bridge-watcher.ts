@@ -11,7 +11,7 @@ import * as path from "path";
 import * as os from "os";
 
 export interface BridgeChangedEvent {
-  type: "weekly" | "projects";
+  type: "weekly" | "projects" | "people";
   path: string;
 }
 
@@ -29,6 +29,8 @@ export class BridgeWatcher extends EventEmitter {
     const watchPaths = [
       path.join(this.vaultPath, "lists", "now"),
       path.join(this.vaultPath, "projects"),
+      path.join(this.vaultPath, "people"),
+      path.join(this.vaultPath, "meetings"),
     ];
 
     this.watcher = chokidar.watch(watchPaths, {
@@ -49,9 +51,14 @@ export class BridgeWatcher extends EventEmitter {
         return;
       }
 
-      const changeType = filePath.includes(path.join("lists", "now"))
-        ? "weekly"
-        : "projects";
+      let changeType: "weekly" | "projects" | "people";
+      if (filePath.includes(path.join("lists", "now"))) {
+        changeType = "weekly";
+      } else if (filePath.includes(path.sep + "people" + path.sep) || filePath.includes(path.sep + "meetings" + path.sep)) {
+        changeType = "people";
+      } else {
+        changeType = "projects";
+      }
 
       this.debouncedEmit(changeType, filePath);
     });
@@ -63,14 +70,14 @@ export class BridgeWatcher extends EventEmitter {
     console.log(`[BridgeWatcher] Watching: ${watchPaths.join(", ")}`);
   }
 
-  private debouncedEmit(type: "weekly" | "projects", filePath: string): void {
+  private debouncedEmit(type: "weekly" | "projects" | "people", filePath: string): void {
     const key = type;
     const existing = this.debounceTimers.get(key);
     if (existing) clearTimeout(existing);
 
     const timer = setTimeout(() => {
       this.debounceTimers.delete(key);
-      const eventName = type === "weekly" ? "weekly-changed" : "projects-changed";
+      const eventName = type === "weekly" ? "weekly-changed" : type === "people" ? "people-changed" : "projects-changed";
       this.emit(eventName, { type, path: filePath });
       console.log(`[BridgeWatcher] ${eventName}: ${filePath}`);
     }, this.debounceMs);

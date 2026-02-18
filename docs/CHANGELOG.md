@@ -6,10 +6,60 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Added
+
+- **People tab (Phase 1)** — New primary tab (⌘4) that surfaces people, groups, and meeting history from the bridge vault's `people/` and `meetings/` directories. Features: people list view with search filtering, person detail panel with inline notes and Granola meeting matching, responsive split-panel layout (desktop) and full-screen detail (mobile). Read-only in Phase 1.
+  - Types: `BridgePerson`, `PersonMeeting`, `PersonDetail`, `BridgePeopleResponse` in `src/lib/types.ts`
+  - Parser: `src/lib/bridge/people-parser.ts` — parses people index, person files, matches meetings by name tokenization
+  - API: `GET /api/bridge/people` (list), `GET /api/bridge/people/[slug]` (detail)
+  - Hooks: `useBridgePeople`, `usePersonDetail` with SWR + WebSocket live updates
+  - Components: `PeopleView`, `PersonCard`, `PersonDetailPanel`, `MeetingEntry`
+  - Watcher: Bridge watcher now monitors `people/` and `meetings/` directories
+  - Routing: People added to ViewToggle, Board, NavBar, url-utils. Deep link URLs: `/people/amrit` navigates directly to a person's detail view with browser back/forward support.
+
+- **People tab (Phase 2): Meeting card feed with tabbed artifacts** — Meetings now display as a feed of cards, one per entry (not merged by date). Each card shows up to three tabbed views: Written Notes, Summary, and Transcript. Written notes are shown by default when available and are editable in-place using the same tiptap editor as task details. Full Granola summary bodies shown (no truncation). No expand/collapse — cards always show full content.
+  - Types: Added `personFilePath` to `PersonDetail` for save-back support
+  - Parser: `updatePersonNotes()` in `people-parser.ts` — finds and replaces `### YYYY-MM-DD` sections in person files. Removed 200-char summary truncation.
+  - API: New `PUT /api/bridge/people/[slug]/notes` — saves edited inline notes back to the person's `.md` file (atomic write)
+  - UI: `MeetingEntry.tsx` redesigned as card with tab bar (Written Notes / Summary / Transcript). Single-source cards show content directly without tabs. Written notes use `BridgeTaskEditor` for rich editing.
+  - Wiring: `PersonDetailPanel` passes `slug` and `vaultPath` to each card
+
+- **People tab (Phase 3): Editing + rendering fixes** — Summary and Transcript tabs now render beautifully formatted markup via read-only tiptap instead of raw markdown text. Transcript tab loads content inline (lazy-fetched via `/api/docs/file`) instead of navigating away to the Docs view. Next Up section is now an editable tiptap editor — the primary pre-meeting planning surface.
+  - Parser: `updatePersonNext()` in `people-parser.ts` — finds and replaces `## Next` section content
+  - API: New `PUT /api/bridge/people/[slug]/next` — saves edited Next Up section back to the person's `.md` file (atomic write)
+  - UI: `MeetingEntry.tsx` — Summary/Transcript tabs use `BridgeTaskEditor` with `readOnly={true}`. Transcript content lazy-loaded on tab selection. Removed `onNavigateToTranscript` prop.
+  - UI: `PersonDetailPanel.tsx` — Next Up section replaced static bullet list with editable `BridgeTaskEditor`. Always visible (even when empty) to encourage pre-meeting planning.
+
+- **People tab (Phase 4): Three-column email inbox layout** — Redesigned from two-column (list + detail) to three-column email-inbox layout: person list (w-56) | meeting feed (w-80) | meeting content (flex-1). Person list shows compact cards, middle column shows person header + Next editor + filterable meeting rows, right column shows selected meeting at full width. Auto-selects first meeting when a person is chosen. Mobile uses three-level stacked navigation (person list → meeting feed → meeting content) with back buttons.
+  - New: `PersonMeetingList.tsx` — middle column component with person header, Next Up editor, filter bar, and scrollable meeting row list
+  - New: `MeetingRow.tsx` — compact meeting list item with date, title, and source icon
+  - Changed: `PersonCard.tsx` — added `compact` prop to hide next topic and tighten padding for left column
+  - Rewritten: `PeopleView.tsx` — three-column flex layout orchestrator, owns all state (person selection, meeting filter, meeting selection)
+  - Deleted: `PersonDetailPanel.tsx` — logic split between PersonMeetingList (header, next, filter, list) and PeopleView (state management, right column)
+
+- **People tab (Phase 5): "Next" as meeting entry + date hierarchy flip** — Two changes: (1) Date is now the primary headline in both MeetingRow and MeetingEntry, with title as secondary subtext. (2) "Next" is no longer a separate editor section — it's a synthetic meeting entry pinned at position 0 in the feed. Next supports an optional date (`date: YYYY-MM-DD` line in `## Next`), auto-decays to a historical meeting when the date passes, and a new empty Next appears after. Filters (All/Written/Recorded) only affect historical meetings below Next.
+  - Types: Added `"next"` to `PersonMeeting.source` union, `nextDate: string | null` to `PersonDetail`
+  - Parser: New `parseNextSection()`, `decayNext()`, `updateNextDate()` in `people-parser.ts`. `getPersonDetail()` now auto-decays past-date Next entries on read (atomic file rewrite).
+  - API: `PUT /api/bridge/people/[slug]/next` extended to accept optional `date` param alongside `content`. Preserves existing date when only content is updated.
+  - UI: `MeetingRow.tsx` — date is primary (`text-sm font-medium`), title is subtext (`text-xs text-tertiary`). Next row shows "Next" or "Next · Feb 20" with Sparkles icon.
+  - UI: `MeetingEntry.tsx` — date is primary (`text-base font-medium`), title is subtext (`text-sm text-secondary`). Next mode shows "Next" header with inline date picker, editor, no tabs.
+  - UI: `PersonMeetingList.tsx` — removed standalone "Next Up" editor section. Now receives `displayMeetings` (Next + filtered historical) and renders them uniformly.
+  - UI: `PeopleView.tsx` — builds synthetic Next entry when last meeting > 1 day ago or no meetings. Owns `localNextDate` state for optimistic date updates. Constructs `displayMeetings` array: `[nextEntry, ...filteredMeetings]`.
+
 ### Changed
 
 - **Externalize configuration for public sharing** - Moved all hardcoded personal values (working folder, remote hostname) to environment variables loaded from `.env`. Added `.env.example` with documented configuration options. Electron main process now loads `.env` at startup so remote access works correctly in the desktop app. Scrubbed personal paths from source code comments and documentation examples.
   - Files: `src/lib/db.ts`, `src/hooks/useSource.ts`, `electron/main.ts`
+
+### Fixed
+
+- **Bridge→Docs navigation: index.md not selected** — When navigating from a Bridge task's project card to Docs, the target folder expanded correctly but `index.md` was not auto-selected (content pane showed "Select a file to view"). Root cause: useDocs had a "re-initialize selectedPath from URL" effect using a boolean `scopeInitRef` to skip the initial mount. In React Strict Mode's unmount/remount cycle, the ref got flipped to `false` on the first mount and was never reset, causing the second mount to read the URL (which has no `?doc=` param for index files) and set `selectedPath` to `null` — overwriting the focusedPath effect's correct selection. Fix: replaced the boolean flag with a value comparison (`prevScopeRef`) that survives strict mode.
+- **Bridge→Docs navigation: nested folder expansion** — When navigating to deeply nested projects (e.g., `libraries/everpro/projects/alamo-custom-reports`), parent folders sometimes didn't expand. Multiple individual `expandPath()` calls could compete with useDocs' scope-sync effect. Fix: added `expandPaths(paths[])` batch function that expands all parent folders in a single atomic state update.
+- **Bridge→Docs navigation: folder-as-file error** — Clicking a project link that points to a folder (not a file) caused a "path must be a file, not a directory" error. Fix: added `findNodeByPath` helper to the focusedPath effect that detects directory nodes, expands them, and auto-selects `index.md` if available.
+
+### Removed
+
+- **Scope-switching UI** — Scope now permanently equals the working folder. Removed bottom toolbar (breadcrumbs, browse button, recent scopes, pinned folders popover) and mobile scope header. The URL path after `/docs/` now represents the selected file for deep linking, not the tree root. Deleted 14 dead code files: scope/ components (ScopeBreadcrumbs, SubfolderDropdown, BrowseButton, RecentScopesButton, PinnedFoldersPopover), sidebar/ components (Sidebar, PinnedFolderItem, SortablePinnedFolderItem, SidebarSection, SidebarToggle), recent-scopes.ts, pinned-folders.ts, usePinnedFolders.ts.
 
 ### Added
 

@@ -11,11 +11,11 @@ This document provides a comprehensive architectural overview of Hilt for AI age
 │  │  Next.js 16 + React 19                                            │  │
 │  │  ┌─────────────────────────────────────────────────────────────┐  │  │
 │  │  │  Board.tsx (Main Container)                                  │  │  │
-│  │  │  ├── ViewToggle (Bridge / Docs / Stack)                      │  │  │
-│  │  │  ├── ScopeBreadcrumbs (bottom toolbar, Docs + Stack)         │  │  │
+│  │  │  ├── ViewToggle (Bridge / Docs / Briefings / People)         │  │  │
 │  │  │  ├── BridgeView (weekly tasks, projects, notes)              │  │  │
 │  │  │  ├── DocsView (markdown file browser + editor)               │  │  │
-│  │  │  └── StackView (Claude config inspector)                     │  │  │
+│  │  │  ├── StackView (Claude config inspector)                     │  │  │
+│  │  │  └── PeopleView (people, groups, meeting history)            │  │  │
 │  │  └─────────────────────────────────────────────────────────────┘  │  │
 │  └───────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -55,7 +55,7 @@ This document provides a comprehensive architectural overview of Hilt for AI age
 | UI | React | 19.2.3 | Component library |
 | Language | TypeScript | 5 | Type safety |
 | Styling | Tailwind CSS | 4 | Utility-first CSS |
-| Drag & Drop | @dnd-kit | 6.3.1 | Bridge task reordering, pinned folder reordering |
+| Drag & Drop | @dnd-kit | 6.3.1 | Bridge task reordering |
 | Rich Text | Tiptap | 3.18 | Bridge task editor (WYSIWYG markdown) |
 | Code Viewer | CodeMirror | 6 | Syntax-highlighted code viewing in Docs |
 | Editor | MDXEditor | 3.52 | Plan markdown editing |
@@ -81,6 +81,7 @@ hilt/
 │   │       │   ├── weekly/     # Weekly task files
 │   │       │   ├── tasks/      # Task CRUD + reorder
 │   │       │   ├── projects/   # Project listing + status
+│   │       │   ├── people/     # People list + detail
 │   │       │   ├── notes/      # Notes section
 │   │       │   ├── recycle/    # Week rollover
 │   │       │   └── upload/     # File uploads to vault
@@ -123,6 +124,11 @@ hilt/
 │   │   │   ├── ProjectCard.tsx         # Single project card (115 lines)
 │   │   │   ├── WeekHeader.tsx          # Week navigation (143 lines)
 │   │   │   └── RecycleModal.tsx        # Week rollover dialog (156 lines)
+│   │   ├── people/             # People view components
+│   │   │   ├── PeopleView.tsx         # Main people layout (109 lines)
+│   │   │   ├── PersonCard.tsx         # Person list card (73 lines)
+│   │   │   ├── PersonDetailPanel.tsx  # Person detail panel (112 lines)
+│   │   │   └── MeetingEntry.tsx       # Meeting timeline entry (78 lines)
 │   │   ├── docs/               # Docs view components
 │   │   │   ├── DocsEditor.tsx          # Tiptap markdown editor (522 lines)
 │   │   │   ├── DocsContentPane.tsx     # File content display (434 lines)
@@ -143,25 +149,12 @@ hilt/
 │   │   │   ├── StackView.tsx           # Main stack layout (284 lines)
 │   │   │   ├── StackSummary.tsx        # Overview dashboard (178 lines)
 │   │   │   └── CreateFileDialog.tsx    # New config file (170 lines)
-│   │   ├── scope/              # Navigation components
-│   │   │   ├── ScopeBreadcrumbs.tsx    # Path segments (188 lines)
-│   │   │   ├── PinnedFoldersPopover.tsx# Pinned folders menu (182 lines)
-│   │   │   ├── RecentScopesButton.tsx  # Recent scopes (141 lines)
-│   │   │   ├── SubfolderDropdown.tsx   # Child folder picker (122 lines)
-│   │   │   └── BrowseButton.tsx        # File dialog trigger (37 lines)
-│   │   ├── sidebar/            # Sidebar components
-│   │   │   ├── SortablePinnedFolderItem.tsx # Drag-sortable folder (234 lines)
-│   │   │   ├── Sidebar.tsx             # Sidebar container (158 lines)
-│   │   │   ├── PinnedFolderItem.tsx    # Folder display (69 lines)
-│   │   │   ├── SidebarSection.tsx      # Collapsible section (64 lines)
-│   │   │   └── SidebarToggle.tsx       # Collapse toggle (27 lines)
 │   │   └── ui/                 # Shared UI components
 │   │       └── LiveIndicator.tsx       # Animated dot (18 lines)
 │   ├── contexts/               # React contexts
 │   │   ├── ScopeContext.tsx     # Scope path + view mode (URL-based routing)
 │   │   └── EventSocketContext.tsx # WebSocket event subscriptions
 │   ├── hooks/                  # Custom React hooks
-│   │   └── usePinnedFolders.ts # Pinned folder state
 │   └── lib/                    # Core utilities
 │       ├── bridge/             # Bridge vault parsing
 │       │   ├── weekly-parser.ts        # Weekly .md file parser (298 lines)
@@ -180,10 +173,8 @@ hilt/
 │       ├── db.ts               # Preferences + inbox persistence (373 lines)
 │       ├── todo-md.ts          # Todo.md parsing (487 lines)
 │       ├── types.ts            # Shared TypeScript interfaces (81 lines)
-│       ├── recent-scopes.ts    # LRU scope history (98 lines)
 │       ├── user-config.ts      # User settings loading (56 lines)
 │       ├── url-utils.ts        # View URL building/parsing (35 lines)
-│       ├── pinned-folders.ts   # Re-export from db.ts (14 lines)
 │       └── chat-types.ts       # Chat type definitions
 ├── server/
 │   ├── ws-server.ts            # HTTP + EventServer setup (239 lines)
@@ -204,7 +195,7 @@ hilt/
 │   ├── icon.icns               # macOS icon
 │   └── entitlements.mac.plist  # Code signing entitlements
 ├── data/                       # Persistent storage (gitignored)
-│   ├── preferences.json        # Pinned folders, theme, view mode, recent scopes
+│   ├── preferences.json        # Theme, view mode, working folder, vault path
 │   └── inbox.json              # Draft prompts (fallback)
 ├── scripts/
 │   └── generate-icons.mjs      # Icon generation script
@@ -233,6 +224,7 @@ Conditionally renders:
   - "bridge" → BridgeView
   - "docs"   → DocsView (with scope + search)
   - "stack"  → StackView (with scope + search)
+  - "people" → PeopleView (scope = person slug for deep links)
 ```
 
 ### 2. Bridge View Data Flow
@@ -301,7 +293,38 @@ StackView.tsx
       └── Raw JSON/JSONC config editor
 ```
 
-### 5. Real-Time Event Flow
+### 5. People View Data Flow
+
+```
+Bridge vault
+         │
+         ├── people/{slug}.md          (person/group definitions)
+         ├── people/index.md           (slug → description mapping)
+         └── meetings/*.md             (Granola meeting summaries)
+         │
+         ▼
+GET /api/bridge/people
+         │ people-parser.ts reads index, each person file, matches meetings
+         │ Returns: BridgePeopleResponse (flat list of BridgePerson)
+         ▼
+PeopleView.tsx
+  ├── PersonCard × N (list mode, searchable)
+  └── PersonDetailPanel (selected person)
+      │
+      GET /api/bridge/people/{slug}
+      │ Returns: PersonDetail (meeting timeline, personFilePath)
+      │ PUT /api/bridge/people/{slug}/notes — saves edited inline notes
+      │ PUT /api/bridge/people/{slug}/next — saves edited ## Next section
+      │
+      └── MeetingEntry × N (card with tabs: Written Notes / Summary / Transcript)
+          ├── inline notes (from ## Notes ### YYYY-MM-DD sections)
+          └── Granola meetings (matched by name tokenization)
+
+URL deep links: /people → list, /people/{slug} → detail
+Scope context carries the slug (not a filesystem path)
+```
+
+### 6. Real-Time Event Flow
 
 ```
 WebSocket connection: ws://localhost:3001/events
@@ -331,17 +354,12 @@ Components receive events and trigger SWR revalidation
 
 | State | Location | Persistence | Purpose |
 |-------|----------|-------------|---------|
-| Pinned folders | `data/preferences.json` | Server JSON | Sidebar folder pins with emoji |
 | Theme preference | `data/preferences.json` | Server JSON | Light/dark/system |
 | View mode | `data/preferences.json` + URL | Server JSON + URL | Bridge/Docs/Stack |
-| Recent scopes | `data/preferences.json` | Server JSON | Navigation history (LRU, max 10) |
 | Bridge vault path | `data/preferences.json` | Server JSON | Path to bridge vault |
 | Working folder | `data/preferences.json` | Server JSON | Default scope for all views |
-| Folder emojis | `data/preferences.json` | Server JSON | Emoji by path (persists across unpin/re-pin) |
 | Draft prompts | `Todo.md` / `data/inbox.json` | Local files | Queued prompts |
 | Scope path | URL + ScopeContext | URL state | Current folder scope |
-| Home directory | localStorage | Browser | Cached home dir path |
-| Sidebar collapsed | `data/preferences.json` | Server JSON | Sidebar visibility |
 
 ## API Routes
 
@@ -358,6 +376,9 @@ Components receive events and trigger SWR revalidation
 | `/api/bridge/notes` | GET/PUT | Read/write notes section | `content` |
 | `/api/bridge/recycle` | POST | Roll over to new week | - |
 | `/api/bridge/upload` | POST | Upload file to vault | multipart |
+| `/api/bridge/people` | GET | List people + groups | - |
+| `/api/bridge/people/[slug]` | GET | Person detail + meetings | `slug` |
+| `/api/bridge/people/[slug]/notes` | PUT | Update dated notes section | `slug`, `date`, `notes` |
 | `/api/docs/tree` | GET | Directory tree | `scope` |
 | `/api/docs/file` | GET/PUT | Read/write file | `path`, `scope`, `content` |
 | `/api/docs/raw` | GET | Raw file serving | `path` |
@@ -417,7 +438,7 @@ The WebSocket server uses a channel-based pub/sub model via `EventServer`. Clien
 { channel: "tree", event: "changed", data: { scope, type, path, relativePath } }
 { channel: "file", event: "changed", data: { scope, path, relativePath } }
 { channel: "inbox", event: "changed", data: { scope } }
-{ channel: "bridge", event: "weekly-changed" | "projects-changed", data: {} }
+{ channel: "bridge", event: "weekly-changed" | "projects-changed" | "people-changed", data: {} }
 
 // Error
 { type: "error", message: string }
@@ -427,7 +448,7 @@ The WebSocket server uses a channel-based pub/sub model via `EventServer`. Clien
 
 ```
 Board.tsx (274 lines)
-├── State: scopePath, viewMode, homeDir, workingFolder, searchQuery
+├── State: scopePath, viewMode, workingFolder, searchQuery
 ├── Contexts: useScope (ScopeContext)
 │
 ├── Top Toolbar
@@ -457,20 +478,20 @@ Board.tsx (274 lines)
 │   │           ├── ImageViewer / PDFViewer / CSVTableViewer
 │   │           └── DocsFallbackView (binary / unknown)
 │   │
-│   └── viewMode === "stack"
-│       └── StackView
-│           ├── StackFileTree (sidebar, config files)
-│           └── StackContentPane
-│               ├── StackSummary (overview dashboard)
-│               ├── MCPServerDetail (MCP inspector)
-│               ├── PluginDetail (plugin inspector)
-│               └── CreateFileDialog (new config)
-│
-└── Bottom Toolbar (hidden on Bridge view)
-    ├── ScopeBreadcrumbs (clickable path segments)
-    ├── RecentScopesButton
-    ├── BrowseButton
-    └── PinnedFoldersPopover
+│   ├── viewMode === "stack"
+│   │   └── StackView
+│   │       ├── StackFileTree (sidebar, config files)
+│   │       └── StackContentPane
+│   │           ├── StackSummary (overview dashboard)
+│   │           ├── MCPServerDetail (MCP inspector)
+│   │           ├── PluginDetail (plugin inspector)
+│   │           └── CreateFileDialog (new config)
+│   │
+│   └── viewMode === "people"
+│       └── PeopleView (URL: /people or /people/{slug})
+│           ├── PersonCard × N (list, searchable)
+│           └── PersonDetailPanel (selected person)
+│               └── MeetingEntry × N (inline notes + Granola meetings)
 ```
 
 ## Data Models
@@ -540,12 +561,8 @@ interface BridgeProject {
 
 ```typescript
 interface UserPreferences {
-  pinnedFolders: PinnedFolder[];
-  sidebarCollapsed: boolean;
   theme: "light" | "dark" | "system";
-  recentScopes: string[];
   viewMode: "bridge" | "docs" | "stack";
-  folderEmojis?: Record<string, string>;
   inboxPath?: string;
   bridgeVaultPath?: string;
   workingFolder?: string;
@@ -565,17 +582,22 @@ interface UserPreferences {
 - Weekly files: `{vault}/lists/now/{YYYY-MM-DD}.md`
 - Projects: `{vault}/projects/{slug}/index.md`
 - Nested areas: `{vault}/libraries/{area}/projects/{slug}/index.md`
+- People: `{vault}/people/{slug}.md` (person/group files), `{vault}/people/index.md` (descriptions)
+- Meetings: `{vault}/meetings/*.md` (Granola summaries), `{vault}/meetings/transcripts/*.md`
 - Vault path configured in preferences (`bridgeVaultPath`)
 
 ### 3. Scope Context and URL Routing
-- URLs encode both view mode and scope: `/bridge`, `/docs/Users/you/work/project`, `/stack/...`
+- Scope (tree root) always equals the working folder — no scope switching
+- URLs encode view mode and selection: `/bridge`, `/docs/path/to/selected/file`, `/stack/...`
+- The URL path after `/docs/` represents the *selected file* for deep linking, not the tree root
 - `ScopeContext` manages scope + view state, syncs with browser history
 - `replaceViewMode` used for initial redirect (no history entry)
 - `navigateTo` for atomic view + scope changes (single history entry)
+- People view reuses scope for deep links: `/people/amrit` → scope is `/amrit` (slug, not filesystem path)
+- Board skips filesystem validation for views that don't use file scopes (bridge, briefings, people)
 
 ### 4. dnd-kit Usage
 - Bridge: task reordering within the weekly task list
-- Sidebar: pinned folder reordering
 - Uses `@dnd-kit/core` + `@dnd-kit/sortable`
 
 ### 5. Real-Time Events Architecture
@@ -618,6 +640,7 @@ interface UserPreferences {
 | `db.ts` | 373 | Preferences + inbox JSON persistence |
 | `bridge/weekly-parser.ts` | 298 | Weekly .md file parser |
 | `bridge/project-parser.ts` | 215 | Project discovery + status updates |
+| `bridge/people-parser.ts` | 359 | People + meeting parsing, name matching |
 | `bridge/vault.ts` | 44 | Vault path resolution |
 | `claude-config/mcp-discovery.ts` | 450 | MCP server discovery + parsing |
 | `claude-config/plugin-discovery.ts` | 252 | Plugin discovery |
@@ -626,11 +649,9 @@ interface UserPreferences {
 | `claude-config/parsers.ts` | 195 | JSON/JSONC parsing |
 | `claude-config/writers.ts` | 131 | Config file writing |
 | `docs/wikilink-resolver.ts` | 254 | [[wikilink]] resolution for markdown |
-| `recent-scopes.ts` | 98 | LRU scope history |
 | `types.ts` | 81 | Shared TypeScript interfaces |
 | `user-config.ts` | 56 | User settings loading |
 | `url-utils.ts` | 35 | View URL building/parsing |
-| `pinned-folders.ts` | 14 | Re-export from db.ts |
 
 ### Server (server/)
 
@@ -671,4 +692,4 @@ interface UserPreferences {
 
 ---
 
-*Last updated: 2026-02-05*
+*Last updated: 2026-02-17*

@@ -113,6 +113,7 @@ export interface UseDocsResult {
   expandedPaths: Set<string>;
   toggleExpanded: (path: string) => void;
   expandPath: (path: string) => void;
+  expandPaths: (paths: string[]) => void;
   collapsePath: (path: string) => void;
 
   // Folder sort
@@ -200,6 +201,14 @@ export function useDocs(scopePath: string | null): UseDocsResult {
 
   const expandPath = useCallback((path: string) => {
     setExpandedPaths((prev) => new Set([...prev, path]));
+  }, []);
+
+  const expandPaths = useCallback((paths: string[]) => {
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      for (const p of paths) next.add(p);
+      return next;
+    });
   }, []);
 
   const collapsePath = useCallback((path: string) => {
@@ -293,13 +302,13 @@ export function useDocs(scopePath: string | null): UseDocsResult {
   }, [scopePath]);
 
   // Re-initialize from URL when scope changes (skip initial mount —
-  // on mount the useState initializer already reads from URL)
-  const scopeInitRef = useRef(true);
+  // on mount the useState initializer already reads from URL).
+  // Uses value comparison instead of a boolean flag so it survives
+  // React Strict Mode's unmount/remount cycle.
+  const prevScopeRef = useRef(scopePath);
   useEffect(() => {
-    if (scopeInitRef.current) {
-      scopeInitRef.current = false;
-      return;
-    }
+    if (prevScopeRef.current === scopePath) return; // Same scope — skip (includes initial mount)
+    prevScopeRef.current = scopePath;
     if (typeof window === "undefined" || !scopePath) {
       setSelectedPathInternal(null);
       return;
@@ -456,6 +465,7 @@ export function useDocs(scopePath: string | null): UseDocsResult {
     expandedPaths,
     toggleExpanded,
     expandPath,
+    expandPaths,
     collapsePath,
 
     // Folder sort

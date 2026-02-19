@@ -85,7 +85,7 @@ export function ProjectBoard({ columns, onProjectClick, onStatusChange, classNam
         Projects
       </h2>
 
-      <div className="space-y-5">
+      <div className="space-y-8">
         {/* Active sections: Doing → Refining → Considering */}
         {SECTION_ORDER.map(({ key, label }) => {
           const projects = sortByRecency(columns[key] ?? []);

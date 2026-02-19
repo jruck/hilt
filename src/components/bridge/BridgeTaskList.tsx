@@ -112,7 +112,7 @@ export function BridgeTaskList({
           {/* === To Do === */}
           {todoTasks.length > 0 && (
             <div>
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-3 pr-3">
                 <h2 className="text-sm font-medium text-[var(--text-tertiary)] uppercase tracking-wide">
                   To Do
                   <span className="text-[var(--text-quaternary)] ml-1.5 font-normal">
@@ -122,7 +122,7 @@ export function BridgeTaskList({
                 {onAddTask && (
                   <button
                     onClick={onAddTask}
-                    className="flex items-center justify-center w-6 h-6 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                    className="flex items-center justify-center w-4 h-4 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
                     title="Add task (⌘J)"
                   >
                     <Plus className="w-4 h-4" />
@@ -148,7 +148,7 @@ export function BridgeTaskList({
           {/* === Done === */}
           {doneTasks.length > 0 && (
             <div>
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-3 pr-3">
                 <h2 className="text-sm font-medium text-[var(--text-tertiary)] uppercase tracking-wide">
                   Done
                   <span className="text-[var(--text-quaternary)] ml-1.5 font-normal">
@@ -157,7 +157,7 @@ export function BridgeTaskList({
                 </h2>
                 <button
                   onClick={() => setDoneExpanded(!doneExpanded)}
-                  className="flex items-center justify-center w-6 h-6 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                  className="flex items-center justify-center w-4 h-4 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
                   title={doneExpanded ? "Collapse done" : "Expand done"}
                 >
                   <ChevronRight className={`w-4 h-4 transition-transform ${doneExpanded ? "rotate-90" : ""}`} />

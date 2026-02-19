@@ -157,6 +157,7 @@ export function useBridgeWeekly() {
       details: [],
       rawLines: [`- [ ] ${title}`],
       projectPath: null,
+      projectPaths: [],
       dueDate: null,
     };
     if (data) {
@@ -174,9 +175,16 @@ export function useBridgeWeekly() {
   }
 
   async function updateTaskProject(id: string, projectPath: string | null) {
+    // Legacy single-project update — adds to existing paths or sets as only path
+    const task = data?.tasks.find(t => t.id === id);
+    const currentPaths = task?.projectPaths ?? (task?.projectPath ? [task.projectPath] : []);
+    const newPaths = projectPath
+      ? [...currentPaths.filter(p => p !== projectPath), projectPath]
+      : [];
+    
     if (data) {
       const updatedTasks = data.tasks.map(t =>
-        t.id === id ? { ...t, projectPath } : t
+        t.id === id ? { ...t, projectPath: newPaths[0] ?? null, projectPaths: newPaths } : t
       );
       mutate({ ...data, tasks: updatedTasks }, false);
     }
@@ -184,7 +192,27 @@ export function useBridgeWeekly() {
     await fetch(`/api/bridge/tasks/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectPath }),
+      body: JSON.stringify({ projectPaths: newPaths }),
+    });
+    mutate();
+  }
+
+  async function removeTaskProject(id: string, projectPath: string) {
+    const task = data?.tasks.find(t => t.id === id);
+    const currentPaths = task?.projectPaths ?? (task?.projectPath ? [task.projectPath] : []);
+    const newPaths = currentPaths.filter(p => p !== projectPath);
+
+    if (data) {
+      const updatedTasks = data.tasks.map(t =>
+        t.id === id ? { ...t, projectPath: newPaths[0] ?? null, projectPaths: newPaths } : t
+      );
+      mutate({ ...data, tasks: updatedTasks }, false);
+    }
+
+    await fetch(`/api/bridge/tasks/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectPaths: newPaths }),
     });
     mutate();
   }
@@ -238,6 +266,7 @@ export function useBridgeWeekly() {
     updateTaskDetails,
     updateTaskTitle,
     updateTaskProject,
+    removeTaskProject,
     updateNotes,
     updateAccomplishments,
     recycle,

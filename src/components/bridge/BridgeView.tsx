@@ -33,6 +33,7 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
     updateTaskDetails,
     updateTaskTitle,
     updateTaskProject,
+    removeTaskProject,
     updateNotes,
     updateAccomplishments,
     recycle,
@@ -153,7 +154,7 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
 
   function handleAddTask(title: string) {
     // Select immediately — the optimistic task has id "task-0"
-    setSelectedTask({ id: "task-0", title, done: false, details: [], rawLines: [`- [ ] ${title}`], projectPath: null, dueDate: null });
+    setSelectedTask({ id: "task-0", title, done: false, details: [], rawLines: [`- [ ] ${title}`], projectPath: null, projectPaths: [], dueDate: null });
     setAutoFocusPanel(true);
     addTask(title);
   }
@@ -294,6 +295,7 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
             onUpdateTitle={updateTaskTitle}
             onUpdateDetails={updateTaskDetails}
             onUpdateProject={updateTaskProject}
+                onRemoveProject={removeTaskProject}
             onDelete={(id) => {
               deleteTask(id);
               setSelectedTask(null);
@@ -355,6 +357,7 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
                 onUpdateTitle={updateTaskTitle}
                 onUpdateDetails={updateTaskDetails}
                 onUpdateProject={updateTaskProject}
+                onRemoveProject={removeTaskProject}
                 onDelete={(id) => {
                   deleteTask(id);
                   setSelectedTask(null);

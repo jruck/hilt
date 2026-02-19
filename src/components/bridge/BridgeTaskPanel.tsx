@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { X, Trash2, FolderOpen, MoreVertical, Copy } from "lucide-react";
 import type { BridgeTask, BridgeProject } from "@/lib/types";
-import { parseAttribution, parseLifecycle } from "@/lib/attribution";
+import { parseLifecycle } from "@/lib/attribution";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
 import { useBridgeThoughts } from "@/hooks/useBridgeThoughts";
 import { ProjectPicker } from "./ProjectPicker";
@@ -23,6 +23,7 @@ interface BridgeTaskPanelProps {
   onUpdateTitle: (id: string, title: string) => void;
   onUpdateDetails: (id: string, details: string[]) => void;
   onUpdateProject: (id: string, projectPath: string | null) => void;
+  onRemoveProject?: (id: string, projectPath: string) => void;
   onDelete: (id: string) => void;
   onNavigateToProject?: (projectPath: string, vaultPath: string) => void;
 }
@@ -36,6 +37,7 @@ export function BridgeTaskPanel({
   onUpdateTitle,
   onUpdateDetails,
   onUpdateProject,
+  onRemoveProject,
   onDelete,
   onNavigateToProject,
 }: BridgeTaskPanelProps) {
@@ -92,11 +94,8 @@ export function BridgeTaskPanel({
   }
 
   // Strip lifecycle emoji for display (🆕, ⁇ are markdown tags, not user-visible)
-  // Strip attribution then lifecycle markers from display
   const displayTitle = useMemo(() => {
-    const attr = parseAttribution(title);
-    const withoutAttr = attr ? attr.displayTitle : title;
-    return parseLifecycle(withoutAttr, task.done).displayTitle;
+    return parseLifecycle(title, task.done).displayTitle;
   }, [title, task.done]);
 
   function saveTitle(value: string) {
@@ -120,30 +119,25 @@ export function BridgeTaskPanel({
     [task.id, onUpdateDetails]
   );
 
-  // Resolve project or thought from relativePath
-  const linkedProject: BridgeProject | null = (() => {
-    if (!task.projectPath) return null;
-    if (projects) {
-      const allProjects = Object.values(projects.columns).flat();
-      const found = allProjects.find(p => p.relativePath === task.projectPath);
-      if (found) return found;
-    }
-    return null;
-  })();
+  // Resolve all linked projects/thoughts
+  const projectPaths = task.projectPaths ?? (task.projectPath ? [task.projectPath] : []);
 
-  const linkedThought = (() => {
-    if (!task.projectPath || linkedProject) return null;
-    if (thoughts) {
-      const allThoughts = Object.values(thoughts.columns).flat();
-      return allThoughts.find(t => t.relativePath === task.projectPath) ?? null;
-    }
-    return null;
-  })();
+  const linkedItems = useMemo(() => {
+    const allProjects = projects ? Object.values(projects.columns).flat() : [];
+    const allThoughts = thoughts ? Object.values(thoughts.columns).flat() : [];
 
-  const projectDisplayName = linkedProject?.title
-    ?? linkedThought?.title
-    ?? task.projectPath?.split("/").pop()
-    ?? null;
+    return projectPaths.map(pp => {
+      const project = allProjects.find(p => p.relativePath === pp);
+      if (project) return { path: pp, title: project.title, icon: project.icon, type: "project" as const };
+      const thought = allThoughts.find(t => t.relativePath === pp);
+      if (thought) return { path: pp, title: thought.title, icon: thought.icon, type: "thought" as const };
+      return { path: pp, title: pp.split("/").pop() || pp, icon: "", type: "unknown" as const };
+    });
+  }, [projectPaths, projects, thoughts]);
+
+  // Legacy compat
+  const linkedProject = linkedItems.length > 0 ? linkedItems[0] : null;
+  const projectDisplayName = linkedProject?.title ?? null;
 
   const fullMarkdown = task.details.join("\n");
 
@@ -159,9 +153,9 @@ export function BridgeTaskPanel({
     }
     // Task title with checkbox
     lines.push(`- [${task.done ? "x" : " "}] ${task.title}${task.dueDate ? ` [due:: ${task.dueDate}]` : ""}`);
-    // Project link
-    if (task.projectPath) {
-      lines.push(`  - Project: \`${task.projectPath}\``);
+    // Project links
+    for (const pp of projectPaths) {
+      lines.push(`  - Project: \`${pp}\``);
     }
     // Details
     if (task.details.length > 0 && task.details.some(l => l.trim())) {
@@ -223,7 +217,7 @@ export function BridgeTaskPanel({
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
               >
                 <FolderOpen className="w-4 h-4 text-[var(--text-tertiary)]" />
-                {task.projectPath ? "Change project" : "Attach project"}
+                Attach project
               </button>
               <button
                 onClick={copyAsMarkdown}
@@ -259,50 +253,52 @@ export function BridgeTaskPanel({
         </div>
       </div>
 
-      {/* Project card (pinned) */}
-      {task.projectPath && projectDisplayName && (
-        <div className="flex-shrink-0 px-6 py-3 border-b border-[var(--border-default)]">
-          <div
-            className="flex items-center gap-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-2 group cursor-pointer hover:border-[var(--border-hover)] transition-colors"
-            onClick={() => {
-              if (task.projectPath && vaultPath && onNavigateToProject) {
-                onNavigateToProject(task.projectPath, vaultPath);
-              }
-            }}
-          >
-            <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center">
-              {linkedProject?.icon ? (
-                <span className="text-base leading-none">{linkedProject.icon}</span>
-              ) : (
-                <FolderOpen className="w-4 h-4 text-[var(--text-tertiary)]" />
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-[var(--text-primary)] truncate">
-                {projectDisplayName}
-              </div>
-              <div className="flex items-center gap-2 mt-0.5">
-                {linkedProject?.area && (
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-                    {linkedProject.area}
-                  </span>
+      {/* Project cards (pinned) */}
+      {linkedItems.length > 0 && (
+        <div className="flex-shrink-0 px-6 py-3 border-b border-[var(--border-default)] space-y-2">
+          {linkedItems.map((item) => (
+            <div
+              key={item.path}
+              className="flex items-center gap-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-2 group cursor-pointer hover:border-[var(--border-hover)] transition-colors"
+              onClick={() => {
+                if (vaultPath && onNavigateToProject) {
+                  onNavigateToProject(item.path, vaultPath);
+                }
+              }}
+            >
+              <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center">
+                {item.icon ? (
+                  <span className="text-base leading-none">{item.icon}</span>
+                ) : (
+                  <FolderOpen className="w-4 h-4 text-[var(--text-tertiary)]" />
                 )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-[var(--text-primary)] truncate">
+                  {item.title}
+                </div>
                 <span className="text-xs text-[var(--text-tertiary)] truncate">
-                  {task.projectPath}
+                  {item.path}
                 </span>
               </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onRemoveProject) {
+                    onRemoveProject(task.id, item.path);
+                  } else {
+                    // Fallback: remove by setting projectPaths without this one
+                    const remaining = projectPaths.filter(p => p !== item.path);
+                    onUpdateProject(task.id, remaining[0] ?? null);
+                  }
+                }}
+                className="p-1 text-[var(--text-tertiary)] opacity-0 group-hover:opacity-100 hover:text-[var(--text-secondary)] transition-all"
+                title="Detach project"
+              >
+                <X className="w-3 h-3" />
+              </button>
             </div>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onUpdateProject(task.id, null);
-              }}
-              className="p-1 text-[var(--text-tertiary)] opacity-0 group-hover:opacity-100 hover:text-[var(--text-secondary)] transition-all"
-              title="Detach project"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </div>
+          ))}
         </div>
       )}
 

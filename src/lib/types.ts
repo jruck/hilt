@@ -47,7 +47,8 @@ export interface BridgeTask {
   done: boolean;           // [x] vs [ ]
   details: string[];       // Indented sub-bullet lines (raw markdown)
   rawLines: string[];      // All lines in this task block
-  projectPath: string | null;  // Relative path from vault root, or null
+  projectPath: string | null;  // First project path (legacy compat), or null
+  projectPaths: string[];      // All linked project paths
   dueDate: string | null;      // YYYY-MM-DD from [due:: ...] inline field
 }
 

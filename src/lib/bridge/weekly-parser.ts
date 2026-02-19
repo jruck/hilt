@@ -107,7 +107,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
   // Parse tasks
   const tasks: BridgeTask[] = [];
   if (tasksStart !== -1) {
-    let currentTask: { titleLine: string; done: boolean; rawLines: string[]; detailLines: string[]; projectPath: string | null; dueDate: string | null } | null = null;
+    let currentTask: { titleLine: string; done: boolean; rawLines: string[]; detailLines: string[]; projectPath: string | null; projectPaths: string[]; dueDate: string | null } | null = null;
 
     for (let i = tasksStart; i < tasksEnd; i++) {
       const line = lines[i];
@@ -123,6 +123,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
             details: currentTask.detailLines,
             rawLines: currentTask.rawLines,
             projectPath: currentTask.projectPath,
+            projectPaths: currentTask.projectPaths,
             dueDate: currentTask.dueDate,
           });
         }
@@ -133,15 +134,29 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
         const dueMatch = titleRaw.match(/\[due::\s*(\d{4}-\d{2}-\d{2})\]/);
         const dueDate = dueMatch ? dueMatch[1] : null;
         const titleWithoutDue = dueMatch ? titleRaw.replace(dueMatch[0], "").trim() : titleRaw;
-        const linkMatch = titleWithoutDue.match(/^(.*?)\[(.+?)\]\((.+?)\)(.*)$/);
+        // Extract all markdown links from the title
+        const allLinks: { text: string; path: string }[] = [];
+        const linkRegex = /\[(.+?)\]\((.+?)\)/g;
+        let linkExec;
+        while ((linkExec = linkRegex.exec(titleWithoutDue)) !== null) {
+          allLinks.push({ text: linkExec[1], path: linkExec[2] });
+        }
+        // Build display title: replace first link with its text, remove subsequent links
+        let displayTitle = titleWithoutDue;
+        if (allLinks.length > 0) {
+          // Replace first link with just the display text
+          displayTitle = displayTitle.replace(/\[(.+?)\]\((.+?)\)/, "$1");
+          // Remove any additional links (they're just project attachments)
+          displayTitle = displayTitle.replace(/\s*\[.+?\]\(.+?\)/g, "").trim();
+        }
+        const projectPaths = allLinks.map(l => l.path);
         currentTask = {
-          titleLine: linkMatch
-            ? `${linkMatch[1]}${linkMatch[2]}${linkMatch[4]}`.trim()
-            : titleWithoutDue,
+          titleLine: displayTitle,
           done: taskMatch[1] === "x",
           rawLines: [line],
           detailLines: [],
-          projectPath: linkMatch ? linkMatch[3] : null,
+          projectPath: projectPaths[0] ?? null,
+          projectPaths,
           dueDate,
         };
       } else if (currentTask && line.match(/^[\t ]{2,}|^\t/)) {
@@ -167,6 +182,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
         details: currentTask.detailLines,
         rawLines: currentTask.rawLines,
         projectPath: currentTask.projectPath,
+        projectPaths: currentTask.projectPaths,
         dueDate: currentTask.dueDate,
       });
     }
@@ -210,6 +226,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
  */
 export function addTask(content: string, title: string, projectPath?: string): string {
   const parsed = parseWeeklyFile(content, "");
+  const projectPaths = projectPath ? [projectPath] : [];
   const titleText = projectPath ? `[${title}](${projectPath})` : title;
   const newTask: BridgeTask = {
     id: `task-0`,
@@ -218,6 +235,7 @@ export function addTask(content: string, title: string, projectPath?: string): s
     details: [],
     rawLines: [`- [ ] ${titleText}`],
     projectPath: projectPath ?? null,
+    projectPaths,
     dueDate: null,
   };
   // Re-index existing tasks
@@ -256,7 +274,7 @@ export function reorderTasks(content: string, newOrder: string[]): string {
 export function updateTask(
   content: string,
   taskId: string,
-  updates: Partial<Pick<BridgeTask, "done" | "title" | "details" | "projectPath">>
+  updates: Partial<Pick<BridgeTask, "done" | "title" | "details" | "projectPaths">>
 ): string {
   const parsed = parseWeeklyFile(content, "");
   const updatedTasks = parsed.tasks.map(task => {
@@ -264,14 +282,26 @@ export function updateTask(
     const done = updates.done !== undefined ? updates.done : task.done;
     const title = updates.title !== undefined ? updates.title : task.title;
     const details = updates.details !== undefined ? updates.details : task.details;
-    const projPath = updates.projectPath !== undefined ? updates.projectPath : task.projectPath;
+    const projectPaths = updates.projectPaths !== undefined ? updates.projectPaths : task.projectPaths;
     const checkbox = done ? "[x]" : "[ ]";
-    const titleText = projPath ? `[${title}](${projPath})` : title;
-    const titleLine = `- ${checkbox} ${titleText}`;
+    // Serialize: first project wraps the title, additional projects appended as separate links
+    let titleText: string;
+    if (projectPaths.length === 0) {
+      titleText = title;
+    } else {
+      titleText = `[${title}](${projectPaths[0]})`;
+      for (let i = 1; i < projectPaths.length; i++) {
+        const slug = projectPaths[i].split("/").pop() || projectPaths[i];
+        titleText += ` [+${slug}](${projectPaths[i]})`;
+      }
+    }
+    // Preserve due date if present
+    const dueSuffix = task.dueDate ? ` [due:: ${task.dueDate}]` : "";
+    const titleLine = `- ${checkbox} ${titleText}${dueSuffix}`;
     // Re-indent details for file storage
     const indentedDetails = details.map(addOneIndent);
     const rawLines = [titleLine, ...indentedDetails];
-    return { ...task, done, title, details, rawLines, projectPath: projPath, dueDate: task.dueDate };
+    return { ...task, done, title, details, rawLines, projectPath: projectPaths[0] ?? null, projectPaths, dueDate: task.dueDate };
   });
 
   return rebuildContent(content, updatedTasks, null);

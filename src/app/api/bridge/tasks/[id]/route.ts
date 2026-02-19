@@ -19,15 +19,17 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { done, title, details, moveTo, projectPath } = body;
+    const { done, title, details, moveTo, projectPath, projectPaths } = body;
 
     const { filename, content } = await getCurrentWeekly();
 
-    const updates: { done?: boolean; title?: string; details?: string[]; projectPath?: string | null } = {};
+    const updates: { done?: boolean; title?: string; details?: string[]; projectPaths?: string[] } = {};
     if (done !== undefined) updates.done = done;
     if (title !== undefined) updates.title = title;
     if (details !== undefined) updates.details = details;
-    if (projectPath !== undefined) updates.projectPath = projectPath;
+    // Support both legacy projectPath and new projectPaths
+    if (projectPaths !== undefined) updates.projectPaths = projectPaths;
+    else if (projectPath !== undefined) updates.projectPaths = projectPath ? [projectPath] : [];
 
     let updated = updateTask(content, id, updates);
 

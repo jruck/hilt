@@ -123,6 +123,7 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
             remarkPlugins={[remarkGfm]}
             components={{
               p: ({ children }) => <>{children}</>,
+              strong: ({ children }) => <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>,
               a: ({ href, children }) => (
                 <a
                   href={href}
@@ -146,6 +147,7 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
+                strong: ({ children }) => <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>,
                 a: ({ href, children }) => (
                   <a href={href} className="text-blue-400 no-underline hover:underline" target="_blank" rel="noopener noreferrer">
                     {children}

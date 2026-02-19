@@ -25,7 +25,7 @@ interface BriefingSection {
  *     - Detail sub-bullet
  *     - Another detail
  */
-function parseBriefing(content: string): { sections: BriefingSection[]; footnotes: string } {
+function parseBriefing(content: string): { sections: BriefingSection[] } {
   // Strip leading h1
   const body = content.replace(/^\s*#\s+.+\n*/, "");
   const lines = body.split("\n");
@@ -33,19 +33,12 @@ function parseBriefing(content: string): { sections: BriefingSection[]; footnote
   const sections: BriefingSection[] = [];
   let currentSection: BriefingSection | null = null;
   let currentItem: BriefingItem | null = null;
-  const footnoteLines: string[] = [];
-  let inFootnotes = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Detect footnotes section (starts with [^1]:)
+    // Skip footnote definition lines — these render inline via remark-gfm
     if (line.match(/^\[\^\d+\]:/)) {
-      inFootnotes = true;
-    }
-
-    if (inFootnotes) {
-      footnoteLines.push(line);
       continue;
     }
 
@@ -103,7 +96,7 @@ function parseBriefing(content: string): { sections: BriefingSection[]; footnote
     sections.push(currentSection);
   }
 
-  return { sections, footnotes: footnoteLines.join("\n") };
+  return { sections };
 }
 
 function CollapsibleItem({ item }: { item: BriefingItem }) {
@@ -166,7 +159,7 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
 }
 
 export function BriefingContent({ content }: BriefingContentProps) {
-  const { sections, footnotes } = useMemo(() => parseBriefing(content), [content]);
+  const { sections } = useMemo(() => parseBriefing(content), [content]);
 
   // If parsing didn't find structured sections, fall back to plain markdown
   if (sections.length === 0) {

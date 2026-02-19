@@ -174,7 +174,7 @@ export function useBridgeWeekly() {
     return newTask;
   }
 
-  async function updateTaskProject(id: string, projectPath: string | null) {
+  async function updateTaskProject(id: string, projectPath: string | null, projectTitles?: Record<string, string>) {
     // Legacy single-project update — adds to existing paths or sets as only path
     const task = data?.tasks.find(t => t.id === id);
     const currentPaths = task?.projectPaths ?? (task?.projectPath ? [task.projectPath] : []);
@@ -192,12 +192,12 @@ export function useBridgeWeekly() {
     await fetch(`/api/bridge/tasks/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectPaths: newPaths }),
+      body: JSON.stringify({ projectPaths: newPaths, projectTitles }),
     });
     mutate();
   }
 
-  async function removeTaskProject(id: string, projectPath: string) {
+  async function removeTaskProject(id: string, projectPath: string, projectTitles?: Record<string, string>) {
     const task = data?.tasks.find(t => t.id === id);
     const currentPaths = task?.projectPaths ?? (task?.projectPath ? [task.projectPath] : []);
     const newPaths = currentPaths.filter(p => p !== projectPath);
@@ -212,7 +212,7 @@ export function useBridgeWeekly() {
     await fetch(`/api/bridge/tasks/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectPaths: newPaths }),
+      body: JSON.stringify({ projectPaths: newPaths, projectTitles }),
     });
     mutate();
   }

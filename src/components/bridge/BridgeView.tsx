@@ -52,6 +52,32 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
   const [autoFocusPanel, setAutoFocusPanel] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
 
+  // Build project path → title map for markdown serialization
+  const projectTitlesMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (projects) {
+      for (const list of Object.values(projects.columns)) {
+        for (const p of list) map[p.relativePath] = p.title;
+      }
+    }
+    if (thoughts) {
+      for (const list of Object.values(thoughts.columns)) {
+        for (const t of list) map[t.relativePath] = t.title;
+      }
+    }
+    return map;
+  }, [projects, thoughts]);
+
+  const updateTaskProjectWithTitles = useCallback(
+    (id: string, projectPath: string | null) => updateTaskProject(id, projectPath, projectTitlesMap),
+    [updateTaskProject, projectTitlesMap]
+  );
+
+  const removeTaskProjectWithTitles = useCallback(
+    (id: string, projectPath: string) => removeTaskProject(id, projectPath, projectTitlesMap),
+    [removeTaskProject, projectTitlesMap]
+  );
+
   // Keep selected task in sync with latest data
   const resolvedTask = selectedTask && weekly
     ? weekly.tasks.find(t => t.id === selectedTask.id) ?? null
@@ -294,8 +320,8 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
             onClose={() => { markTaskRead(resolvedTask); setSelectedTask(null); }}
             onUpdateTitle={updateTaskTitle}
             onUpdateDetails={updateTaskDetails}
-            onUpdateProject={updateTaskProject}
-                onRemoveProject={removeTaskProject}
+            onUpdateProject={updateTaskProjectWithTitles}
+                onRemoveProject={removeTaskProjectWithTitles}
             onDelete={(id) => {
               deleteTask(id);
               setSelectedTask(null);
@@ -356,8 +382,8 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
                 onClose={closeSheet}
                 onUpdateTitle={updateTaskTitle}
                 onUpdateDetails={updateTaskDetails}
-                onUpdateProject={updateTaskProject}
-                onRemoveProject={removeTaskProject}
+                onUpdateProject={updateTaskProjectWithTitles}
+                onRemoveProject={removeTaskProjectWithTitles}
                 onDelete={(id) => {
                   deleteTask(id);
                   setSelectedTask(null);

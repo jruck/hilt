@@ -19,7 +19,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { done, title, details, moveTo, projectPath, projectPaths } = body;
+    const { done, title, details, moveTo, projectPath, projectPaths, projectTitles } = body;
 
     const { filename, content } = await getCurrentWeekly();
 
@@ -31,7 +31,7 @@ export async function PUT(
     if (projectPaths !== undefined) updates.projectPaths = projectPaths;
     else if (projectPath !== undefined) updates.projectPaths = projectPath ? [projectPath] : [];
 
-    let updated = updateTask(content, id, updates);
+    let updated = updateTask(content, id, updates, projectTitles);
 
     // Optionally move the task to top or bottom after update
     if (moveTo === "top" || moveTo === "bottom") {

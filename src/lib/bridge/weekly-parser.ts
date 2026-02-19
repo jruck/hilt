@@ -274,7 +274,9 @@ export function reorderTasks(content: string, newOrder: string[]): string {
 export function updateTask(
   content: string,
   taskId: string,
-  updates: Partial<Pick<BridgeTask, "done" | "title" | "details" | "projectPaths">>
+  updates: Partial<Pick<BridgeTask, "done" | "title" | "details" | "projectPaths">>,
+  /** Map of project path → display title for serializing additional project links */
+  projectTitles?: Record<string, string>
 ): string {
   const parsed = parseWeeklyFile(content, "");
   const updatedTasks = parsed.tasks.map(task => {
@@ -291,8 +293,8 @@ export function updateTask(
     } else {
       titleText = `[${title}](${projectPaths[0]})`;
       for (let i = 1; i < projectPaths.length; i++) {
-        const slug = projectPaths[i].split("/").pop() || projectPaths[i];
-        titleText += ` [+${slug}](${projectPaths[i]})`;
+        const name = projectTitles?.[projectPaths[i]] || projectPaths[i].split("/").pop() || projectPaths[i];
+        titleText += ` [+ ${name}](${projectPaths[i]})`;
       }
     }
     // Preserve due date if present

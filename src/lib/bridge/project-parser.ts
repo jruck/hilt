@@ -99,6 +99,28 @@ function humanizeFolderName(name: string): string {
 /**
  * Scan a single projects directory and return all projects found.
  */
+/** Get the most recent mtime of any file in a directory (recursive, shallow depth). */
+function getLatestMtime(dir: string, depth = 2): number {
+  let latest = 0;
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      const full = path.join(dir, entry.name);
+      try {
+        if (entry.isFile()) {
+          const mt = fs.statSync(full).mtimeMs;
+          if (mt > latest) latest = mt;
+        } else if (entry.isDirectory() && depth > 0) {
+          const sub = getLatestMtime(full, depth - 1);
+          if (sub > latest) latest = sub;
+        }
+      } catch { /* skip unreadable */ }
+    }
+  } catch { /* skip unreadable */ }
+  return latest;
+}
+
 function scanProjectsDir(
   projectsDir: string,
   vaultPath: string,
@@ -150,6 +172,7 @@ function scanProjectsDir(
       tags,
       source,
       description,
+      lastModified: getLatestMtime(projectDir),
     });
   }
 

@@ -78,6 +78,7 @@ export interface BridgeProject {
   icon: string;            // Emoji icon from frontmatter (empty string if none)
   source: string;          // Display group (e.g., "Projects", "EverPro", "Ventures")
   description: string;     // Body text from index.md (post-frontmatter, minus H1)
+  lastModified: number;    // Unix timestamp (ms) of most recently modified file in project folder
 }
 
 export interface BridgeProjectsResponse {

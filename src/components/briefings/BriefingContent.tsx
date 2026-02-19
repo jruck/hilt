@@ -3,8 +3,6 @@
 import { useState, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChevronRight } from "lucide-react";
-
 interface BriefingContentProps {
   content: string;
 }
@@ -114,30 +112,25 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
 
   return (
     <div className="border-b border-[var(--border-default)] last:border-b-0">
-      <button
+      <div
         onClick={() => hasDetails && setExpanded(!expanded)}
-        className={`w-full text-left px-3 py-2.5 flex items-start gap-2 transition-colors ${
-          hasDetails
-            ? "hover:bg-[var(--bg-secondary)] cursor-pointer"
-            : "cursor-default"
+        className={`w-full text-left px-3 py-2.5 transition-colors ${
+          hasDetails ? "hover:bg-[var(--bg-secondary)] cursor-pointer active:bg-[var(--bg-tertiary)]" : ""
         }`}
       >
-        {hasDetails ? (
-          <ChevronRight
-            className={`w-4 h-4 mt-0.5 flex-shrink-0 text-[var(--text-tertiary)] transition-transform duration-150 ${
-              expanded ? "rotate-90" : ""
-            }`}
-          />
-        ) : (
-          <span className="w-4 flex-shrink-0" />
-        )}
         <span className="text-sm text-[var(--text-primary)] leading-relaxed briefing-inline-md">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
               p: ({ children }) => <>{children}</>,
               a: ({ href, children }) => (
-                <a href={href} className="text-blue-400 no-underline hover:underline" target="_blank" rel="noopener noreferrer">
+                <a
+                  href={href}
+                  className="text-blue-400 no-underline hover:underline"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   {children}
                 </a>
               ),
@@ -146,24 +139,26 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
             {item.headline}
           </ReactMarkdown>
         </span>
-      </button>
+      </div>
       {expanded && hasDetails && (
-        <div className="pl-9 pr-3 pb-3 text-sm text-[var(--text-secondary)] leading-relaxed briefing-details">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-              a: ({ href, children }) => (
-                <a href={href} className="text-blue-400 no-underline hover:underline" target="_blank" rel="noopener noreferrer">
-                  {children}
-                </a>
-              ),
-              ul: ({ children }) => <ul className="list-disc pl-4 space-y-1">{children}</ul>,
-              li: ({ children }) => <li className="text-[var(--text-secondary)]">{children}</li>,
-              p: ({ children }) => <p className="mb-1">{children}</p>,
-            }}
-          >
-            {item.details}
-          </ReactMarkdown>
+        <div className="px-3 pb-3 text-sm text-[var(--text-secondary)] leading-relaxed briefing-details border-t border-[var(--border-default)]/50">
+          <div className="pt-2">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                a: ({ href, children }) => (
+                  <a href={href} className="text-blue-400 no-underline hover:underline" target="_blank" rel="noopener noreferrer">
+                    {children}
+                  </a>
+                ),
+                ul: ({ children }) => <ul className="list-disc pl-4 space-y-1">{children}</ul>,
+                li: ({ children }) => <li className="text-[var(--text-secondary)]">{children}</li>,
+                p: ({ children }) => <p className="mb-1">{children}</p>,
+              }}
+            >
+              {item.details}
+            </ReactMarkdown>
+          </div>
         </div>
       )}
     </div>

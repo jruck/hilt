@@ -213,16 +213,6 @@ export function BridgeTaskItem({
             <DueDateBadge dueDate={task.dueDate} done={task.done} />
           )}
 
-          {/* Agent avatar */}
-          {attribution && (
-            <span
-              className="flex-shrink-0 text-sm cursor-default select-none"
-              title={`Assigned by ${attribution.agent}`}
-            >
-              {attribution.emoji}
-            </span>
-          )}
-
           {/* Open detail panel indicator */}
           <ChevronRight className={`flex-shrink-0 w-4 h-4 transition-colors ${
             isSelected

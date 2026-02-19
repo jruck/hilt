@@ -17,13 +17,11 @@ const SHORTCUTS = [
   { keys: "Esc", description: "Close search" },
 ];
 
-function ShortcutsPopup({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+function ShortcutsPopup({ visible }: { visible: boolean; onClose: () => void }) {
   if (!visible) return null;
   return (
     <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 z-[100]" onClick={onClose} />
-      {/* Popup */}
+      {/* Popup — no backdrop overlay, dismiss via double-press ⌘ only */}
       <div
         className="fixed z-[101] rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-xl p-4 w-64"
         style={{ top: "56px", left: "50%", transform: "translateX(-50%)" }}
@@ -114,16 +112,11 @@ export function NavBar({
       } else {
         // Any other key pressed with ⌘ means it's a shortcut, not a double-press
         if (e.metaKey || e.ctrlKey) lastCmdPressRef.current = 0;
-        // Close popup on any shortcut use
-        if (showShortcuts) setShowShortcuts(false);
       }
     }
-    function handleBlur() { setShowShortcuts(false); }
     window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("blur", handleBlur);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("blur", handleBlur);
     };
   }, [showShortcuts]);
 

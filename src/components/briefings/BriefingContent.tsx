@@ -114,10 +114,11 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
     <div>
       <div
         onClick={() => hasDetails && setExpanded(!expanded)}
-        className={`py-1 pl-3 transition-colors ${
+        className={`py-1 pl-5 transition-colors relative ${
           hasDetails ? "cursor-pointer" : ""
         }`}
       >
+        <span className="absolute left-1.5 top-[0.6rem] w-1 h-1 rounded-full bg-[var(--text-tertiary)]" />
         <span className="text-sm text-[var(--text-primary)] leading-snug briefing-inline-md">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
@@ -142,7 +143,7 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
         </span>
       </div>
       {expanded && hasDetails && (
-        <div className="pl-7 pb-1 text-sm text-[var(--text-secondary)] leading-snug">
+        <div className="pl-5 pb-1 text-sm text-[var(--text-secondary)] leading-snug">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{

@@ -159,11 +159,10 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
 }
 
 export function BriefingContent({ content }: BriefingContentProps) {
-  const hasFootnotes = /\[\^\d+\]/.test(content);
   const { sections } = useMemo(() => parseBriefing(content), [content]);
 
-  // Fall back to plain markdown for older briefings with footnotes, or if no sections found
-  if (sections.length === 0 || hasFootnotes) {
+  // Fall back to plain markdown if no sections found
+  if (sections.length === 0) {
     const displayContent = content.replace(/^\s*#\s+.+\n*/, "");
     return (
       <div className="briefing-content prose max-w-none

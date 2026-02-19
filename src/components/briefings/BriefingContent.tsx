@@ -111,14 +111,14 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
   const hasDetails = item.details.trim().length > 0;
 
   return (
-    <div className="border-b border-[var(--border-default)] last:border-b-0">
+    <div>
       <div
         onClick={() => hasDetails && setExpanded(!expanded)}
-        className={`w-full text-left px-3 py-2.5 transition-colors ${
-          hasDetails ? "hover:bg-[var(--bg-secondary)] cursor-pointer active:bg-[var(--bg-tertiary)]" : ""
+        className={`py-1 transition-colors ${
+          hasDetails ? "cursor-pointer" : ""
         }`}
       >
-        <span className="text-sm text-[var(--text-primary)] leading-relaxed briefing-inline-md">
+        <span className="text-sm text-[var(--text-primary)] leading-snug briefing-inline-md">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
@@ -142,25 +142,23 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
         </span>
       </div>
       {expanded && hasDetails && (
-        <div className="px-3 pb-3 text-sm text-[var(--text-secondary)] leading-relaxed briefing-details border-t border-[var(--border-default)]/50">
-          <div className="pt-2">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                strong: ({ children }) => <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>,
-                a: ({ href, children }) => (
-                  <a href={href} className="text-blue-400 no-underline hover:underline" target="_blank" rel="noopener noreferrer">
-                    {children}
-                  </a>
-                ),
-                ul: ({ children }) => <ul className="list-disc pl-4 space-y-1">{children}</ul>,
-                li: ({ children }) => <li className="text-[var(--text-secondary)]">{children}</li>,
-                p: ({ children }) => <p className="mb-1">{children}</p>,
-              }}
-            >
-              {item.details}
-            </ReactMarkdown>
-          </div>
+        <div className="pl-4 pb-1 text-sm text-[var(--text-secondary)] leading-snug">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              strong: ({ children }) => <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>,
+              a: ({ href, children }) => (
+                <a href={href} className="text-blue-400 no-underline hover:underline" target="_blank" rel="noopener noreferrer">
+                  {children}
+                </a>
+              ),
+              ul: ({ children }) => <ul className="list-disc pl-4 space-y-0.5">{children}</ul>,
+              li: ({ children }) => <li className="text-[var(--text-secondary)]">{children}</li>,
+              p: ({ children }) => <p className="mb-0.5">{children}</p>,
+            }}
+          >
+            {item.details}
+          </ReactMarkdown>
         </div>
       )}
     </div>
@@ -189,13 +187,13 @@ export function BriefingContent({ content }: BriefingContentProps) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {sections.map((section, si) => (
         <div key={si}>
-          <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
+          <h2 className="text-base font-semibold text-[var(--text-primary)] mb-1">
             {section.heading}
           </h2>
-          <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
+          <div className="space-y-0">
             {section.items.map((item, ii) => (
               <CollapsibleItem key={ii} item={item} />
             ))}

@@ -5,7 +5,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { ViewToggle, ViewMode } from "./ViewToggle";
 import { ThemeToggle } from "./ThemeToggle";
 import { SourceToggle } from "./SourceToggle";
-import { Search, X, Plus, Layers } from "lucide-react";
+import { Search, X, Layers } from "lucide-react";
 
 const SHORTCUTS = [
   { keys: "⌘ K", description: "Search" },
@@ -228,17 +228,6 @@ export function NavBar({
               {/* View toggle (compact mode) */}
               <ViewToggle view={viewMode} onChange={setViewMode} compact onDoubleTapActive={() => window.location.reload()} unreadTabs={unreadTabs} />
 
-              {/* Add button */}
-              <button
-                onClick={() => {
-                  if (viewMode !== "bridge") setViewMode("bridge");
-                  setAddTaskTrigger((c) => c + 1);
-                }}
-                className="flex items-center justify-center w-12 h-12 rounded-full text-[var(--text-secondary)] active:bg-white/10 transition-colors"
-                title="Add task"
-              >
-                <Plus className="w-6 h-6" />
-              </button>
             </div>
           )}
         </nav>
@@ -253,21 +242,8 @@ export function NavBar({
       className="grid h-11 bg-[var(--bg-secondary)] border-b border-[var(--border-default)] px-4 items-center gap-4"
       style={{ WebkitAppRegion: "drag", gridTemplateColumns: "1fr auto 1fr" } as React.CSSProperties}
     >
-      {/* Left: Add task button */}
+      {/* Left: spacer for drag region */}
       <div className="flex items-center pointer-events-none">
-        <div className="relative pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
-          <button
-            onClick={() => {
-              if (viewMode !== "bridge") setViewMode("bridge");
-              setAddTaskTrigger((c) => c + 1);
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-80 transition-opacity"
-            title="Add task (⌘J)"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add</span>
-          </button>
-        </div>
       </div>
 
       {/* Center: View toggle */}

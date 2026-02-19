@@ -15,6 +15,7 @@ import {
   verticalListSortingStrategy,
   arrayMove,
 } from "@dnd-kit/sortable";
+import { Plus } from "lucide-react";
 import type { BridgeTask } from "@/lib/types";
 import { BridgeTaskItem } from "./BridgeTaskItem";
 import { parseLifecycle } from "@/lib/attribution";
@@ -27,6 +28,7 @@ interface BridgeTaskListProps {
   onUpdateTitle: (id: string, title: string) => void;
   onDeleteTask: (id: string) => void;
   onSelectTask: (task: BridgeTask) => void;
+  onAddTask?: () => void;
 }
 
 export function BridgeTaskList({
@@ -37,6 +39,7 @@ export function BridgeTaskList({
   onUpdateTitle,
   onDeleteTask,
   onSelectTask,
+  onAddTask,
 }: BridgeTaskListProps) {
   const [localTasks, setLocalTasks] = useState<BridgeTask[] | null>(null);
   const displayTasks = localTasks || tasks;
@@ -108,12 +111,23 @@ export function BridgeTaskList({
           {/* === To Do === */}
           {todoTasks.length > 0 && (
             <div>
-              <h2 className="text-sm font-medium text-[var(--text-tertiary)] uppercase tracking-wide mb-3">
-                To Do
-                <span className="text-[var(--text-quaternary)] ml-1.5 font-normal">
-                  {todoTasks.length}
-                </span>
-              </h2>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-medium text-[var(--text-tertiary)] uppercase tracking-wide">
+                  To Do
+                  <span className="text-[var(--text-quaternary)] ml-1.5 font-normal">
+                    {todoTasks.length}
+                  </span>
+                </h2>
+                {onAddTask && (
+                  <button
+                    onClick={onAddTask}
+                    className="flex items-center justify-center w-6 h-6 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                    title="Add task (⌘J)"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
               <div className="space-y-1">
                 {todoTasks.map((task) => (
                   <BridgeTaskItem

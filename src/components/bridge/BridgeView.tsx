@@ -256,6 +256,7 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
                 if (selectedTask?.id === id) setSelectedTask(null);
               }}
               onSelectTask={handleSelectTask}
+              onAddTask={() => handleAddTask("New task")}
             />
           )}
 

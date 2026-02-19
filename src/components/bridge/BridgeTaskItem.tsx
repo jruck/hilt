@@ -5,7 +5,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { BridgeTask } from "@/lib/types";
 import { GripVertical, ChevronRight } from "lucide-react";
-import { parseAttribution, parseLifecycle } from "@/lib/attribution";
+import { parseLifecycle } from "@/lib/attribution";
 import { useIsMobile } from "@/hooks/useIsMobile";
 
 function DueDateBadge({ dueDate, done }: { dueDate: string; done?: boolean }) {
@@ -57,11 +57,8 @@ export function BridgeTaskItem({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const isTouch = useIsMobile();
 
-  // Parse attribution and lifecycle from title (memoized)
-  // Strip attribution first, then lifecycle markers from display
-  const attribution = useMemo(() => parseAttribution(title), [title]);
-  const titleWithoutAttribution = attribution ? attribution.displayTitle : title;
-  const lifecycle = useMemo(() => parseLifecycle(titleWithoutAttribution, task.done), [titleWithoutAttribution, task.done]);
+  // Parse lifecycle markers from title (memoized)
+  const lifecycle = useMemo(() => parseLifecycle(title, task.done), [title, task.done]);
   const displayTitle = lifecycle.displayTitle;
 
   useEffect(() => {

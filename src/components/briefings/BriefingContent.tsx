@@ -111,7 +111,7 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
           hasDetails ? "cursor-pointer" : ""
         }`}
       >
-        <span className="text-sm text-[var(--text-primary)] leading-snug briefing-inline-md">
+        <span className="text-[var(--text-primary)] leading-relaxed briefing-inline-md">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
@@ -135,7 +135,7 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
         </span>
       </div>
       {expanded && hasDetails && (
-        <div className="pb-1 text-sm text-[var(--text-secondary)] leading-snug">
+        <div className="pb-1 text-[var(--text-secondary)] leading-relaxed">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
@@ -182,10 +182,10 @@ export function BriefingContent({ content }: BriefingContentProps) {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="prose max-w-none prose-headings:text-[var(--text-primary)] prose-headings:font-semibold prose-p:text-[var(--text-secondary)] prose-p:leading-relaxed prose-strong:text-[var(--text-primary)] prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-li:text-[var(--text-secondary)] prose-li:leading-relaxed prose-code:text-[var(--text-secondary)] prose-code:bg-[var(--bg-tertiary)] space-y-5">
       {sections.map((section, si) => (
         <div key={si}>
-          <h2 className="text-base font-semibold text-[var(--text-primary)] mb-1">
+          <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
             {section.heading}
           </h2>
           <ul className="list-disc pl-5 space-y-0">

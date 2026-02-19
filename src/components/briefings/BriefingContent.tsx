@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
 interface BriefingContentProps {
   content: string;
 }
@@ -107,12 +108,21 @@ function parseBriefing(content: string): { sections: BriefingSection[] } {
   return { sections };
 }
 
+/** Replace [^N] citation markers with superscript HTML */
+function renderCitations(text: string): string {
+  return text.replace(/\[\^(\d+)\]/g, '<sup><a href="#fn-$1" class="citation-link">$1</a></sup>');
+}
+
 function CollapsibleItem({ item }: { item: BriefingItem }) {
   const [expanded, setExpanded] = useState(false);
   const hasDetails = item.details.trim().length > 0;
 
+  // Detect footnote items like "[1] Some text" and add anchor id
+  const footnoteMatch = item.headline.match(/^\[(\d+)\]\s/);
+  const footnoteId = footnoteMatch ? `fn-${footnoteMatch[1]}` : undefined;
+
   return (
-    <li className="text-[var(--text-primary)]">
+    <li id={footnoteId} className="text-[var(--text-primary)]">
       <div
         onClick={() => hasDetails && setExpanded(!expanded)}
         className={`py-0.5 transition-colors ${
@@ -122,15 +132,19 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
         <span className="text-[var(--text-primary)] leading-relaxed briefing-inline-md">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeRaw]}
             components={{
               p: ({ children }) => <>{children}</>,
               strong: ({ children }) => <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>,
-              a: ({ href, children }) => (
+              sup: ({ children }) => <sup className="text-xs">{children}</sup>,
+              a: ({ href, children, className }) => (
                 <a
                   href={href}
-                  className="text-blue-400 no-underline hover:underline"
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  className={className === "citation-link"
+                    ? "text-blue-400 no-underline hover:underline text-[10px]"
+                    : "text-blue-400 no-underline hover:underline"}
+                  target={href?.startsWith("#") ? undefined : "_blank"}
+                  rel={href?.startsWith("#") ? undefined : "noopener noreferrer"}
                   onClick={(e) => e.stopPropagation()}
                 >
                   {children}
@@ -138,7 +152,7 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
               ),
             }}
           >
-            {item.headline}
+            {renderCitations(item.headline)}
           </ReactMarkdown>
         </span>
       </div>

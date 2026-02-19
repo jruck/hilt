@@ -166,7 +166,7 @@ export function BriefingContent({ content }: BriefingContentProps) {
   if (sections.length === 0 || hasFootnotes) {
     const displayContent = content.replace(/^\s*#\s+.+\n*/, "");
     return (
-      <div className="briefing-content prose prose-invert max-w-none
+      <div className="briefing-content prose max-w-none
         prose-headings:text-[var(--text-primary)] prose-headings:font-semibold
         prose-h2:text-lg prose-h2:mb-3 prose-h2:mt-6
         prose-p:text-[var(--text-secondary)] prose-p:leading-relaxed prose-p:mb-3
@@ -174,6 +174,7 @@ export function BriefingContent({ content }: BriefingContentProps) {
         prose-strong:text-[var(--text-primary)]
         prose-li:text-[var(--text-secondary)] prose-li:leading-relaxed
         prose-ul:mb-3 prose-ol:mb-3
+        prose-code:text-[var(--text-secondary)] prose-code:bg-[var(--bg-tertiary)]
       ">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayContent}</ReactMarkdown>
       </div>

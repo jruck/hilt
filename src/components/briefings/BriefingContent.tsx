@@ -201,29 +201,6 @@ export function BriefingContent({ content }: BriefingContentProps) {
         </div>
       ))}
 
-      {/* Footnotes / Sources */}
-      {footnotes.trim() && (
-        <details className="text-xs text-[var(--text-tertiary)]">
-          <summary className="cursor-pointer hover:text-[var(--text-secondary)] transition-colors py-2">
-            Sources
-          </summary>
-          <div className="pl-2 pt-1 space-y-0.5 briefing-footnotes">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                p: ({ children }) => <p className="text-xs text-[var(--text-tertiary)] mb-0.5">{children}</p>,
-                a: ({ href, children }) => (
-                  <a href={href} className="text-blue-400/70 no-underline hover:underline" target="_blank" rel="noopener noreferrer">
-                    {children}
-                  </a>
-                ),
-              }}
-            >
-              {footnotes}
-            </ReactMarkdown>
-          </div>
-        </details>
-      )}
     </div>
   );
 }

@@ -28,22 +28,30 @@ export function PullToRefresh({
     (e: TouchEvent) => {
       if (isRefreshing) return;
 
-      // Only activate if scrolled to top
       const container = containerRef.current;
       if (!container) return;
 
-      // Find the nearest scrollable ancestor
-      let scrollParent: HTMLElement | null = container;
-      while (scrollParent) {
-        if (scrollParent.scrollTop > 0) return; // not at top
-        const style = getComputedStyle(scrollParent);
-        if (
-          style.overflowY === "auto" ||
-          style.overflowY === "scroll"
-        ) {
-          if (scrollParent.scrollTop > 0) return;
+      // Check if any scrollable element (ancestor or descendant) is scrolled away from top
+      // Walk up from the touch target to find scrollable ancestors
+      let el: HTMLElement | null = e.target as HTMLElement;
+      while (el && el !== document.documentElement) {
+        const style = getComputedStyle(el);
+        const isScrollable =
+          style.overflowY === "auto" || style.overflowY === "scroll";
+        if (isScrollable && el.scrollTop > 0) return; // not at top — don't activate
+        el = el.parentElement;
+      }
+
+      // Also check scrollable descendants of our container
+      const scrollableChildren = container.querySelectorAll("*");
+      for (let i = 0; i < scrollableChildren.length; i++) {
+        const child = scrollableChildren[i] as HTMLElement;
+        if (child.scrollTop > 0) {
+          const style = getComputedStyle(child);
+          if (style.overflowY === "auto" || style.overflowY === "scroll") {
+            return; // a scrollable child isn't at top
+          }
         }
-        scrollParent = scrollParent.parentElement;
       }
 
       touchStartY.current = e.touches[0].clientY;

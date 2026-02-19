@@ -85,7 +85,7 @@ export function ProjectBoard({ columns, onProjectClick, onStatusChange, classNam
         Projects
       </h2>
 
-      <div className="space-y-10">
+      <div className="flex flex-col gap-10">
         {/* Active sections: Doing → Refining → Considering */}
         {SECTION_ORDER.map(({ key, label }) => {
           const projects = sortByRecency(columns[key] ?? []);
@@ -94,8 +94,8 @@ export function ProjectBoard({ columns, onProjectClick, onStatusChange, classNam
           return (
             <div
               key={key}
-              className={`rounded-lg p-2 -m-2 transition-colors ${
-                dragOverSection === key ? "bg-[var(--bg-secondary)]" : ""
+              className={`rounded-lg transition-colors ${
+                dragOverSection === key ? "bg-[var(--bg-secondary)] p-2" : ""
               }`}
               onDragOver={(e) => handleDragOver(e, key)}
               onDragEnter={(e) => handleDragOver(e, key)}

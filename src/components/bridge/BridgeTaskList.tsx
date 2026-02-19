@@ -15,7 +15,7 @@ import {
   verticalListSortingStrategy,
   arrayMove,
 } from "@dnd-kit/sortable";
-import { Plus } from "lucide-react";
+import { Plus, ChevronRight } from "lucide-react";
 import type { BridgeTask } from "@/lib/types";
 import { BridgeTaskItem } from "./BridgeTaskItem";
 import { parseLifecycle } from "@/lib/attribution";
@@ -42,6 +42,7 @@ export function BridgeTaskList({
   onAddTask,
 }: BridgeTaskListProps) {
   const [localTasks, setLocalTasks] = useState<BridgeTask[] | null>(null);
+  const [doneExpanded, setDoneExpanded] = useState(false);
   const displayTasks = localTasks || tasks;
 
   // Split into To Do / Done, preserving markdown order within each
@@ -147,25 +148,36 @@ export function BridgeTaskList({
           {/* === Done === */}
           {doneTasks.length > 0 && (
             <div>
-              <h2 className="text-sm font-medium text-[var(--text-tertiary)] uppercase tracking-wide mb-3">
-                Done
-                <span className="text-[var(--text-quaternary)] ml-1.5 font-normal">
-                  {doneTasks.length}
-                </span>
-              </h2>
-              <div className="space-y-1">
-                {doneTasks.map((task) => (
-                  <BridgeTaskItem
-                    key={task.id}
-                    task={task}
-                    isSelected={task.id === selectedTaskId}
-                    onToggle={onToggle}
-                    onUpdateTitle={onUpdateTitle}
-                    onSelect={onSelectTask}
-                    onDelete={onDeleteTask}
-                  />
-                ))}
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-medium text-[var(--text-tertiary)] uppercase tracking-wide">
+                  Done
+                  <span className="text-[var(--text-quaternary)] ml-1.5 font-normal">
+                    {doneTasks.length}
+                  </span>
+                </h2>
+                <button
+                  onClick={() => setDoneExpanded(!doneExpanded)}
+                  className="flex items-center justify-center w-6 h-6 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                  title={doneExpanded ? "Collapse done" : "Expand done"}
+                >
+                  <ChevronRight className={`w-4 h-4 transition-transform ${doneExpanded ? "rotate-90" : ""}`} />
+                </button>
               </div>
+              {doneExpanded && (
+                <div className="space-y-1">
+                  {doneTasks.map((task) => (
+                    <BridgeTaskItem
+                      key={task.id}
+                      task={task}
+                      isSelected={task.id === selectedTaskId}
+                      onToggle={onToggle}
+                      onUpdateTitle={onUpdateTitle}
+                      onSelect={onSelectTask}
+                      onDelete={onDeleteTask}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -117,9 +117,9 @@ export function BridgeTaskList({
                 onClick={onAddTask}
                 title="Add task (⌘J)"
               >
-                <h2 className="text-sm font-medium text-[var(--text-tertiary)] uppercase tracking-wide">
+                <h2 className="text-sm font-medium text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)] uppercase tracking-wide transition-colors">
                   To Do
-                  <span className="text-[var(--text-quaternary)] ml-1.5 font-normal">
+                  <span className="text-[var(--text-quaternary)] group-hover:text-[var(--text-tertiary)] ml-1.5 font-normal transition-colors">
                     {todoTasks.length}
                   </span>
                 </h2>
@@ -151,9 +151,9 @@ export function BridgeTaskList({
                 onClick={() => setDoneExpanded(!doneExpanded)}
                 title={doneExpanded ? "Collapse done" : "Expand done"}
               >
-                <h2 className="text-sm font-medium text-[var(--text-tertiary)] uppercase tracking-wide">
+                <h2 className="text-sm font-medium text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)] uppercase tracking-wide transition-colors">
                   Done
-                  <span className="text-[var(--text-quaternary)] ml-1.5 font-normal">
+                  <span className="text-[var(--text-quaternary)] group-hover:text-[var(--text-tertiary)] ml-1.5 font-normal transition-colors">
                     {doneTasks.length}
                   </span>
                 </h2>

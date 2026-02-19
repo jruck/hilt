@@ -204,20 +204,44 @@ export function BriefingContent({ content }: BriefingContentProps) {
 
   return (
     <div className="prose max-w-none prose-headings:text-[var(--text-primary)] prose-headings:font-semibold prose-p:text-[var(--text-secondary)] prose-p:leading-relaxed prose-strong:text-[var(--text-primary)] prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-li:text-[var(--text-secondary)] prose-li:leading-relaxed prose-code:text-[var(--text-secondary)] prose-code:bg-[var(--bg-tertiary)] space-y-5">
-      {sections.map((section, si) => (
-        <div key={si} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
-          <div className="px-4 py-3 border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">
-            <h2 className="text-base font-semibold text-[var(--text-primary)] !m-0">
-              {section.heading}
-            </h2>
+      {sections.map((section, si) => {
+        const isSourcesSection = /sources/i.test(section.heading);
+        return (
+          <div key={si} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
+            <div className="px-4 py-3 border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">
+              <h2 className="text-base font-semibold text-[var(--text-primary)] !m-0">
+                {section.heading}
+              </h2>
+            </div>
+            {isSourcesSection ? (
+              <div className="px-4 py-2 space-y-0.5 !m-0 text-sm text-[var(--text-secondary)]">
+                {section.items.map((item, ii) => {
+                  const fnMatch = item.headline.match(/^\[(\d+)\]\s/);
+                  return (
+                    <div key={ii} id={fnMatch ? `fn-${fnMatch[1]}` : undefined} className="py-0.5 leading-relaxed">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeRaw]}
+                        components={{
+                          p: ({ children }) => <>{children}</>,
+                        }}
+                      >
+                        {item.headline}
+                      </ReactMarkdown>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <ul className="list-disc pl-9 pr-4 py-2 space-y-0 !m-0">
+                {section.items.map((item, ii) => (
+                  <CollapsibleItem key={ii} item={item} />
+                ))}
+              </ul>
+            )}
           </div>
-          <ul className="list-disc pl-9 pr-4 py-2 space-y-0 !m-0">
-            {section.items.map((item, ii) => (
-              <CollapsibleItem key={ii} item={item} />
-            ))}
-          </ul>
-        </div>
-      ))}
+        );
+      })}
 
     </div>
   );

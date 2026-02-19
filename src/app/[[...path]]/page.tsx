@@ -17,7 +17,7 @@ export default function Home({ params }: PageProps) {
   return (
     <ScopeProvider initialScope={scope} initialViewMode={viewMode}>
       <Board />
-      {process.env.NODE_ENV === "development" && <Agentation />}
+      {process.env.NODE_ENV === "development" && <div id="agentation-wrapper"><Agentation /></div>}
     </ScopeProvider>
   );
 }

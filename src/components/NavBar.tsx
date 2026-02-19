@@ -17,14 +17,14 @@ const SHORTCUTS = [
   { keys: "Esc", description: "Close search" },
 ];
 
-function ShortcutsPopup({ visible }: { visible: boolean; onClose: () => void }) {
+function ShortcutsPopup({ visible, onFocus }: { visible: boolean; onClose: () => void; onFocus?: () => void }) {
   if (!visible) return null;
   return (
     <>
-      {/* Popup — no backdrop overlay, dismiss via double-press ⌘ only */}
       <div
         className="fixed z-[101] rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-xl p-4 w-64"
-        style={{ top: "56px", left: "50%", transform: "translateX(-50%)" }}
+        style={{ top: "50%", left: "50%", transform: "translate(-50%, -50%)" }}
+        onClick={(e) => { e.stopPropagation(); onFocus?.(); }}
       >
         <h3 className="text-xs font-semibold text-[var(--text-tertiary)] uppercase tracking-wider mb-3">
           Keyboard Shortcuts
@@ -63,24 +63,51 @@ export function NavBar({
 }: NavBarProps) {
   const isMobile = useIsMobile();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
-  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [devMode, setDevMode] = useState(false);
+  const [activePanel, setActivePanel] = useState<"all" | "shortcuts" | "nextjs" | "inspector">("all");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const lastCmdPressRef = useRef<number>(0);
 
   const VIEW_KEYS: Record<string, ViewMode> = { "1": "briefings", "2": "bridge", "3": "docs", "4": "people" };
 
-  // Sync shortcuts/dev mode — hide/show dev tools via JS (CSS selectors don't reliably hit shadow DOM elements)
+  const showShortcuts = devMode && (activePanel === "all" || activePanel === "shortcuts");
+  const showNextjs = devMode && (activePanel === "all" || activePanel === "nextjs");
+  const showInspector = devMode && (activePanel === "all" || activePanel === "inspector");
+
+  // Sync dev mode + focus attributes on body
   useEffect(() => {
-    const selectors = "nextjs-portal, [data-nextjs-toast], [data-feedback-toolbar]";
-    document.querySelectorAll(selectors).forEach((el) => {
-      (el as HTMLElement).style.display = showShortcuts ? "" : "none";
-    });
-    if (showShortcuts) {
+    if (devMode) {
       document.body.setAttribute("data-dev-mode", "");
+      if (activePanel === "all") {
+        document.body.removeAttribute("data-dev-focus");
+      } else {
+        document.body.setAttribute("data-dev-focus", activePanel);
+      }
     } else {
       document.body.removeAttribute("data-dev-mode");
+      document.body.removeAttribute("data-dev-focus");
     }
-  }, [showShortcuts]);
+  }, [devMode, activePanel]);
+
+  // Detect clicks on Next.js toolbar or Agentation to focus that panel
+  useEffect(() => {
+    if (!devMode) return;
+    function handleClick(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      // Check if click is inside Agentation
+      if (target.closest("#agentation-wrapper")) {
+        setActivePanel("inspector");
+        return;
+      }
+      // Check if click is inside Next.js dev tools
+      if (target.closest("nextjs-portal") || target.closest("[data-nextjs-toast]") || target.closest("[data-feedback-toolbar]")) {
+        setActivePanel("nextjs");
+        return;
+      }
+    }
+    document.addEventListener("click", handleClick, true);
+    return () => document.removeEventListener("click", handleClick, true);
+  }, [devMode]);
 
   // Also hide dev tools on initial mount (they may inject after first render)
   useEffect(() => {
@@ -104,7 +131,8 @@ export function NavBar({
       if (e.key === "Meta" || e.key === "Control") {
         const now = Date.now();
         if (now - lastCmdPressRef.current < 400) {
-          setShowShortcuts((prev) => !prev);
+          setDevMode((prev) => !prev);
+          setActivePanel("all");
           lastCmdPressRef.current = 0; // reset so triple doesn't re-toggle
         } else {
           lastCmdPressRef.current = now;
@@ -345,7 +373,7 @@ export function NavBar({
         <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><SourceToggle /></div>
       </div>
 
-      <ShortcutsPopup visible={showShortcuts} onClose={() => setShowShortcuts(false)} />
+      <ShortcutsPopup visible={showShortcuts} onClose={() => setDevMode(false)} onFocus={() => setActivePanel("shortcuts")} />
     </div>
   );
 }

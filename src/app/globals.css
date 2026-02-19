@@ -1567,12 +1567,34 @@ nextjs-portal,
 [data-feedback-toolbar] {
   display: none !important;
 }
+#agentation-wrapper {
+  display: none !important;
+}
 
 /* Reveal when dev mode is active (double-tap Command) */
 body[data-dev-mode] [data-nextjs-toast],
 body[data-dev-mode] nextjs-portal,
 body[data-dev-mode] [data-feedback-toolbar] {
   display: revert !important;
+}
+body[data-dev-mode] #agentation-wrapper {
+  display: block !important;
+}
+
+/* Focused panel mode — hide non-focused tools */
+body[data-dev-focus="shortcuts"] [data-nextjs-toast],
+body[data-dev-focus="shortcuts"] nextjs-portal,
+body[data-dev-focus="shortcuts"] [data-feedback-toolbar],
+body[data-dev-focus="shortcuts"] #agentation-wrapper {
+  display: none !important;
+}
+body[data-dev-focus="nextjs"] #agentation-wrapper {
+  display: none !important;
+}
+body[data-dev-focus="inspector"] [data-nextjs-toast],
+body[data-dev-focus="inspector"] nextjs-portal,
+body[data-dev-focus="inspector"] [data-feedback-toolbar] {
+  display: none !important;
 }
 
 /* Error overlay always visible regardless of dev mode */

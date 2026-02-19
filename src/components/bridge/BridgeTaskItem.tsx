@@ -8,14 +8,16 @@ import { GripVertical, ChevronRight } from "lucide-react";
 import { parseAttribution, parseLifecycle } from "@/lib/attribution";
 import { useIsMobile } from "@/hooks/useIsMobile";
 
-function DueDateBadge({ dueDate }: { dueDate: string }) {
+function DueDateBadge({ dueDate, done }: { dueDate: string; done?: boolean }) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const due = new Date(dueDate + "T00:00:00");
   const diffDays = Math.floor((due.getTime() - today.getTime()) / 86400000);
 
   let colorClass: string;
-  if (diffDays < 0) {
+  if (done) {
+    colorClass = "bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]"; // neutral for completed tasks
+  } else if (diffDays < 0) {
     colorClass = "bg-red-500/15 text-red-500"; // overdue
   } else if (diffDays <= 1) {
     colorClass = "bg-orange-500/15 text-orange-500"; // today or tomorrow
@@ -208,7 +210,7 @@ export function BridgeTaskItem({
 
           {/* Due date badge */}
           {task.dueDate && (
-            <DueDateBadge dueDate={task.dueDate} />
+            <DueDateBadge dueDate={task.dueDate} done={task.done} />
           )}
 
           {/* Agent avatar */}

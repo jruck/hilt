@@ -111,14 +111,13 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
   const hasDetails = item.details.trim().length > 0;
 
   return (
-    <div>
+    <li className="text-[var(--text-primary)]">
       <div
         onClick={() => hasDetails && setExpanded(!expanded)}
-        className={`py-1 flex items-baseline gap-2 transition-colors ${
+        className={`py-0.5 transition-colors ${
           hasDetails ? "cursor-pointer" : ""
         }`}
       >
-        <span className="w-1 h-1 rounded-full bg-[var(--text-tertiary)] flex-shrink-0 translate-y-[-1px]" />
         <span className="text-sm text-[var(--text-primary)] leading-snug briefing-inline-md">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
@@ -143,7 +142,7 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
         </span>
       </div>
       {expanded && hasDetails && (
-        <div className="pl-5 pb-1 text-sm text-[var(--text-secondary)] leading-snug">
+        <div className="pb-1 text-sm text-[var(--text-secondary)] leading-snug">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
@@ -153,7 +152,7 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
                   {children}
                 </a>
               ),
-              ul: ({ children }) => <ul className="list-disc pl-4 space-y-0.5">{children}</ul>,
+              ul: ({ children }) => <ul className="list-disc pl-5 space-y-0.5">{children}</ul>,
               li: ({ children }) => <li className="text-[var(--text-secondary)]">{children}</li>,
               p: ({ children }) => <p className="mb-0.5">{children}</p>,
             }}
@@ -162,7 +161,7 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
           </ReactMarkdown>
         </div>
       )}
-    </div>
+    </li>
   );
 }
 
@@ -194,11 +193,11 @@ export function BriefingContent({ content }: BriefingContentProps) {
           <h2 className="text-base font-semibold text-[var(--text-primary)] mb-1">
             {section.heading}
           </h2>
-          <div className="space-y-0">
+          <ul className="list-disc pl-5 space-y-0">
             {section.items.map((item, ii) => (
               <CollapsibleItem key={ii} item={item} />
             ))}
-          </div>
+          </ul>
         </div>
       ))}
 

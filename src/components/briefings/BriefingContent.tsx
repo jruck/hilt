@@ -37,8 +37,16 @@ function parseBriefing(content: string): { sections: BriefingSection[] } {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Skip footnote definition lines — these render inline via remark-gfm
-    if (line.match(/^\[\^\d+\]:/)) {
+    // Footnote definition lines — treat as top-level items in current section
+    const footnoteMatch = line.match(/^\[\^(\d+)\]:\s*(.*)/);
+    if (footnoteMatch) {
+      if (currentItem && currentSection) {
+        currentSection.items.push(currentItem);
+      }
+      currentItem = {
+        headline: `[${footnoteMatch[1]}] ${footnoteMatch[2]}`,
+        details: "",
+      };
       continue;
     }
 

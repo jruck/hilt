@@ -112,7 +112,11 @@ export function BridgeTaskList({
           {/* === To Do === */}
           {todoTasks.length > 0 && (
             <div>
-              <div className="flex items-center justify-between mb-3 pr-3">
+              <div
+                className="flex items-center justify-between mb-3 pr-3 cursor-pointer group"
+                onClick={onAddTask}
+                title="Add task (⌘J)"
+              >
                 <h2 className="text-sm font-medium text-[var(--text-tertiary)] uppercase tracking-wide">
                   To Do
                   <span className="text-[var(--text-quaternary)] ml-1.5 font-normal">
@@ -120,13 +124,7 @@ export function BridgeTaskList({
                   </span>
                 </h2>
                 {onAddTask && (
-                  <button
-                    onClick={onAddTask}
-                    className="flex items-center justify-center w-4 h-4 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
-                    title="Add task (⌘J)"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
+                  <Plus className="w-4 h-4 text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)] transition-colors" />
                 )}
               </div>
               <div className="space-y-1">
@@ -148,20 +146,18 @@ export function BridgeTaskList({
           {/* === Done === */}
           {doneTasks.length > 0 && (
             <div>
-              <div className="flex items-center justify-between mb-3 pr-3">
+              <div
+                className="flex items-center justify-between mb-3 pr-3 cursor-pointer group"
+                onClick={() => setDoneExpanded(!doneExpanded)}
+                title={doneExpanded ? "Collapse done" : "Expand done"}
+              >
                 <h2 className="text-sm font-medium text-[var(--text-tertiary)] uppercase tracking-wide">
                   Done
                   <span className="text-[var(--text-quaternary)] ml-1.5 font-normal">
                     {doneTasks.length}
                   </span>
                 </h2>
-                <button
-                  onClick={() => setDoneExpanded(!doneExpanded)}
-                  className="flex items-center justify-center w-4 h-4 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
-                  title={doneExpanded ? "Collapse done" : "Expand done"}
-                >
-                  <ChevronRight className={`w-4 h-4 transition-transform ${doneExpanded ? "rotate-90" : ""}`} />
-                </button>
+                <ChevronRight className={`w-4 h-4 text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)] transition-all ${doneExpanded ? "rotate-90" : ""}`} />
               </div>
               {doneExpanded && (
                 <div className="space-y-1">

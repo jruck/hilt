@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { NotebookPen, FileText, ScrollText, Loader2, MoreVertical, Trash2, Calendar, CalendarClock } from "lucide-react";
+import { NotebookPen, FileText, ScrollText, Loader2, MoreVertical, Trash2, Calendar, CalendarClock, Lock, Sparkles } from "lucide-react";
 import dynamic from "next/dynamic";
 import type { PersonMeeting } from "@/lib/types";
 import { TranscriptView } from "./TranscriptView";
@@ -29,6 +29,20 @@ function formatDate(isoDate: string): string {
 }
 
 type Tab = "notes" | "summary" | "transcript";
+
+/**
+ * Split Granola summary into Private Notes and Enhanced Notes sections
+ * when both are present. Returns null if the pattern isn't found.
+ */
+function splitSummarySections(summary: string): { privateNotes: string; enhancedNotes: string } | null {
+  const privateIdx = summary.indexOf("## Private Notes");
+  const enhancedIdx = summary.indexOf("## Enhanced Notes");
+  if (privateIdx === -1 || enhancedIdx === -1) return null;
+
+  const privateContent = summary.slice(privateIdx + "## Private Notes".length, enhancedIdx).trim();
+  const enhancedContent = summary.slice(enhancedIdx + "## Enhanced Notes".length).trim();
+  return { privateNotes: privateContent, enhancedNotes: enhancedContent };
+}
 
 export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete }: MeetingEntryProps) {
   const editorAreaRef = useRef<HTMLDivElement>(null);
@@ -361,15 +375,54 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete }: 
           </div>
         )}
 
-        {activeTab === "summary" && hasSummary && (
-          <div className="prose-compact">
-            <BridgeTaskEditor
-              markdown={meeting.summary!}
-              readOnly={true}
-              vaultPath={vaultPath}
-            />
-          </div>
-        )}
+        {activeTab === "summary" && hasSummary && (() => {
+          const sections = splitSummarySections(meeting.summary!);
+          if (sections) {
+            return (
+              <div className="space-y-4">
+                {sections.privateNotes && (
+                  <div className="border-l-2 border-amber-500/40 pl-3">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Lock className="w-3 h-3 text-amber-500/60" />
+                      <span className="text-[10px] font-medium uppercase tracking-wider text-amber-500/60">Private Notes</span>
+                    </div>
+                    <div className="prose-compact">
+                      <BridgeTaskEditor
+                        markdown={sections.privateNotes}
+                        readOnly={true}
+                        vaultPath={vaultPath}
+                      />
+                    </div>
+                  </div>
+                )}
+                {sections.enhancedNotes && (
+                  <div className="border-l-2 border-[var(--border-default)] pl-3">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Sparkles className="w-3 h-3 text-[var(--text-tertiary)]" />
+                      <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">Enhanced Notes</span>
+                    </div>
+                    <div className="prose-compact">
+                      <BridgeTaskEditor
+                        markdown={sections.enhancedNotes}
+                        readOnly={true}
+                        vaultPath={vaultPath}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          }
+          return (
+            <div className="prose-compact">
+              <BridgeTaskEditor
+                markdown={meeting.summary!}
+                readOnly={true}
+                vaultPath={vaultPath}
+              />
+            </div>
+          );
+        })()}
 
         {activeTab === "transcript" && hasTranscript && (
           transcriptLoading ? (

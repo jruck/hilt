@@ -99,6 +99,7 @@ export interface BridgeThought {
   icon: string;            // Emoji icon from frontmatter (empty string if none)
   created: string;         // ISO date string from frontmatter
   description: string;     // Body text from index.md (post-frontmatter, minus H1)
+  lastModified: number;    // Unix timestamp (ms) of most recently modified file in folder
 }
 
 export interface BridgeThoughtsResponse {
@@ -134,7 +135,6 @@ export interface PersonMeeting {
 
 export interface PersonDetail extends BridgePerson {
   nextRaw: string;                 // Raw markdown of ## Next section
-  nextDate: string | null;         // YYYY-MM-DD from "date: ..." line in ## Next, or null
   meetings: PersonMeeting[];       // Sorted timeline (newest first), not merged
   personFilePath: string;          // Absolute path to person .md file (for editing)
 }

@@ -11,7 +11,7 @@ import * as path from "path";
 import * as os from "os";
 
 export interface BridgeChangedEvent {
-  type: "weekly" | "projects" | "people";
+  type: "weekly" | "projects" | "people" | "thoughts";
   path: string;
 }
 
@@ -29,6 +29,7 @@ export class BridgeWatcher extends EventEmitter {
     const watchPaths = [
       path.join(this.vaultPath, "lists", "now"),
       path.join(this.vaultPath, "projects"),
+      path.join(this.vaultPath, "thoughts"),
       path.join(this.vaultPath, "people"),
       path.join(this.vaultPath, "meetings"),
     ];
@@ -51,11 +52,13 @@ export class BridgeWatcher extends EventEmitter {
         return;
       }
 
-      let changeType: "weekly" | "projects" | "people";
+      let changeType: "weekly" | "projects" | "people" | "thoughts";
       if (filePath.includes(path.join("lists", "now"))) {
         changeType = "weekly";
       } else if (filePath.includes(path.sep + "people" + path.sep) || filePath.includes(path.sep + "meetings" + path.sep)) {
         changeType = "people";
+      } else if (filePath.includes(path.sep + "thoughts" + path.sep)) {
+        changeType = "thoughts";
       } else {
         changeType = "projects";
       }
@@ -70,14 +73,20 @@ export class BridgeWatcher extends EventEmitter {
     console.log(`[BridgeWatcher] Watching: ${watchPaths.join(", ")}`);
   }
 
-  private debouncedEmit(type: "weekly" | "projects" | "people", filePath: string): void {
+  private debouncedEmit(type: "weekly" | "projects" | "people" | "thoughts", filePath: string): void {
     const key = type;
     const existing = this.debounceTimers.get(key);
     if (existing) clearTimeout(existing);
 
     const timer = setTimeout(() => {
       this.debounceTimers.delete(key);
-      const eventName = type === "weekly" ? "weekly-changed" : type === "people" ? "people-changed" : "projects-changed";
+      const eventNames: Record<string, string> = {
+        weekly: "weekly-changed",
+        projects: "projects-changed",
+        people: "people-changed",
+        thoughts: "thoughts-changed",
+      };
+      const eventName = eventNames[type] || "projects-changed";
       this.emit(eventName, { type, path: filePath });
       console.log(`[BridgeWatcher] ${eventName}: ${filePath}`);
     }, this.debounceMs);

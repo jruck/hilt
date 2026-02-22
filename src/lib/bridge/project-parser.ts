@@ -217,9 +217,9 @@ export async function getAllProjects(vaultPath: string): Promise<BridgeProjectsR
     }
   }
 
-  // Sort each column alphabetically by title
+  // Sort each column by most recently updated first
   for (const list of Object.values(columns)) {
-    list.sort((a, b) => a.title.localeCompare(b.title));
+    list.sort((a, b) => b.lastModified - a.lastModified);
   }
 
   return { vaultPath, columns };

@@ -165,6 +165,41 @@ export function parseMeetingFrontmatter(content: string): {
 }
 
 /**
+ * Collect all meeting .md files from the meetings directory.
+ * Supports both flat files (legacy) and date-subfolder structure (Granola resync).
+ * Returns objects with `filename` (for matching) and `fullPath` (for reading).
+ */
+function collectMeetingFiles(meetingsDir: string): { filename: string; fullPath: string }[] {
+  if (!fs.existsSync(meetingsDir)) return [];
+  const results: { filename: string; fullPath: string }[] = [];
+  try {
+    for (const entry of fs.readdirSync(meetingsDir)) {
+      if (entry.startsWith(".") || entry === "transcripts") continue;
+      const entryPath = path.join(meetingsDir, entry);
+      const stat = fs.statSync(entryPath);
+      if (stat.isFile() && entry.endsWith(".md")) {
+        // Legacy flat file
+        results.push({ filename: entry, fullPath: entryPath });
+      } else if (stat.isDirectory()) {
+        // Date subfolder — collect .md files inside
+        try {
+          for (const sub of fs.readdirSync(entryPath)) {
+            if (sub.endsWith(".md") && !sub.startsWith(".")) {
+              results.push({ filename: sub, fullPath: path.join(entryPath, sub) });
+            }
+          }
+        } catch {
+          // Skip unreadable subfolder
+        }
+      }
+    }
+  } catch {
+    // Continue without meetings
+  }
+  return results;
+}
+
+/**
  * Get all people from the vault, sorted by name.
  */
 export async function getAllPeople(
@@ -185,17 +220,10 @@ export async function getAllPeople(
     }
   }
 
-  // Get meeting files for counting
-  let meetingFiles: string[] = [];
-  if (fs.existsSync(meetingsDir)) {
-    try {
-      meetingFiles = fs
-        .readdirSync(meetingsDir)
-        .filter((f) => f.endsWith(".md") && !f.startsWith("."));
-    } catch {
-      // Continue without meetings
-    }
-  }
+  // Get meeting files for counting (supports nested date folders)
+  const meetingFileEntries = collectMeetingFiles(meetingsDir);
+  const meetingFilenames = meetingFileEntries.map((e) => e.filename);
+  const meetingFileMap = new Map(meetingFileEntries.map((e) => [e.filename, e.fullPath]));
 
   // Read each person file
   const people: BridgePerson[] = [];
@@ -216,13 +244,14 @@ export async function getAllPeople(
       const matchedMeetings = matchMeetingsToSlug(
         slug,
         person.name,
-        meetingFiles,
+        meetingFilenames,
       );
       person.meetingCount += matchedMeetings.length;
 
       // Update lastMeetingDate from Granola meetings if newer
       for (const mf of matchedMeetings) {
-        const mfPath = path.join(meetingsDir, mf);
+        const mfPath = meetingFileMap.get(mf);
+        if (!mfPath) continue;
         try {
           const mfContent = fs.readFileSync(mfPath, "utf-8");
           const mfMeta = parseMeetingFrontmatter(mfContent);
@@ -286,26 +315,6 @@ export function decayNext(fileContent: string, date: string): string {
   let updated = updatePersonNotes(fileContent, date, content);
   updated = updatePersonNext(updated, "");
   return updated;
-}
-
-/**
- * Set or remove the date line in ## Next section.
- * If date is null, removes the date line. If set, adds/replaces it.
- */
-export function updateNextDate(fileContent: string, date: string | null): string {
-  const { body } = parseFrontmatter(fileContent);
-  const nextRawMatch = body.match(/^##\s+Next\s*\n([\s\S]*?)(?=\n##\s)/m);
-  const currentNextRaw = nextRawMatch ? nextRawMatch[1].trim() : "";
-  const parsed = parseNextSection(currentNextRaw);
-
-  let newNext: string;
-  if (date) {
-    newNext = parsed.content ? `date: ${date}\n${parsed.content}` : `date: ${date}`;
-  } else {
-    newNext = parsed.content;
-  }
-
-  return updatePersonNext(fileContent, newNext);
 }
 
 /**
@@ -504,21 +513,15 @@ export async function getPersonDetail(
     }
   }
 
-  // Match Granola meetings
-  let meetingFiles: string[] = [];
-  if (fs.existsSync(meetingsDir)) {
-    try {
-      meetingFiles = fs
-        .readdirSync(meetingsDir)
-        .filter((f) => f.endsWith(".md") && !f.startsWith("."));
-    } catch {
-      // Continue
-    }
-  }
+  // Match Granola meetings (supports nested date folders)
+  const meetingFileEntries = collectMeetingFiles(meetingsDir);
+  const meetingFilenames = meetingFileEntries.map((e) => e.filename);
+  const meetingFileMap = new Map(meetingFileEntries.map((e) => [e.filename, e.fullPath]));
 
-  const matchedMeetings = matchMeetingsToSlug(slug, person.name, meetingFiles);
+  const matchedMeetings = matchMeetingsToSlug(slug, person.name, meetingFilenames);
   for (const mf of matchedMeetings) {
-    const mfPath = path.join(meetingsDir, mf);
+    const mfPath = meetingFileMap.get(mf);
+    if (!mfPath) continue;
     try {
       const mfContent = fs.readFileSync(mfPath, "utf-8");
       const mfMeta = parseMeetingFrontmatter(mfContent);
@@ -553,7 +556,6 @@ export async function getPersonDetail(
     meetingCount: totalMeetings,
     lastMeetingDate: latestDate,
     nextRaw,
-    nextDate: parsedNext.date,
     meetings,
     personFilePath: filePath,
   };

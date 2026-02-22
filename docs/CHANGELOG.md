@@ -37,14 +37,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   - Rewritten: `PeopleView.tsx` — three-column flex layout orchestrator, owns all state (person selection, meeting filter, meeting selection)
   - Deleted: `PersonDetailPanel.tsx` — logic split between PersonMeetingList (header, next, filter, list) and PeopleView (state management, right column)
 
-- **People tab (Phase 5): "Next" as meeting entry + date hierarchy flip** — Two changes: (1) Date is now the primary headline in both MeetingRow and MeetingEntry, with title as secondary subtext. (2) "Next" is no longer a separate editor section — it's a synthetic meeting entry pinned at position 0 in the feed. Next supports an optional date (`date: YYYY-MM-DD` line in `## Next`), auto-decays to a historical meeting when the date passes, and a new empty Next appears after. Filters (All/Written/Recorded) only affect historical meetings below Next.
-  - Types: Added `"next"` to `PersonMeeting.source` union, `nextDate: string | null` to `PersonDetail`
-  - Parser: New `parseNextSection()`, `decayNext()`, `updateNextDate()` in `people-parser.ts`. `getPersonDetail()` now auto-decays past-date Next entries on read (atomic file rewrite).
-  - API: `PUT /api/bridge/people/[slug]/next` extended to accept optional `date` param alongside `content`. Preserves existing date when only content is updated.
-  - UI: `MeetingRow.tsx` — date is primary (`text-sm font-medium`), title is subtext (`text-xs text-tertiary`). Next row shows "Next" or "Next · Feb 20" with Sparkles icon.
-  - UI: `MeetingEntry.tsx` — date is primary (`text-base font-medium`), title is subtext (`text-sm text-secondary`). Next mode shows "Next" header with inline date picker, editor, no tabs.
-  - UI: `PersonMeetingList.tsx` — removed standalone "Next Up" editor section. Now receives `displayMeetings` (Next + filtered historical) and renders them uniformly.
-  - UI: `PeopleView.tsx` — builds synthetic Next entry when last meeting > 1 day ago or no meetings. Owns `localNextDate` state for optimistic date updates. Constructs `displayMeetings` array: `[nextEntry, ...filteredMeetings]`.
+- **People tab (Phase 5): "Next" as meeting entry + date hierarchy flip** — Two changes: (1) Date is now the primary headline in both MeetingRow and MeetingEntry, with title as secondary subtext. (2) "Next" is no longer a separate editor section — it's a synthetic meeting entry pinned at position 0 in the feed. Clicking the calendar icon on Next commits its content as a dated meeting entry (moves to `## Notes ### YYYY-MM-DD`, clears `## Next`). A new empty Next appears when the last meeting is >1 day ago. Filters only affect historical meetings below Next. Auto-focus: clicking a person puts cursor in the topmost editable entry.
+  - Types: Added `"next"` to `PersonMeeting.source` union
+  - Parser: New `parseNextSection()`, `decayNext()`, `deletePersonNotes()` in `people-parser.ts`. `getPersonDetail()` auto-decays past-date Next entries on read (safety net for manually-added `date:` lines).
+  - API: `PUT /api/bridge/people/[slug]/next` — accepts `content` (save) or `commit` (move to dated notes + clear). `PATCH /api/bridge/people/[slug]/notes` — change date of inline notes. `DELETE /api/bridge/people/[slug]/notes` — remove a dated section.
+  - UI: `MeetingRow.tsx` — date is primary (`text-sm font-medium`), title is subtext (`text-xs text-tertiary`). Only written entries show NotebookPen icon. Fixed-height rows (`h-13`).
+  - UI: `MeetingEntry.tsx` — date is primary (`text-base font-medium`), title is subtext (`text-xs text-secondary`). Next mode: "Next" + calendar icon (commits via hidden date picker), editor, no tabs. Three-dot menu: delete for inline/next, change date for inline. Delete confirmation bar matches task detail pattern. Auto-focus editor via polling for dynamically-loaded tiptap.
+  - UI: `PersonMeetingList.tsx` — removed standalone "Next Up" editor section. Receives `displayMeetings` (Next + filtered historical). Fixed-height headers (`h-16`, `h-10`) aligned with detail pane.
+  - UI: `PeopleView.tsx` — builds synthetic Next entry when last meeting > 1 day ago or no meetings. Constructs `displayMeetings` array: `[nextEntry, ...filteredMeetings]`. Auto-focuses topmost editable entry on person select.
 
 ### Changed
 

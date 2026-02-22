@@ -5,6 +5,29 @@ import type { BridgeThought, BridgeThoughtStatus, BridgeThoughtsResponse } from 
 const VALID_STATUSES: Set<string> = new Set(["next", "later"]);
 
 /**
+ * Get the most recent mtime (ms) of any file in a directory (non-recursive, one level).
+ * Falls back to directory mtime if empty.
+ */
+function getFolderUpdatedAt(dirPath: string): number {
+  try {
+    const dirStat = fs.statSync(dirPath);
+    let latest = dirStat.mtimeMs;
+    for (const name of fs.readdirSync(dirPath)) {
+      if (name.startsWith(".")) continue;
+      try {
+        const st = fs.statSync(path.join(dirPath, name));
+        if (st.mtimeMs > latest) latest = st.mtimeMs;
+      } catch {
+        // skip
+      }
+    }
+    return latest;
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Parse a thought index.md file.
  */
 function parseIndexFile(content: string): {
@@ -116,17 +139,13 @@ export async function getAllThoughts(vaultPath: string): Promise<BridgeThoughtsR
       icon,
       created,
       description,
+      lastModified: getFolderUpdatedAt(thoughtDir),
     });
   }
 
-  // Sort: newest created first, then alphabetically
+  // Sort by most recently updated first
   for (const list of Object.values(columns)) {
-    list.sort((a, b) => {
-      if (a.created && b.created) return b.created.localeCompare(a.created);
-      if (a.created) return -1;
-      if (b.created) return 1;
-      return a.title.localeCompare(b.title);
-    });
+    list.sort((a, b) => b.lastModified - a.lastModified);
   }
 
   return { vaultPath, columns };

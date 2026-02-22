@@ -17,8 +17,8 @@
 /.next/
 /out/
 
-# production
-/build
+# production (Next.js output - build/ is kept for electron-builder resources)
+/build/gen_icons.swift
 
 # misc
 .DS_Store

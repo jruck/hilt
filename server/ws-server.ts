@@ -200,6 +200,10 @@ async function startServer() {
     eventServer.broadcast("bridge", "people-changed", {});
   });
 
+  bridgeWatcher.on("thoughts-changed", () => {
+    eventServer.broadcast("bridge", "thoughts-changed", {});
+  });
+
   bridgeWatcher.start();
 
   console.log(`Scope, inbox, and bridge watchers configured`);

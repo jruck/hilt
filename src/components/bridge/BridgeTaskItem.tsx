@@ -17,12 +17,10 @@ function DueDateBadge({ dueDate, done }: { dueDate: string; done?: boolean }) {
   let colorClass: string;
   if (done) {
     colorClass = "bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]"; // neutral for completed tasks
-  } else if (diffDays < 0) {
-    colorClass = "bg-red-500/15 text-red-500"; // overdue
-  } else if (diffDays === 0) {
-    colorClass = "bg-orange-500/15 text-orange-500"; // today
-  } else if (diffDays === 1) {
-    colorClass = "bg-yellow-500/15 text-yellow-500"; // tomorrow
+  } else if (diffDays <= 0) {
+    colorClass = "bg-red-500/15 text-red-500"; // overdue or today
+  } else if (diffDays <= 2) {
+    colorClass = "bg-orange-500/15 text-orange-500"; // tomorrow or next day
   } else {
     colorClass = "bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]"; // future
   }

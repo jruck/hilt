@@ -47,7 +47,8 @@ export async function POST(request: NextRequest) {
       // Reset checkbox to unchecked for carried tasks
       const projPath = t.projectPath;
       const titleText = projPath ? `[${t.title}](${projPath})` : t.title;
-      const titleLine = `- [ ] ${titleText}`;
+      const dueSuffix = t.dueDate ? ` [due:: ${t.dueDate}]` : "";
+      const titleLine = `- [ ] ${titleText}${dueSuffix}`;
       const indentedDetails = t.details.map(line =>
         line.trim() === "" ? "" : "\t" + line
       );

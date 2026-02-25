@@ -329,7 +329,7 @@ export function BridgeTaskEditor({
 
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ heading: false }),
+      StarterKit.configure({ heading: readOnly ? { levels: [1, 2, 3, 4] } : false }),
       Link.configure({
         openOnClick: false, // We handle clicks manually for wikilinks + external
         HTMLAttributes: {

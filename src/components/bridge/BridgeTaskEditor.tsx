@@ -370,7 +370,7 @@ export function BridgeTaskEditor({
           }
         },
       }),
-      Markdown,
+      Markdown.configure({ html: false }),
     ],
     content: "",
     editable: !readOnly,

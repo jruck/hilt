@@ -64,6 +64,17 @@ export function parsePersonFile(
   const created = fm.created || fm.date || "";
   const updated = fm.updated || fm.created || fm.date || "";
 
+  // Parse aliases (comma-separated or JSON array)
+  let aliases: string[] = [];
+  if (fm.aliases) {
+    const raw = fm.aliases.trim();
+    if (raw.startsWith("[")) {
+      try { aliases = JSON.parse(raw); } catch { /* ignore */ }
+    } else {
+      aliases = raw.split(",").map(a => a.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+    }
+  }
+
   // Extract H1 as name
   const h1Match = body.match(/^#\s+(.+)$/m);
   const name = h1Match ? h1Match[1].trim() : slug;
@@ -102,6 +113,7 @@ export function parsePersonFile(
     nextTopics,
     meetingCount,
     lastMeetingDate,
+    aliases,
     created,
     updated,
   };
@@ -115,32 +127,37 @@ export function matchMeetingsToSlug(
   slug: string,
   name: string,
   meetingFiles: string[],
+  aliases: string[] = [],
 ): string[] {
   const slugLower = slug.toLowerCase();
-  const nameParts = name.toLowerCase().split(/\s+/);
 
-  // For multi-word names, require multiple name parts to match to avoid
-  // false positives from short common words like "AI" matching everything.
-  // Single-word names (e.g., "Amrit") still match on one token.
-  const minMatchCount = nameParts.length >= 3 ? 2 : 1;
+  // Build all name variants to check (primary name + aliases)
+  const allNames = [name, ...aliases];
+  const nameVariants = allNames.map(n => {
+    const parts = n.toLowerCase().split(/\s+/);
+    const minMatch = parts.length >= 3 ? 2 : 1;
+    return { parts, minMatch };
+  });
 
   return meetingFiles.filter((filename) => {
     // Remove .md extension and date suffixes for tokenizing
     const base = filename.replace(/\.md$/, "");
-    // Split on __, spaces, dots, "and" (as word), hyphens-followed-by-date patterns
+    // Split on __, spaces, dots, "and" (as word), hyphens-followed-by-digits
     const tokens = base
-      .split(/__|\.|\s+and\s+|\s+/i)
+      .split(/__|\.|\s+and\s+|\s+|-(?=\d)/i)
       .map((t) => t.trim().toLowerCase())
       .filter(Boolean);
 
     // Slug match is always sufficient
     if (tokens.some((token) => token === slugLower)) return true;
 
-    // Count how many distinct name parts appear in the tokens
-    const matchedParts = nameParts.filter((np) =>
-      tokens.some((token) => token === np)
-    );
-    return matchedParts.length >= minMatchCount;
+    // Check all name variants (primary name + aliases)
+    return nameVariants.some(({ parts, minMatch }) => {
+      const matchedParts = parts.filter((np) =>
+        tokens.some((token) => token === np)
+      );
+      return matchedParts.length >= minMatch;
+    });
   });
 }
 
@@ -245,6 +262,7 @@ export async function getAllPeople(
         slug,
         person.name,
         meetingFilenames,
+        person.aliases,
       );
       person.meetingCount += matchedMeetings.length;
 
@@ -518,7 +536,7 @@ export async function getPersonDetail(
   const meetingFilenames = meetingFileEntries.map((e) => e.filename);
   const meetingFileMap = new Map(meetingFileEntries.map((e) => [e.filename, e.fullPath]));
 
-  const matchedMeetings = matchMeetingsToSlug(slug, person.name, meetingFilenames);
+  const matchedMeetings = matchMeetingsToSlug(slug, person.name, meetingFilenames, person.aliases);
   for (const mf of matchedMeetings) {
     const mfPath = meetingFileMap.get(mf);
     if (!mfPath) continue;

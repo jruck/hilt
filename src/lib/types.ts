@@ -117,6 +117,7 @@ export interface BridgePerson {
   nextTopics: string[];      // Bullet items from ## Next section
   meetingCount: number;       // Number of linked meetings (inline + Granola)
   lastMeetingDate: string | null;  // ISO date of most recent meeting
+  aliases: string[];          // Alternative names for meeting matching
   created: string;           // From frontmatter
   updated: string;           // From frontmatter
 }

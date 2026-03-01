@@ -115,9 +115,9 @@ export class BridgeWatcher extends EventEmitter {
 // Singleton
 let bridgeWatcher: BridgeWatcher | null = null;
 
-export function getBridgeWatcher(): BridgeWatcher {
+export function getBridgeWatcher(vaultPathOverride?: string): BridgeWatcher {
   if (!bridgeWatcher) {
-    const vaultPath = process.env.BRIDGE_VAULT_PATH || path.join(os.homedir(), "work/bridge");
+    const vaultPath = vaultPathOverride || process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || path.join(os.homedir(), "work/bridge");
     bridgeWatcher = new BridgeWatcher(vaultPath);
   }
   return bridgeWatcher;

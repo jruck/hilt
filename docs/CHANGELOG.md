@@ -8,6 +8,41 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
+- **Folder-based local sources** — Local sources are now defined by a `folder` path instead of just a URL. The folder serves as both the Docs browsing root and Bridge vault path, eliminating the need for separate `HILT_WORKING_FOLDER` and `BRIDGE_VAULT_PATH` env vars.
+  - `Source` type gains `folder?: string` field in `src/lib/types.ts`
+  - DB CRUD (`addSource`, `updateSource`) accept `folder` parameter
+  - API routes accept `folder` in POST/PATCH
+  - `getActiveFolder()` helper reads active source's folder from sources.json
+  - `getBridgeVaultPath()` falls back to active source folder before env vars
+  - `getVaultPathSync()` in vault.ts reads from active source folder
+  - `getBridgeWatcher()` accepts optional vault path override
+  - Folders API returns `workingFolder` from active source config
+  - Migration: `BRIDGE_VAULT_PATH`/`HILT_WORKING_FOLDER` env vars seed sources.json on first run
+
+- **Electron multi-server orchestration** — Electron spawns one dev server per local source with folder, passing `HILT_WORKING_FOLDER` and `BRIDGE_VAULT_PATH` as env vars. Assigned ports written back to sources.json.
+  - `ServerInstance` type tracks per-source server processes
+  - `startServerForSource()` handles port allocation and process spawning
+  - `readSourcesConfig()`/`writeSourcesConfig()` for Electron-side config access
+  - Cleanup kills all source servers on quit
+
+- **Native folder picker** — Electron IPC `dialog:selectFolder` opens macOS native directory dialog. Exposed via `window.electronAPI.selectFolder()`. Falls back to osascript-based picker in browser mode.
+
+- **Type-aware source management UI** — SourceManageModal form shows folder picker for local sources, URL input for remote sources. Source rows show folder path (not URL) for local sources.
+
+- **Enhanced onboarding** — Unconfigured state in SourceToggle shows "Choose folder..." as primary action with folder picker, plus secondary "Add as source" option.
+
+- **Electron URL allowlist fix** — `getSourceUrls()` now checks project-local `./data/sources.json` as fallback when Electron's DATA_DIR has no sources file. Fixes bug where remote source URLs opened in default browser.
+
+- **Multi-source configuration system** — Replace single-remote env var (`NEXT_PUBLIC_REMOTE_HOST`) with a flexible config-file-based system supporting multiple local and remote servers. Sources stored in `DATA_DIR/sources.json` with rank-ordered priority.
+  - Types: `Source` interface in `src/lib/types.ts`
+  - Persistence: `readSourcesFile`/`writeSourcesFile` + CRUD ops (`getSources`, `addSource`, `updateSource`, `deleteSource`, `reorderSources`) in `src/lib/db.ts`. Includes one-time migration from `NEXT_PUBLIC_REMOTE_HOST` env var.
+  - API: `src/app/api/sources/route.ts` — GET (list), POST (add), PATCH (update/reorder), DELETE (remove)
+  - Hook: `useSources()` in `src/hooks/useSource.ts` — full rewrite. Fetches sources from API, detects active source by URL match, polls availability of non-active sources, auto-fallback when remote goes down (local-first priority), CRUD wrappers.
+  - Management modal: `src/components/SourceManageModal.tsx` — drag-and-drop reordering via @dnd-kit, inline name editing, type toggle, add form, delete
+  - SourceToggle rewrite: Unconfigured state shows onboarding with quick-add; configured state shows dropdown with source list, availability dots, active checkmark, and "Manage Sources..." link. Smart hint when running at an unrecognized origin.
+  - Electron: `electron/main.ts` — internal URL allowlist now reads from `sources.json` instead of hardcoded `NEXT_PUBLIC_REMOTE_HOST`
+  - Fallback priority: topmost local → next local → topmost remote → `localhost:3000`
+
 - **People tab (Phase 1)** — New primary tab (⌘4) that surfaces people, groups, and meeting history from the bridge vault's `people/` and `meetings/` directories. Features: people list view with search filtering, person detail panel with inline notes and Granola meeting matching, responsive split-panel layout (desktop) and full-screen detail (mobile). Read-only in Phase 1.
   - Types: `BridgePerson`, `PersonMeeting`, `PersonDetail`, `BridgePeopleResponse` in `src/lib/types.ts`
   - Parser: `src/lib/bridge/people-parser.ts` — parses people index, person files, matches meetings by name tokenization

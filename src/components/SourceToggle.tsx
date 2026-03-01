@@ -1,24 +1,33 @@
 "use client";
 
-import { House, Wifi } from "lucide-react";
-import { useSource, Source } from "@/hooks/useSource";
+import { House, Wifi, Plus, Settings, Check, FolderOpen } from "lucide-react";
+import { useSources } from "@/hooks/useSource";
 import { useState, useRef, useEffect, useCallback } from "react";
-
-const sourceOptions: {
-  value: Source;
-  label: string;
-  icon: typeof House;
-}[] = [
-  { value: "local", label: "Local", icon: House },
-  { value: "remote", label: "Remote", icon: Wifi },
-];
+import { SourceManageModal } from "./SourceManageModal";
 
 export function SourceToggle() {
-  const { source, switchSource, remoteAvailable, switchError } = useSource();
-  const [connected, setConnected] = useState(true);
-  const [switching, setSwitching] = useState(false);
+  const {
+    sources,
+    activeSource,
+    loaded,
+    isUnconfigured,
+    portMismatch,
+    switchError,
+    switchTo,
+    addSource,
+    updateSource,
+    removeSource,
+    reorderSources,
+  } = useSources();
 
-  // Health check: ping the server periodically
+  const [connected, setConnected] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [alignRight, setAlignRight] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // Health check
   useEffect(() => {
     let mounted = true;
 
@@ -47,26 +56,18 @@ export function SourceToggle() {
     };
   }, []);
 
-  const [isOpen, setIsOpen] = useState(false);
-  const [alignRight, setAlignRight] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-
   const openDropdown = useCallback(() => {
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
       const spaceRight = window.innerWidth - rect.left;
-      setAlignRight(spaceRight < 160);
+      setAlignRight(spaceRight < 200);
     }
     setIsOpen(true);
   }, []);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(event.target as Node)
-      ) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
     }
@@ -74,33 +75,118 @@ export function SourceToggle() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const CurrentIcon = source === "remote" ? Wifi : House;
-
-  async function handleSwitch(targetSource: Source) {
-    if (targetSource === source) {
-      setIsOpen(false);
-      return;
-    }
-
-    // Don't allow switching to remote if it's not available
-    if (targetSource === "remote" && remoteAvailable === false) {
-      return;
-    }
-
-    setIsOpen(false);
-    setSwitching(true);
-    await switchSource();
-    // If we're still here, the switch failed (didn't redirect)
-    setSwitching(false);
+  async function handleQuickAdd() {
+    const origin = window.location.origin;
+    const isLocal = origin.includes("localhost") || origin.includes("127.0.0.1");
+    await addSource(
+      isLocal ? "Local" : new URL(origin).hostname,
+      origin,
+      isLocal ? "local" : "remote"
+    );
   }
 
+  async function handlePickFolderAndAdd() {
+    let folder: string | null = null;
+
+    // Electron native dialog
+    if (typeof window !== "undefined" && window.electronAPI?.selectFolder) {
+      const result = await window.electronAPI.selectFolder();
+      if (!result.cancelled && result.path) folder = result.path;
+    } else {
+      // Fallback: osascript-based picker via API
+      try {
+        const res = await fetch("/api/folders", { method: "POST" });
+        if (res.ok) {
+          const data = await res.json();
+          if (!data.cancelled && data.path) folder = data.path;
+        }
+      } catch { /* ignore */ }
+    }
+
+    if (folder) {
+      const basename = folder.split("/").pop() || "Local";
+      const name = basename.charAt(0).toUpperCase() + basename.slice(1);
+      await addSource(name, "", "local", folder);
+    }
+  }
+
+  if (!loaded) return null;
+
+  const CurrentIcon = activeSource?.type === "remote" ? Wifi : House;
+
+  // Unconfigured state: plus button with onboarding
+  if (isUnconfigured) {
+    return (
+      <div ref={containerRef} className="relative">
+        <button
+          ref={buttonRef}
+          onClick={() => (isOpen ? setIsOpen(false) : openDropdown())}
+          className="relative p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
+          title="Add your first source"
+        >
+          <Plus className="w-4 h-4" />
+        </button>
+
+        {isOpen && (
+          <div
+            className={`absolute top-full mt-1 z-50 min-w-[240px]
+                        bg-[var(--bg-elevated)] border border-[var(--border-default)]
+                        rounded-lg shadow-lg overflow-hidden
+                        ${alignRight ? "right-0" : "left-0"}`}
+          >
+            <div className="px-3 py-2">
+              <p className="text-xs text-[var(--text-tertiary)] mb-2">
+                Choose a folder to get started, or add a remote source.
+              </p>
+              <button
+                onClick={() => { handlePickFolderAndAdd(); setIsOpen(false); }}
+                className="flex items-center gap-2 w-full px-2.5 py-1.5 text-sm font-medium rounded-md bg-[var(--interactive-default)] text-white hover:bg-[var(--interactive-hover)] transition-colors mb-1.5"
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+                Choose folder...
+              </button>
+              <button
+                onClick={() => { handleQuickAdd(); setIsOpen(false); }}
+                className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+                Add {window.location.origin.replace(/^https?:\/\//, "")} as source
+              </button>
+            </div>
+            <div className="border-t border-[var(--border-default)]">
+              <button
+                onClick={() => { setIsOpen(false); setShowModal(true); }}
+                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+              >
+                <Settings className="w-3.5 h-3.5" />
+                Manage Sources...
+              </button>
+            </div>
+          </div>
+        )}
+
+        {showModal && (
+          <SourceManageModal
+            sources={sources}
+            onClose={() => setShowModal(false)}
+            onAdd={addSource}
+            onUpdate={updateSource}
+            onDelete={removeSource}
+            onReorder={reorderSources}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // Configured state: icon button with dropdown
   return (
     <div ref={containerRef} className="relative">
       <button
         ref={buttonRef}
         onClick={() => (isOpen ? setIsOpen(false) : openDropdown())}
         className="relative p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
-        title={`Source: ${source} (${connected ? "connected" : "disconnected"})`}
+        title={`Source: ${activeSource?.name ?? "Unknown"} (${connected ? "connected" : "disconnected"})`}
       >
         <CurrentIcon className="w-4 h-4" />
         <span
@@ -110,40 +196,55 @@ export function SourceToggle() {
 
       {isOpen && (
         <div
-          className={`absolute top-full mt-1 z-50 min-w-[140px]
-                        bg-[var(--bg-elevated)] border border-[var(--border-default)]
-                        rounded-lg shadow-lg overflow-hidden
-                        ${alignRight ? "right-0" : "left-0"}`}
+          className={`absolute top-full mt-1 z-50 min-w-[200px]
+                      bg-[var(--bg-elevated)] border border-[var(--border-default)]
+                      rounded-lg shadow-lg overflow-hidden
+                      ${alignRight ? "right-0" : "left-0"}`}
         >
-          {sourceOptions.map((option) => {
-            const Icon = option.icon;
-            const isSelected = source === option.value;
-            const isRemoteOption = option.value === "remote";
-            const isDisabled = isRemoteOption && !isSelected && remoteAvailable === false;
+          {/* Port mismatch hint */}
+          {portMismatch && (
+            <div className="px-3 py-2 border-b border-[var(--border-default)] bg-yellow-500/5">
+              <p className="text-xs text-yellow-600 dark:text-yellow-400 mb-1.5">
+                Running at {window.location.origin.replace(/^https?:\/\//, "")} — not a configured source.
+              </p>
+              <button
+                onClick={() => { handleQuickAdd(); setIsOpen(false); }}
+                className="text-xs font-medium text-[var(--interactive-default)] hover:underline"
+              >
+                Add as source
+              </button>
+            </div>
+          )}
 
+          {/* Source list */}
+          {sources.map(source => {
+            const Icon = source.type === "remote" ? Wifi : House;
             return (
               <button
-                key={option.value}
-                onClick={() => handleSwitch(option.value)}
-                disabled={isDisabled || switching}
-                className={`flex items-center gap-2 w-full px-3 py-2 text-sm
-                           transition-colors
-                           ${isDisabled
-                             ? "text-[var(--text-tertiary)] cursor-not-allowed opacity-50"
-                             : isSelected
-                               ? "text-[var(--interactive-default)] bg-[var(--bg-tertiary)]"
-                               : "text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                           }`}
-                title={isDisabled ? "Remote server not responding" : undefined}
+                key={source.id}
+                onClick={() => {
+                  setIsOpen(false);
+                  if (!source.isActive) switchTo(source.id);
+                }}
+                disabled={!source.isActive && source.available === false}
+                className={`flex items-center gap-2 w-full px-3 py-2 text-sm transition-colors
+                  ${!source.isActive && source.available === false
+                    ? "text-[var(--text-tertiary)] cursor-not-allowed opacity-50"
+                    : source.isActive
+                      ? "text-[var(--interactive-default)] bg-[var(--bg-tertiary)]"
+                      : "text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
+                  }`}
+                title={!source.isActive && source.available === false ? "Not responding" : undefined}
               >
-                <Icon className="w-4 h-4" />
-                <span>{option.label}</span>
-                {isRemoteOption && !isSelected && (
+                <Icon className="w-3.5 h-3.5" />
+                <span className="flex-1 text-left truncate">{source.name}</span>
+                {source.isActive && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                {!source.isActive && (
                   <span
-                    className={`ml-auto w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                      remoteAvailable === null
+                    className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                      source.available === null
                         ? "bg-yellow-500"
-                        : remoteAvailable
+                        : source.available
                           ? "bg-emerald-500"
                           : "bg-red-500"
                     }`}
@@ -152,6 +253,17 @@ export function SourceToggle() {
               </button>
             );
           })}
+
+          {/* Manage link */}
+          <div className="border-t border-[var(--border-default)]">
+            <button
+              onClick={() => { setIsOpen(false); setShowModal(true); }}
+              className="flex items-center gap-2 w-full px-3 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              Manage Sources...
+            </button>
+          </div>
         </div>
       )}
 
@@ -163,6 +275,17 @@ export function SourceToggle() {
         >
           {switchError}
         </div>
+      )}
+
+      {showModal && (
+        <SourceManageModal
+          sources={sources}
+          onClose={() => setShowModal(false)}
+          onAdd={addSource}
+          onUpdate={updateSource}
+          onDelete={removeSource}
+          onReorder={reorderSources}
+        />
       )}
     </div>
   );

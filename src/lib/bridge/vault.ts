@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { getBridgeVaultPath } from "../db";
+import { getBridgeVaultPath, getActiveFolder } from "../db";
 
 let cachedVaultPath: string | null = null;
 
@@ -12,7 +12,11 @@ export async function getVaultPath(): Promise<string> {
 }
 
 export function getVaultPathSync(): string {
-  return cachedVaultPath || process.env.BRIDGE_VAULT_PATH || path.join(os.homedir(), "work/bridge");
+  if (cachedVaultPath) return cachedVaultPath;
+  // Try active source folder, then legacy env var, then default
+  const folder = getActiveFolder();
+  if (folder) return folder;
+  return process.env.BRIDGE_VAULT_PATH || path.join(os.homedir(), "work/bridge");
 }
 
 export async function readVaultFile(relativePath: string): Promise<string> {

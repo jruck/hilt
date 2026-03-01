@@ -17,6 +17,7 @@ interface StartupActivityEvent {
 
 interface ElectronAPI {
   isElectron: true;
+  selectFolder: () => Promise<{ path?: string; cancelled?: boolean }>;
   onPlanCreated: (callback: (event: PlanEvent) => void) => () => void;
   onPlanUpdated: (callback: (event: PlanEvent) => void) => () => void;
   onStartupActivity: (callback: (event: StartupActivityEvent) => void) => () => void;

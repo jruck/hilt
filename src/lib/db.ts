@@ -1,10 +1,12 @@
 import * as fs from "fs";
 import * as path from "path";
+import type { Source } from "./types";
 
 // Use DATA_DIR env var if set, otherwise use local ./data
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
 const INBOX_FILE = path.join(DATA_DIR, "inbox.json");
 const PREFERENCES_FILE = path.join(DATA_DIR, "preferences.json");
+const SOURCES_FILE = path.join(DATA_DIR, "sources.json");
 
 // Ensure data directory exists
 function ensureDataDir() {
@@ -135,7 +137,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   recentScopes: [],
   viewMode: "bridge",
   folderEmojis: {},
-  workingFolder: process.env.HILT_WORKING_FOLDER || undefined,
+  workingFolder: undefined,
 };
 
 function readPreferencesFile(): UserPreferences {
@@ -307,10 +309,17 @@ export async function setViewMode(mode: string): Promise<void> {
   writePreferencesFile(prefs);
 }
 
-// Bridge vault path
+// Bridge vault path — reads from preferences, then active source folder, then env vars (legacy)
 export async function getBridgeVaultPath(): Promise<string> {
   const prefs = readPreferencesFile();
-  return prefs.bridgeVaultPath || process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || path.join(process.env.HOME || "~", "work");
+  if (prefs.bridgeVaultPath) return prefs.bridgeVaultPath;
+
+  // Try active source's folder
+  const folder = getActiveFolder();
+  if (folder) return folder;
+
+  // Legacy env var fallback (set by Electron spawn or .env)
+  return process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || path.join(process.env.HOME || "~", "work");
 }
 
 export async function setBridgeVaultPath(vaultPath: string): Promise<void> {
@@ -370,4 +379,162 @@ export async function setChatSessionKey(key: string | null): Promise<void> {
     prefs.chatSessionKey = key;
   }
   writePreferencesFile(prefs);
+}
+
+// ============================================================================
+// Sources storage (multi-source server configuration)
+// ============================================================================
+
+function readSourcesFile(): Source[] {
+  ensureDataDir();
+  if (!fs.existsSync(SOURCES_FILE)) {
+    return [];
+  }
+  try {
+    const content = fs.readFileSync(SOURCES_FILE, "utf-8");
+    return JSON.parse(content);
+  } catch {
+    return [];
+  }
+}
+
+function writeSourcesFile(sources: Source[]) {
+  ensureDataDir();
+  fs.writeFileSync(SOURCES_FILE, JSON.stringify(sources, null, 2));
+}
+
+function generateSourceId(): string {
+  return `src-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/** One-time migration: seed sources.json from env vars if it doesn't exist */
+function migrateFromEnvVar(): void {
+  if (fs.existsSync(SOURCES_FILE)) return;
+
+  const sources: Source[] = [];
+
+  // Migrate from BRIDGE_VAULT_PATH or HILT_WORKING_FOLDER → create a local source with that folder
+  const folder = process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER;
+  if (folder) {
+    const folderName = path.basename(folder);
+    sources.push({
+      id: generateSourceId(),
+      name: folderName.charAt(0).toUpperCase() + folderName.slice(1),
+      type: "local",
+      url: "http://localhost:3000",
+      folder,
+      rank: 0,
+    });
+  }
+
+  // Migrate from NEXT_PUBLIC_REMOTE_HOST
+  const remoteHost = process.env.NEXT_PUBLIC_REMOTE_HOST;
+  if (remoteHost) {
+    if (sources.length === 0) {
+      sources.push({
+        id: generateSourceId(),
+        name: "Local",
+        type: "local",
+        url: "http://localhost:3000",
+        rank: 0,
+      });
+    }
+    sources.push({
+      id: generateSourceId(),
+      name: "Remote",
+      type: "remote",
+      url: `https://${remoteHost}`,
+      rank: sources.length,
+    });
+  }
+
+  if (sources.length > 0) {
+    writeSourcesFile(sources);
+  }
+}
+
+/** Get the folder for the active local source (matched by current server port or first local source) */
+export function getActiveFolder(): string | undefined {
+  const sources = readSourcesFile();
+  if (sources.length === 0) return undefined;
+
+  // Try matching by current server's port
+  const port = process.env.PORT;
+  if (port) {
+    const match = sources.find(s => s.type === "local" && s.url.includes(`:${port}`));
+    if (match?.folder) return match.folder;
+  }
+
+  // Fall back to first local source with a folder
+  const firstLocal = sources.find(s => s.type === "local" && s.folder);
+  return firstLocal?.folder;
+}
+
+export async function getSources(): Promise<Source[]> {
+  migrateFromEnvVar();
+  const sources = readSourcesFile();
+  return sources.sort((a, b) => a.rank - b.rank);
+}
+
+export async function addSource(name: string, url: string, type: "local" | "remote", folder?: string): Promise<Source> {
+  const sources = readSourcesFile();
+  const maxRank = sources.length > 0 ? Math.max(...sources.map(s => s.rank)) + 1 : 0;
+  const newSource: Source = {
+    id: generateSourceId(),
+    name,
+    type,
+    url: url.replace(/\/+$/, ""), // strip trailing slashes
+    ...(folder && { folder }),
+    rank: maxRank,
+  };
+  sources.push(newSource);
+  writeSourcesFile(sources);
+  return newSource;
+}
+
+export async function updateSource(id: string, updates: Partial<Pick<Source, "name" | "url" | "type" | "folder">>): Promise<Source | null> {
+  const sources = readSourcesFile();
+  const index = sources.findIndex(s => s.id === id);
+  if (index === -1) return null;
+
+  if (updates.name !== undefined) sources[index].name = updates.name;
+  if (updates.url !== undefined) sources[index].url = updates.url.replace(/\/+$/, "");
+  if (updates.type !== undefined) sources[index].type = updates.type;
+  if (updates.folder !== undefined) sources[index].folder = updates.folder || undefined;
+
+  writeSourcesFile(sources);
+  return sources[index];
+}
+
+export async function deleteSource(id: string): Promise<void> {
+  const sources = readSourcesFile();
+  const filtered = sources.filter(s => s.id !== id);
+  // Re-rank to close gaps
+  filtered.sort((a, b) => a.rank - b.rank).forEach((s, i) => { s.rank = i; });
+  writeSourcesFile(filtered);
+}
+
+export async function reorderSources(orderedIds: string[]): Promise<Source[]> {
+  const sources = readSourcesFile();
+  const byId = new Map(sources.map(s => [s.id, s]));
+  const reordered: Source[] = [];
+
+  for (let i = 0; i < orderedIds.length; i++) {
+    const source = byId.get(orderedIds[i]);
+    if (source) {
+      source.rank = i;
+      reordered.push(source);
+    }
+  }
+
+  // Include any sources not in orderedIds (shouldn't happen, but be safe)
+  for (const source of sources) {
+    if (!orderedIds.includes(source.id)) {
+      source.rank = reordered.length;
+      reordered.push(source);
+    }
+  }
+
+  writeSourcesFile(reordered);
+  return reordered.sort((a, b) => a.rank - b.rank);
 }

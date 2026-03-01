@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, shell, ipcMain, dialog } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { spawn, ChildProcess } from "child_process";
@@ -23,11 +23,30 @@ process.env.DATA_DIR = DATA_DIR;
 
 const PLANS_DIR = path.join(process.env.HOME || "~", ".claude", "plans");
 
+// Source type (mirrors src/lib/types.ts for Electron's use)
+interface SourceConfig {
+  id: string;
+  name: string;
+  type: "local" | "remote";
+  url: string;
+  folder?: string;
+  rank: number;
+}
+
+// Server instance tracking for multi-source orchestration
+interface ServerInstance {
+  process: ChildProcess;
+  port: number;
+  folder: string;
+  sourceId: string;
+}
+
 // Track active windows and server processes
 let mainWindow: BrowserWindow | null = null;
 let nextServer: ChildProcess | null = null;
 let wsServer: ChildProcess | null = null;
 let serverPort: number | null = null;
+const servers = new Map<string, ServerInstance>();
 
 // Startup activity tracking for loading screen
 interface StartupActivity {
@@ -126,6 +145,130 @@ async function waitForServer(port: number, timeoutMs: number): Promise<boolean> 
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   return false;
+}
+
+/**
+ * Read sources configuration from disk (tries Electron DATA_DIR then project-local)
+ */
+function readSourcesConfig(): SourceConfig[] {
+  const candidates = [
+    path.join(DATA_DIR, "sources.json"),
+    path.join(path.resolve(__dirname, ".."), "data", "sources.json"),
+  ];
+  for (const sourcesPath of candidates) {
+    try {
+      if (fs.existsSync(sourcesPath)) {
+        const data = JSON.parse(fs.readFileSync(sourcesPath, "utf-8"));
+        if (Array.isArray(data)) return data;
+      }
+    } catch {
+      // Try next
+    }
+  }
+  return [];
+}
+
+/**
+ * Write sources configuration back to disk (Electron DATA_DIR)
+ */
+function writeSourcesConfig(sources: SourceConfig[]): void {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+  fs.writeFileSync(path.join(DATA_DIR, "sources.json"), JSON.stringify(sources, null, 2));
+  // Also write to project-local for dev server compatibility
+  const projectDataDir = path.join(path.resolve(__dirname, ".."), "data");
+  if (fs.existsSync(projectDataDir)) {
+    fs.writeFileSync(path.join(projectDataDir, "sources.json"), JSON.stringify(sources, null, 2));
+  }
+}
+
+/**
+ * Start a dev server for a specific source's folder
+ */
+async function startServerForSource(source: SourceConfig): Promise<ServerInstance> {
+  const port = await findAvailablePort(3000);
+  const projectDir = path.resolve(__dirname, "..");
+
+  sendStartupActivity({
+    id: `server-${source.id}`,
+    label: `Starting server for ${source.name}`,
+    status: "active",
+    detail: `Launching on port ${port}...`,
+  });
+
+  // Ensure log directory exists
+  const logDir = path.join(app.getPath("userData"), "logs");
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+  }
+  const logPath = path.join(logDir, `dev-server-${source.id}.log`);
+  const logStream = fs.createWriteStream(logPath, { flags: "a" });
+  logStream.write(`\n--- Dev server for ${source.name} starting at ${new Date().toISOString()} ---\n`);
+
+  const env = {
+    ...process.env,
+    PORT: String(port),
+    FORCE_COLOR: "0",
+    DATA_DIR,
+    ...(source.folder && {
+      HILT_WORKING_FOLDER: source.folder,
+      BRIDGE_VAULT_PATH: source.folder,
+    }),
+  };
+
+  const serverProcess = spawn("npm", ["run", "dev", "--", "--port", String(port)], {
+    cwd: projectDir,
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: false,
+  });
+
+  serverProcess.stdout?.pipe(logStream);
+  serverProcess.stderr?.pipe(logStream);
+
+  serverProcess.stdout?.on("data", (data: Buffer) => {
+    console.log(`[Server:${source.name}]`, data.toString().trim());
+  });
+  serverProcess.stderr?.on("data", (data: Buffer) => {
+    console.error(`[Server:${source.name} Error]`, data.toString().trim());
+  });
+
+  serverProcess.on("error", (err: Error) => {
+    console.error(`Failed to start server for ${source.name}:`, err);
+  });
+
+  serverProcess.on("close", (code: number | null) => {
+    console.log(`Server for ${source.name} exited with code ${code}`);
+    servers.delete(source.id);
+  });
+
+  // Wait for server to be ready
+  const ready = await waitForServer(port, 60000);
+  if (ready) {
+    sendStartupActivity({
+      id: `server-${source.id}`,
+      label: `Starting server for ${source.name}`,
+      status: "complete",
+      detail: `Ready on port ${port}`,
+    });
+  } else {
+    sendStartupActivity({
+      id: `server-${source.id}`,
+      label: `Starting server for ${source.name}`,
+      status: "error",
+      detail: "Timeout waiting for server",
+    });
+  }
+
+  const instance: ServerInstance = {
+    process: serverProcess,
+    port,
+    folder: source.folder || "",
+    sourceId: source.id,
+  };
+  servers.set(source.id, instance);
+  return instance;
 }
 
 /**
@@ -399,9 +542,62 @@ async function createWindow() {
     detail: DATA_DIR,
   });
 
-  // Start the Next.js server
-  console.log("Starting Next.js server...");
-  const port = await startNextServer();
+  // Read sources and start servers
+  const sources = readSourcesConfig();
+  const localSourcesWithFolder = sources.filter(s => s.type === "local" && s.folder);
+  let port: number;
+
+  if (localSourcesWithFolder.length > 0 && !app.isPackaged) {
+    // Multi-source: spawn one server per local source with folder
+    sendStartupActivity({
+      id: "server-check",
+      label: "Starting source servers",
+      status: "active",
+      detail: `${localSourcesWithFolder.length} local source(s)...`,
+    });
+
+    // Check if any source already has a running server
+    for (const src of localSourcesWithFolder) {
+      if (src.url) {
+        try {
+          const existingPort = parseInt(new URL(src.url).port || "3000");
+          if (await checkDevServer(existingPort)) {
+            console.log(`Found existing server for ${src.name} on port ${existingPort}`);
+            servers.set(src.id, {
+              process: null as unknown as ChildProcess,
+              port: existingPort,
+              folder: src.folder || "",
+              sourceId: src.id,
+            });
+            continue;
+          }
+        } catch { /* ignore URL parse errors */ }
+      }
+      const instance = await startServerForSource(src);
+      // Write assigned URL back to source config
+      src.url = `http://localhost:${instance.port}`;
+    }
+
+    // Write updated URLs back
+    writeSourcesConfig(sources);
+
+    sendStartupActivity({
+      id: "server-check",
+      label: "Starting source servers",
+      status: "complete",
+      detail: `${servers.size} server(s) running`,
+    });
+
+    // Use first local source's port
+    const firstInstance = servers.get(localSourcesWithFolder[0].id);
+    port = firstInstance?.port ?? 3000;
+    serverPort = port;
+  } else {
+    // No local sources with folders, or packaged: use existing single-server approach
+    console.log("Starting Next.js server...");
+    port = await startNextServer();
+    serverPort = port;
+  }
   console.log(`Next.js server running on port ${port}`);
 
   // Start the WS server (real-time events, file watching)
@@ -513,11 +709,37 @@ async function createWindow() {
   });
 
   // Open external links in the default browser instead of inside Electron
-  const remoteHost = process.env.NEXT_PUBLIC_REMOTE_HOST;
-  const isInternalUrl = (url: string) =>
-    url.startsWith("http://localhost") ||
-    url.startsWith("http://127.0.0.1") ||
-    (remoteHost ? url.startsWith(`https://${remoteHost}`) : false);
+  // Build internal URL allowlist from configured sources
+  const getSourceUrls = (): string[] => {
+    // Merge URLs from all candidate files (Electron DATA_DIR + project-local)
+    // so sources saved by either the dev server or Electron are recognized
+    const candidates = [
+      path.join(DATA_DIR, "sources.json"),
+      path.join(path.resolve(__dirname, ".."), "data", "sources.json"),
+    ];
+    const urls = new Set<string>();
+    for (const sourcesPath of candidates) {
+      try {
+        if (fs.existsSync(sourcesPath)) {
+          const data = JSON.parse(fs.readFileSync(sourcesPath, "utf-8"));
+          if (Array.isArray(data)) {
+            for (const s of data) {
+              if (s.url) urls.add(s.url);
+            }
+          }
+        }
+      } catch {
+        // Ignore read errors
+      }
+    }
+    return Array.from(urls);
+  };
+
+  const isInternalUrl = (url: string) => {
+    if (url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")) return true;
+    const sourceUrls = getSourceUrls();
+    return sourceUrls.some(srcUrl => url.startsWith(srcUrl));
+  };
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (isInternalUrl(url)) {
@@ -608,26 +830,44 @@ async function setupPlanWatcher() {
   }
 }
 
+// IPC handlers
+ipcMain.handle("dialog:selectFolder", async () => {
+  if (!mainWindow) return { cancelled: true };
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ["openDirectory"],
+    title: "Select folder",
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return { cancelled: true };
+  }
+  return { path: result.filePaths[0] };
+});
+
 // App lifecycle
 app.whenReady().then(createWindow);
 
-app.on("window-all-closed", () => {
-  // Kill the Next.js server
+function killAllServers() {
   if (nextServer) {
     nextServer.kill();
     nextServer = null;
   }
-
-  // Kill the WS server
+  for (const [id, instance] of servers) {
+    if (instance.process) {
+      instance.process.kill();
+    }
+    servers.delete(id);
+  }
   if (wsServer) {
     wsServer.kill();
     wsServer = null;
   }
-
-  // Clean up plan watcher
   if (plansWatcher) {
     plansWatcher.close();
   }
+}
+
+app.on("window-all-closed", () => {
+  killAllServers();
 
   if (process.platform !== "darwin") {
     app.quit();
@@ -642,13 +882,5 @@ app.on("activate", () => {
 
 // Handle app quit
 app.on("before-quit", () => {
-  if (nextServer) {
-    nextServer.kill();
-  }
-  if (wsServer) {
-    wsServer.kill();
-  }
-  if (plansWatcher) {
-    plansWatcher.close();
-  }
+  killAllServers();
 });

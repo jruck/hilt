@@ -22,6 +22,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Flag to detect Electron environment
   isElectron: true,
 
+  // Native folder picker dialog
+  selectFolder: () => ipcRenderer.invoke("dialog:selectFolder") as Promise<{ path?: string; cancelled?: boolean }>,
+
   // Plan file events
   onPlanCreated: (callback: (event: PlanEvent) => void) => {
     const handler = (_: Electron.IpcRendererEvent, data: PlanEvent) => callback(data);
@@ -57,6 +60,7 @@ export type ElectronAPI = typeof electronAPI;
 
 const electronAPI = {
   isElectron: true as const,
+  selectFolder: () => Promise.resolve({} as { path?: string; cancelled?: boolean }),
   onPlanCreated: (_callback: (event: PlanEvent) => void) => () => {},
   onPlanUpdated: (_callback: (event: PlanEvent) => void) => () => {},
   onStartupActivity: (_callback: (event: StartupActivityEvent) => void) => () => {},

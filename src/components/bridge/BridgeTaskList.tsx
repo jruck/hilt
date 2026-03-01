@@ -42,7 +42,14 @@ export function BridgeTaskList({
   onAddTask,
 }: BridgeTaskListProps) {
   const [localTasks, setLocalTasks] = useState<BridgeTask[] | null>(null);
-  const [doneExpanded, setDoneExpanded] = useState(false);
+  const [doneExpanded, setDoneExpanded] = useState(() => {
+    try { return sessionStorage.getItem("bridge-task-done-expanded") === "true"; } catch { return false; }
+  });
+  const toggleDoneExpanded = () => setDoneExpanded(prev => {
+    const next = !prev;
+    try { sessionStorage.setItem("bridge-task-done-expanded", String(next)); } catch {}
+    return next;
+  });
   const displayTasks = localTasks || tasks;
 
   // Split into To Do / Done, preserving markdown order within each
@@ -148,7 +155,7 @@ export function BridgeTaskList({
             <div>
               <div
                 className="flex items-center justify-between mb-3 pr-3 cursor-pointer group"
-                onClick={() => setDoneExpanded(!doneExpanded)}
+                onClick={toggleDoneExpanded}
                 title={doneExpanded ? "Collapse done" : "Expand done"}
               >
                 <h2 className="text-sm font-medium text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)] uppercase tracking-wide transition-colors">

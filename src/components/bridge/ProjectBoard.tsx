@@ -29,7 +29,14 @@ function sortByRecency(projects: BridgeProject[]): BridgeProject[] {
 }
 
 export function ProjectBoard({ columns, onProjectClick, onStatusChange, className }: ProjectBoardProps) {
-  const [doneExpanded, setDoneExpanded] = useState(false);
+  const [doneExpanded, setDoneExpanded] = useState(() => {
+    try { return sessionStorage.getItem("bridge-project-done-expanded") === "true"; } catch { return false; }
+  });
+  const toggleDoneExpanded = () => setDoneExpanded(prev => {
+    const next = !prev;
+    try { sessionStorage.setItem("bridge-project-done-expanded", String(next)); } catch {}
+    return next;
+  });
   const [restoreProject, setRestoreProject] = useState<BridgeProject | null>(null);
   const [dragOverSection, setDragOverSection] = useState<BridgeProjectStatus | null>(null);
   const restoreRef = useRef<HTMLDivElement>(null);
@@ -127,7 +134,7 @@ export function ProjectBoard({ columns, onProjectClick, onStatusChange, classNam
           <div>
             <div
               className="flex items-center justify-between cursor-pointer group pr-3"
-              onClick={() => setDoneExpanded(!doneExpanded)}
+              onClick={toggleDoneExpanded}
               title={doneExpanded ? "Collapse completed" : "Expand completed"}
             >
               <div className="text-xs font-medium text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)] transition-colors flex items-center gap-1.5">

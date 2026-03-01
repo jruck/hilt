@@ -5,7 +5,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { BridgeTask } from "@/lib/types";
 import { GripVertical, ChevronRight } from "lucide-react";
-import { parseLifecycle } from "@/lib/attribution";
+import { parseLifecycle, parseMention } from "@/lib/attribution";
 import { useIsMobile } from "@/hooks/useIsMobile";
 
 function DueDateBadge({ dueDate, done }: { dueDate: string; done?: boolean }) {
@@ -57,9 +57,10 @@ export function BridgeTaskItem({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const isTouch = useIsMobile();
 
-  // Parse lifecycle markers from title (memoized)
+  // Parse lifecycle markers, then @mention from title (memoized)
   const lifecycle = useMemo(() => parseLifecycle(title, task.done), [title, task.done]);
-  const displayTitle = lifecycle.displayTitle;
+  const mention = useMemo(() => parseMention(lifecycle.displayTitle), [lifecycle.displayTitle]);
+  const displayTitle = mention ? mention.displayTitle : lifecycle.displayTitle;
 
   useEffect(() => {
     if (task.title !== lastSavedTitle.current) {
@@ -204,6 +205,13 @@ export function BridgeTaskItem({
               </span>
             </div>
           </div>
+
+          {/* @mention pill */}
+          {mention && (
+            <span className="flex-shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-[var(--bg-tertiary)] text-[var(--text-secondary)] capitalize">
+              {mention.displayName}
+            </span>
+          )}
 
           {/* Due date badge */}
           {task.dueDate && (

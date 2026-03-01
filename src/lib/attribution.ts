@@ -105,3 +105,28 @@ export function parseLifecycle(title: string, done: boolean): TaskLifecycle {
 
   return { state: "active", displayTitle: title };
 }
+
+// --- @mention parsing ---
+
+export interface TaskMention {
+  name: string;         // "justin" — raw
+  displayName: string;  // "Justin" — capitalized
+  displayTitle: string; // title with @mention stripped
+}
+
+const MENTION_REGEX = /\s+@(\w+)\s*$/;
+
+/**
+ * Parse @mention from end of a task title.
+ * Returns null if no mention found.
+ */
+export function parseMention(title: string): TaskMention | null {
+  const match = title.match(MENTION_REGEX);
+  if (!match) return null;
+  const name = match[1];
+  return {
+    name,
+    displayName: name.charAt(0).toUpperCase() + name.slice(1),
+    displayTitle: title.replace(MENTION_REGEX, "").trim(),
+  };
+}

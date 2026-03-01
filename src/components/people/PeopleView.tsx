@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Users } from "lucide-react";
 import { useBridgePeople } from "@/hooks/useBridgePeople";
 import { usePersonDetail } from "@/hooks/usePersonDetail";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -166,8 +166,14 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
   // Empty state
   if (!data || filteredPeople.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-[var(--text-tertiary)]">
-        <p>{q ? "No matching people" : "No people found"}</p>
+      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-[var(--text-tertiary)]">
+        <Users className="w-8 h-8" />
+        <p className="text-sm">{q ? "No matching people" : "No people yet"}</p>
+        {!q && (
+          <p className="text-xs max-w-[240px] text-center">
+            People will appear here once your agents start tracking them.
+          </p>
+        )}
       </div>
     );
   }

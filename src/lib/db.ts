@@ -479,11 +479,13 @@ export async function getSources(): Promise<Source[]> {
 export async function addSource(name: string, url: string, type: "local" | "remote", folder?: string): Promise<Source> {
   const sources = readSourcesFile();
   const maxRank = sources.length > 0 ? Math.max(...sources.map(s => s.rank)) + 1 : 0;
+  // Local sources always need a URL for switching — default to localhost:3000
+  const resolvedUrl = url || (type === "local" ? "http://localhost:3000" : "");
   const newSource: Source = {
     id: generateSourceId(),
     name,
     type,
-    url: url.replace(/\/+$/, ""), // strip trailing slashes
+    url: resolvedUrl.replace(/\/+$/, ""),
     ...(folder && { folder }),
     rank: maxRank,
   };

@@ -53,7 +53,7 @@ function SortableSourceRow({
   onDelete,
 }: {
   source: SourceWithStatus;
-  onUpdate: (id: string, updates: { name?: string; type?: "local" | "remote" }) => Promise<void>;
+  onUpdate: (id: string, updates: { name?: string; type?: "local" | "remote"; folder?: string }) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -134,9 +134,22 @@ function SortableSourceRow({
         </span>
       )}
 
-      <span className="text-xs text-[var(--text-tertiary)] truncate max-w-[180px]" title={detailFull}>
-        {detail}
-      </span>
+      {source.type === "local" ? (
+        <button
+          onClick={async () => {
+            const folder = await pickFolder();
+            if (folder) onUpdate(source.id, { folder });
+          }}
+          className="text-xs text-[var(--text-tertiary)] truncate max-w-[180px] hover:text-[var(--text-secondary)] transition-colors cursor-pointer"
+          title={detailFull ? `${detailFull} (click to change)` : "Click to set folder"}
+        >
+          {detail || "Set folder..."}
+        </button>
+      ) : (
+        <span className="text-xs text-[var(--text-tertiary)] truncate max-w-[180px]" title={detailFull}>
+          {detail}
+        </span>
+      )}
 
       {/* Show dim URL as secondary info for local sources with folder */}
       {source.type === "local" && source.folder && source.url && (

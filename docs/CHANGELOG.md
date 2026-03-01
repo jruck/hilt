@@ -31,7 +31,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Enhanced onboarding** — Unconfigured state in SourceToggle shows "Choose folder..." as primary action with folder picker, plus secondary "Add as source" option.
 
-- **Electron URL allowlist fix** — `getSourceUrls()` now checks project-local `./data/sources.json` as fallback when Electron's DATA_DIR has no sources file. Fixes bug where remote source URLs opened in default browser.
+- **Inline URL editing for remote sources** — Remote source URLs in the Manage Sources modal are now click-to-edit, matching the inline name editing pattern. Local sources retain the folder picker instead.
+
+- **Port drift self-healing** — When the dev server starts on a different port (e.g. 3000 is taken), `useSource` detects the mismatch and auto-patches the local source's URL to match the actual origin.
+
+- **Local sources always available** — Local sources skip availability probing (localhost resolves to the physical machine, not the remote context). Fixes false "offline" status when viewing from a remote machine.
+
+- **Local source switching skip probe** — `switchTo()` skips the reachability probe for local sources, navigating directly. Fixes "Local not responding" error when switching to local from a remote machine.
+
+- **Default URL for local sources** — `addSource()` defaults local source URLs to `http://localhost:3000` when no URL is provided (e.g. when created via folder picker). Fixes unclickable local sources with empty URLs.
+
+- **Electron URL allowlist fix** — `getSourceUrls()` merges URLs from all candidate files (Electron DATA_DIR + project-local) using a Set instead of early-returning from first match. Fixes remote source URLs opening in default browser.
 
 - **Multi-source configuration system** — Replace single-remote env var (`NEXT_PUBLIC_REMOTE_HOST`) with a flexible config-file-based system supporting multiple local and remote servers. Sources stored in `DATA_DIR/sources.json` with rank-ordered priority.
   - Types: `Source` interface in `src/lib/types.ts`

@@ -53,7 +53,7 @@ function SortableSourceRow({
   onDelete,
 }: {
   source: SourceWithStatus;
-  onUpdate: (id: string, updates: { name?: string; type?: "local" | "remote"; folder?: string }) => Promise<void>;
+  onUpdate: (id: string, updates: { name?: string; url?: string; type?: "local" | "remote"; folder?: string }) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -62,6 +62,9 @@ function SortableSourceRow({
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(source.name);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const [editingUrl, setEditingUrl] = useState(false);
+  const [urlValue, setUrlValue] = useState(source.url);
+  const urlInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (editingName && nameInputRef.current) {
@@ -69,6 +72,13 @@ function SortableSourceRow({
       nameInputRef.current.select();
     }
   }, [editingName]);
+
+  useEffect(() => {
+    if (editingUrl && urlInputRef.current) {
+      urlInputRef.current.focus();
+      urlInputRef.current.select();
+    }
+  }, [editingUrl]);
 
   function saveName() {
     const trimmed = nameValue.trim();
@@ -78,6 +88,16 @@ function SortableSourceRow({
       setNameValue(source.name);
     }
     setEditingName(false);
+  }
+
+  function saveUrl() {
+    const trimmed = urlValue.trim();
+    if (trimmed && trimmed !== source.url) {
+      onUpdate(source.id, { url: trimmed });
+    } else {
+      setUrlValue(source.url);
+    }
+    setEditingUrl(false);
   }
 
   const style = {
@@ -145,8 +165,27 @@ function SortableSourceRow({
         >
           {detail || "Set folder..."}
         </button>
+      ) : editingUrl ? (
+        <input
+          ref={urlInputRef}
+          value={urlValue}
+          onChange={e => setUrlValue(e.target.value)}
+          onBlur={saveUrl}
+          onKeyDown={e => {
+            if (e.key === "Enter") saveUrl();
+            if (e.key === "Escape") {
+              setUrlValue(source.url);
+              setEditingUrl(false);
+            }
+          }}
+          className="text-xs min-w-0 max-w-[180px] bg-transparent border-b border-[var(--interactive-default)] text-[var(--text-primary)] outline-none"
+        />
       ) : (
-        <span className="text-xs text-[var(--text-tertiary)] truncate max-w-[180px]" title={detailFull}>
+        <span
+          onClick={() => setEditingUrl(true)}
+          className="text-xs text-[var(--text-tertiary)] truncate max-w-[180px] cursor-text hover:text-[var(--text-secondary)] transition-colors"
+          title={`${detailFull} (click to edit)`}
+        >
           {detail}
         </span>
       )}

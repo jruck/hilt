@@ -87,6 +87,31 @@ export function useSources() {
     fetchSources();
   }, [fetchSources]);
 
+  // Self-heal: if running on localhost but no source URL matches (e.g. port changed),
+  // update the first local source's URL to match the actual origin
+  useEffect(() => {
+    if (!loaded || sources.length === 0 || !currentOrigin) return;
+    const isLocalhost = currentOrigin.includes("localhost") || currentOrigin.includes("127.0.0.1");
+    if (!isLocalhost) return;
+
+    const hasMatch = sources.some(s => normalizeUrl(s.url) === currentOrigin);
+    if (hasMatch) return;
+
+    const localSource = sources.find(s => s.type === "local");
+    if (!localSource) return;
+
+    // Port drifted — update the source URL to match where we're actually running
+    const actualOrigin = window.location.origin;
+    console.log(`[useSource] Port drift detected: updating ${localSource.name} URL from ${localSource.url} to ${actualOrigin}`);
+    fetch("/api/sources", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: localSource.id, url: actualOrigin }),
+    }).then(res => {
+      if (res.ok) fetchSources();
+    });
+  }, [loaded, sources, currentOrigin, fetchSources]);
+
   // Determine active source
   const activeSource = sources.find(s => normalizeUrl(s.url) === currentOrigin) ?? null;
 

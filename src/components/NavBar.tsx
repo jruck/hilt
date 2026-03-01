@@ -128,7 +128,8 @@ export function NavBar({
   // Double-press ⌘ to toggle shortcuts popup
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Meta" || e.key === "Control") {
+      const isMac = /mac/i.test(navigator.userAgent);
+      if (e.key === (isMac ? "Meta" : "Control")) {
         const now = Date.now();
         if (now - lastCmdPressRef.current < 400) {
           setDevMode((prev) => !prev);

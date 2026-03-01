@@ -213,13 +213,15 @@ export function useSources() {
     // If already on this source, no-op
     if (normalizeUrl(target.url) === currentOrigin) return;
 
-    // Probe before switching
-    const available = await probeUrl(target.url);
-    if (!available) {
-      setSwitchError(`${target.name} not responding`);
-      setAvailability(prev => ({ ...prev, [target.id]: false }));
-      setTimeout(() => setSwitchError(null), 3000);
-      return;
+    // Probe before switching (skip for local — localhost always resolves to your machine)
+    if (target.type !== "local") {
+      const available = await probeUrl(target.url);
+      if (!available) {
+        setSwitchError(`${target.name} not responding`);
+        setAvailability(prev => ({ ...prev, [target.id]: false }));
+        setTimeout(() => setSwitchError(null), 3000);
+        return;
+      }
     }
 
     // If switching to remote, pass local origin as ?from=

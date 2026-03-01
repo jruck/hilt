@@ -128,6 +128,13 @@ export function useSources() {
           if (mounted) setAvailability(prev => ({ ...prev, [source.id]: true }));
           continue;
         }
+        if (source.type === "local") {
+          // Local sources are always "available" — localhost resolves to the
+          // physical machine you're on, so probing from a remote context is
+          // meaningless. Always let users click Local to return home.
+          if (mounted) setAvailability(prev => ({ ...prev, [source.id]: true }));
+          continue;
+        }
         const available = await probeUrl(source.url);
         if (mounted) {
           setAvailability(prev => ({ ...prev, [source.id]: available }));

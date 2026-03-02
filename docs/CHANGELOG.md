@@ -8,6 +8,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
+- **Auto-create vault directories on first run** — Hilt now ensures `lists/now/`, `briefings/`, `people/`, `projects/`, and `thoughts/` exist when the vault path is resolved. Seeds a starter weekly list if `lists/now/` is empty so Bridge works out of the box.
+
 - **@mention pills in Bridge tasks** — Tasks ending with `@name` (e.g. `Set up repo @justin`) now show the name as a small capitalized pill badge next to the due date. The @mention is stripped from the editable title.
 
 - **Folder-based local sources** — Local sources are now defined by a `folder` path instead of just a URL. The folder serves as both the Docs browsing root and Bridge vault path, eliminating the need for separate `HILT_WORKING_FOLDER` and `BRIDGE_VAULT_PATH` env vars.

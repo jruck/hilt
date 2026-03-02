@@ -43,6 +43,11 @@ input, textarea, select, [contenteditable] {
   --text-secondary: #6b6b6b;
   --text-tertiary: #9a9a9a;
   --text-inverted: #ffffff;
+  --marker-disc: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='3.5' fill='%23bbbbbb'/%3E%3C/svg%3E");
+  --marker-right: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23bbbbbb' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
+  --marker-right-hover: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%231a1a1a' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
+  --marker-down: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23bbbbbb' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  --marker-down-hover: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%231a1a1a' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 
   /* Interactive — warm brown accent (from jruck.us) */
   --interactive-default: #8b7355;
@@ -110,6 +115,11 @@ input, textarea, select, [contenteditable] {
   --text-secondary: #a3a09a;
   --text-tertiary: #6b6864;
   --text-inverted: #121211;
+  --marker-disc: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='3.5' fill='%23504d49'/%3E%3C/svg%3E");
+  --marker-right: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23504d49' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
+  --marker-right-hover: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23f0ede8' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
+  --marker-down: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23504d49' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  --marker-down-hover: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23f0ede8' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 
   /* Interactive — warm tan accent (from jruck.us) */
   --interactive-default: #c4a882;
@@ -1555,6 +1565,25 @@ body [data-radix-popper-content-wrapper]::after {
 
 .briefing-content [data-footnote-backref]:hover {
   opacity: 1;
+}
+
+/* Briefing list — all SVG markers for consistent alignment */
+.briefing-list {
+  list-style-image: var(--marker-disc);
+}
+
+/* Expandable briefing items — Lucide chevron replaces disc */
+.briefing-expandable {
+  list-style-image: var(--marker-right);
+}
+.briefing-expandable:hover {
+  list-style-image: var(--marker-right-hover);
+}
+.briefing-expanded {
+  list-style-image: var(--marker-down);
+}
+.briefing-expanded:hover {
+  list-style-image: var(--marker-down-hover);
 }
 
 /* ============================================

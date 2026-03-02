@@ -122,12 +122,10 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
   const footnoteId = footnoteMatch ? `fn-${footnoteMatch[1]}` : undefined;
 
   return (
-    <li id={footnoteId} className="text-[var(--text-primary)]">
+    <li id={footnoteId} className={`text-[var(--text-primary)] ${hasDetails ? `briefing-expandable${expanded ? " briefing-expanded" : ""}` : ""}`}>
       <div
         onClick={() => hasDetails && setExpanded(!expanded)}
-        className={`py-0.5 transition-colors ${
-          hasDetails ? "cursor-pointer" : ""
-        }`}
+        className={`py-0.5 ${hasDetails ? "cursor-pointer" : ""}`}
       >
         <span className="text-[var(--text-primary)] leading-relaxed briefing-inline-md">
           <ReactMarkdown
@@ -167,7 +165,7 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
                   {children}
                 </a>
               ),
-              ul: ({ children }) => <ul className="list-disc pl-5 space-y-0.5">{children}</ul>,
+              ul: ({ children }) => <ul className="briefing-list pl-5 space-y-0.5">{children}</ul>,
               li: ({ children }) => <li className="text-[var(--text-secondary)]">{children}</li>,
               p: ({ children }) => <p className="mb-0.5">{children}</p>,
             }}
@@ -233,7 +231,7 @@ export function BriefingContent({ content }: BriefingContentProps) {
                 })}
               </div>
             ) : (
-              <ul className="list-disc pl-9 pr-4 py-2 space-y-0 !m-0">
+              <ul className="briefing-list pl-9 pr-4 py-2 space-y-0 !m-0">
                 {section.items.map((item, ii) => (
                   <CollapsibleItem key={ii} item={item} />
                 ))}

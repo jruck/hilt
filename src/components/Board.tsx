@@ -2,7 +2,9 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useScope } from "@/contexts/ScopeContext";
+import { useEventSocketContext } from "@/contexts/EventSocketContext";
 import dynamic from "next/dynamic";
+import type { ViewPrefix } from "@/lib/url-utils";
 import { ViewMode } from "./ViewToggle";
 import { NavBar } from "./NavBar";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -18,6 +20,8 @@ const PeopleView = dynamic(() => import("./people/PeopleView").then(m => ({ defa
 export function Board() {
   // Scope path and view mode from context — URL-based routing
   const { scopePath, setScopePath, viewMode: urlViewMode, setViewMode: setUrlViewMode, replaceViewMode, navigateTo } = useScope();
+
+  const { on } = useEventSocketContext();
 
   // Track if we've hydrated from localStorage (to prevent hydration mismatch)
   const [isHydrated, setIsHydrated] = useState(false);
@@ -98,6 +102,19 @@ export function Board() {
     // Return a promise that never resolves — page will reload
     return new Promise<void>(() => {});
   }, []);
+
+  // Listen for CLI navigation commands via WebSocket
+  useEffect(() => {
+    const unsub = on("navigate", "goto", (data: unknown) => {
+      const { view, path } = data as { view: string; path?: string };
+      navigateTo(view as ViewPrefix, path || "");
+      // Focus Electron window if available
+      if (window.electronAPI?.focusWindow) {
+        window.electronAPI.focusWindow();
+      }
+    });
+    return unsub;
+  }, [navigateTo, on]);
 
   // Keyboard shortcuts
   useEffect(() => {

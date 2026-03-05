@@ -114,6 +114,31 @@ async function startServer() {
       res.end(JSON.stringify({ status: "ok", port }));
       return;
     }
+
+    // Navigate endpoint — broadcasts to all connected renderer clients
+    if (req.method === "POST" && req.url === "/navigate") {
+      let body = "";
+      req.on("data", (chunk: Buffer) => { body += chunk; });
+      req.on("end", () => {
+        try {
+          const { view, path } = JSON.parse(body);
+          const validViews = ["bridge", "docs", "stack", "briefings", "people"];
+          if (!view || !validViews.includes(view)) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Invalid view. Must be one of: " + validViews.join(", ") }));
+            return;
+          }
+          eventServer.broadcastAll("navigate", "goto", { view, path });
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true }));
+        } catch {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Invalid JSON" }));
+        }
+      });
+      return;
+    }
+
     res.writeHead(404);
     res.end();
   });

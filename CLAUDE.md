@@ -76,6 +76,21 @@ interface Session {
 - `/plan [description]` - Create feature plans
 - `/hilt` - Open Hilt UI
 
+## Hilt Navigation (CLI)
+
+Open files, views, or projects in the running Hilt app:
+```bash
+PORT=$(cat ~/.hilt-ws-port)
+curl -s -X POST "http://localhost:$PORT/navigate" \
+  -H "Content-Type: application/json" \
+  -d '{"view":"docs","path":"/absolute/path/to/file"}'
+```
+
+Views: `bridge`, `docs`, `stack`, `briefings`, `people`
+- `path` is optional — omit to just switch views
+- `docs`/`stack` use absolute file paths; `people` uses slug paths (e.g. `/amrit`)
+- Window auto-focuses in Electron mode
+
 ## Development
 
 ```bash

@@ -831,6 +831,14 @@ async function setupPlanWatcher() {
 }
 
 // IPC handlers
+ipcMain.on("window:focus", () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
 ipcMain.handle("dialog:selectFolder", async () => {
   if (!mainWindow) return { cancelled: true };
   const result = await dialog.showOpenDialog(mainWindow, {

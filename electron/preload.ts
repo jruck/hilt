@@ -53,6 +53,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.removeListener("startup:activity", handler);
     };
   },
+
+  // Window focus (for CLI navigation)
+  focusWindow: () => ipcRenderer.send("window:focus"),
 });
 
 // Type declaration for the exposed API
@@ -64,4 +67,5 @@ const electronAPI = {
   onPlanCreated: (_callback: (event: PlanEvent) => void) => () => {},
   onPlanUpdated: (_callback: (event: PlanEvent) => void) => () => {},
   onStartupActivity: (_callback: (event: StartupActivityEvent) => void) => () => {},
+  focusWindow: () => {},
 };

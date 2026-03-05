@@ -8,6 +8,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
+- **CLI navigation endpoint** — POST `/navigate` on the WS server (`~/.hilt-ws-port`) broadcasts navigation commands to all connected clients. Any Claude session can `curl` to open a specific view/path in Hilt. Supports all views: `bridge`, `docs`, `stack`, `briefings`, `people`. Window auto-focuses in Electron via new `focusWindow` IPC. Documented as core skill in CLAUDE.md.
+  - `server/ws-server.ts` — POST `/navigate` HTTP handler
+  - `server/event-server.ts` — `broadcastAll()` method (sends to all clients regardless of subscriptions)
+  - `src/components/Board.tsx` — `on("navigate", "goto", ...)` listener calls `navigateTo()`
+  - `electron/preload.ts` — exposes `focusWindow()` via contextBridge
+  - `electron/main.ts` — `ipcMain.on("window:focus", ...)` handler
+
 - **Auto-create vault directories on first run** — Hilt now ensures `lists/now/`, `briefings/`, `people/`, `projects/`, and `thoughts/` exist when the vault path is resolved. Seeds a starter weekly list if `lists/now/` is empty so Bridge works out of the box.
 
 - **@mention pills in Bridge tasks** — Tasks ending with `@name` (e.g. `Set up repo @justin`) now show the name as a small capitalized pill badge next to the due date. The @mention is stripped from the editable title.

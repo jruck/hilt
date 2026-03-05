@@ -21,6 +21,7 @@ interface ElectronAPI {
   onPlanCreated: (callback: (event: PlanEvent) => void) => () => void;
   onPlanUpdated: (callback: (event: PlanEvent) => void) => () => void;
   onStartupActivity: (callback: (event: StartupActivityEvent) => void) => () => void;
+  focusWindow: () => void;
 }
 
 declare global {

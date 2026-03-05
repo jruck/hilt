@@ -46,6 +46,32 @@ Breadcrumb nav for folder hierarchy. Pinned folders with custom emoji icons. Glo
 
 Native macOS app via Electron with back/forward navigation (Cmd+[/] and trackpad swipe). DMG installer for easy distribution.
 
+### CLI Navigation
+
+Any Claude session (or script) can tell the running Hilt app to navigate to a specific file, person, or view:
+
+```bash
+PORT=$(cat ~/.hilt-ws-port)
+
+# Open a file in Docs view
+curl -s -X POST "http://localhost:$PORT/navigate" \
+  -H "Content-Type: application/json" \
+  -d '{"view":"docs","path":"/Users/me/work/bridge/meetings/2026-03-04/standup.md"}'
+
+# Focus on a person
+curl -s -X POST "http://localhost:$PORT/navigate" \
+  -H "Content-Type: application/json" \
+  -d '{"view":"people","path":"/amrit"}'
+
+# Switch to Bridge view
+curl -s -X POST "http://localhost:$PORT/navigate" \
+  -d '{"view":"bridge"}'
+```
+
+Views: `bridge`, `docs`, `stack`, `briefings`, `people`. The `path` field is optional — omit it to just switch views. `docs` and `stack` use absolute file paths; `people` uses slug paths (e.g., `/amrit`). In Electron, the window auto-focuses.
+
+A `/hilt` skill is included at `.claude/skills/hilt/` — symlink it to `~/.claude/skills/hilt` to make it available globally. Then any Claude session can respond to "show me my last meeting" or "pull up Amrit" by discovering the right file and navigating Hilt to it.
+
 ## Getting Started
 
 **Prerequisites:** Node.js 18.18+ ([download](https://nodejs.org/) or use [nvm](https://github.com/nvm-sh/nvm)) and the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code).

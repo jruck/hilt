@@ -180,6 +180,25 @@ export class EventServer extends EventEmitter {
   }
 
   /**
+   * Broadcast an event to ALL connected clients regardless of subscriptions.
+   * Used for global events like navigation commands.
+   */
+  broadcastAll(channel: string, event: string, data: unknown) {
+    let sentCount = 0;
+
+    for (const [, ws] of this.clients) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ channel, event, data }));
+        sentCount++;
+      }
+    }
+
+    if (sentCount > 0) {
+      console.log(`[EventServer] BroadcastAll ${channel}:${event} to ${sentCount} clients`);
+    }
+  }
+
+  /**
    * Get all clients subscribed to a channel
    */
   getSubscribers(channel: string): Array<{ clientId: string; params: Record<string, unknown> }> {

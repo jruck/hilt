@@ -1,6 +1,6 @@
 ---
 name: hilt
-description: Navigate to files, meetings, people, projects, or views in the Hilt app. Use when the user wants to show, open, pull up, or navigate to something in Hilt — or when context implies they want to see something visually (e.g., "show me my meeting with X", "open the project", "pull up Amrit").
+description: Navigate to files, meetings, people, projects, or views in the Hilt app. Use when the user wants to show, open, pull up, or navigate to something in Hilt — or when context implies they want to see something visually (e.g., "show me my meeting with X", "open the project", "pull up Art").
 ---
 
 # Hilt Navigation
@@ -24,7 +24,7 @@ curl -s -X POST "http://localhost:$PORT/navigate" \
 |------|------------|---------|
 | `docs` | Absolute file path | `/Users/jruck/work/bridge/meetings/2026-03-04/meeting.md` |
 | `stack` | Absolute directory path | `/Users/jruck/work/project` |
-| `people` | Slug path: `/<name>` | `/amrit` |
+| `people` | Slug path: `/<name>` | `/art-vandelay` |
 | `bridge` | No path needed | (omit) |
 | `briefings` | No path needed | (omit) |
 
@@ -33,7 +33,7 @@ curl -s -X POST "http://localhost:$PORT/navigate" \
 When the user asks to "show" or "open" something, figure out what they mean:
 
 ### People
-- "show me Amrit", "pull up Sarah's page" → `{"view":"people","path":"/<slug>"}`
+- "show me Art", "pull up Sarah's page" → `{"view":"people","path":"/<slug>"}`
 - Find the slug: `ls ~/work/bridge/people/` and match by name (filename without `.md`)
 
 ### Meetings

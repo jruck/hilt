@@ -61,16 +61,16 @@ curl -s -X POST "http://localhost:$PORT/navigate" \
 # Focus on a person
 curl -s -X POST "http://localhost:$PORT/navigate" \
   -H "Content-Type: application/json" \
-  -d '{"view":"people","path":"/amrit"}'
+  -d '{"view":"people","path":"/art-vandelay"}'
 
 # Switch to Bridge view
 curl -s -X POST "http://localhost:$PORT/navigate" \
   -d '{"view":"bridge"}'
 ```
 
-Views: `bridge`, `docs`, `stack`, `briefings`, `people`. The `path` field is optional — omit it to just switch views. `docs` and `stack` use absolute file paths; `people` uses slug paths (e.g., `/amrit`). In Electron, the window auto-focuses.
+Views: `bridge`, `docs`, `stack`, `briefings`, `people`. The `path` field is optional — omit it to just switch views. `docs` and `stack` use absolute file paths; `people` uses slug paths (e.g., `/art-vandelay`). In Electron, the window auto-focuses.
 
-A `/hilt` skill is included at `.claude/skills/hilt/` — symlink it to `~/.claude/skills/hilt` to make it available globally. Then any Claude session can respond to "show me my last meeting" or "pull up Amrit" by discovering the right file and navigating Hilt to it.
+A `/hilt` skill is included at `.claude/skills/hilt/` — symlink it to `~/.claude/skills/hilt` to make it available globally. Then any Claude session can respond to "show me my last meeting" or "pull up Art Vandelay" by discovering the right file and navigating Hilt to it.
 
 ## Getting Started
 

@@ -88,7 +88,7 @@ curl -s -X POST "http://localhost:$PORT/navigate" \
 
 Views: `bridge`, `docs`, `stack`, `briefings`, `people`
 - `path` is optional — omit to just switch views
-- `docs`/`stack` use absolute file paths; `people` uses slug paths (e.g. `/amrit`)
+- `docs`/`stack` use absolute file paths; `people` uses slug paths (e.g. `/art-vandelay`)
 - Window auto-focuses in Electron mode
 
 ## Development

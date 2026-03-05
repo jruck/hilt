@@ -5,6 +5,8 @@ const electron_1 = require("electron");
 electron_1.contextBridge.exposeInMainWorld("electronAPI", {
     // Flag to detect Electron environment
     isElectron: true,
+    // Native folder picker dialog
+    selectFolder: () => electron_1.ipcRenderer.invoke("dialog:selectFolder"),
     // Plan file events
     onPlanCreated: (callback) => {
         const handler = (_, data) => callback(data);
@@ -28,10 +30,14 @@ electron_1.contextBridge.exposeInMainWorld("electronAPI", {
             electron_1.ipcRenderer.removeListener("startup:activity", handler);
         };
     },
+    // Window focus (for CLI navigation)
+    focusWindow: () => electron_1.ipcRenderer.send("window:focus"),
 });
 const electronAPI = {
     isElectron: true,
+    selectFolder: () => Promise.resolve({}),
     onPlanCreated: (_callback) => () => { },
     onPlanUpdated: (_callback) => () => { },
     onStartupActivity: (_callback) => () => { },
+    focusWindow: () => { },
 };

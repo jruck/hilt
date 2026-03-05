@@ -414,15 +414,33 @@ async function startNextServer(): Promise<number> {
     const standaloneDir = path.join(process.resourcesPath, "app", ".next", "standalone");
     const serverPath = path.join(standaloneDir, "server.js");
 
-    nextServer = spawn(process.execPath, [serverPath], {
+    // Use system node + detached process group to prevent a second dock icon.
+    // macOS shows dock icons for child processes in the same process group as
+    // a .app bundle, so we detach into a new group and kill on exit.
+    const { execSync } = require("child_process");
+    let nodeBin = process.execPath;
+    let extraEnv: Record<string, string> = { ELECTRON_RUN_AS_NODE: "1" };
+    try {
+      const systemNode = execSync("which node", { encoding: "utf-8" }).trim();
+      if (systemNode) {
+        nodeBin = systemNode;
+        extraEnv = {};
+      }
+    } catch {
+      // No system node — fall back to Electron binary as Node
+    }
+
+    nextServer = spawn(nodeBin, [serverPath], {
       env: {
         ...process.env,
-        ELECTRON_RUN_AS_NODE: "1",
+        ...extraEnv,
         PORT: String(port),
         DATA_DIR,
         NODE_ENV: "production",
       },
       cwd: standaloneDir,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
     });
 
     let started = false;
@@ -851,8 +869,23 @@ ipcMain.handle("dialog:selectFolder", async () => {
   return { path: result.filePaths[0] };
 });
 
-// App lifecycle
-app.whenReady().then(createWindow);
+// Single-instance lock — focus existing window instead of spawning a duplicate
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  app.exit(0);
+} else {
+  app.on("second-instance", () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
+  // App lifecycle
+  app.whenReady().then(createWindow);
+}
 
 function killAllServers() {
   if (nextServer) {

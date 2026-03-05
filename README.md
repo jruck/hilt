@@ -8,7 +8,7 @@ It's designed to be used by agents as much as by humans. Your agents write brief
 
 ## Contents
 
-- [Views](#views) — Briefing, Bridge, Docs, Stack
+- [Views](#views) — Briefing, Bridge, Docs, People, Stack
 - [Getting Started](#getting-started) — Install, configure, run
 - [Folder Structure](#folder-structure) — How your knowledge base is organized
 - [Architecture](#architecture) — System design and tech stack
@@ -33,6 +33,12 @@ Weekly planning and project management. Drag-and-drop task ordering with checkbo
 ![Docs view](docs/screenshots/docs.png)
 
 Browse and edit markdown and code files in your knowledge base. Collapsible, resizable sidebar with file tree. MDXEditor for markdown, CodeMirror for 30+ code file types. Obsidian-style `[[wikilinks]]` with vault-relative resolution. Renders images, PDFs, CSVs, and Mermaid diagrams inline. Code block copy button on hover. Per-folder sorting (A-Z or recent). Deep linking via `?doc=path`.
+
+### People
+
+![People view](docs/screenshots/people.png)
+
+Contact directory and meeting timeline. Three-column layout: people list, meeting feed, and meeting detail. Tracks inline meeting notes (dated `### YYYY-MM-DD` entries in each person's markdown file) and recorded meetings (standalone files in `meetings/` matched by name). "Next" section for prepping upcoming conversations. Filter meetings by written or recorded. Supports both individual people and recurring group meetings.
 
 ### Stack
 
@@ -99,7 +105,7 @@ Edit `.env` with your settings:
 | `NEXT_PUBLIC_REMOTE_HOST` | No | Hostname for remote access (e.g., a Tailscale machine name). When set, Hilt shows a local/remote switcher. |
 
 > [!TIP]
-> **Want to try it first?** Set `HILT_WORKING_FOLDER=./docs/demo` to explore Hilt with sample briefings, tasks, projects, and thoughts — no setup needed. This is the same content shown in the screenshots above.
+> **Want to try it first?** Set `HILT_WORKING_FOLDER=./docs/demo` to explore Hilt with sample briefings, tasks, projects, people, and meetings — no setup needed. This is the same content shown in the screenshots above.
 
 ### Run
 
@@ -128,6 +134,12 @@ your-working-folder/
 ├── lists/
 │   └── now/                   ← Bridge view: weekly task lists
 │       └── 2026-02-17.md      (one per week, YYYY-MM-DD.md)
+├── people/                    ← People view: contact directory
+│   ├── index.md               (directory listing with descriptions)
+│   └── art-vandelay.md        (person file: Next topics, dated notes)
+├── meetings/                  ← People view: recorded meeting files
+│   └── 2026-02-11/
+│       └── art-vandelay__elaine-benes.md
 ├── projects/                  ← Bridge view: project folders
 │   └── my-project/
 │       └── index.md           (frontmatter: status, area, tags)
@@ -150,6 +162,8 @@ Most folders are optional — if they don't exist, the corresponding view sectio
 **Briefings** (`briefings/YYYY-MM-DD.md`) are markdown files with optional YAML frontmatter (`title`, `summary`). Your agents write these to keep you updated.
 
 **Weekly lists** (`lists/now/YYYY-MM-DD.md`) contain `## Tasks` and `## Notes` sections with checkbox task items. Hilt reads the most recent file.
+
+**People** (`people/*.md`) are person files with `## Next` (upcoming topics) and `## Notes` (dated `### YYYY-MM-DD` meeting entries). The `people/index.md` file maps slugs to one-line descriptions. Meeting files in `meetings/` are matched to people by name — filenames like `art-vandelay__elaine-benes.md` link to both people.
 
 **Projects** (`projects/*/index.md`) use frontmatter to track status (`considering`, `refining`, `doing`, `done`), which maps to columns on the project board.
 

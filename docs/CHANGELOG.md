@@ -8,6 +8,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
+- **People tab documentation and demo data** — Added People view to README with screenshot. Created demo people data (5 fictional contacts with meeting history) and sample meeting files in `docs/demo/` so People tab works out of the box with `HILT_WORKING_FOLDER=./docs/demo`. Updated folder structure docs with `people/` and `meetings/` directories.
+
+- **Prevent duplicate Electron dock icons** — Single-instance lock prevents a second bouncing icon when relaunching from Raycast. Production server spawns detached with system node to avoid ghost "exec" dock icon on macOS.
+
 - **CLI navigation endpoint** — POST `/navigate` on the WS server (`~/.hilt-ws-port`) broadcasts navigation commands to all connected clients. Any Claude session can `curl` to open a specific view/path in Hilt. Supports all views: `bridge`, `docs`, `stack`, `briefings`, `people`. Window auto-focuses in Electron via new `focusWindow` IPC. Documented as core skill in CLAUDE.md.
   - `server/ws-server.ts` — POST `/navigate` HTTP handler
   - `server/event-server.ts` — `broadcastAll()` method (sends to all clients regardless of subscriptions)

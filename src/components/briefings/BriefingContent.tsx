@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
+import { useHaptics } from "@/hooks/useHaptics";
 interface BriefingContentProps {
   content: string;
 }
@@ -114,6 +115,7 @@ function renderCitations(text: string): string {
 }
 
 function CollapsibleItem({ item }: { item: BriefingItem }) {
+  const haptics = useHaptics();
   const [expanded, setExpanded] = useState(false);
   const hasDetails = item.details.trim().length > 0;
 
@@ -124,7 +126,7 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
   return (
     <li id={footnoteId} className={`text-[var(--text-primary)] ${hasDetails ? `briefing-expandable${expanded ? " briefing-expanded" : ""}` : ""}`}>
       <div
-        onClick={() => hasDetails && setExpanded(!expanded)}
+        onClick={() => { if (hasDetails) { expanded ? haptics.rigid() : haptics.soft(); setExpanded(!expanded); } }}
         className={`py-0.5 ${hasDetails ? "cursor-pointer" : ""}`}
       >
         <span className="text-[var(--text-primary)] leading-relaxed briefing-inline-md">

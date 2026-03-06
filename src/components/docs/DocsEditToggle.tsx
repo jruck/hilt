@@ -1,6 +1,7 @@
 "use client";
 
 import { BookOpen, Pencil } from "lucide-react";
+import { useHaptics } from "@/hooks/useHaptics";
 
 interface DocsEditToggleProps {
   isEditMode: boolean;
@@ -9,10 +10,11 @@ interface DocsEditToggleProps {
 }
 
 export function DocsEditToggle({ isEditMode, onToggle, disabled }: DocsEditToggleProps) {
+  const haptics = useHaptics();
   return (
     <div className="flex items-center rounded-md border border-[var(--border-default)] overflow-hidden">
       <button
-        onClick={() => onToggle(false)}
+        onClick={() => { haptics.medium(); onToggle(false); }}
         disabled={disabled}
         className={`
           flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium transition-colors
@@ -28,7 +30,7 @@ export function DocsEditToggle({ isEditMode, onToggle, disabled }: DocsEditToggl
         Read
       </button>
       <button
-        onClick={() => onToggle(true)}
+        onClick={() => { haptics.medium(); onToggle(true); }}
         disabled={disabled}
         className={`
           flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium transition-colors border-l border-[var(--border-default)]

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useHaptics } from "@/hooks/useHaptics";
 import { ViewToggle, ViewMode } from "./ViewToggle";
 import { ThemeToggle } from "./ThemeToggle";
 import { SourceToggle } from "./SourceToggle";
@@ -62,6 +63,7 @@ export function NavBar({
   unreadTabs,
 }: NavBarProps) {
   const isMobile = useIsMobile();
+  const haptics = useHaptics();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [activePanel, setActivePanel] = useState<"all" | "shortcuts" | "nextjs" | "inspector">("all");
@@ -227,6 +229,7 @@ export function NavBar({
               />
               <button
                 onClick={() => {
+                  haptics.rigid();
                   setMobileSearchOpen(false);
                   setSearchQuery("");
                 }}
@@ -240,7 +243,7 @@ export function NavBar({
             <div className="flex items-center gap-1 h-14 px-2">
               {/* Search */}
               <button
-                onClick={() => setMobileSearchOpen(true)}
+                onClick={() => { haptics.light(); setMobileSearchOpen(true); }}
                 className="flex items-center justify-center w-12 h-12 rounded-full text-[var(--text-secondary)] active:bg-white/10 transition-colors"
                 title="Search"
               >
@@ -314,6 +317,7 @@ export function NavBar({
             />
             <button
               onClick={() => {
+                haptics.rigid();
                 setSearchQuery("");
                 searchInputRef.current?.blur();
               }}
@@ -342,6 +346,7 @@ export function NavBar({
           <div
             onClick={() => {
               if (!searchQuery) {
+                haptics.light();
                 setSearchQuery(" ");
                 setTimeout(() => searchInputRef.current?.focus(), 0);
               }

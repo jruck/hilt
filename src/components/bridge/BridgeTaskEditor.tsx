@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { useScope } from "@/contexts/ScopeContext";
+import { useHaptics } from "@/hooks/useHaptics";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
@@ -311,6 +312,7 @@ export function BridgeTaskEditor({
   vaultPath,
   filePath,
 }: BridgeTaskEditorProps) {
+  const haptics = useHaptics();
   const lastEmittedNorm = useRef(normalizeMd(markdown));
   // Start at 1 to skip the onUpdate fired by useEditor's initial empty content
   const programmatic = useRef(1);
@@ -483,18 +485,20 @@ export function BridgeTaskEditor({
       if (href.startsWith("#wikilink:")) {
         e.preventDefault();
         e.stopPropagation();
+        haptics.selection(); // whisper when following a link to another doc
         const filePath = decodeURIComponent(href.replace("#wikilink:", ""));
         navigateTo("docs", filePath);
       } else if (href.startsWith("http://") || href.startsWith("https://")) {
         // Open external links in new tab
         e.preventDefault();
+        haptics.light(); // gentle for opening external link
         window.open(href, "_blank", "noopener,noreferrer");
       }
     }
 
     el.addEventListener("click", handleClick);
     return () => el.removeEventListener("click", handleClick);
-  }, [navigateTo]);
+  }, [navigateTo, haptics]);
 
   return (
     <div ref={containerRef} className={`bridge-task-editor ${className ?? ""}`}>

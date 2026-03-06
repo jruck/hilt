@@ -2,6 +2,7 @@
 
 import { Sun, Moon, Monitor } from 'lucide-react';
 import { useTheme, Theme } from '@/hooks/useTheme';
+import { useHaptics } from '@/hooks/useHaptics';
 import { useState, useRef, useEffect, useCallback } from 'react';
 
 const themeOptions: { value: Theme; label: string; icon: typeof Sun }[] = [
@@ -12,6 +13,7 @@ const themeOptions: { value: Theme; label: string; icon: typeof Sun }[] = [
 
 export function ThemeToggle() {
   const { theme, resolvedTheme, setTheme } = useTheme();
+  const haptics = useHaptics();
   const [isOpen, setIsOpen] = useState(false);
   const [alignRight, setAlignRight] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -45,7 +47,7 @@ export function ThemeToggle() {
     <div ref={containerRef} className="relative">
       <button
         ref={buttonRef}
-        onClick={() => isOpen ? setIsOpen(false) : openDropdown()}
+        onClick={() => { isOpen ? haptics.rigid() : haptics.light(); isOpen ? setIsOpen(false) : openDropdown(); }}
         className="p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
         title={`Theme: ${theme}`}
       >
@@ -64,6 +66,7 @@ export function ThemeToggle() {
               <button
                 key={option.value}
                 onClick={() => {
+                  haptics.medium();
                   setTheme(option.value);
                   setIsOpen(false);
                 }}

@@ -2,6 +2,7 @@
 
 import { User, Users } from "lucide-react";
 import type { BridgePerson } from "@/lib/types";
+import { useHaptics } from "@/hooks/useHaptics";
 
 interface PersonCardProps {
   person: BridgePerson;
@@ -27,6 +28,7 @@ function formatRelativeDate(isoDate: string): string {
 }
 
 export function PersonCard({ person, selected, compact, onClick }: PersonCardProps) {
+  const haptics = useHaptics();
   return (
     <div
       className={`rounded-lg border bg-[var(--bg-secondary)] ${compact ? "px-2.5 pt-1.5 pb-3" : "px-3 pt-2 pb-3.5"} cursor-pointer transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
@@ -34,7 +36,7 @@ export function PersonCard({ person, selected, compact, onClick }: PersonCardPro
           ? "border-[var(--interactive-default)]"
           : "border-[var(--border-default)]"
       }`}
-      onClick={() => onClick?.(person)}
+      onClick={() => { haptics.selection(); onClick?.(person); }}
     >
       {/* Name row */}
       <div className="flex items-center gap-2.5">

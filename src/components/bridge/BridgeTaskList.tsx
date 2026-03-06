@@ -16,6 +16,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { Plus, ChevronRight } from "lucide-react";
+import { useHaptics } from "@/hooks/useHaptics";
 import type { BridgeTask } from "@/lib/types";
 import { BridgeTaskItem } from "./BridgeTaskItem";
 import { parseLifecycle } from "@/lib/attribution";
@@ -41,12 +42,14 @@ export function BridgeTaskList({
   onSelectTask,
   onAddTask,
 }: BridgeTaskListProps) {
+  const haptics = useHaptics();
   const [localTasks, setLocalTasks] = useState<BridgeTask[] | null>(null);
   const [doneExpanded, setDoneExpanded] = useState(() => {
     try { return sessionStorage.getItem("bridge-task-done-expanded") === "true"; } catch { return false; }
   });
   const toggleDoneExpanded = () => setDoneExpanded(prev => {
     const next = !prev;
+    next ? haptics.soft() : haptics.rigid(); // expand = soft reveal, collapse = sharp snap
     try { sessionStorage.setItem("bridge-task-done-expanded", String(next)); } catch {}
     return next;
   });

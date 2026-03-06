@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { ChevronRight, ChevronDown, Folder, FolderOpen, FileText, FileCode, FileJson, File, Image, MoreVertical, Check } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useHaptics } from "@/hooks/useHaptics";
 import type { FileNode } from "@/lib/types";
 import type { FolderSortOrder } from "@/hooks/useDocs";
 
@@ -73,6 +74,7 @@ export function DocsTreeItem({
   onSetFolderSort,
 }: DocsTreeItemProps) {
   const isMobile = useIsMobile();
+  const haptics = useHaptics();
   const isDirectory = node.type === "directory";
   const isIgnored = node.ignored === true;
   const indent = depth * 16;
@@ -102,10 +104,8 @@ export function DocsTreeItem({
     if (isIgnored) return;
 
     if (isDirectory) {
+      haptics.light(); // gentle reveal for folder expand
       onToggleExpand(node.path);
-      // Auto-select index.md if it exists in this folder (desktop only)
-      // On mobile, the single-panel drill-down means clicking a folder should
-      // just expand it — the user should explicitly tap a file to navigate.
       if (!isMobile) {
         const indexFile = node.children?.find(
           child => child.type === "file" &&
@@ -116,6 +116,7 @@ export function DocsTreeItem({
         }
       }
     } else {
+      haptics.selection(); // whisper for file select
       onSelect(node.path);
     }
   };

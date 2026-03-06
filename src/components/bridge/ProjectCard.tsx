@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { MoreHorizontal, FolderOpen } from "lucide-react";
 import type { BridgeProject, BridgeProjectStatus } from "@/lib/types";
+import { useHaptics } from "@/hooks/useHaptics";
 
 const STATUS_OPTIONS: { key: BridgeProjectStatus; label: string }[] = [
   { key: "considering", label: "Considering" },
@@ -18,6 +19,7 @@ interface ProjectCardProps {
 }
 
 export function ProjectCard({ project, onClick, onStatusChange }: ProjectCardProps) {
+  const haptics = useHaptics();
   const [showMenu, setShowMenu] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -70,7 +72,7 @@ export function ProjectCard({ project, onClick, onStatusChange }: ProjectCardPro
         e.dataTransfer.effectAllowed = "move";
       }}
       className="group rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 pt-2 pb-2.5 cursor-pointer hover:border-[var(--border-hover)] transition-colors"
-      onClick={() => onClick?.(project)}
+      onClick={() => { haptics.selection(); onClick?.(project); }}
     >
       <div className="flex items-center gap-3">
         <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center">

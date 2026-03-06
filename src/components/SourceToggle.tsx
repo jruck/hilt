@@ -2,6 +2,7 @@
 
 import { House, Wifi, Plus, Settings, Check, FolderOpen } from "lucide-react";
 import { useSources } from "@/hooks/useSource";
+import { useHaptics } from "@/hooks/useHaptics";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { SourceManageModal } from "./SourceManageModal";
 
@@ -20,6 +21,7 @@ export function SourceToggle() {
     reorderSources,
   } = useSources();
 
+  const haptics = useHaptics();
   const [connected, setConnected] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -120,7 +122,7 @@ export function SourceToggle() {
       <div ref={containerRef} className="relative">
         <button
           ref={buttonRef}
-          onClick={() => (isOpen ? setIsOpen(false) : openDropdown())}
+          onClick={() => { isOpen ? haptics.rigid() : haptics.light(); isOpen ? setIsOpen(false) : openDropdown(); }}
           className="relative p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
           title="Add your first source"
         >
@@ -184,7 +186,7 @@ export function SourceToggle() {
     <div ref={containerRef} className="relative">
       <button
         ref={buttonRef}
-        onClick={() => (isOpen ? setIsOpen(false) : openDropdown())}
+        onClick={() => { isOpen ? haptics.rigid() : haptics.light(); isOpen ? setIsOpen(false) : openDropdown(); }}
         className="relative p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
         title={`Source: ${activeSource?.name ?? "Unknown"} (${connected ? "connected" : "disconnected"})`}
       >
@@ -223,6 +225,7 @@ export function SourceToggle() {
               <button
                 key={source.id}
                 onClick={() => {
+                  if (!source.isActive) haptics.medium();
                   setIsOpen(false);
                   if (!source.isActive) switchTo(source.id);
                 }}

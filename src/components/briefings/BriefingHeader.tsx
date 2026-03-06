@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { ChevronDown } from "lucide-react";
+import { useHaptics } from "@/hooks/useHaptics";
 
 interface BriefingHeaderProps {
   selectedDate: string;
@@ -43,6 +44,7 @@ export function BriefingHeader({
   availableDates,
   onDateChange,
 }: BriefingHeaderProps) {
+  const haptics = useHaptics();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -66,7 +68,7 @@ export function BriefingHeader({
       <div className="relative" ref={dropdownRef}>
         {hasMultiple ? (
           <button
-            onClick={() => setDropdownOpen(!dropdownOpen)}
+            onClick={() => { dropdownOpen ? haptics.rigid() : haptics.light(); setDropdownOpen(!dropdownOpen); }}
             className="flex items-center gap-1.5 text-lg font-semibold hover:text-[var(--text-secondary)] transition-colors"
           >
             {formatBriefingDate(selectedDate)}
@@ -84,6 +86,7 @@ export function BriefingHeader({
               <button
                 key={b.date}
                 onClick={() => {
+                  haptics.selection();
                   onDateChange(b.date);
                   setDropdownOpen(false);
                 }}

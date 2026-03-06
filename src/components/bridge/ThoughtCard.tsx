@@ -5,6 +5,7 @@ import { MoreHorizontal, Lightbulb } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { BridgeThought, BridgeThoughtStatus } from "@/lib/types";
+import { useHaptics } from "@/hooks/useHaptics";
 
 const STATUS_OPTIONS: { key: BridgeThoughtStatus; label: string }[] = [
   { key: "next", label: "Next" },
@@ -19,6 +20,7 @@ interface ThoughtCardProps {
 }
 
 export function ThoughtCard({ thought, expanded, onClick, onStatusChange }: ThoughtCardProps) {
+  const haptics = useHaptics();
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -45,7 +47,7 @@ export function ThoughtCard({ thought, expanded, onClick, onStatusChange }: Thou
         e.dataTransfer.effectAllowed = "move";
       }}
       className="group rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2.5 py-1.5 cursor-pointer hover:border-[var(--border-hover)] transition-colors"
-      onClick={() => onClick?.(thought)}
+      onClick={() => { haptics.selection(); onClick?.(thought); }}
     >
       <div className="flex items-center gap-2">
         <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center">

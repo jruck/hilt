@@ -5,16 +5,20 @@ import { useCallback, useRef, useEffect } from "react";
 /**
  * Centralized haptic feedback hook for Hilt PWA.
  *
- * Wraps web-haptics with app-specific presets and graceful degradation.
- * Only triggers on devices that support the Vibration API (mobile).
+ * Wraps web-haptics with an app-specific haptic design language.
+ * Uses hidden checkbox trick for iOS Safari support (no Vibration API needed).
  * On desktop, all calls are silent no-ops.
  *
- * Usage:
- *   const haptics = useHaptics();
- *   haptics.tap();        // light confirmation (tab switch, menu open)
- *   haptics.success();    // task completed, save confirmed
- *   haptics.nudge();      // pull-to-refresh trigger, drag threshold
- *   haptics.error();      // validation error, failed save
+ * Design language:
+ *   selection — 8ms whisper: file picks, project cards, folder opens, list item selection
+ *   light     — 15ms gentle: search opening, sections expanding, drawers opening
+ *   rigid     — 10ms sharp snap: search clear, collapse, escape-close, dismiss
+ *   medium    — 25ms moderate: read↔edit toggle, search submit, mode changes
+ *   success   — double tap: task completion, save confirmed
+ *   nudge     — strong+soft: pull-to-refresh threshold, drag reorder threshold
+ *   soft      — 40ms gentle: briefing section expand, large content reveals
+ *   error     — triple sharp: failed save, validation error
+ *   tap       — 10ms: legacy/generic light tap
  */
 
 type HapticsInstance = {
@@ -28,15 +32,11 @@ export function useHaptics() {
   const supported = useRef<boolean | null>(null);
 
   useEffect(() => {
-    // Skip on SSR; on client, always initialize —
-    // web-haptics uses hidden checkbox toggles for iOS Safari haptics
-    // even without the Vibration API
     if (typeof document === "undefined") {
       supported.current = false;
       return;
     }
 
-    // Only enable on touch devices (mobile)
     const isTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
     if (!isTouch) {
       supported.current = false;
@@ -62,25 +62,34 @@ export function useHaptics() {
     instanceRef.current.trigger(input).catch(() => {});
   }, []);
 
-  /** Light single tap — tab switch, menu open, selection */
-  const tap = useCallback(() => {
-    trigger(10);
-  }, [trigger]);
+  // ── Haptic Design Language ──
 
-  /** Double-tap confirmation — task completed, checkbox toggled */
-  const success = useCallback(() => {
-    trigger("success");
-  }, [trigger]);
+  /** Whisper — file select, project card tap, folder open, list navigation */
+  const selection = useCallback(() => trigger("selection"), [trigger]);
 
-  /** Strong tap + soft follow — pull-to-refresh, drag threshold crossed */
-  const nudge = useCallback(() => {
-    trigger("nudge");
-  }, [trigger]);
+  /** Gentle reveal — search open, section expand, drawer open */
+  const light = useCallback(() => trigger("light"), [trigger]);
 
-  /** Three sharp taps — error, failed save */
-  const error = useCallback(() => {
-    trigger("error");
-  }, [trigger]);
+  /** Sharp snap — search clear, collapse, escape-close, dismiss */
+  const rigid = useCallback(() => trigger("rigid"), [trigger]);
 
-  return { tap, success, nudge, error, trigger };
+  /** Moderate — read↔edit toggle, search submit, mode change */
+  const medium = useCallback(() => trigger("medium"), [trigger]);
+
+  /** Double-tap confirmation — task complete, save confirmed */
+  const success = useCallback(() => trigger("success"), [trigger]);
+
+  /** Strong+soft — pull-to-refresh threshold, drag reorder threshold */
+  const nudge = useCallback(() => trigger("nudge"), [trigger]);
+
+  /** Gentle long — briefing section expand, large content reveal */
+  const soft = useCallback(() => trigger("soft"), [trigger]);
+
+  /** Triple sharp — failed save, validation error */
+  const error = useCallback(() => trigger("error"), [trigger]);
+
+  /** Generic light tap (10ms) — legacy/fallback */
+  const tap = useCallback(() => trigger(10), [trigger]);
+
+  return { selection, light, rigid, medium, success, nudge, soft, error, tap, trigger };
 }

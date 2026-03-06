@@ -2,6 +2,7 @@
 
 import { NotebookPen } from "lucide-react";
 import type { PersonMeeting } from "@/lib/types";
+import { useHaptics } from "@/hooks/useHaptics";
 
 interface MeetingRowProps {
   meeting: PersonMeeting;
@@ -10,6 +11,7 @@ interface MeetingRowProps {
 }
 
 export default function MeetingRow({ meeting, selected, onClick }: MeetingRowProps) {
+  const haptics = useHaptics();
   const isNext = meeting.source === "next";
 
   const formattedDate = isNext
@@ -28,7 +30,7 @@ export default function MeetingRow({ meeting, selected, onClick }: MeetingRowPro
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={() => { haptics.selection(); onClick(); }}
       className={`w-full text-left px-3 h-13 cursor-pointer border-b border-[var(--border-default)] transition-colors flex items-center ${
         selected
           ? "bg-[var(--bg-tertiary)] border-l-2 border-l-amber-500"

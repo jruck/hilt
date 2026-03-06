@@ -5,6 +5,7 @@ import { NotebookPen, FileText, ScrollText, Loader2, MoreVertical, Trash2, Calen
 import dynamic from "next/dynamic";
 import type { PersonMeeting } from "@/lib/types";
 import { TranscriptView } from "./TranscriptView";
+import { useHaptics } from "@/hooks/useHaptics";
 
 const BridgeTaskEditor = dynamic(
   () => import("../bridge/BridgeTaskEditor").then((mod) => mod.BridgeTaskEditor),
@@ -45,6 +46,7 @@ function splitSummarySections(summary: string): { privateNotes: string; enhanced
 }
 
 export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete }: MeetingEntryProps) {
+  const haptics = useHaptics();
   const editorAreaRef = useRef<HTMLDivElement>(null);
   const isNext = meeting.source === "next";
   const hasNotes = !!meeting.notes;
@@ -348,7 +350,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete }: 
           {tabs.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
-              onClick={() => setActiveTab(key)}
+              onClick={() => { haptics.medium(); setActiveTab(key); }}
               className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors ${
                 activeTab === key
                   ? "text-[var(--text-primary)] border-b-2 border-amber-500 -mb-px"

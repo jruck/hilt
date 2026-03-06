@@ -135,7 +135,7 @@ export function BridgeTaskItem({
       >
         <div
           className={`flex items-center gap-2 px-3 ${isTouch ? "py-3" : "py-2.5"} cursor-pointer ${isTouch ? "select-none touch-manipulation" : ""}`}
-          onClick={() => onSelect(task)}
+          onClick={() => { haptics.selection(); onSelect(task); }}
         >
           {/* Drag handle — always visible, only way to reorder */}
           <button

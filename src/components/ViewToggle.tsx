@@ -46,7 +46,7 @@ export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActiv
       onDoubleTapActive();
       lastTapRef.current = { id: "", time: 0 };
     } else {
-      if (id !== view) haptics.tap();
+      if (id !== view) haptics.selection();
       onChange(id);
       lastTapRef.current = { id, time: now };
     }

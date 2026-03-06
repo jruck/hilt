@@ -6,6 +6,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Fixed
+
+- **PersonCard sidebar** — Removed description subtitle ("Product Counterpart", etc.) from sidebar cards to save space. Description is still visible in the detail header.
+
+- **MeetingRow dynamic height** — Replaced fixed `h-13` height with `py-2.5` padding so long titles wrap and matched-people tags flow naturally instead of clipping.
+
+- **Transcript tab stale on meeting switch** — `transcriptFetched` ref was never reset when switching meetings, causing stale transcript content. Added reset effect keyed on meeting identity. Active tab now persists across meeting changes unless the tab doesn't exist on the new meeting.
+
+- **Scrollbars always visible** — Removed custom `::-webkit-scrollbar` styles that overrode macOS native overlay behavior. Scrollbars now auto-hide and appear as thin native overlays during scroll.
+
 ### Added
 
 - **People tab visual polish & features** — InboxCard now matches PersonCard size/padding and shows meeting count, relative date, and last meeting title. MeetingRow displays time (from Granola `created` field) formatted as `"Mar 5 · 3:00 PM"` and supports `inboxMode` hierarchy flip (title primary in inbox, date primary in person view). MeetingEntry header shows time when available. TranscriptView uses chat-style layout with left/right alignment ("Them"/"You"), first-label-only speaker tags, and `bg-tertiary` for "You" messages. Config panel simplified: shows filename with copy/reveal icons, aliases, and matching terms list. New "Suggested" section below person cards shows unmatched recurring meetings (3+ occurrences) with dotted-border cards. Backend computes `inboxStats`, `suggestedMeetings`, and `time` fields in a single pass through meeting files.

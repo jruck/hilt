@@ -14,6 +14,7 @@ import type { MeetingFilter } from "./PersonMeetingList";
 import type { BridgePerson, PersonMeeting, SuggestedMeeting } from "@/lib/types";
 
 const INBOX_SLUG = "__inbox__";
+const SUGGESTED_PREFIX = "__suggested__/";
 
 interface PeopleViewProps {
   searchQuery?: string;
@@ -31,7 +32,9 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
       : scopePath || null;
 
   const isInboxMode = selectedSlug === INBOX_SLUG;
-  const personSlug = isInboxMode ? null : selectedSlug;
+  const isSuggestedMode = selectedSlug?.startsWith(SUGGESTED_PREFIX) ?? false;
+  const suggestedName = isSuggestedMode ? decodeURIComponent(selectedSlug!.slice(SUGGESTED_PREFIX.length)) : null;
+  const personSlug = isInboxMode || isSuggestedMode ? null : selectedSlug;
 
   const q = searchQuery.toLowerCase().trim();
 
@@ -48,24 +51,24 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
   // Person detail — fetched when a person (not inbox) is selected
   const { data: personDetail, mutate: mutatePersonDetail } = usePersonDetail(personSlug);
 
-  // Inbox data — fetched when inbox is selected
-  const { data: inboxData } = useInboxMeetings(isInboxMode);
+  // Inbox data — fetched when inbox or suggested is selected
+  const { data: inboxData } = useInboxMeetings(isInboxMode || isSuggestedMode, suggestedName ?? undefined);
 
   // Meeting filter
   const [filter, setFilter] = useState<MeetingFilter>("all");
 
   const filteredMeetings = useMemo(() => {
-    if (isInboxMode) return inboxData?.meetings ?? [];
+    if (isInboxMode || isSuggestedMode) return inboxData?.meetings ?? [];
     if (!personDetail) return [];
     if (filter === "all") return personDetail.meetings;
     return personDetail.meetings.filter(
       (m) => m.source === (filter === "notes" ? "inline" : "granola")
     );
-  }, [isInboxMode, inboxData, personDetail, filter]);
+  }, [isInboxMode, isSuggestedMode, inboxData, personDetail, filter]);
 
   // Build the synthetic "Next" entry (person mode only)
   const nextEntry = useMemo((): PersonMeeting | null => {
-    if (isInboxMode || !personDetail) return null;
+    if (isInboxMode || isSuggestedMode || !personDetail) return null;
     const today = new Date().toISOString().slice(0, 10);
     if (personDetail.meetings.length > 0 && personDetail.meetings[0].date === today) {
       return null;
@@ -81,7 +84,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
       title: "Next",
       notes: personDetail.nextRaw,
     };
-  }, [isInboxMode, personDetail]);
+  }, [isInboxMode, isSuggestedMode, personDetail]);
 
   // Display meetings: Next pinned at top + filtered historical meetings
   const displayMeetings = useMemo(() => {
@@ -123,11 +126,12 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
   // Auto-focus the editor when the topmost meeting is selected and is editable
   const shouldAutoFocus =
     !isInboxMode &&
+    !isSuggestedMode &&
     selectedMeetingIdx === 0 &&
     selectedMeeting !== null &&
     (selectedMeeting.source === "next" || selectedMeeting.source === "inline");
 
-  const vaultPath = isInboxMode
+  const vaultPath = isInboxMode || isSuggestedMode
     ? inboxData?.vaultPath
     : personDetail?.personFilePath
       ? personDetail.personFilePath.replace(/\/people\/[^/]+$/, "")
@@ -157,6 +161,19 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
     }
   }, [isInboxMode, navigateTo]);
 
+  const handleSuggestedSelect = useCallback(
+    (name: string) => {
+      const encoded = encodeURIComponent(name);
+      const target = SUGGESTED_PREFIX + encoded;
+      if (selectedSlug === target) {
+        navigateTo("people", "");
+      } else {
+        navigateTo("people", `/${target}`);
+      }
+    },
+    [selectedSlug, navigateTo]
+  );
+
   const handleClose = useCallback(() => {
     navigateTo("people", "");
   }, [navigateTo]);
@@ -174,7 +191,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
   }, []);
 
   // Determine if middle column has data to show
-  const hasMiddleContent = isInboxMode
+  const hasMiddleContent = isInboxMode || isSuggestedMode
     ? !!inboxData
     : !!(personSlug && personDetail);
 
@@ -219,24 +236,24 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
           <div className="flex-1 overflow-y-auto">
             <MeetingEntry
               meeting={selectedMeeting}
-              slug={isInboxMode ? "" : (personSlug ?? "")}
+              slug={isInboxMode || isSuggestedMode ? "" : (personSlug ?? "")}
               vaultPath={vaultPath}
               autoFocus={shouldAutoFocus}
-              onDelete={isInboxMode ? undefined : handleDeleteMeeting}
+              onDelete={isInboxMode || isSuggestedMode ? undefined : handleDeleteMeeting}
             />
           </div>
         </div>
       );
     }
 
-    // Level 2: Meeting list (person or inbox)
+    // Level 2: Meeting list (person, inbox, or suggested)
     if (selectedSlug && hasMiddleContent) {
       return (
         <div className="flex-1 flex overflow-hidden">
           <div className="flex-1 overflow-hidden">
             <PersonMeetingList
               slug={selectedSlug}
-              person={isInboxMode ? null : personDetail!}
+              person={isInboxMode || isSuggestedMode ? null : personDetail!}
               displayMeetings={displayMeetings}
               filter={filter}
               onFilterChange={setFilter}
@@ -245,6 +262,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
               vaultPath={vaultPath}
               onClose={handleClose}
               inboxMode={isInboxMode}
+              suggestedName={suggestedName}
               totalCount={inboxData?.totalCount}
             />
           </div>
@@ -286,7 +304,12 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
                 <div className="flex-1 border-t border-[var(--border-default)]" />
               </div>
               {data.suggestedMeetings.map((sm) => (
-                <SuggestedMeetingCard key={sm.name} meeting={sm} onClick={handleInboxSelect} />
+                <SuggestedMeetingCard
+                  key={sm.name}
+                  meeting={sm}
+                  selected={selectedSlug === SUGGESTED_PREFIX + encodeURIComponent(sm.name)}
+                  onClick={() => handleSuggestedSelect(sm.name)}
+                />
               ))}
             </>
           )}
@@ -333,7 +356,13 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
                 <div className="flex-1 border-t border-[var(--border-default)]" />
               </div>
               {data.suggestedMeetings.map((sm) => (
-                <SuggestedMeetingCard key={sm.name} meeting={sm} compact onClick={handleInboxSelect} />
+                <SuggestedMeetingCard
+                  key={sm.name}
+                  meeting={sm}
+                  compact
+                  selected={selectedSlug === SUGGESTED_PREFIX + encodeURIComponent(sm.name)}
+                  onClick={() => handleSuggestedSelect(sm.name)}
+                />
               ))}
             </>
           )}
@@ -345,7 +374,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
         <div className="w-80 flex-shrink-0 border-r border-[var(--border-default)] overflow-hidden">
           <PersonMeetingList
             slug={selectedSlug!}
-            person={isInboxMode ? null : personDetail!}
+            person={isInboxMode || isSuggestedMode ? null : personDetail!}
             displayMeetings={displayMeetings}
             filter={filter}
             onFilterChange={setFilter}
@@ -353,6 +382,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
             onSelectMeeting={setSelectedMeetingIdx}
             vaultPath={vaultPath}
             inboxMode={isInboxMode}
+            suggestedName={suggestedName}
             totalCount={inboxData?.totalCount}
           />
         </div>
@@ -368,10 +398,10 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
           {selectedMeeting ? (
             <MeetingEntry
               meeting={selectedMeeting}
-              slug={isInboxMode ? "" : (personSlug ?? "")}
+              slug={isInboxMode || isSuggestedMode ? "" : (personSlug ?? "")}
               vaultPath={vaultPath}
               autoFocus={shouldAutoFocus}
-              onDelete={isInboxMode ? undefined : handleDeleteMeeting}
+              onDelete={isInboxMode || isSuggestedMode ? undefined : handleDeleteMeeting}
             />
           ) : (
             <div className="flex items-center justify-center h-full text-[var(--text-tertiary)]">
@@ -417,7 +447,7 @@ function InboxCard({
 }) {
   return (
     <div
-      className={`rounded-lg border bg-[var(--bg-secondary)] ${compact ? "px-2.5 pt-1.5 pb-3" : "px-3 pt-2 pb-3.5"} cursor-pointer transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
+      className={`rounded-lg border bg-[var(--bg-secondary)] ${compact ? "px-2.5 pt-1.5 pb-2" : "px-3 pt-2 pb-2.5"} cursor-pointer transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
         selected
           ? "border-[var(--interactive-default)]"
           : "border-[var(--border-default)]"
@@ -436,10 +466,10 @@ function InboxCard({
       </div>
       {stats && (
         <>
-          <div className="text-xs text-[var(--text-secondary)] mt-1 truncate">
+          <div className="text-xs text-[var(--text-secondary)] mt-0.5 truncate">
             Last: {stats.lastMeetingTitle || "Unknown"}
           </div>
-          <div className="flex items-center gap-3 mt-1.5">
+          <div className="flex items-center gap-3 mt-0.5">
             {stats.lastMeetingDate && (
               <span className="text-[11px] text-[var(--text-tertiary)]">
                 {formatRelativeDate(stats.lastMeetingDate)}
@@ -460,15 +490,21 @@ function InboxCard({
 function SuggestedMeetingCard({
   meeting,
   compact,
+  selected,
   onClick,
 }: {
   meeting: SuggestedMeeting;
   compact?: boolean;
+  selected?: boolean;
   onClick: () => void;
 }) {
   return (
     <div
-      className={`rounded-lg border border-dashed bg-[var(--bg-secondary)] ${compact ? "px-2.5 pt-1.5 pb-3" : "px-3 pt-2 pb-3.5"} cursor-pointer transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] border-[var(--border-default)]`}
+      className={`rounded-lg border border-dashed bg-[var(--bg-secondary)] ${compact ? "px-2.5 pt-1.5 pb-2" : "px-3 pt-2 pb-2.5"} cursor-pointer transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
+        selected
+          ? "border-[var(--interactive-default)]"
+          : "border-[var(--border-default)]"
+      }`}
       onClick={onClick}
     >
       <div className="flex items-center gap-2.5">
@@ -481,7 +517,7 @@ function SuggestedMeetingCard({
           </div>
         </div>
       </div>
-      <div className="flex items-center gap-3 mt-1.5">
+      <div className="flex items-center gap-3 mt-0.5">
         {meeting.lastDate && (
           <span className="text-[11px] text-[var(--text-tertiary)]">
             {formatRelativeDate(meeting.lastDate)}

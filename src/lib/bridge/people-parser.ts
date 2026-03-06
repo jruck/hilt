@@ -332,9 +332,7 @@ export async function getAllPeople(
   const nameGroups = new Map<string, { count: number; lastDate: string }>();
   for (const entry of meetingFileEntries) {
     if (claimedMeetings.has(entry.filename)) continue;
-    // Normalize: strip .md, strip date/time suffix pattern
-    const base = entry.filename.replace(/\.md$/, "");
-    const normalized = base.replace(/-\d{4}-\d{2}-\d{2}\s*@\s*\d{2}-\d{2}-\d{2}$/, "").trim();
+    const normalized = normalizeMeetingName(entry.filename);
     if (!normalized) continue;
 
     const meta = meetingMetaCache.get(entry.filename);
@@ -360,10 +358,20 @@ export async function getAllPeople(
 }
 
 /**
+ * Normalize a meeting filename to its recurring series name.
+ * Strips .md extension and date/time suffix: "Design review-2026-03-05 @ 12-00-38.md" → "Design review"
+ */
+export function normalizeMeetingName(filename: string): string {
+  const base = filename.replace(/\.md$/, "");
+  return base.replace(/-\d{4}-\d{2}-\d{2}\s*@\s*\d{2}-\d{2}-\d{2}$/, "").trim();
+}
+
+/**
  * Get ALL meetings from the vault with person-match tags.
  * Returns every meeting file, sorted newest-first, with matchedPeople populated.
+ * If `filterName` is provided, only returns unmatched meetings whose normalized filename equals it.
  */
-export async function getAllMeetings(vaultPath: string): Promise<InboxDetail> {
+export async function getAllMeetings(vaultPath: string, filterName?: string): Promise<InboxDetail> {
   const peopleDir = path.join(vaultPath, "people");
   const meetingsDir = path.join(vaultPath, "meetings");
 
@@ -405,6 +413,12 @@ export async function getAllMeetings(vaultPath: string): Promise<InboxDetail> {
   // Build meeting list
   const meetings: PersonMeeting[] = [];
   for (const entry of meetingFileEntries) {
+    // When filtering by suggested name: only include unmatched meetings with matching normalized name
+    if (filterName) {
+      const matched = personMatches.get(entry.filename);
+      if (matched && matched.length > 0) continue;
+      if (normalizeMeetingName(entry.filename) !== filterName) continue;
+    }
     try {
       const content = fs.readFileSync(entry.fullPath, "utf-8");
       const meta = parseMeetingFrontmatter(content);
@@ -419,7 +433,7 @@ export async function getAllMeetings(vaultPath: string): Promise<InboxDetail> {
           ? path.join(vaultPath, meta.transcript)
           : undefined,
         summary: meta.body,
-        matchedPeople: personMatches.get(entry.filename) || [],
+        matchedPeople: filterName ? [] : (personMatches.get(entry.filename) || []),
       });
     } catch { /* skip */ }
   }

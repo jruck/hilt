@@ -33,7 +33,7 @@ export function PersonCard({ person, selected, compact, onClick }: PersonCardPro
   const haptics = useHaptics();
   return (
     <div
-      className={`rounded-lg border bg-[var(--bg-secondary)] ${compact ? "px-2.5 pt-1.5 pb-3" : "px-3 pt-2 pb-3.5"} cursor-pointer transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
+      className={`rounded-lg border bg-[var(--bg-secondary)] ${compact ? "px-2.5 pt-1.5 pb-2" : "px-3 pt-2 pb-2.5"} cursor-pointer transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
         selected
           ? "border-[var(--interactive-default)]"
           : "border-[var(--border-default)]"
@@ -56,15 +56,8 @@ export function PersonCard({ person, selected, compact, onClick }: PersonCardPro
         </div>
       </div>
 
-      {/* Description */}
-      {person.description && (
-        <div className="text-xs text-[var(--text-secondary)] mt-1 truncate">
-          {person.description}
-        </div>
-      )}
-
       {/* Meta row: last meeting + meeting count */}
-      <div className="flex items-center gap-3 mt-1.5">
+      <div className="flex items-center gap-3 mt-0.5">
         {person.lastMeetingDate && (
           <span className="text-[11px] text-[var(--text-tertiary)]">
             {formatRelativeDate(person.lastMeetingDate)}

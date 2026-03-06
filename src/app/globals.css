@@ -85,10 +85,6 @@ input, textarea, select, [contenteditable] {
   /* Mobile nav */
   --nav-mobile-bg: rgba(245, 244, 241, 0.85);
 
-  /* Scrollbar */
-  --scrollbar-track: #f0eeeb;
-  --scrollbar-thumb: #c4bfb8;
-  --scrollbar-thumb-hover: #a39e96;
 }
 
 /* ============================================
@@ -157,10 +153,6 @@ input, textarea, select, [contenteditable] {
   /* Mobile nav */
   --nav-mobile-bg: rgba(26, 25, 24, 0.85);
 
-  /* Scrollbar */
-  --scrollbar-track: #1a1918;
-  --scrollbar-thumb: #3d3b38;
-  --scrollbar-thumb-hover: #4d4a46;
 }
 
 @theme inline {
@@ -192,25 +184,6 @@ html, body {
 body {
   background: var(--bg-primary);
   color: var(--text-primary);
-}
-
-/* Custom scrollbar - uses theme variables */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover);
 }
 
 /* Hide scrollbar utility — still scrollable, just no visible bar */

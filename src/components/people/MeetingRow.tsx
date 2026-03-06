@@ -53,7 +53,7 @@ export default function MeetingRow({ meeting, selected, onClick, inboxMode }: Me
     <button
       type="button"
       onClick={() => { haptics.selection(); onClick(); }}
-      className={`w-full text-left px-3 h-13 cursor-pointer border-b border-[var(--border-default)] transition-colors flex items-center ${
+      className={`w-full text-left px-3 py-2.5 cursor-pointer border-b border-[var(--border-default)] transition-colors flex items-center ${
         selected
           ? "bg-[var(--bg-tertiary)] border-l-2 border-l-amber-500"
           : "hover:bg-[var(--bg-secondary)]"
@@ -64,7 +64,7 @@ export default function MeetingRow({ meeting, selected, onClick, inboxMode }: Me
           // Inbox mode: title is primary, date+time is secondary
           <>
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-[var(--text-primary)] truncate">
+              <span className="text-sm font-medium text-[var(--text-primary)]">
                 {meeting.title || formattedDate}
               </span>
               {meeting.source === "inline" && (

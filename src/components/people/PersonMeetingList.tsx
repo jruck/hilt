@@ -18,6 +18,7 @@ interface PersonMeetingListProps {
   vaultPath?: string;
   onClose?: () => void;
   inboxMode?: boolean;
+  suggestedName?: string | null;
   totalCount?: number;
 }
 
@@ -30,6 +31,7 @@ export function PersonMeetingList({
   onSelectMeeting,
   onClose,
   inboxMode,
+  suggestedName,
   totalCount,
 }: PersonMeetingListProps) {
   const [showConfig, setShowConfig] = useState(false);
@@ -41,7 +43,7 @@ export function PersonMeetingList({
     ? person.meetings.filter((m) => m.source === "granola").length
     : 0;
 
-  const meetingCount = inboxMode
+  const meetingCount = inboxMode || suggestedName
     ? totalCount ?? displayMeetings.length
     : person?.meetings.length ?? 0;
 
@@ -59,7 +61,11 @@ export function PersonMeetingList({
                 <ArrowLeft className="w-4 h-4" />
               </button>
             )}
-            {inboxMode ? (
+            {suggestedName ? (
+              <span className="text-base font-semibold text-[var(--text-primary)]">
+                {suggestedName}
+              </span>
+            ) : inboxMode ? (
               <>
                 <Inbox className="w-4 h-4 text-[var(--text-tertiary)]" />
                 <span className="text-base font-semibold text-[var(--text-primary)]">
@@ -104,7 +110,7 @@ export function PersonMeetingList({
         <span className="text-[11px] font-medium text-[var(--text-tertiary)] uppercase tracking-wide">
           Meetings ({meetingCount})
         </span>
-        {!inboxMode && (
+        {!inboxMode && !suggestedName && (
           <div className="flex items-center gap-1">
             <button
               onClick={() => onFilterChange("all")}

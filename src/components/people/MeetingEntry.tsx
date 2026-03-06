@@ -104,10 +104,23 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete }: 
   const defaultTab: Tab = hasNotes ? "notes" : hasSummary ? "summary" : "transcript";
   const [activeTab, setActiveTab] = useState<Tab>(defaultTab);
 
-  // Reset tab when meeting changes
+  // Reset transcript state when meeting changes
   useEffect(() => {
-    setActiveTab(hasNotes ? "notes" : hasSummary ? "summary" : "transcript");
-  }, [meeting.date, meeting.source]); // eslint-disable-line react-hooks/exhaustive-deps
+    transcriptFetched.current = false;
+    setTranscriptContent(null);
+    setTranscriptLoading(false);
+  }, [meeting.date, meeting.source, meeting.transcriptPath]);
+
+  // Only reset tab if current tab isn't available on the new meeting
+  useEffect(() => {
+    const available = new Set<Tab>();
+    if (hasNotes) available.add("notes");
+    if (hasSummary) available.add("summary");
+    if (hasTranscript) available.add("transcript");
+    if (!available.has(activeTab)) {
+      setActiveTab(hasNotes ? "notes" : hasSummary ? "summary" : "transcript");
+    }
+  }, [meeting.date, meeting.source, hasNotes, hasSummary, hasTranscript]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-focus editor when this is the topmost editable entry
   useEffect(() => {

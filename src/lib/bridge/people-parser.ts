@@ -738,17 +738,17 @@ export async function getPersonDetail(
     }
   }
 
-  // Sort newest first
-  meetings.sort((a, b) => b.date.localeCompare(a.date));
+  // Sort newest first (use full timestamp when available for same-day ordering)
+  meetings.sort((a, b) => (b.time || b.date).localeCompare(a.time || a.date));
 
   // Update counts to reflect total
   const totalMeetings = meetings.length;
-  const latestDate = meetings.length > 0 ? meetings[0].date : null;
+  const latestTimestamp = meetings.length > 0 ? (meetings[0].time || meetings[0].date) : null;
 
   return {
     ...person,
     meetingCount: totalMeetings,
-    lastMeetingDate: latestDate,
+    lastMeetingDate: latestTimestamp,
     nextRaw,
     meetings,
     personFilePath: filePath,

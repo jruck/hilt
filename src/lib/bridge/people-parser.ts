@@ -5,6 +5,8 @@ import type {
   BridgePeopleResponse,
   PersonMeeting,
   PersonDetail,
+  InboxDetail,
+  SuggestedMeeting,
 } from "../types";
 
 /**
@@ -169,8 +171,9 @@ export function parseMeetingFrontmatter(content: string): {
   created: string;
   transcript: string;
   granolaId: string;
+  body: string;
 } {
-  const { fm } = parseFrontmatter(content);
+  const { fm, body } = parseFrontmatter(content);
   return {
     title: fm.title || "",
     created: fm.created || "",
@@ -178,6 +181,7 @@ export function parseMeetingFrontmatter(content: string): {
       ? fm.transcript.replace(/^\[\[|\]\]$/g, "")
       : "",
     granolaId: fm.granola_id || "",
+    body: body.trim(),
   };
 }
 
@@ -240,7 +244,21 @@ export async function getAllPeople(
   // Get meeting files for counting (supports nested date folders)
   const meetingFileEntries = collectMeetingFiles(meetingsDir);
   const meetingFilenames = meetingFileEntries.map((e) => e.filename);
-  const meetingFileMap = new Map(meetingFileEntries.map((e) => [e.filename, e.fullPath]));
+
+  // Pre-read all meeting frontmatter once (shared by person matching + inbox stats + suggested)
+  const meetingMetaCache = new Map<string, { title: string; created: string }>();
+  for (const entry of meetingFileEntries) {
+    try {
+      const content = fs.readFileSync(entry.fullPath, "utf-8");
+      const meta = parseMeetingFrontmatter(content);
+      meetingMetaCache.set(entry.filename, { title: meta.title, created: meta.created });
+    } catch {
+      // Skip unreadable
+    }
+  }
+
+  // Track which meeting files are claimed by any person
+  const claimedMeetings = new Set<string>();
 
   // Read each person file
   const people: BridgePerson[] = [];
@@ -266,21 +284,14 @@ export async function getAllPeople(
       );
       person.meetingCount += matchedMeetings.length;
 
-      // Update lastMeetingDate from Granola meetings if newer
+      // Track claimed meetings and update lastMeetingDate (full timestamp for accurate relative time)
       for (const mf of matchedMeetings) {
-        const mfPath = meetingFileMap.get(mf);
-        if (!mfPath) continue;
-        try {
-          const mfContent = fs.readFileSync(mfPath, "utf-8");
-          const mfMeta = parseMeetingFrontmatter(mfContent);
-          if (mfMeta.created) {
-            const date = mfMeta.created.slice(0, 10); // YYYY-MM-DD
-            if (!person.lastMeetingDate || date > person.lastMeetingDate) {
-              person.lastMeetingDate = date;
-            }
+        claimedMeetings.add(mf);
+        const meta = meetingMetaCache.get(mf);
+        if (meta?.created) {
+          if (!person.lastMeetingDate || meta.created > person.lastMeetingDate) {
+            person.lastMeetingDate = meta.created;
           }
-        } catch {
-          // Skip unreadable meeting
         }
       }
 
@@ -298,7 +309,125 @@ export async function getAllPeople(
     return a.name.localeCompare(b.name);
   });
 
-  return { vaultPath, people };
+  // Compute inbox stats from all meetings
+  let inboxStats: BridgePeopleResponse["inboxStats"] = null;
+  if (meetingFileEntries.length > 0) {
+    let newestDate = "";
+    let newestTitle = "";
+    for (const [, meta] of meetingMetaCache) {
+      if (meta.created && meta.created > newestDate) {
+        newestDate = meta.created;
+        newestTitle = meta.title;
+      }
+    }
+    inboxStats = {
+      totalMeetings: meetingFileEntries.length,
+      lastMeetingTitle: newestTitle,
+      lastMeetingDate: newestDate,
+    };
+  }
+
+  // Compute suggested meetings: unmatched meetings grouped by normalized name (3+ occurrences)
+  const suggestedMeetings: SuggestedMeeting[] = [];
+  const nameGroups = new Map<string, { count: number; lastDate: string }>();
+  for (const entry of meetingFileEntries) {
+    if (claimedMeetings.has(entry.filename)) continue;
+    // Normalize: strip .md, strip date/time suffix pattern
+    const base = entry.filename.replace(/\.md$/, "");
+    const normalized = base.replace(/-\d{4}-\d{2}-\d{2}\s*@\s*\d{2}-\d{2}-\d{2}$/, "").trim();
+    if (!normalized) continue;
+
+    const meta = meetingMetaCache.get(entry.filename);
+    const date = meta?.created ? meta.created.slice(0, 10) : "";
+
+    const existing = nameGroups.get(normalized);
+    if (existing) {
+      existing.count++;
+      if (date > existing.lastDate) existing.lastDate = date;
+    } else {
+      nameGroups.set(normalized, { count: 1, lastDate: date });
+    }
+  }
+
+  for (const [name, { count, lastDate }] of nameGroups) {
+    if (count >= 3) {
+      suggestedMeetings.push({ name, count, lastDate });
+    }
+  }
+  suggestedMeetings.sort((a, b) => b.count - a.count);
+
+  return { vaultPath, people, inboxStats, suggestedMeetings };
+}
+
+/**
+ * Get ALL meetings from the vault with person-match tags.
+ * Returns every meeting file, sorted newest-first, with matchedPeople populated.
+ */
+export async function getAllMeetings(vaultPath: string): Promise<InboxDetail> {
+  const peopleDir = path.join(vaultPath, "people");
+  const meetingsDir = path.join(vaultPath, "meetings");
+
+  // Collect all meeting files
+  const meetingFileEntries = collectMeetingFiles(meetingsDir);
+  const meetingFilenames = meetingFileEntries.map((e) => e.filename);
+
+  // Load all person files and build inverted index: filename → person names
+  const personMatches = new Map<string, string[]>();
+  const entries = fs.existsSync(peopleDir)
+    ? fs.readdirSync(peopleDir).filter((f) => f.endsWith(".md") && f !== "index.md" && !f.startsWith("."))
+    : [];
+
+  // Read index for descriptions (needed by parsePersonFile)
+  const indexPath = path.join(peopleDir, "index.md");
+  let indexMap: Record<string, string> = {};
+  if (fs.existsSync(indexPath)) {
+    try {
+      const indexContent = fs.readFileSync(indexPath, "utf-8");
+      indexMap = parsePeopleIndex(indexContent);
+    } catch { /* continue */ }
+  }
+
+  for (const filename of entries) {
+    const slug = filename.replace(/\.md$/, "");
+    const filePath = path.join(peopleDir, filename);
+    try {
+      const content = fs.readFileSync(filePath, "utf-8");
+      const person = parsePersonFile(content, slug, indexMap[slug] || "");
+      const matched = matchMeetingsToSlug(slug, person.name, meetingFilenames, person.aliases);
+      for (const mf of matched) {
+        const existing = personMatches.get(mf) || [];
+        existing.push(person.name);
+        personMatches.set(mf, existing);
+      }
+    } catch { /* skip */ }
+  }
+
+  // Build meeting list
+  const meetings: PersonMeeting[] = [];
+  for (const entry of meetingFileEntries) {
+    try {
+      const content = fs.readFileSync(entry.fullPath, "utf-8");
+      const meta = parseMeetingFrontmatter(content);
+      const date = meta.created ? meta.created.slice(0, 10) : "";
+      meetings.push({
+        source: "granola",
+        date,
+        time: meta.created || undefined,
+        title: meta.title || entry.filename.replace(/\.md$/, ""),
+        filePath: entry.fullPath,
+        transcriptPath: meta.transcript
+          ? path.join(vaultPath, meta.transcript)
+          : undefined,
+        summary: meta.body,
+        matchedPeople: personMatches.get(entry.filename) || [],
+      });
+    } catch { /* skip */ }
+  }
+
+  // Sort newest first
+  meetings.sort((a, b) => b.date.localeCompare(a.date));
+
+  return { meetings, totalCount: meetings.length, vaultPath };
 }
 
 /**
@@ -550,6 +679,7 @@ export async function getPersonDetail(
       meetings.push({
         source: "granola",
         date,
+        time: mfMeta.created || undefined,
         title: mfMeta.title || mf.replace(/\.md$/, ""),
         filePath: mfPath,
         transcriptPath: mfMeta.transcript

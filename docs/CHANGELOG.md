@@ -8,6 +8,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
+- **People tab visual polish & features** — InboxCard now matches PersonCard size/padding and shows meeting count, relative date, and last meeting title. MeetingRow displays time (from Granola `created` field) formatted as `"Mar 5 · 3:00 PM"` and supports `inboxMode` hierarchy flip (title primary in inbox, date primary in person view). MeetingEntry header shows time when available. TranscriptView uses chat-style layout with left/right alignment ("Them"/"You"), first-label-only speaker tags, and `bg-tertiary` for "You" messages. Config panel simplified: shows filename with copy/reveal icons, aliases, and matching terms list. New "Suggested" section below person cards shows unmatched recurring meetings (3+ occurrences) with dotted-border cards. Backend computes `inboxStats`, `suggestedMeetings`, and `time` fields in a single pass through meeting files.
+
 - **People tab documentation and demo data** — Added People view to README with screenshot. Created demo people data (5 fictional contacts with meeting history) and sample meeting files in `docs/demo/` so People tab works out of the box with `HILT_WORKING_FOLDER=./docs/demo`. Updated folder structure docs with `people/` and `meetings/` directories.
 
 - **Prevent duplicate Electron dock icons** — Single-instance lock prevents a second bouncing icon when relaunching from Raycast. Production server spawns detached with system node to avoid ghost "exec" dock icon on macOS.

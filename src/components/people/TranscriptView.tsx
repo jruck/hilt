@@ -72,33 +72,36 @@ export function TranscriptView({ content }: TranscriptViewProps) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {turns.map((turn, i) => {
         const prevTurn = i > 0 ? turns[i - 1] : null;
         const sameSpeaker = prevTurn?.speaker === turn.speaker;
+        const isYou = turn.speaker === "you";
 
         return (
-          <div key={i}>
-            <div className="text-[0.7rem] text-[var(--text-tertiary)] mb-0.5">
+          <div
+            key={i}
+            className={`flex flex-col ${isYou ? "items-end" : "items-start"}`}
+          >
+            <div className="text-[0.65rem] text-[var(--text-tertiary)] mb-0.5">
               {formatTime(turn.timestamp)}
             </div>
             {!sameSpeaker && (
-              <div className="flex items-center gap-1.5 mb-1">
-                <span
-                  className={`inline-block w-2 h-2 rounded-full ${
-                    turn.speaker === "guest"
-                      ? "bg-[var(--text-tertiary)]"
-                      : "border border-[var(--text-tertiary)]"
-                  }`}
-                />
-                <span className="text-xs font-semibold text-[var(--text-tertiary)]">
-                  {turn.speaker === "guest" ? "Guest" : "You"}
-                </span>
+              <div className="text-[11px] font-medium text-[var(--text-tertiary)] mb-1">
+                {isYou ? "You" : "Them"}
               </div>
             )}
-            <p className="text-sm leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap">
-              {turn.text}
-            </p>
+            <div
+              className={`max-w-[80%] ${
+                isYou
+                  ? "bg-[var(--bg-tertiary)] rounded-lg px-3 py-2"
+                  : ""
+              }`}
+            >
+              <p className="text-sm leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap">
+                {turn.text}
+              </p>
+            </div>
           </div>
         );
       })}

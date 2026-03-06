@@ -20,13 +20,23 @@ interface MeetingEntryProps {
   onDelete?: () => void;
 }
 
-function formatDate(isoDate: string): string {
+function formatDate(isoDate: string, isoTime?: string): string {
   const date = new Date(isoDate + "T00:00:00");
-  return date.toLocaleDateString("en-US", {
+  const datePart = date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
   });
+  if (isoTime) {
+    const time = new Date(isoTime);
+    const timePart = time.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    return `${datePart} · ${timePart}`;
+  }
+  return datePart;
 }
 
 type Tab = "notes" | "summary" | "transcript";
@@ -330,7 +340,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete }: 
       <div className="h-16 px-4 border-b border-[var(--border-default)] flex items-center justify-between">
         <div>
           <span className="text-base font-medium text-[var(--text-primary)]">
-            {formatDate(meeting.date)}
+            {formatDate(meeting.date, meeting.time)}
           </span>
           {title && (
             <div className="text-xs text-[var(--text-secondary)] mt-1">

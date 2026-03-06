@@ -244,7 +244,7 @@ export function NavBar({
               {/* Search */}
               <button
                 onClick={() => { haptics.light(); setMobileSearchOpen(true); }}
-                className="flex items-center justify-center w-12 h-12 rounded-full text-[var(--text-secondary)] active:bg-white/10 transition-colors"
+                className="flex items-center justify-center w-12 h-12 rounded-full text-[var(--text-tertiary)] active:bg-white/10 transition-colors"
                 title="Search"
               >
                 <Search className="w-6 h-6" />
@@ -264,24 +264,22 @@ export function NavBar({
   return (
     <div
       data-statusbar
-      className="grid h-11 bg-[var(--bg-secondary)] border-b border-[var(--border-default)] px-4 items-center gap-4"
-      style={{ WebkitAppRegion: "drag", gridTemplateColumns: "1fr auto 1fr" } as React.CSSProperties}
+      className="relative h-11 bg-[var(--bg-secondary)] border-b border-[var(--border-default)] px-4 flex items-center"
+      style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
-      {/* Left: spacer for drag region */}
-      <div className="flex items-center pointer-events-none">
-      </div>
-
-      {/* Center: View toggle */}
+      {/* Center: View toggle — absolutely centered in the bar */}
       <div
-        className="flex items-center justify-center"
+        className="absolute inset-0 flex items-center justify-center pointer-events-none"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
-        <ViewToggle view={viewMode} onChange={setViewMode} unreadTabs={unreadTabs} />
+        <div className="pointer-events-auto">
+          <ViewToggle view={viewMode} onChange={setViewMode} unreadTabs={unreadTabs} />
+        </div>
       </div>
 
-      {/* Right: search, stack, theme, source */}
+      {/* Right: search, stack, theme, source — pushed to the right */}
       <div
-        className="flex items-center justify-end gap-2 min-w-0 pointer-events-none"
+        className="ml-auto flex items-center justify-end gap-2 min-w-0 pointer-events-none"
       >
         {/* Search — expands to the left */}
         <div

@@ -125,6 +125,7 @@ export interface BridgePerson {
 export interface PersonMeeting {
   source: "inline" | "granola" | "next";  // Where it came from
   date: string;                    // ISO date (YYYY-MM-DD)
+  time?: string;                   // Full ISO timestamp (from Granola created field)
   title: string;                   // Meeting title or "Notes" for inline
   // For inline meetings (from ## Notes):
   notes?: string;                  // Raw markdown of the dated section
@@ -132,6 +133,14 @@ export interface PersonMeeting {
   filePath?: string;               // Path to meeting .md file
   transcriptPath?: string;         // Path to transcript file
   summary?: string;                // Full meeting body (markdown)
+  // For inbox mode (all meetings view):
+  matchedPeople?: string[];        // Person names this meeting matched to
+}
+
+export interface InboxDetail {
+  meetings: PersonMeeting[];
+  totalCount: number;
+  vaultPath: string;
 }
 
 export interface PersonDetail extends BridgePerson {
@@ -140,9 +149,21 @@ export interface PersonDetail extends BridgePerson {
   personFilePath: string;          // Absolute path to person .md file (for editing)
 }
 
+export interface SuggestedMeeting {
+  name: string;           // Normalized meeting name (e.g., "Design review")
+  count: number;          // Number of occurrences
+  lastDate: string;       // ISO date of most recent occurrence
+}
+
 export interface BridgePeopleResponse {
   vaultPath: string;
   people: BridgePerson[];          // Flat list, not columns
+  inboxStats: {
+    totalMeetings: number;
+    lastMeetingTitle: string;
+    lastMeetingDate: string;
+  } | null;
+  suggestedMeetings: SuggestedMeeting[];
 }
 
 // ============ Source Configuration Types ============

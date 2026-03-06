@@ -28,8 +28,17 @@ export function useHaptics() {
   const supported = useRef<boolean | null>(null);
 
   useEffect(() => {
-    // Only initialize on devices with Vibration API
-    if (typeof navigator === "undefined" || !navigator.vibrate) {
+    // Skip on SSR; on client, always initialize —
+    // web-haptics uses hidden checkbox toggles for iOS Safari haptics
+    // even without the Vibration API
+    if (typeof document === "undefined") {
+      supported.current = false;
+      return;
+    }
+
+    // Only enable on touch devices (mobile)
+    const isTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+    if (!isTouch) {
       supported.current = false;
       return;
     }

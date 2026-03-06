@@ -2,6 +2,7 @@
 
 import React from "react";
 import { FileText, Compass, CalendarDays, Users } from "lucide-react";
+import { useHaptics } from "@/hooks/useHaptics";
 
 // The underlying view mode stored in state/preferences
 export type ViewMode = "docs" | "stack" | "bridge" | "briefings" | "people";
@@ -37,6 +38,7 @@ const VIEW_CONFIG = [
 export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActive, unreadTabs }: ViewToggleProps) {
   const size = iconSize ?? (compact ? 24 : 16);
   const lastTapRef = React.useRef<{ id: string; time: number }>({ id: "", time: 0 });
+  const haptics = useHaptics();
 
   const handleTap = React.useCallback((id: ViewMode) => {
     const now = Date.now();
@@ -44,10 +46,11 @@ export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActiv
       onDoubleTapActive();
       lastTapRef.current = { id: "", time: 0 };
     } else {
+      if (id !== view) haptics.tap();
       onChange(id);
       lastTapRef.current = { id, time: now };
     }
-  }, [view, onChange, onDoubleTapActive]);
+  }, [view, onChange, onDoubleTapActive, haptics]);
 
   if (compact) {
     return (

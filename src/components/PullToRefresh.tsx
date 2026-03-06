@@ -2,6 +2,7 @@
 
 import { useRef, useState, useCallback, useEffect } from "react";
 import { RefreshCw } from "lucide-react";
+import { useHaptics } from "@/hooks/useHaptics";
 
 interface PullToRefreshProps {
   onRefresh: () => void | Promise<void>;
@@ -23,6 +24,8 @@ export function PullToRefresh({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const touchStartY = useRef(0);
   const isPulling = useRef(false);
+  const crossedThreshold = useRef(false);
+  const haptics = useHaptics();
 
   const handleTouchStart = useCallback(
     (e: TouchEvent) => {
@@ -71,6 +74,13 @@ export function PullToRefresh({
         // Apply resistance curve — gets harder to pull the further you go
         const resistance = Math.min(delta * 0.5, maxPull);
         setPullDistance(resistance);
+        // Haptic nudge when crossing the release threshold
+        if (resistance >= threshold && !crossedThreshold.current) {
+          crossedThreshold.current = true;
+          haptics.nudge();
+        } else if (resistance < threshold) {
+          crossedThreshold.current = false;
+        }
         // Prevent default scroll when we're pulling
         if (resistance > 10) {
           e.preventDefault();
@@ -78,6 +88,7 @@ export function PullToRefresh({
       } else {
         setPullDistance(0);
         isPulling.current = false;
+        crossedThreshold.current = false;
       }
     },
     [isRefreshing, maxPull]

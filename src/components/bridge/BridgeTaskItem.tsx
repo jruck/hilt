@@ -7,6 +7,7 @@ import type { BridgeTask } from "@/lib/types";
 import { GripVertical, ChevronRight } from "lucide-react";
 import { parseLifecycle, parseMention } from "@/lib/attribution";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useHaptics } from "@/hooks/useHaptics";
 
 function DueDateBadge({ dueDate, done }: { dueDate: string; done?: boolean }) {
   const today = new Date();
@@ -56,6 +57,7 @@ export function BridgeTaskItem({
   const inputRef = useRef<HTMLInputElement>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const isTouch = useIsMobile();
+  const haptics = useHaptics();
 
   // Parse lifecycle markers, then @mention from title (memoized)
   const lifecycle = useMemo(() => parseLifecycle(title, task.done), [title, task.done]);
@@ -151,6 +153,7 @@ export function BridgeTaskItem({
             type="checkbox"
             checked={visuallyDone}
             onChange={() => {
+              haptics.success();
               if (isReview) {
                 // Confirm completion: strip the ⁉️ marker, task stays [x] in markdown
                 onUpdateTitle(task.id, lifecycle.displayTitle);

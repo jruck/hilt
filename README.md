@@ -109,11 +109,14 @@ Edit `.env` with your settings:
 
 ### Run
 
-The best way to use Hilt is through the Electron app in dev mode. It runs as a native macOS window with live reloading, so you see changes from your agents in real time — and changes you make to the app itself:
+The best way to use Hilt is as a native macOS app in dev mode — live reloading, so you see changes from your agents in real time:
 
 ```bash
-npm run electron:dev
+npm run app
+open dist/Hilt.app
 ```
+
+This creates a dev-mode `.app` you can drag to your Dock and launch from Spotlight or Raycast like any other app. Re-run `npm run app` after changing Electron code (UI changes hot-reload automatically).
 
 You can also run it in the browser:
 
@@ -210,11 +213,11 @@ graph TD
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev:all` | Start development (Next.js + WebSocket + Event servers) |
+| `npm run app` | Build dev-mode macOS app (`dist/Hilt.app`) |
+| `npm run dev:all` | Start development in browser (Next.js + WebSocket + Event servers) |
 | `npm run build` | Production build |
 | `npm run lint` | Run ESLint |
-| `npm run electron:dev` | Start Electron app in dev mode |
-| `npm run electron:build` | Build native macOS app |
+| `npm run electron:dist:mac` | Build production macOS app (rarely needed) |
 
 ## Contributing
 

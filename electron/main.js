@@ -59,6 +59,7 @@ process.env.DATA_DIR = DATA_DIR;
 const PLANS_DIR = path.join(process.env.HOME || "~", ".claude", "plans");
 // Track active windows and server processes
 let mainWindow = null;
+let isQuitting = false;
 let nextServer = null;
 let wsServer = null;
 let serverPort = null;
@@ -214,7 +215,7 @@ async function startServerForSource(source) {
         cwd: projectDir,
         env,
         stdio: ["ignore", "pipe", "pipe"],
-        detached: false,
+        detached: true,
     });
     serverProcess.stdout?.pipe(logStream);
     serverProcess.stderr?.pipe(logStream);
@@ -313,7 +314,7 @@ async function startNextServer() {
             cwd: projectDir,
             env: { ...process.env, PORT: String(port), FORCE_COLOR: "0" },
             stdio: ["ignore", "pipe", "pipe"],
-            detached: false, // Dies when Electron dies
+            detached: true,
         });
         // Pipe output to log file
         nextServer.stdout?.pipe(logStream);
@@ -473,7 +474,7 @@ function startWsServer() {
         cwd: projectDir,
         env: { ...process.env, FORCE_COLOR: "0" },
         stdio: ["ignore", "pipe", "pipe"],
-        detached: false,
+        detached: true,
     });
     wsServer.stdout?.pipe(logStream);
     wsServer.stderr?.pipe(logStream);
@@ -711,8 +712,13 @@ async function createWindow() {
         event.preventDefault();
         electron_1.shell.openExternal(url);
     });
-    mainWindow.on("closed", () => {
-        mainWindow = null;
+    // Hide on close instead of destroying (Slack-style) — keeps renderer alive
+    // so WebSocket connections persist and navigate commands always work
+    mainWindow.on("close", (e) => {
+        if (!isQuitting) {
+            e.preventDefault();
+            mainWindow?.hide();
+        }
     });
     // Setup plan file watcher
     setupPlanWatcher();
@@ -816,37 +822,54 @@ else {
     // App lifecycle
     electron_1.app.whenReady().then(createWindow);
 }
-function killAllServers() {
-    if (nextServer) {
-        nextServer.kill();
-        nextServer = null;
+/** Kill a detached process and its entire process group. */
+function killProcessGroup(proc) {
+    if (!proc)
+        return;
+    try {
+        // Kill the process group (negative PID) so all children die too
+        if (proc.pid)
+            process.kill(-proc.pid);
     }
-    for (const [id, instance] of servers) {
-        if (instance.process) {
-            instance.process.kill();
+    catch {
+        // Process may already be dead — try direct kill as fallback
+        try {
+            proc.kill();
         }
+        catch { /* ignore */ }
+    }
+}
+function killAllServers() {
+    killProcessGroup(nextServer);
+    nextServer = null;
+    for (const [id, instance] of servers) {
+        killProcessGroup(instance.process);
         servers.delete(id);
     }
-    if (wsServer) {
-        wsServer.kill();
-        wsServer = null;
-    }
+    killProcessGroup(wsServer);
+    wsServer = null;
     if (plansWatcher) {
         plansWatcher.close();
     }
 }
 electron_1.app.on("window-all-closed", () => {
-    killAllServers();
+    // On macOS, windows hide instead of close, so this only fires on actual quit.
+    // On other platforms, quit the app.
     if (process.platform !== "darwin") {
         electron_1.app.quit();
     }
 });
 electron_1.app.on("activate", () => {
-    if (mainWindow === null) {
+    if (mainWindow) {
+        mainWindow.show();
+        mainWindow.focus();
+    }
+    else {
         createWindow();
     }
 });
-// Handle app quit
+// Handle app quit — set flag so close handler allows destroy
 electron_1.app.on("before-quit", () => {
+    isQuitting = true;
     killAllServers();
 });

@@ -43,6 +43,7 @@ interface ServerInstance {
 
 // Track active windows and server processes
 let mainWindow: BrowserWindow | null = null;
+let isQuitting = false;
 let nextServer: ChildProcess | null = null;
 let wsServer: ChildProcess | null = null;
 let serverPort: number | null = null;
@@ -221,7 +222,7 @@ async function startServerForSource(source: SourceConfig): Promise<ServerInstanc
     cwd: projectDir,
     env,
     stdio: ["ignore", "pipe", "pipe"],
-    detached: false,
+    detached: true,
   });
 
   serverProcess.stdout?.pipe(logStream);
@@ -334,7 +335,7 @@ async function startNextServer(): Promise<number> {
       cwd: projectDir,
       env: { ...process.env, PORT: String(port), FORCE_COLOR: "0" },
       stdio: ["ignore", "pipe", "pipe"],
-      detached: false, // Dies when Electron dies
+      detached: true,
     });
 
     // Pipe output to log file
@@ -515,7 +516,7 @@ function startWsServer(): void {
     cwd: projectDir,
     env: { ...process.env, FORCE_COLOR: "0" },
     stdio: ["ignore", "pipe", "pipe"],
-    detached: false,
+    detached: true,
   });
 
   wsServer.stdout?.pipe(logStream);
@@ -773,8 +774,13 @@ async function createWindow() {
     shell.openExternal(url);
   });
 
-  mainWindow.on("closed", () => {
-    mainWindow = null;
+  // Hide on close instead of destroying (Slack-style) — keeps renderer alive
+  // so WebSocket connections persist and navigate commands always work
+  mainWindow.on("close", (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+      mainWindow?.hide();
+    }
   });
 
   // Setup plan file watcher
@@ -887,41 +893,51 @@ if (!gotTheLock) {
   app.whenReady().then(createWindow);
 }
 
-function killAllServers() {
-  if (nextServer) {
-    nextServer.kill();
-    nextServer = null;
+/** Kill a detached process and its entire process group. */
+function killProcessGroup(proc: ChildProcess | null): void {
+  if (!proc) return;
+  try {
+    // Kill the process group (negative PID) so all children die too
+    if (proc.pid) process.kill(-proc.pid);
+  } catch {
+    // Process may already be dead — try direct kill as fallback
+    try { proc.kill(); } catch { /* ignore */ }
   }
+}
+
+function killAllServers() {
+  killProcessGroup(nextServer);
+  nextServer = null;
   for (const [id, instance] of servers) {
-    if (instance.process) {
-      instance.process.kill();
-    }
+    killProcessGroup(instance.process);
     servers.delete(id);
   }
-  if (wsServer) {
-    wsServer.kill();
-    wsServer = null;
-  }
+  killProcessGroup(wsServer);
+  wsServer = null;
   if (plansWatcher) {
     plansWatcher.close();
   }
 }
 
 app.on("window-all-closed", () => {
-  killAllServers();
-
+  // On macOS, windows hide instead of close, so this only fires on actual quit.
+  // On other platforms, quit the app.
   if (process.platform !== "darwin") {
     app.quit();
   }
 });
 
 app.on("activate", () => {
-  if (mainWindow === null) {
+  if (mainWindow) {
+    mainWindow.show();
+    mainWindow.focus();
+  } else {
     createWindow();
   }
 });
 
-// Handle app quit
+// Handle app quit — set flag so close handler allows destroy
 app.on("before-quit", () => {
+  isQuitting = true;
   killAllServers();
 });

@@ -14,6 +14,7 @@
     "dev:all": "concurrently \"DATA_DIR=$HOME/.hilt/data npm run dev\" \"DATA_DIR=$HOME/.hilt/data npm run ws-server\" \"DATA_DIR=$HOME/.hilt/data npm run event-server\"",
     "electron:compile": "tsc -p electron/tsconfig.json",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron electron/launcher.cjs\"",
+    "app": "npm run electron:compile && bash scripts/create-dev-app.sh",
     "electron:create-dev-app": "bash scripts/create-dev-app.sh",
     "electron:build": "npm run build && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public && npm run electron:compile",
     "electron:dist": "npm run electron:build && electron-builder",

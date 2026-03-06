@@ -94,7 +94,10 @@ Views: `bridge`, `docs`, `stack`, `briefings`, `people`
 ## Development
 
 ```bash
-npm run dev:all   # Start Next.js + WebSocket servers
+npm run app       # Build the dev-mode macOS app (dist/Hilt.app)
+npm run dev:all   # Or run in browser: Next.js + WebSocket servers
 ```
 
-Open http://localhost:3000 in your browser.
+**Electron app**: `npm run app` compiles TypeScript and creates `dist/Hilt.app` — a dev-mode launcher with hot reload. This is the daily-driver app. Drag it to the Dock, launch from Spotlight/Raycast, etc. Re-run `npm run app` after changing `electron/main.ts`.
+
+**"Build the Electron app"** = `npm run app` (dev mode). Production builds (`electron:dist:mac`) are only for distribution and are rarely needed.

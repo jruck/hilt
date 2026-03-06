@@ -178,8 +178,14 @@ export function parseMeetingFrontmatter(content: string, filename?: string): {
   // Fall back to date from filename if frontmatter lacks created
   let created = fm.created || "";
   if (!created && filename) {
-    const dateMatch = filename.match(/(\d{4}-\d{2}-\d{2})/);
-    if (dateMatch) created = dateMatch[1];
+    // Extract date and optional time from filename pattern: "Name-YYYY-MM-DD @ HH-MM-SS.md"
+    const dtMatch = filename.match(/(\d{4}-\d{2}-\d{2})\s*@\s*(\d{2})-(\d{2})-(\d{2})/);
+    if (dtMatch) {
+      created = `${dtMatch[1]}T${dtMatch[2]}:${dtMatch[3]}:${dtMatch[4]}`;
+    } else {
+      const dateMatch = filename.match(/(\d{4}-\d{2}-\d{2})/);
+      if (dateMatch) created = dateMatch[1];
+    }
   }
 
   // Fall back to title from filename if frontmatter lacks title

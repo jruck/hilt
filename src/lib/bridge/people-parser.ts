@@ -189,12 +189,23 @@ export function parseMeetingFrontmatter(content: string, filename?: string): {
     title = filename.replace(/\.md$/, "").replace(/-?\d{4}-\d{2}-\d{2}.*$/, "").trim();
   }
 
+  // Resolve transcript path: frontmatter first, then auto-discover by naming convention
+  let transcript = fm.transcript
+    ? fm.transcript.replace(/^\[\[|\]\]$/g, "")
+    : "";
+  if (!transcript && filename) {
+    // Convention: transcripts live at meetings/transcripts/YYYY-MM-DD/<name> (transcript).md
+    const dateMatch = filename.match(/(\d{4}-\d{2}-\d{2})/);
+    if (dateMatch) {
+      const baseName = filename.replace(/\.md$/, "");
+      transcript = `meetings/transcripts/${dateMatch[1]}/${baseName} (transcript).md`;
+    }
+  }
+
   return {
     title,
     created,
-    transcript: fm.transcript
-      ? fm.transcript.replace(/^\[\[|\]\]$/g, "")
-      : "",
+    transcript,
     granolaId: fm.granola_id || "",
     body: body.trim(),
   };

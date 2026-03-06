@@ -268,11 +268,8 @@ export function NavBar({
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
       {/* Center: View toggle — absolutely centered in the bar */}
-      <div
-        className="absolute inset-0 flex items-center justify-center pointer-events-none"
-        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-      >
-        <div className="pointer-events-auto">
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
           <ViewToggle view={viewMode} onChange={setViewMode} unreadTabs={unreadTabs} />
         </div>
       </div>

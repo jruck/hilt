@@ -166,7 +166,7 @@ export function matchMeetingsToSlug(
 /**
  * Parse meeting file frontmatter for Granola meeting details.
  */
-export function parseMeetingFrontmatter(content: string): {
+export function parseMeetingFrontmatter(content: string, filename?: string): {
   title: string;
   created: string;
   transcript: string;
@@ -174,9 +174,24 @@ export function parseMeetingFrontmatter(content: string): {
   body: string;
 } {
   const { fm, body } = parseFrontmatter(content);
+
+  // Fall back to date from filename if frontmatter lacks created
+  let created = fm.created || "";
+  if (!created && filename) {
+    const dateMatch = filename.match(/(\d{4}-\d{2}-\d{2})/);
+    if (dateMatch) created = dateMatch[1];
+  }
+
+  // Fall back to title from filename if frontmatter lacks title
+  let title = fm.title || "";
+  if (!title && filename) {
+    // Strip .md, date suffix, and @ time portion
+    title = filename.replace(/\.md$/, "").replace(/-?\d{4}-\d{2}-\d{2}.*$/, "").trim();
+  }
+
   return {
-    title: fm.title || "",
-    created: fm.created || "",
+    title,
+    created,
     transcript: fm.transcript
       ? fm.transcript.replace(/^\[\[|\]\]$/g, "")
       : "",
@@ -250,7 +265,7 @@ export async function getAllPeople(
   for (const entry of meetingFileEntries) {
     try {
       const content = fs.readFileSync(entry.fullPath, "utf-8");
-      const meta = parseMeetingFrontmatter(content);
+      const meta = parseMeetingFrontmatter(content, entry.filename);
       meetingMetaCache.set(entry.filename, { title: meta.title, created: meta.created });
     } catch {
       // Skip unreadable
@@ -421,7 +436,7 @@ export async function getAllMeetings(vaultPath: string, filterName?: string): Pr
     }
     try {
       const content = fs.readFileSync(entry.fullPath, "utf-8");
-      const meta = parseMeetingFrontmatter(content);
+      const meta = parseMeetingFrontmatter(content, entry.filename);
       const date = meta.created ? meta.created.slice(0, 10) : "";
       meetings.push({
         source: "granola",
@@ -685,7 +700,7 @@ export async function getPersonDetail(
     if (!mfPath) continue;
     try {
       const mfContent = fs.readFileSync(mfPath, "utf-8");
-      const mfMeta = parseMeetingFrontmatter(mfContent);
+      const mfMeta = parseMeetingFrontmatter(mfContent, mf);
       const date = mfMeta.created ? mfMeta.created.slice(0, 10) : "";
       const { body: mfBody } = parseFrontmatter(mfContent);
       const summary = mfBody.trim();

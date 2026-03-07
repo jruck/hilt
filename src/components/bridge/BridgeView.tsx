@@ -180,7 +180,7 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
 
   function handleAddTask(title: string) {
     // Select immediately — the optimistic task has id "task-0"
-    setSelectedTask({ id: "task-0", title, done: false, details: [], rawLines: [`- [ ] ${title}`], projectPath: null, projectPaths: [], dueDate: null });
+    setSelectedTask({ id: "task-0", title, done: false, details: [], rawLines: [`- [ ] ${title}`], projectPath: null, projectPaths: [], dueDate: null, group: null });
     setAutoFocusPanel(true);
     addTask(title);
   }

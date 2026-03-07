@@ -43,7 +43,15 @@ export async function POST(request: NextRequest) {
     // Insert carried tasks into ## Tasks section
     // Details are stored without their leading indent (stripped on parse),
     // so we must re-indent them when writing to the new file.
+    let lastGroup: string | null = null;
     const taskLines = carriedTasks.flatMap(t => {
+      const lines: string[] = [];
+      // Insert group heading when it changes
+      if (t.group && t.group !== lastGroup) {
+        if (lastGroup !== null) lines.push(""); // blank line between groups
+        lines.push(`### ${t.group}`);
+      }
+      lastGroup = t.group;
       // Reset checkbox to unchecked for carried tasks
       const projPath = t.projectPath;
       const titleText = projPath ? `[${t.title}](${projPath})` : t.title;
@@ -52,7 +60,7 @@ export async function POST(request: NextRequest) {
       const indentedDetails = t.details.map(line =>
         line.trim() === "" ? "" : "\t" + line
       );
-      return [titleLine, ...indentedDetails];
+      return [...lines, titleLine, ...indentedDetails];
     });
 
     let finalContent: string;

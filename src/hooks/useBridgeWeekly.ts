@@ -159,6 +159,7 @@ export function useBridgeWeekly() {
       projectPath: null,
       projectPaths: [],
       dueDate: null,
+      group: null,
     };
     if (data) {
       const reindexed = data.tasks.map((t, i) => ({ ...t, id: `task-${i + 1}` }));

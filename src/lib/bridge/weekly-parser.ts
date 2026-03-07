@@ -107,10 +107,34 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
   // Parse tasks
   const tasks: BridgeTask[] = [];
   if (tasksStart !== -1) {
-    let currentTask: { titleLine: string; done: boolean; rawLines: string[]; detailLines: string[]; projectPath: string | null; projectPaths: string[]; dueDate: string | null } | null = null;
+    let currentTask: { titleLine: string; done: boolean; rawLines: string[]; detailLines: string[]; projectPath: string | null; projectPaths: string[]; dueDate: string | null; group: string | null } | null = null;
+    let currentGroup: string | null = null;
 
     for (let i = tasksStart; i < tasksEnd; i++) {
       const line = lines[i];
+
+      // ### subheadings within ## Tasks become group labels
+      const subheadingMatch = line.match(/^###\s+(.+)$/);
+      if (subheadingMatch) {
+        // Save any pending task before switching groups
+        if (currentTask) {
+          tasks.push({
+            id: `task-${tasks.length}`,
+            title: currentTask.titleLine,
+            done: currentTask.done,
+            details: currentTask.detailLines,
+            rawLines: currentTask.rawLines,
+            projectPath: currentTask.projectPath,
+            projectPaths: currentTask.projectPaths,
+            dueDate: currentTask.dueDate,
+            group: currentTask.group,
+          });
+          currentTask = null;
+        }
+        currentGroup = subheadingMatch[1].trim();
+        continue;
+      }
+
       const taskMatch = line.match(/^- \[([ x])\] (.+)$/);
 
       if (taskMatch) {
@@ -125,6 +149,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
             projectPath: currentTask.projectPath,
             projectPaths: currentTask.projectPaths,
             dueDate: currentTask.dueDate,
+            group: currentTask.group,
           });
         }
         // Check if title contains a markdown link: [display text](path)
@@ -158,6 +183,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
           projectPath: projectPaths[0] ?? null,
           projectPaths,
           dueDate,
+          group: currentGroup,
         };
       } else if (currentTask && line.match(/^[\t ]{2,}|^\t/)) {
         // Indented line belongs to current task
@@ -184,6 +210,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
         projectPath: currentTask.projectPath,
         projectPaths: currentTask.projectPaths,
         dueDate: currentTask.dueDate,
+        group: currentTask.group,
       });
     }
   }
@@ -237,6 +264,7 @@ export function addTask(content: string, title: string, projectPath?: string): s
     projectPath: projectPath ?? null,
     projectPaths,
     dueDate: null,
+    group: null,
   };
   // Re-index existing tasks
   const reindexed = parsed.tasks.map((t, i) => ({ ...t, id: `task-${i + 1}` }));

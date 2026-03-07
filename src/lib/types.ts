@@ -50,6 +50,7 @@ export interface BridgeTask {
   projectPath: string | null;  // First project path (legacy compat), or null
   projectPaths: string[];      // All linked project paths
   dueDate: string | null;      // YYYY-MM-DD from [due:: ...] inline field
+  group: string | null;        // ### subheading label within ## Tasks section
 }
 
 export interface BridgeWeekly {

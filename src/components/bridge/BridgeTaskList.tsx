@@ -138,17 +138,27 @@ export function BridgeTaskList({
                 )}
               </div>
               <div className="space-y-1">
-                {todoTasks.map((task) => (
-                  <BridgeTaskItem
-                    key={task.id}
-                    task={task}
-                    isSelected={task.id === selectedTaskId}
-                    onToggle={onToggle}
-                    onUpdateTitle={onUpdateTitle}
-                    onSelect={onSelectTask}
-                    onDelete={onDeleteTask}
-                  />
-                ))}
+                {todoTasks.map((task, i) => {
+                  const prevGroup = i > 0 ? todoTasks[i - 1].group : undefined;
+                  const showGroupHeader = task.group && task.group !== prevGroup;
+                  return (
+                    <div key={task.id}>
+                      {showGroupHeader && (
+                        <h3 className={`text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide px-3 ${i > 0 ? "pt-4" : ""} pb-1`}>
+                          {task.group}
+                        </h3>
+                      )}
+                      <BridgeTaskItem
+                        task={task}
+                        isSelected={task.id === selectedTaskId}
+                        onToggle={onToggle}
+                        onUpdateTitle={onUpdateTitle}
+                        onSelect={onSelectTask}
+                        onDelete={onDeleteTask}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -171,17 +181,27 @@ export function BridgeTaskList({
               </div>
               {doneExpanded && (
                 <div className="space-y-1">
-                  {doneTasks.map((task) => (
-                    <BridgeTaskItem
-                      key={task.id}
-                      task={task}
-                      isSelected={task.id === selectedTaskId}
-                      onToggle={onToggle}
-                      onUpdateTitle={onUpdateTitle}
-                      onSelect={onSelectTask}
-                      onDelete={onDeleteTask}
-                    />
-                  ))}
+                  {doneTasks.map((task, i) => {
+                    const prevGroup = i > 0 ? doneTasks[i - 1].group : undefined;
+                    const showGroupHeader = task.group && task.group !== prevGroup;
+                    return (
+                      <div key={task.id}>
+                        {showGroupHeader && (
+                          <h3 className={`text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide px-3 ${i > 0 ? "pt-4" : ""} pb-1`}>
+                            {task.group}
+                          </h3>
+                        )}
+                        <BridgeTaskItem
+                          task={task}
+                          isSelected={task.id === selectedTaskId}
+                          onToggle={onToggle}
+                          onUpdateTitle={onUpdateTitle}
+                          onSelect={onSelectTask}
+                          onDelete={onDeleteTask}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

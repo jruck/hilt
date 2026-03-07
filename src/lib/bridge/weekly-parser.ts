@@ -104,6 +104,20 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
     }
   }
 
+  // New format fallback: no ## Tasks wrapper, tasks live under ### groups directly
+  if (tasksStart === -1) {
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim();
+      if (/^###\s+/.test(trimmed) || /^- \[([ x])\]\s+/.test(trimmed)) {
+        tasksStart = i;
+        break;
+      }
+    }
+    if (tasksStart !== -1 && notesStart !== -1) {
+      tasksEnd = notesStart - 1;
+    }
+  }
+
   // Parse tasks
   const tasks: BridgeTask[] = [];
   if (tasksStart !== -1) {
@@ -387,8 +401,17 @@ function rebuildContent(
     ? newAccomplishments.trim()
     : parsed.accomplishments;
 
-  // Tasks
-  const taskLines = tasks.flatMap(t => t.rawLines);
+  // Tasks — serialize with ### group headers when present
+  const taskLines: string[] = [];
+  let lastGroup: string | null = null;
+  for (const t of tasks) {
+    if (t.group !== lastGroup) {
+      if (taskLines.length > 0) taskLines.push("");
+      if (t.group) taskLines.push(`### ${t.group}`);
+      lastGroup = t.group;
+    }
+    taskLines.push(...t.rawLines);
+  }
   const tasksSection = taskLines.length > 0 ? taskLines.join("\n") : "";
 
   // Notes
@@ -400,8 +423,14 @@ function rebuildContent(
     parts.push("\n## Accomplishments\n" + accomplishments);
   }
 
-  parts.push("\n## Tasks");
-  if (tasksSection) parts.push(tasksSection);
+  // Preserve file style: legacy has ## Tasks wrapper, new format does not
+  const hasTasksHeading = originalContent.split("\n").some(l => l.trim() === "## Tasks");
+  if (hasTasksHeading) {
+    parts.push("\n## Tasks");
+    if (tasksSection) parts.push(tasksSection);
+  } else if (tasksSection) {
+    parts.push("\n" + tasksSection);
+  }
 
   parts.push("\n## Notes");
   if (notesContent) parts.push(notesContent);

@@ -183,7 +183,7 @@ export function BridgeTaskList({
                 <div className="space-y-1">
                   {doneTasks.map((task, i) => {
                     const prevGroup = i > 0 ? doneTasks[i - 1].group : undefined;
-                    const showGroupHeader = task.group && task.group !== prevGroup;
+                    const showGroupHeader = task.group && task.group !== prevGroup && task.group.toLowerCase() !== "done";
                     return (
                       <div key={task.id}>
                         {showGroupHeader && (

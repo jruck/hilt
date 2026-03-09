@@ -242,13 +242,23 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
     notes = lines.slice(notesStart).join("\n").trim();
   }
 
-  // Compute needsRecycle
+  // Compute needsRecycle — triggers Friday 3 PM+ of the current week,
+  // or anytime after the week has passed (next week or later)
   let needsRecycle = false;
   if (week) {
+    const now = new Date();
     const weekDate = new Date(week + "T00:00:00");
     const weekStart = getISOWeekStart(weekDate);
-    const currentWeekStart = getISOWeekStart(new Date());
-    needsRecycle = currentWeekStart > weekStart;
+    const currentWeekStart = getISOWeekStart(now);
+    if (currentWeekStart > weekStart) {
+      // Past week — always show
+      needsRecycle = true;
+    } else if (currentWeekStart.getTime() === weekStart.getTime()) {
+      // Same week — show on Friday (day 5) at 3 PM or later
+      const day = now.getDay();
+      const hour = now.getHours();
+      needsRecycle = (day === 5 && hour >= 15) || day === 6 || day === 0;
+    }
   }
 
   return {

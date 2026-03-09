@@ -77,7 +77,19 @@ export function WeekHeader({
     }
   }, [dropdownOpen]);
 
-  const hasOtherWeeks = availableWeeks.length > 1;
+  // Compute next Monday for the "Next" week entry
+  const nextMonday = (() => {
+    const now = new Date();
+    const day = now.getDay();
+    const daysUntilMonday = day === 0 ? 1 : 8 - day;
+    const next = new Date(now);
+    next.setDate(now.getDate() + daysUntilMonday);
+    return next.toISOString().split("T")[0];
+  })();
+
+  // Show "Next" entry when the current week file is the latest and next week doesn't exist yet
+  const showNextWeek = availableWeeks.length > 0 && !availableWeeks.includes(nextMonday);
+  const hasOtherWeeks = availableWeeks.length > 1 || showNextWeek;
 
   return (
     <div>
@@ -115,6 +127,22 @@ export function WeekHeader({
           {/* Dropdown */}
           {dropdownOpen && hasOtherWeeks && (
             <div className="absolute top-full left-0 mt-1 py-1 min-w-[180px] bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg shadow-xl z-50">
+              {/* "Next" week entry — triggers recycle */}
+              {showNextWeek && (
+                <>
+                  <button
+                    onClick={() => {
+                      setDropdownOpen(false);
+                      onRecycle();
+                    }}
+                    className="w-full px-3 py-2 text-sm text-left hover:bg-[var(--bg-tertiary)] transition-colors flex items-center justify-between"
+                  >
+                    <span>{formatWeekShort(nextMonday)}</span>
+                    <span className="text-xs text-[var(--text-tertiary)]">next</span>
+                  </button>
+                  <div className="my-1 border-t border-[var(--border-default)]" />
+                </>
+              )}
               {availableWeeks.map((w, i) => (
                 <button
                   key={w}
@@ -137,18 +165,18 @@ export function WeekHeader({
         </div>
       </div>
 
-      {/* Needs recycle notice (only show when not previewing past) */}
+      {/* End-of-week retrospective CTA (only show when not previewing past) */}
       {needsRecycle && !isPreviewingPast && (
         <button
           onClick={onRecycle}
           className="mt-3 w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-default)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
         >
           <span className="text-sm text-[var(--text-secondary)] flex-1 text-left">
-            This list is from a previous week. Start a new one?
+            Ready to wrap up the week?
           </span>
           <span className="flex items-center gap-1 text-xs font-medium text-[var(--text-secondary)]">
             <RefreshCw className="w-3.5 h-3.5" />
-            New Week
+            Week Review
           </span>
         </button>
       )}

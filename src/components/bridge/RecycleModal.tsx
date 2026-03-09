@@ -20,15 +20,6 @@ function getNextMonday(): string {
   return nextMonday.toISOString().split("T")[0];
 }
 
-function getCurrentMonday(): string {
-  const now = new Date();
-  const day = now.getDay();
-  const diff = day === 0 ? 6 : day - 1;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - diff);
-  return monday.toISOString().split("T")[0];
-}
-
 export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalProps) {
   const incompleteTasks = tasks.filter(t => !t.done);
   const completedTasks = tasks.filter(t => t.done);
@@ -58,10 +49,8 @@ export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalP
   async function handleRecycle() {
     setIsSubmitting(true);
     try {
-      // Use current Monday if we're past Monday, otherwise next Monday
-      const now = new Date();
-      const day = now.getDay();
-      const newWeek = day >= 1 ? getCurrentMonday() : getNextMonday();
+      // Always create for next Monday (end-of-week retrospective)
+      const newWeek = getNextMonday();
       await onRecycle(
         Array.from(selected),
         newWeek,
@@ -80,7 +69,7 @@ export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalP
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-default)]">
           <h2 className="text-base font-semibold text-[var(--text-primary)]">
-            Start New Week
+            Week Review
           </h2>
           <button
             onClick={onClose}
@@ -95,7 +84,7 @@ export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalP
           {incompleteTasks.length > 0 && (
             <div className="mb-4">
               <p className="text-sm text-[var(--text-secondary)] mb-3">
-                Select tasks to carry forward:
+                Carry these tasks into next week:
               </p>
               <div className="space-y-2">
                 {incompleteTasks.map((task, i) => {
@@ -153,7 +142,7 @@ export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalP
           {/* Accomplishments for outgoing week */}
           <div className="mt-4 pt-4 border-t border-[var(--border-default)]">
             <label className="block text-sm text-[var(--text-secondary)] mb-2">
-              What did you accomplish this week?
+              What did you get done this week?
             </label>
             <textarea
               value={accomplishmentsText}
@@ -205,7 +194,7 @@ export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalP
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md bg-[var(--interactive-default)] text-white hover:bg-[var(--interactive-hover)] disabled:opacity-50 transition-colors"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isSubmitting ? "animate-spin" : ""}`} />
-            Create New Week
+            Start Next Week
           </button>
         </div>
       </div>

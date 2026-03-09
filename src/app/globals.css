@@ -1269,6 +1269,16 @@ body [data-radix-popper-content-wrapper]::after {
   margin: 0.125em 0;
 }
 
+.bridge-task-editor .ProseMirror s {
+  color: var(--text-tertiary);
+  text-decoration: line-through;
+}
+
+.bridge-task-editor .ProseMirror ul ul { list-style-type: circle; }
+.bridge-task-editor .ProseMirror ul ul ul { list-style-type: square; }
+.bridge-task-editor .ProseMirror ol ol { list-style-type: lower-alpha; }
+.bridge-task-editor .ProseMirror ol ol ol { list-style-type: lower-roman; }
+
 .bridge-task-editor .ProseMirror a {
   color: var(--interactive-default);
   text-decoration: underline;

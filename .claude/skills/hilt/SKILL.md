@@ -7,6 +7,34 @@ description: Control the Hilt app programmatically — navigate views, manage we
 
 Control the running Hilt app from any Claude session. Hilt is a personal workspace UI (Next.js PWA) backed by a Bridge vault of markdown files.
 
+## Critical Rules
+
+**Follow these rules whenever interacting with weekly tasks — via API or direct file edit.**
+
+### Always use the latest week
+
+- Weekly task lists live in `lists/now/YYYY-MM-DD.md`. There may be multiple files. **Always operate on the newest one.**
+- If using the API: `GET /api/bridge/weekly` automatically returns the latest week. Use the `latestWeek` field to confirm.
+- If editing files directly: resolve the current file first — `ls lists/now/ | sort | tail -1`
+- **Never assume which week file is current.** Hilt can recycle (create a new week) at any time. A file you edited 10 minutes ago may no longer be the active week.
+
+### Task formatting conventions
+
+- **Short title on the top line.** All detail goes in indented sub-bullets below — never cram everything into one line.
+- **Task-to-project link format:** `- [ ] [Task name](path/to/project/folder)` — link to the folder, NOT to `index.md`
+- **Multiple project links:** `- [ ] [Task title](projects/first) [+ Second](projects/second)`
+- **Due dates:** Dataview inline field at end of task line: `[due:: YYYY-MM-DD]`
+- **New agent-created tasks get 🆕 emoji.** If the task has a markdown link, put 🆕 in a sub-bullet (emoji between checkbox and link breaks Hilt's parser). If no link: `- [ ] 🆕 Task title`
+- **No agent attribution.** Don't add `← AgentName` or similar signing to tasks.
+- **New tasks go at the top** of their `### group` section (or top of the list if ungrouped).
+
+### Group headings
+
+- Tasks are organized under `### Subheading` lines (e.g., `### Personal`, `### Product`, `### Engineering`).
+- When adding a task, place it under the appropriate `### group`. If unsure, ask — don't create new groups without the user's input.
+- A `### Done` section at the bottom holds completed tasks.
+- **Never strip or flatten group headings.** Preserve all `###` lines when editing the file.
+
 ## Connection
 
 Hilt exposes two interfaces:

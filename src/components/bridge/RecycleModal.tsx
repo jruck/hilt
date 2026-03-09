@@ -98,22 +98,30 @@ export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalP
                 Select tasks to carry forward:
               </p>
               <div className="space-y-2">
-                {incompleteTasks.map(task => (
-                  <label
-                    key={task.id}
-                    className="flex items-center gap-2.5 cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selected.has(task.id)}
-                      onChange={() => toggleTask(task.id)}
-                      className="w-4 h-4 rounded border-[var(--border-default)] text-[var(--interactive-default)] focus:ring-[var(--interactive-default)]"
-                    />
-                    <span className="text-sm text-[var(--text-primary)]">
-                      {task.title}
-                    </span>
-                  </label>
-                ))}
+                {incompleteTasks.map((task, i) => {
+                  const prevGroup = i > 0 ? incompleteTasks[i - 1].group : undefined;
+                  const showGroupHeader = task.group && task.group !== prevGroup;
+                  return (
+                    <div key={task.id}>
+                      {showGroupHeader && (
+                        <h3 className={`text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide ${i > 0 ? "pt-3" : ""} pb-1`}>
+                          {task.group}
+                        </h3>
+                      )}
+                      <label className="flex items-center gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(task.id)}
+                          onChange={() => toggleTask(task.id)}
+                          className="w-4 h-4 rounded border-[var(--border-default)] text-[var(--interactive-default)] focus:ring-[var(--interactive-default)]"
+                        />
+                        <span className="text-sm text-[var(--text-primary)]">
+                          {task.title}
+                        </span>
+                      </label>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

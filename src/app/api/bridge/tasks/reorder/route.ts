@@ -4,7 +4,7 @@ import { listVaultDir, readVaultFile, writeVaultFileAtomic } from "@/lib/bridge/
 
 export async function PUT(request: NextRequest) {
   try {
-    const { order } = await request.json();
+    const { order, groupUpdates } = await request.json();
 
     if (!Array.isArray(order)) {
       return NextResponse.json({ error: "order must be an array" }, { status: 400 });
@@ -18,7 +18,7 @@ export async function PUT(request: NextRequest) {
 
     const filename = mdFiles[0];
     const content = await readVaultFile(`lists/now/${filename}`);
-    const updated = reorderTasks(content, order);
+    const updated = reorderTasks(content, order, groupUpdates);
     await writeVaultFileAtomic(`lists/now/${filename}`, updated);
 
     return NextResponse.json({ success: true });

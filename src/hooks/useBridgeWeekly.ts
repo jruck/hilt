@@ -70,13 +70,14 @@ export function useBridgeWeekly() {
     mutate();
   }
 
-  async function reorderTasks(order: string[]) {
+  async function reorderTasks(order: string[], groupUpdates?: Record<string, string | null>) {
     // Optimistic update
     if (data) {
       const taskMap = new Map(data.tasks.map(t => [t.id, t]));
       const reordered = order
         .map(id => taskMap.get(id))
-        .filter((t): t is NonNullable<typeof t> => t !== undefined);
+        .filter((t): t is NonNullable<typeof t> => t !== undefined)
+        .map(t => groupUpdates && t.id in groupUpdates ? { ...t, group: groupUpdates[t.id] } : t);
       // Re-assign IDs based on new positions
       const reassigned = reordered.map((t, i) => ({ ...t, id: `task-${i}` }));
       mutate({ ...data, tasks: reassigned }, false);
@@ -85,7 +86,7 @@ export function useBridgeWeekly() {
     await fetch("/api/bridge/tasks/reorder", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ order }),
+      body: JSON.stringify({ order, groupUpdates }),
     });
     mutate();
   }

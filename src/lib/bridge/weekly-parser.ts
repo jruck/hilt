@@ -306,17 +306,21 @@ export function deleteTask(content: string, taskId: string): string {
 
 /**
  * Reconstruct the full weekly file content with reordered tasks.
- * Tasks keep their original group. The serializer collects tasks
- * by group and emits them under the correct ### heading, preserving
- * the relative order of tasks within each group.
+ * Tasks keep their original group unless explicitly changed via groupUpdates.
+ * The serializer collects tasks by group and emits them under the correct
+ * ### heading, preserving the relative order of tasks within each group.
  */
-export function reorderTasks(content: string, newOrder: string[]): string {
+export function reorderTasks(content: string, newOrder: string[], groupUpdates?: Record<string, string | null>): string {
   const parsed = parseWeeklyFile(content, "");
   const taskMap = new Map(parsed.tasks.map(t => [t.id, t]));
 
   const reordered = newOrder
     .map(id => taskMap.get(id))
-    .filter((t): t is BridgeTask => t !== undefined);
+    .filter((t): t is BridgeTask => t !== undefined)
+    .map(t => groupUpdates && t.id in groupUpdates
+      ? { ...t, group: groupUpdates[t.id] }
+      : t
+    );
 
   // Collect tasks by group, preserving the order groups first appear
   const groupOrder: (string | null)[] = [];

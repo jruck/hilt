@@ -306,9 +306,9 @@ export function deleteTask(content: string, taskId: string): string {
 
 /**
  * Reconstruct the full weekly file content with reordered tasks.
- * After reordering, each task inherits the group of its nearest
- * neighbor so that dragging between groups moves the task into
- * the target group rather than inserting a stray heading.
+ * Tasks keep their original group. The serializer collects tasks
+ * by group and emits them under the correct ### heading, preserving
+ * the relative order of tasks within each group.
  */
 export function reorderTasks(content: string, newOrder: string[]): string {
   const parsed = parseWeeklyFile(content, "");
@@ -318,27 +318,24 @@ export function reorderTasks(content: string, newOrder: string[]): string {
     .map(id => taskMap.get(id))
     .filter((t): t is BridgeTask => t !== undefined);
 
-  // Infer group from neighbors: if a task's group differs from
-  // both its prev and next neighbors (and they agree), adopt theirs.
-  for (let i = 0; i < reordered.length; i++) {
-    const prev = i > 0 ? reordered[i - 1].group : null;
-    const next = i < reordered.length - 1 ? reordered[i + 1].group : null;
-    const curr = reordered[i].group;
-    // If surrounded by same group and we differ, adopt
-    if (prev !== null && prev === next && curr !== prev) {
-      reordered[i] = { ...reordered[i], group: prev };
+  // Collect tasks by group, preserving the order groups first appear
+  const groupOrder: (string | null)[] = [];
+  const groupTasks = new Map<string | null, BridgeTask[]>();
+  for (const task of reordered) {
+    if (!groupTasks.has(task.group)) {
+      groupOrder.push(task.group);
+      groupTasks.set(task.group, []);
     }
-    // If only prev exists and we differ, adopt prev (dragged to end of group)
-    else if (prev !== null && next === null && curr !== prev) {
-      reordered[i] = { ...reordered[i], group: prev };
-    }
-    // If only next exists and we differ, adopt next (dragged to start of group)
-    else if (prev === null && next !== null && curr !== next) {
-      reordered[i] = { ...reordered[i], group: next };
-    }
+    groupTasks.get(task.group)!.push(task);
   }
 
-  return rebuildContent(content, reordered, null);
+  // Flatten back: ungrouped first (if any), then each group in order
+  const sorted: BridgeTask[] = [];
+  for (const group of groupOrder) {
+    sorted.push(...groupTasks.get(group)!);
+  }
+
+  return rebuildContent(content, sorted, null);
 }
 
 /**

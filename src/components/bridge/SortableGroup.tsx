@@ -50,7 +50,7 @@ export function SortableGroup({
         strategy={verticalListSortingStrategy}
       >
         <div
-          className={`min-h-[4px] rounded transition-colors ${
+          className={`min-h-[4px] rounded transition-colors space-y-1.5 ${
             isOver && tasks.length === 0 ? "bg-[var(--bg-tertiary)]" : ""
           }`}
         >

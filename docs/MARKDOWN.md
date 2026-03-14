@@ -30,20 +30,29 @@ Content here — full markdown supported (tables, lists, headings, etc.)
 </details>
 ```
 
-### Toggle with a heading in the summary
+### Toggle with heading-level sizing
 
-Wrap the summary text in a heading tag to get proper heading sizing:
+Use the `data-level` attribute to set the summary's font size to match a heading level. Wrap the text in `<b>` for bold weight.
+
+**Important:** Do NOT use heading tags (`<h3>`, `<h4>`, etc.) inside `<summary>` — browsers treat block elements inside `<summary>` as invalid HTML and will hoist them out, breaking the toggle.
 
 ```markdown
 <details>
-<summary><h3>Major Section — 40 pts</h3></summary>
+<summary data-level="3"><b>Major Section — 40 pts</b></summary>
 
 Content...
 
 </details>
 ```
 
-The heading tag controls the font size. Use the appropriate level for the document hierarchy (H3, H4, etc.).
+Available levels:
+
+| `data-level` | Matches | Font size |
+|---|---|---|
+| `"2"` | H2 | 1.429em |
+| `"3"` | H3 | 1.286em |
+| `"4"` | H4 | 1.1em |
+| `"5"` | H5 | 1em |
 
 ### Start expanded
 
@@ -51,7 +60,7 @@ Add `open` to show content by default:
 
 ```markdown
 <details open>
-<summary><h3>Expanded by Default</h3></summary>
+<summary data-level="3"><b>Expanded by Default</b></summary>
 
 This content is visible on load.
 
@@ -64,12 +73,12 @@ Toggles can nest. Inner toggles render with a subtler border:
 
 ```markdown
 <details>
-<summary><h3>Parent Section</h3></summary>
+<summary data-level="3"><b>Parent Section</b></summary>
 
 Overview text...
 
 <details>
-<summary><h4>Child Section</h4></summary>
+<summary data-level="4"><b>Child Section</b></summary>
 
 Detailed content...
 
@@ -81,8 +90,8 @@ Detailed content...
 ### Important rules
 
 1. **Blank lines required** — leave a blank line after `<summary>` and before `</details>`, otherwise the markdown parser won't process the content inside as markdown.
-2. **Headings in summary are optional** — plain text works too: `<summary>Click to expand</summary>`
-3. **Keep heading levels consistent** — if the parent toggle summary uses `<h3>`, child toggle summaries should use `<h4>`, and content headings inside should use `#####` (H5).
+2. **Use `data-level` + `<b>`, not heading tags** — `<summary data-level="3"><b>Title</b></summary>`, never `<summary><h3>Title</h3></summary>`.
+3. **Keep levels consistent** — if the parent toggle uses `data-level="3"`, child toggles should use `data-level="4"`, and content headings inside should use `#####` (H5).
 
 ## Tables Without Headers
 

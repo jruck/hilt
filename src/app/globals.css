@@ -1241,19 +1241,14 @@ body [data-radix-popper-content-wrapper]::after {
   gap: 0.5em;
 }
 
-/* Headings inside summary: reset spacing chrome,
-   keep font-size and font-weight from the heading tag */
-.docs-editor-wrapper details summary h1,
-.docs-editor-wrapper details summary h2,
-.docs-editor-wrapper details summary h3,
-.docs-editor-wrapper details summary h4,
-.docs-editor-wrapper details summary h5,
-.docs-editor-wrapper details summary h6 {
-  margin: 0;
-  padding: 0;
-  line-height: inherit;
-  display: inline;
-}
+/* Summary sizing via data-level attribute.
+   Browsers reject block elements (h1-h6) inside <summary>,
+   so we use <summary data-level="3"><b>Text</b></summary>
+   and apply the matching heading font-size here. */
+.docs-editor-wrapper details summary[data-level="2"] { font-size: 1.429em; }
+.docs-editor-wrapper details summary[data-level="3"] { font-size: 1.286em; }
+.docs-editor-wrapper details summary[data-level="4"] { font-size: 1.1em; }
+.docs-editor-wrapper details summary[data-level="5"] { font-size: 1em; }
 
 .docs-editor-wrapper details summary::-webkit-details-marker {
   display: none;

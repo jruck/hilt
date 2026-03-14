@@ -1293,9 +1293,13 @@ body [data-radix-popper-content-wrapper]::after {
   width: calc(100% - 1.65em - 0.75em);
 }
 
-/* --- Tighter vertical rhythm inside toggles --- */
+/* --- Tighter vertical rhythm inside toggles ---
+   IMPORTANT: never use margin shorthand here — it resets
+   margin-left/right to 0, overriding the content indentation
+   set by details > :not(summary) { margin-left: 1.65em }. */
 .docs-editor-wrapper details p {
-  margin: 0.3em 0;
+  margin-top: 0.3em;
+  margin-bottom: 0.3em;
   line-height: 1.5;
 }
 
@@ -1338,17 +1342,22 @@ body [data-radix-popper-content-wrapper]::after {
 
 .docs-editor-wrapper details ul,
 .docs-editor-wrapper details ol {
-  margin: 0.3em 0;
+  margin-top: 0.3em;
+  margin-bottom: 0.3em;
   padding-left: 1.25em;
 }
 
 .docs-editor-wrapper details li {
-  margin: 0.15em 0;
+  margin-top: 0.15em;
+  margin-bottom: 0.15em;
 }
 
-/* --- Nested toggles --- */
-.docs-editor-wrapper details details {
-  margin: 0.35em 0;
+/* --- Nested toggles: align with sibling tables --- */
+.docs-editor-wrapper details > details {
+  margin-top: 0.35em;
+  margin-bottom: 0.35em;
+  margin-left: 1.65em;
+  margin-right: 0.75em;
   border-color: var(--border-subtle);
 }
 

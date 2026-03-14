@@ -188,8 +188,15 @@ function writeSourcesConfig(sources: SourceConfig[]): void {
  * Start a dev server for a specific source's folder
  */
 async function startServerForSource(source: SourceConfig): Promise<ServerInstance> {
-  const port = await findAvailablePort(3000);
   const projectDir = path.resolve(__dirname, "..");
+
+  // Clean stale Next.js lock file that prevents startup after crashes
+  const lockFile = path.join(projectDir, ".next", "dev", "lock");
+  if (fs.existsSync(lockFile)) {
+    try { fs.unlinkSync(lockFile); } catch { /* ignore */ }
+  }
+
+  const port = await findAvailablePort(3000);
 
   sendStartupActivity({
     id: `server-${source.id}`,
@@ -309,6 +316,13 @@ async function startNextServer(): Promise<number> {
     });
 
     // No server running - start one as a background child process
+    // Clean stale Next.js lock file that prevents startup after crashes
+    const lockFile = path.join(__dirname, "..", ".next", "dev", "lock");
+    if (fs.existsSync(lockFile)) {
+      console.log("Removing stale .next/dev/lock file");
+      try { fs.unlinkSync(lockFile); } catch { /* ignore */ }
+    }
+
     const port = await findAvailablePort(3000);
     console.log(`Starting dev server on port ${port}...`);
 

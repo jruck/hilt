@@ -1089,6 +1089,20 @@ body [data-radix-popper-content-wrapper]::after {
    Docs Editor Styling
    ============================================ */
 
+/* Heading scale — Tailwind prose only sizes H1-H3.
+   Add explicit H4/H5/H6 so they form a clear hierarchy. */
+.docs-editor-wrapper .prose h4 {
+  font-size: 1.1em;
+}
+.docs-editor-wrapper .prose h5 {
+  font-size: 1em;
+}
+.docs-editor-wrapper .prose h6 {
+  font-size: 0.925em;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 /* Override MDXEditor's default padding for document-style layout */
 .docs-editor-wrapper .mdxeditor-root-contenteditable {
   padding: 24px 48px !important;
@@ -1199,6 +1213,163 @@ body [data-radix-popper-content-wrapper]::after {
 .docs-read-mode .docs-code-copy-btn:hover {
   color: var(--text-primary);
   background: var(--bg-tertiary);
+}
+
+/* ============================================
+   Toggle Sections (<details> / <summary>)
+   Notion-style collapsible headings in markdown
+   ============================================ */
+/* --- Details container --- */
+.docs-editor-wrapper details {
+  margin: 0.35em 0;
+  padding: 0;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--bg-primary);
+}
+
+/* --- Summary (the clickable toggle bar) --- */
+.docs-editor-wrapper details summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.45em 0.75em;
+  color: var(--text-primary);
+  border-radius: 5px;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+/* Headings inside summary: reset spacing chrome,
+   keep font-size and font-weight from the heading tag */
+.docs-editor-wrapper details summary h1,
+.docs-editor-wrapper details summary h2,
+.docs-editor-wrapper details summary h3,
+.docs-editor-wrapper details summary h4,
+.docs-editor-wrapper details summary h5,
+.docs-editor-wrapper details summary h6 {
+  margin: 0;
+  padding: 0;
+  line-height: inherit;
+  display: inline;
+}
+
+.docs-editor-wrapper details summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Chevron */
+.docs-editor-wrapper details summary::before {
+  content: "";
+  display: inline-block;
+  width: 0.4em;
+  height: 0.4em;
+  border-right: 1.5px solid var(--text-tertiary);
+  border-bottom: 1.5px solid var(--text-tertiary);
+  transform: rotate(-45deg);
+  transition: transform 150ms ease;
+  flex-shrink: 0;
+}
+
+.docs-editor-wrapper details[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.docs-editor-wrapper details summary:hover {
+  background: var(--bg-secondary);
+}
+
+/* Divider under summary when open */
+.docs-editor-wrapper details[open] > summary {
+  border-bottom: 1px solid var(--border-default);
+  border-radius: 5px 5px 0 0;
+}
+
+/* --- Content inside toggle: indented to align with summary text ---
+   Summary text offset = padding-left (0.75em) + chevron (0.4em) + gap (0.5em) = 1.65em
+   Table border should align with the left edge of the heading text. */
+.docs-editor-wrapper details > :not(summary) {
+  margin-left: 1.65em;
+  margin-right: 0.75em;
+}
+
+.docs-editor-wrapper details > table {
+  width: calc(100% - 1.65em - 0.75em);
+}
+
+/* --- Tighter vertical rhythm inside toggles --- */
+.docs-editor-wrapper details p {
+  margin: 0.3em 0;
+  line-height: 1.5;
+}
+
+.docs-editor-wrapper details table {
+  margin-top: 0.2em;
+  margin-bottom: 0.4em;
+  font-size: 0.875em;
+}
+
+.docs-editor-wrapper details th,
+.docs-editor-wrapper details td {
+  padding: 0.3em 0.6em;
+}
+
+/* Headings inside toggle content: normal prose sizing,
+   just tighter margins than default prose */
+.docs-editor-wrapper details > h1,
+.docs-editor-wrapper details > h2,
+.docs-editor-wrapper details > h3,
+.docs-editor-wrapper details > h4 {
+  margin-top: 0.75em;
+  margin-bottom: 0.25em;
+}
+
+.docs-editor-wrapper details > h5,
+.docs-editor-wrapper details > h6 {
+  margin-top: 0.8em;
+  margin-bottom: 0.15em;
+}
+
+/* First element after summary */
+.docs-editor-wrapper details > :nth-child(2) {
+  margin-top: 0.4em;
+}
+
+/* Last child */
+.docs-editor-wrapper details > :last-child {
+  margin-bottom: 0.6em;
+}
+
+.docs-editor-wrapper details ul,
+.docs-editor-wrapper details ol {
+  margin: 0.3em 0;
+  padding-left: 1.25em;
+}
+
+.docs-editor-wrapper details li {
+  margin: 0.15em 0;
+}
+
+/* --- Nested toggles --- */
+.docs-editor-wrapper details details {
+  margin: 0.35em 0;
+  border-color: var(--border-subtle);
+}
+
+.docs-editor-wrapper details details[open] > summary {
+  border-bottom-color: var(--border-subtle);
+}
+
+/* Status column */
+.docs-editor-wrapper details td:last-child {
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* Hide empty table headers */
+.docs-editor-wrapper details thead:has(th:empty) {
+  display: none;
 }
 
 /* ============================================

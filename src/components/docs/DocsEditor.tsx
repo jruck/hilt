@@ -32,6 +32,9 @@ import "@mdxeditor/editor/style.css";
 import { MermaidBlock } from "./MermaidBlock";
 import type { FileNode } from "@/lib/types";
 import { resolveWikilink, parseWikilinks, parseImageWikilinks } from "@/lib/docs/wikilink-resolver";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
 import * as path from "path";
 
 /**
@@ -472,6 +475,8 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
       return () => observer.disconnect();
     }, [readOnly, processedMarkdown]);
 
+
+
     // Handle wikilink clicks (intercept our custom hash links)
     const handleWikilinkClick = useCallback((e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -594,6 +599,11 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
     const themeClass = resolvedTheme === "dark" ? "dark-theme dark-editor" : "light-theme light-editor";
     const proseInvert = resolvedTheme === "dark" ? "prose-invert" : "";
 
+    // Detect HTML toggle blocks — MDXEditor's MDX parser can't handle
+    // <details>/<summary> with markdown children, so fall back to
+    // react-markdown + rehype-raw which handles them natively.
+    const hasHtmlBlocks = readOnly && /<details[\s>]/i.test(markdown);
+
     // Inject copy buttons into code blocks in read mode.
     // Uses MutationObserver because CodeMirror editors mount asynchronously.
     useEffect(() => {
@@ -653,6 +663,23 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
             <EditableFrontmatter key={currentFilePath} fields={frontmatterFields} onChange={handleFrontmatterFieldChange} />,
             portalTargetRef.current
           )}
+        {hasHtmlBlocks ? (
+          <div className={`prose ${proseInvert} max-w-none leading-normal font-[family-name:var(--font-geist-sans)]
+            prose-headings:font-semibold
+            prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:bg-[var(--bg-tertiary)] prose-code:text-[var(--text-secondary)] prose-code:before:content-none prose-code:after:content-none
+            prose-pre:rounded-lg prose-pre:bg-[var(--bg-tertiary)]
+            prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
+            prose-table:border-collapse prose-table:bg-[var(--bg-primary)]
+            prose-thead:bg-[var(--bg-secondary)]
+            prose-th:border prose-th:border-[var(--border-default)] prose-th:px-3 prose-th:py-2
+            prose-td:border prose-td:border-[var(--border-default)] prose-td:px-3 prose-td:py-2 prose-td:bg-[var(--bg-primary)]
+            flex-1 overflow-auto ${contentPadding ?? "px-12 py-6"}`}
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+              {stripFrontmatter(markdown)}
+            </ReactMarkdown>
+          </div>
+        ) : (
         <EditorErrorBoundary fallbackContent={markdown} className="flex-1">
           <MDXEditor
             key={readOnly ? "read" : "edit"}
@@ -674,6 +701,7 @@ export const DocsEditor = forwardRef<DocsEditorRef, DocsEditorProps>(
             className={`${themeClass} h-full flex-1`}
           />
         </EditorErrorBoundary>
+        )}
       </div>
     );
   }

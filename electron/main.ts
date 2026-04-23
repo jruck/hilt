@@ -123,11 +123,42 @@ async function checkDevServer(port: number): Promise<boolean> {
 }
 
 /**
- * Find an existing dev server on common ports
+ * Check if the server on a given port is a Hilt dev server (not some other Next.js app).
+ * Identifies Hilt by hitting /api/ws-port — a Hilt-specific route that returns JSON.
+ * Other Next.js apps (e.g. Loft) return HTML 404 for unknown paths.
+ */
+async function isHiltServer(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const http = require("http");
+    const req = http.request(
+      { hostname: "localhost", port, path: "/api/ws-port", method: "GET", timeout: 2000 },
+      (res: { statusCode: number; headers: Record<string, string>; resume: () => void }) => {
+        const contentType = res.headers["content-type"] || "";
+        // Hilt's route returns JSON for both success (200) and "WS not running yet" (503).
+        // A different Next.js app would return HTML 404 for this path.
+        const status = res.statusCode;
+        const looksLikeHilt = contentType.includes("application/json") && (status === 200 || status === 503);
+        resolve(looksLikeHilt);
+        res.resume();
+      }
+    );
+    req.on("error", () => resolve(false));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.end();
+  });
+}
+
+/**
+ * Find an existing Hilt dev server on common ports.
+ * Uses isHiltServer so we don't accidentally attach to a different app (e.g. Loft)
+ * that happens to be on port 3000.
  */
 async function findExistingDevServer(ports: number[]): Promise<number | null> {
   for (const port of ports) {
-    if (await checkDevServer(port)) {
+    if (await isHiltServer(port)) {
       return port;
     }
   }
@@ -594,7 +625,7 @@ async function createWindow() {
       if (src.url) {
         try {
           const existingPort = parseInt(new URL(src.url).port || "3000");
-          if (await checkDevServer(existingPort)) {
+          if (await isHiltServer(existingPort)) {
             console.log(`Found existing server for ${src.name} on port ${existingPort}`);
             servers.set(src.id, {
               process: null as unknown as ChildProcess,

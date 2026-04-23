@@ -8,6 +8,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
+- **Hilt attaching to Loft's dev server on launch** — `findExistingDevServer` probed ports 3000-3004 and accepted any HTTP 200 with HTML content as "the Hilt dev server". When Loft was running on port 3000 and Hilt launched after, Hilt would load Loft's UI into its Electron window. Added `isHiltServer(port)` probe that hits `/api/ws-port` (a Hilt-specific route returning JSON) and requires a JSON response — other Next.js apps return HTML 404 for that path. Applied to both the single-server and multi-source reuse paths in `electron/main.ts`.
+
 - **PersonCard sidebar** — Removed description subtitle ("Product Counterpart", etc.) from sidebar cards to save space. Description is still visible in the detail header.
 
 - **MeetingRow dynamic height** — Replaced fixed `h-13` height with `py-2.5` padding so long titles wrap and matched-people tags flow naturally instead of clipping.

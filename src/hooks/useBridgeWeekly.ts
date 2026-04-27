@@ -233,11 +233,22 @@ export function useBridgeWeekly() {
   }
 
   async function recycle(carry: string[], newWeek: string, notes?: string, accomplishments?: string) {
-    await fetch("/api/bridge/recycle", {
+    const res = await fetch("/api/bridge/recycle", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ carry, newWeek, notes, accomplishments }),
     });
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body?.error) detail = `${detail}: ${body.error}`;
+      } catch {
+        // Response wasn't JSON (e.g. plain "Internal Server Error" from a Next.js
+        // route compile failure). Fall back to status code.
+      }
+      throw new Error(detail);
+    }
     mutate();
   }
 

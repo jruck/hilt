@@ -166,6 +166,61 @@ async function findExistingDevServer(ports: number[]): Promise<number | null> {
 }
 
 /**
+ * Detect recent Turbopack panic logs and clear .next/dev/cache if found.
+ * Turbopack writes next-panic-*.log files to the OS tmpdir when its on-disk
+ * task database gets corrupt. The corruption persists across launches and
+ * causes routes to return HTTP 500 forever — which silently breaks features
+ * like the week-recycle endpoint.
+ */
+function recoverFromTurbopackPanic(projectRoot: string): void {
+  try {
+    const os = require("os");
+    const tmpDir = os.tmpdir();
+    const panicLogs = fs.readdirSync(tmpDir)
+      .filter((f: string) => f.startsWith("next-panic-") && f.endsWith(".log"));
+    if (panicLogs.length === 0) return;
+
+    // Only react to logs from the last 7 days; anything older was likely from a
+    // long-resolved incident and we don't want to nuke a healthy cache.
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const recent = panicLogs.filter((f: string) => {
+      try {
+        return fs.statSync(path.join(tmpDir, f)).mtimeMs >= cutoff;
+      } catch {
+        return false;
+      }
+    });
+    if (recent.length === 0) return;
+
+    sendStartupActivity({
+      id: "turbopack-recovery",
+      label: "Recovering from Turbopack corruption",
+      status: "active",
+      detail: `Found ${recent.length} recent panic log(s); clearing dev cache`,
+    });
+
+    const cachePath = path.join(projectRoot, ".next", "dev", "cache");
+    if (fs.existsSync(cachePath)) {
+      console.log(`Clearing corrupt Turbopack cache at ${cachePath}`);
+      fs.rmSync(cachePath, { recursive: true, force: true });
+    }
+
+    for (const f of recent) {
+      try { fs.unlinkSync(path.join(tmpDir, f)); } catch { /* ignore */ }
+    }
+
+    sendStartupActivity({
+      id: "turbopack-recovery",
+      label: "Recovering from Turbopack corruption",
+      status: "complete",
+      detail: "Dev cache cleared",
+    });
+  } catch (err) {
+    console.error("Turbopack panic recovery failed:", err);
+  }
+}
+
+/**
  * Wait for a server to be ready
  */
 async function waitForServer(port: number, timeoutMs: number): Promise<boolean> {
@@ -348,11 +403,17 @@ async function startNextServer(): Promise<number> {
 
     // No server running - start one as a background child process
     // Clean stale Next.js lock file that prevents startup after crashes
-    const lockFile = path.join(__dirname, "..", ".next", "dev", "lock");
+    const projectRoot = path.join(__dirname, "..");
+    const lockFile = path.join(projectRoot, ".next", "dev", "lock");
     if (fs.existsSync(lockFile)) {
       console.log("Removing stale .next/dev/lock file");
       try { fs.unlinkSync(lockFile); } catch { /* ignore */ }
     }
+
+    // If Turbopack panicked recently (corrupt cache), wipe .next/dev/cache so the
+    // dev server can rebuild cleanly. Otherwise the corruption persists across
+    // sessions and routes silently 500 (which silently fails recycle, etc.).
+    recoverFromTurbopackPanic(projectRoot);
 
     const port = await findAvailablePort(3000);
     console.log(`Starting dev server on port ${port}...`);

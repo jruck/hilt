@@ -29,6 +29,7 @@ export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalP
     new Set(incompleteTasks.map(t => t.id))
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const hasNotes = notes.trim().length > 0;
   const [carryNotes, setCarryNotes] = useState(hasNotes);
   const [notesText, setNotesText] = useState(notes);
@@ -48,6 +49,7 @@ export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalP
 
   async function handleRecycle() {
     setIsSubmitting(true);
+    setError(null);
     try {
       // Always create for next Monday (end-of-week retrospective)
       const newWeek = getNextMonday();
@@ -58,6 +60,8 @@ export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalP
         accomplishmentsText.trim() || undefined
       );
       onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to start next week");
     } finally {
       setIsSubmitting(false);
     }
@@ -182,6 +186,11 @@ export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalP
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--border-default)]">
+          {error && (
+            <div className="flex-1 text-xs text-[var(--text-error,#ef4444)] mr-2 truncate" title={error}>
+              {error}
+            </div>
+          )}
           <button
             onClick={onClose}
             className="px-3 py-1.5 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded-md transition-colors"

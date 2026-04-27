@@ -70,8 +70,18 @@ export function resolveWikilink(
   fileTree: FileNode | null
 ): ResolvedLink {
   // Extract display name if using [[target|display]] syntax
-  const [target, displayOverride] = linkTarget.split("|").map(s => s.trim());
-  const displayName = displayOverride || target;
+  const [rawTarget, displayOverride] = linkTarget.split("|").map(s => s.trim());
+  const displayName = displayOverride || rawTarget;
+
+  if (!rawTarget) {
+    return { absolutePath: null, exists: false, displayName };
+  }
+
+  // Strip section anchor (e.g., [[file#Heading]] -> [[file]]).
+  // Hilt opens the resolved file at the top; the alias half preserves
+  // the section label in the displayed text.
+  const hashIndex = rawTarget.indexOf("#");
+  const target = hashIndex >= 0 ? rawTarget.slice(0, hashIndex) : rawTarget;
 
   if (!target) {
     return { absolutePath: null, exists: false, displayName };

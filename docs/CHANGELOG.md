@@ -8,6 +8,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
+- **Wikilinks with section anchors rendered as broken** — `resolveWikilink` in `src/lib/docs/wikilink-resolver.ts` did an exact-target lookup against the file map, so `[[file#Heading]]` never matched. Now strips the `#anchor` portion before resolution; the link opens the file at the top, and the alias half (`[[file#Heading|Display]]`) preserves the section label in the rendered text.
+
+- **Week recycle silently failing** — `useBridgeWeekly.recycle()` did not check `response.ok`, so when the recycle endpoint returned HTTP 500 (e.g. from a Turbopack compile failure), the modal closed and the user saw nothing happen. The new week file was never created on disk, leaving gaps in `lists/now/` (weeks 04-13 and 04-27 were missing for one user). `recycle()` now throws on non-OK responses with the server's error detail, and `RecycleModal` catches and displays the error inline so the modal stays open.
+
+- **Turbopack cache corruption breaking dev routes across launches** — When Turbopack's on-disk task database gets corrupt (`TurbopackInternalError: Failed to restore task data`), specific routes return HTTP 500 forever — silently breaking features whose frontends ignore response status (e.g. week recycle). The corruption persists across app launches because the dev server reloads the same bad cache. Hilt now detects recent `next-panic-*.log` files in tmpdir at Electron startup and wipes `.next/dev/cache` so the dev server rebuilds cleanly.
+
 - **Hilt attaching to Loft's dev server on launch** — `findExistingDevServer` probed ports 3000-3004 and accepted any HTTP 200 with HTML content as "the Hilt dev server". When Loft was running on port 3000 and Hilt launched after, Hilt would load Loft's UI into its Electron window. Added `isHiltServer(port)` probe that hits `/api/ws-port` (a Hilt-specific route returning JSON) and requires a JSON response — other Next.js apps return HTML 404 for that path. Applied to both the single-server and multi-source reuse paths in `electron/main.ts`.
 
 - **PersonCard sidebar** — Removed description subtitle ("Product Counterpart", etc.) from sidebar cards to save space. Description is still visible in the detail header.

@@ -6,6 +6,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Changed
+
+- **Docs editor: replaced MDXEditor with CodeMirror + ReactMarkdown** — Edit mode now uses a plain markdown source editor (`@codemirror/lang-markdown`) so files round-trip byte-exact: no more escaped `[[wikilinks]]`, no normalized bullet markers, no reformatted line breaks. Read mode unifies on `ReactMarkdown + remarkGfm + rehypeRaw` (previously only used for files containing `<details>` blocks); wikilink + image rewriting and Mermaid block rendering are preserved. Frontmatter editing UI is unchanged. **Tradeoffs:** no WYSIWYG toolbar, no rich image-insert dialog, no syntax-colored code blocks in read mode (added `rehype-highlight` as a dep for a follow-up). `DocsEditor`'s imperative ref API (`getMarkdown`/`setMarkdown`) is dropped — no consumers used it. Deleted orphan `src/components/PlanEditor.tsx`. Removed `@mdxeditor/editor` from dependencies. Simplified the "baseline content" workaround in `useDocs.ts` and `StackContentPane.tsx` since byte-exact edits make the comparison `editedContent !== loadedContent`.
+
 ### Fixed
 
 - **Wikilinks with section anchors rendered as broken** — `resolveWikilink` in `src/lib/docs/wikilink-resolver.ts` did an exact-target lookup against the file map, so `[[file#Heading]]` never matched. Now strips the `#anchor` portion before resolution; the link opens the file at the top, and the alias half (`[[file#Heading|Display]]`) preserves the section label in the rendered text.

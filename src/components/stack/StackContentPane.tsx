@@ -144,17 +144,14 @@ export function StackContentPane({
   const { file: fileContent, isLoading, saveFile } = useConfigFile(file?.path || "", scopePath);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editContent, setEditContent] = useState("");
-  // Baseline content captures what MDXEditor produces after normalization
-  // This prevents spurious "unsaved" detection from editor formatting changes
-  const [baselineContent, setBaselineContent] = useState<string | null>(null);
   const [createContent, setCreateContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Check for unsaved changes - compare against baseline (what MDXEditor produced on init)
-  const hasUnsavedChanges = isEditMode && baselineContent !== null && editContent !== baselineContent;
+  // CodeMirror edits are byte-exact: compare directly against the loaded file content.
+  const hasUnsavedChanges = isEditMode && fileContent?.content !== undefined && editContent !== fileContent.content;
 
   // Initialize create content when entering create mode
   useEffect(() => {
@@ -199,7 +196,6 @@ export function StackContentPane({
   useEffect(() => {
     setIsEditMode(false);
     setEditContent("");
-    setBaselineContent(null);
     setSaveError(null);
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = 0;
@@ -220,8 +216,6 @@ export function StackContentPane({
     }
     if (newEditMode && fileContent?.content) {
       setEditContent(fileContent.content);
-      // Reset baseline - first content change will establish it
-      setBaselineContent(null);
     }
     setIsEditMode(newEditMode);
     setSaveError(null);
@@ -229,8 +223,6 @@ export function StackContentPane({
 
   const handleContentChange = useCallback((newContent: string) => {
     setEditContent(newContent);
-    // First content set in edit mode becomes the baseline (MDXEditor's normalized version)
-    setBaselineContent((prev) => prev === null ? newContent : prev);
   }, []);
 
   const handleSave = useCallback(async () => {
@@ -240,7 +232,6 @@ export function StackContentPane({
     setIsSaving(false);
     if (result.success) {
       setIsEditMode(false);
-      setBaselineContent(null);
       onFileUpdated?.();
     } else {
       setSaveError(result.error || "Failed to save");

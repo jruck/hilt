@@ -326,8 +326,6 @@ export function useDocs(scopePath: string | null): UseDocsResult {
   // Edit mode
   const [isEditMode, setEditMode] = useState(false);
   const [editedContent, setEditedContent] = useState<string | null>(null);
-  // Baseline content is what MDXEditor produces on initialization (may differ from file due to normalization)
-  const [baselineContent, setBaselineContent] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   // File content - no polling, updated via WebSocket events (unless in edit mode)
@@ -396,27 +394,12 @@ export function useDocs(scopePath: string | null): UseDocsResult {
   // Reset edit state when file changes
   useEffect(() => {
     setEditedContent(null);
-    setBaselineContent(null);
     setEditMode(false);
   }, [selectedPath]);
 
-  // Reset baseline when entering edit mode (first setEditedContent will establish it)
-  useEffect(() => {
-    if (isEditMode) {
-      setBaselineContent(null);
-    }
-  }, [isEditMode]);
-
-  // Wrapper for setEditedContent that captures baseline on first call in edit mode
-  const handleSetEditedContent = useCallback((content: string | null) => {
-    setEditedContent(content);
-    // First content set in edit mode becomes the baseline (MDXEditor's normalized version)
-    setBaselineContent((prev) => prev === null && content !== null ? content : prev);
-  }, []);
-
-  // Check for unsaved changes - compare against baseline (what MDXEditor produced on init)
-  // This prevents spurious "unsaved" state from MDXEditor's normalization
-  const hasUnsavedChanges = editedContent !== null && baselineContent !== null && editedContent !== baselineContent;
+  // CodeMirror edits are byte-exact: compare directly against the loaded file content.
+  const loadedContent = fileData?.content ?? null;
+  const hasUnsavedChanges = editedContent !== null && loadedContent !== null && editedContent !== loadedContent;
 
   // Save file
   const saveFile = useCallback(async () => {
@@ -495,7 +478,7 @@ export function useDocs(scopePath: string | null): UseDocsResult {
     isEditMode,
     setEditMode,
     editedContent,
-    setEditedContent: handleSetEditedContent,
+    setEditedContent,
     hasUnsavedChanges,
 
     // Save

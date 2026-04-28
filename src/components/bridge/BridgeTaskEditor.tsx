@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+/* eslint-disable react-hooks/refs -- Tiptap extension callbacks read stable refs from editor event handlers. */
+
+import { useEffect, useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { useScope } from "@/contexts/ScopeContext";
 import { useHaptics } from "@/hooks/useHaptics";
@@ -186,13 +188,13 @@ function cleanOutput(raw: string, vaultPath?: string, filePath?: string): string
 }
 
 /**
- * Normalize markdown for comparison only: collapse blank-line runs
- * and trim. Prevents tiptap-markdown's paragraph spacing from being
- * treated as a meaningful change.
+ * Normalize markdown for comparison only. Preserve blank lines because they
+ * control whether pasted markdown headings round-trip as distinct sections.
  */
 function normalizeMd(md: string): string {
   return md
-    .replace(/\n{2,}/g, "\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+$/gm, "")
     .trim();
 }
 
@@ -304,6 +306,12 @@ interface BridgeTaskEditorProps {
   filePath?: string;
 }
 
+interface MarkdownStorage {
+  markdown: {
+    getMarkdown: () => string;
+  };
+}
+
 export function BridgeTaskEditor({
   markdown,
   onChange,
@@ -386,7 +394,7 @@ export function BridgeTaskEditor({
         return;
       }
       const md = cleanOutput(
-        (editor.storage as Record<string, any>).markdown.getMarkdown(),
+        (editor.storage as unknown as MarkdownStorage).markdown.getMarkdown(),
         vaultPathRef.current,
         filePathRef.current
       );

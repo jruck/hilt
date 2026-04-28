@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { updatePersonNotes, deletePersonNotes } from "@/lib/bridge/people-parser";
+import { updatePersonNotes, deletePersonNotes, extractPersonNotes } from "@/lib/bridge/people-parser";
 import { getVaultPath } from "@/lib/bridge/vault";
 import * as fs from "fs";
 import * as path from "path";
@@ -10,11 +10,17 @@ export async function PUT(
 ) {
   try {
     const { slug } = await params;
-    const { date, notes } = await request.json();
+    const { date, notes, title } = await request.json();
 
     if (typeof date !== "string" || typeof notes !== "string") {
       return NextResponse.json(
         { error: "date and notes must be strings" },
+        { status: 400 }
+      );
+    }
+    if (title !== undefined && typeof title !== "string") {
+      return NextResponse.json(
+        { error: "title must be a string" },
         { status: 400 }
       );
     }
@@ -27,7 +33,7 @@ export async function PUT(
     }
 
     const content = fs.readFileSync(filePath, "utf-8");
-    const updated = updatePersonNotes(content, date, notes);
+    const updated = updatePersonNotes(content, date, notes, title);
 
     // Atomic write
     const tmpPath = filePath + ".tmp." + Date.now();
@@ -50,11 +56,17 @@ export async function PATCH(
 ) {
   try {
     const { slug } = await params;
-    const { oldDate, newDate } = await request.json();
+    const { oldDate, newDate, title } = await request.json();
 
     if (typeof oldDate !== "string" || typeof newDate !== "string") {
       return NextResponse.json(
         { error: "oldDate and newDate must be strings" },
+        { status: 400 }
+      );
+    }
+    if (title !== undefined && typeof title !== "string") {
+      return NextResponse.json(
+        { error: "title must be a string" },
         { status: 400 }
       );
     }
@@ -68,18 +80,13 @@ export async function PATCH(
 
     const content = fs.readFileSync(filePath, "utf-8");
     // Extract notes from old date, delete old section, insert at new date
-    const sectionRegex = new RegExp(
-      `^###\\s+${oldDate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^\\n]*\\n([\\s\\S]*?)(?=\\n###\\s|$)`,
-      "m"
-    );
-    const match = content.match(sectionRegex);
-    const notes = match ? match[1].trim() : "";
+    const notes = extractPersonNotes(content, oldDate, title);
     if (!notes) {
       return NextResponse.json({ error: "Notes section not found" }, { status: 404 });
     }
 
-    let updated = deletePersonNotes(content, oldDate);
-    updated = updatePersonNotes(updated, newDate, notes);
+    let updated = deletePersonNotes(content, oldDate, title);
+    updated = updatePersonNotes(updated, newDate, notes, title);
 
     const tmpPath = filePath + ".tmp." + Date.now();
     fs.writeFileSync(tmpPath, updated, "utf-8");
@@ -101,11 +108,17 @@ export async function DELETE(
 ) {
   try {
     const { slug } = await params;
-    const { date } = await request.json();
+    const { date, title } = await request.json();
 
     if (typeof date !== "string") {
       return NextResponse.json(
         { error: "date must be a string" },
+        { status: 400 }
+      );
+    }
+    if (title !== undefined && typeof title !== "string") {
+      return NextResponse.json(
+        { error: "title must be a string" },
         { status: 400 }
       );
     }
@@ -118,7 +131,7 @@ export async function DELETE(
     }
 
     const content = fs.readFileSync(filePath, "utf-8");
-    const updated = deletePersonNotes(content, date);
+    const updated = deletePersonNotes(content, date, title);
 
     // Atomic write
     const tmpPath = filePath + ".tmp." + Date.now();

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { ArrowLeft, Inbox, Settings, Copy, FolderOpen } from "lucide-react";
+import { ArrowLeft, Inbox, Settings, Copy, FolderOpen, NotebookPen } from "lucide-react";
 import MeetingRow from "./MeetingRow";
 import type { PersonDetail, PersonMeeting } from "@/lib/types";
 
@@ -20,6 +20,7 @@ interface PersonMeetingListProps {
   inboxMode?: boolean;
   suggestedName?: string | null;
   totalCount?: number;
+  onCreateNext?: () => void;
 }
 
 export function PersonMeetingList({
@@ -33,11 +34,12 @@ export function PersonMeetingList({
   inboxMode,
   suggestedName,
   totalCount,
+  onCreateNext,
 }: PersonMeetingListProps) {
   const [showConfig, setShowConfig] = useState(false);
 
   const notesCount = person
-    ? person.meetings.filter((m) => m.source === "inline").length
+    ? person.meetings.filter((m) => !!m.notes).length
     : 0;
   const granolaCount = person
     ? person.meetings.filter((m) => m.source === "granola").length
@@ -80,15 +82,27 @@ export function PersonMeetingList({
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] uppercase tracking-wide">
                   {person.type === "group" ? "Group" : "Person"}
                 </span>
-                <button
-                  onClick={() => setShowConfig((v) => !v)}
-                  className={`ml-auto text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ${
-                    showConfig ? "text-[var(--text-secondary)]" : ""
-                  }`}
-                  title="Show matching config"
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                </button>
+                <div className="ml-auto flex items-center gap-1">
+                  {onCreateNext && (
+                    <button
+                      onClick={onCreateNext}
+                      className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                      title="Open prep note"
+                    >
+                      <NotebookPen className="w-3.5 h-3.5" />
+                      Prep
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setShowConfig((v) => !v)}
+                    className={`p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ${
+                      showConfig ? "text-[var(--text-secondary)]" : ""
+                    }`}
+                    title="Show matching config"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </>
             ) : null}
           </div>

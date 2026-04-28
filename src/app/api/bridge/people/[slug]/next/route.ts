@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { updatePersonNext, updatePersonNotes, parseNextSection } from "@/lib/bridge/people-parser";
+import { updatePersonNext } from "@/lib/bridge/people-parser";
 import { getVaultPath } from "@/lib/bridge/vault";
 import * as fs from "fs";
 import * as path from "path";
@@ -21,28 +21,13 @@ export async function PUT(
 
     let fileContent = fs.readFileSync(filePath, "utf-8");
 
-    // Commit: move Next content to a dated notes entry and clear Next
-    if ("commit" in body && typeof body.commit === "string") {
-      const date = body.commit;
-      const nextRawMatch = fileContent.match(/^##\s+Next\s*\n([\s\S]*?)(?=\n##\s)/m);
-      const currentRaw = nextRawMatch ? nextRawMatch[1].trim() : "";
-      const { content } = parseNextSection(currentRaw);
-      if (content) {
-        fileContent = updatePersonNotes(fileContent, date, content);
-      }
-      fileContent = updatePersonNext(fileContent, "");
+    if (typeof body.content !== "string") {
+      return NextResponse.json(
+        { error: "content must be a string" },
+        { status: 400 }
+      );
     }
-
-    // Content update (plain save, no commit)
-    if ("content" in body) {
-      if (typeof body.content !== "string") {
-        return NextResponse.json(
-          { error: "content must be a string" },
-          { status: 400 }
-        );
-      }
-      fileContent = updatePersonNext(fileContent, body.content);
-    }
+    fileContent = updatePersonNext(fileContent, body.content);
 
     // Atomic write
     const tmpPath = filePath + ".tmp." + Date.now();

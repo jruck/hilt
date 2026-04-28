@@ -48,6 +48,7 @@ export default function MeetingRow({ meeting, selected, onClick, inboxMode }: Me
   // Only show title for granola meetings with a real title (not generic "Notes")
   const showTitle = !isNext && meeting.source === "granola" && !!meeting.title;
   const hasMatchedPeople = meeting.matchedPeople && meeting.matchedPeople.length > 0;
+  const hasWrittenNotes = !!meeting.notes;
 
   return (
     <button
@@ -67,7 +68,7 @@ export default function MeetingRow({ meeting, selected, onClick, inboxMode }: Me
               <span className="text-sm font-medium text-[var(--text-primary)]">
                 {meeting.title || formattedDate}
               </span>
-              {meeting.source === "inline" && (
+              {hasWrittenNotes && (
                 <NotebookPen className="w-3.5 h-3.5 flex-shrink-0 text-[var(--text-tertiary)]" />
               )}
             </div>
@@ -78,7 +79,7 @@ export default function MeetingRow({ meeting, selected, onClick, inboxMode }: Me
           <>
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-[var(--text-primary)]">{formattedDate}</span>
-              {meeting.source === "inline" && (
+              {hasWrittenNotes && (
                 <NotebookPen className="w-3.5 h-3.5 flex-shrink-0 text-[var(--text-tertiary)]" />
               )}
             </div>

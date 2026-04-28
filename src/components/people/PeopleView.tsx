@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { Inbox, Loader2, Users } from "lucide-react";
 import { useBridgePeople } from "@/hooks/useBridgePeople";
 import { usePersonDetail } from "@/hooks/usePersonDetail";
@@ -55,28 +55,25 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
   const { data: inboxData } = useInboxMeetings(isInboxMode || isSuggestedMode, suggestedName ?? undefined);
 
   // Meeting filter
-  const [filter, setFilter] = useState<MeetingFilter>("all");
+  const [filterState, setFilterState] = useState<{ slug: string | null; value: MeetingFilter }>({
+    slug: null,
+    value: "all",
+  });
+  const filter = filterState.slug === selectedSlug ? filterState.value : "all";
 
   const filteredMeetings = useMemo(() => {
     if (isInboxMode || isSuggestedMode) return inboxData?.meetings ?? [];
     if (!personDetail) return [];
     if (filter === "all") return personDetail.meetings;
+    if (filter === "notes") return personDetail.meetings.filter((m) => !!m.notes);
     return personDetail.meetings.filter(
-      (m) => m.source === (filter === "notes" ? "inline" : "granola")
+      (m) => m.source === "granola"
     );
   }, [isInboxMode, isSuggestedMode, inboxData, personDetail, filter]);
 
   // Build the synthetic "Next" entry (person mode only)
   const nextEntry = useMemo((): PersonMeeting | null => {
     if (isInboxMode || isSuggestedMode || !personDetail) return null;
-    const today = new Date().toISOString().slice(0, 10);
-    if (personDetail.meetings.length > 0 && personDetail.meetings[0].date === today) {
-      return null;
-    }
-    const hasContent = !!personDetail.nextRaw;
-    const lastDate = personDetail.lastMeetingDate;
-    const stale = !lastDate || lastDate < today;
-    if (!hasContent && !stale) return null;
 
     return {
       source: "next",
@@ -94,31 +91,26 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
     return list;
   }, [nextEntry, filteredMeetings]);
 
-  // Meeting selection — index into displayMeetings
-  const [selectedMeetingIdx, setSelectedMeetingIdx] = useState<number | null>(
-    null
+  // Meeting selection — index into displayMeetings, scoped to the current slug.
+  const [meetingSelection, setMeetingSelection] = useState<{ slug: string | null; index: number | null }>({
+    slug: null,
+    index: null,
+  });
+
+  const selectedMeetingIdx = useMemo(() => {
+    if (displayMeetings.length === 0) return null;
+    const rawIndex = meetingSelection.slug === selectedSlug ? meetingSelection.index : 0;
+    if (rawIndex === null) return 0;
+    return rawIndex >= displayMeetings.length ? 0 : rawIndex;
+  }, [displayMeetings.length, meetingSelection, selectedSlug]);
+
+  const handleFilterChange = useCallback(
+    (nextFilter: MeetingFilter) => {
+      setFilterState({ slug: selectedSlug, value: nextFilter });
+      setMeetingSelection({ slug: selectedSlug, index: 0 });
+    },
+    [selectedSlug]
   );
-
-  // Auto-select first meeting when person/inbox changes or data loads
-  useEffect(() => {
-    if (displayMeetings.length > 0) {
-      setSelectedMeetingIdx(0);
-    } else {
-      setSelectedMeetingIdx(null);
-    }
-  }, [selectedSlug, personDetail, inboxData]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Clamp selection when filter changes
-  useEffect(() => {
-    if (selectedMeetingIdx !== null && selectedMeetingIdx >= displayMeetings.length) {
-      setSelectedMeetingIdx(displayMeetings.length > 0 ? 0 : null);
-    }
-  }, [displayMeetings.length]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Reset filter when person changes
-  useEffect(() => {
-    setFilter("all");
-  }, [selectedSlug]);
 
   const selectedMeeting =
     selectedMeetingIdx !== null ? displayMeetings[selectedMeetingIdx] ?? null : null;
@@ -139,8 +131,8 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
 
   const handleDeleteMeeting = useCallback(() => {
     mutatePersonDetail();
-    setSelectedMeetingIdx(displayMeetings.length > 1 ? 0 : null);
-  }, [mutatePersonDetail, displayMeetings.length]);
+    setMeetingSelection({ slug: selectedSlug, index: displayMeetings.length > 1 ? 0 : null });
+  }, [mutatePersonDetail, displayMeetings.length, selectedSlug]);
 
   const handleSelect = useCallback(
     (person: BridgePerson) => {
@@ -181,10 +173,17 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
   // Mobile: track navigation depth for stacked screens
   const [mobileShowMeeting, setMobileShowMeeting] = useState(false);
 
+  const handleCreateNext = useCallback(() => {
+    if (!personSlug) return;
+    setFilterState({ slug: selectedSlug, value: "all" });
+    setMeetingSelection({ slug: selectedSlug, index: 0 });
+    if (isMobile) setMobileShowMeeting(true);
+  }, [isMobile, personSlug, selectedSlug]);
+
   const handleMobileSelectMeeting = useCallback((idx: number) => {
-    setSelectedMeetingIdx(idx);
+    setMeetingSelection({ slug: selectedSlug, index: idx });
     setMobileShowMeeting(true);
-  }, []);
+  }, [selectedSlug]);
 
   const handleMobileBackFromMeeting = useCallback(() => {
     setMobileShowMeeting(false);
@@ -240,6 +239,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
               vaultPath={vaultPath}
               autoFocus={shouldAutoFocus}
               onDelete={isInboxMode || isSuggestedMode ? undefined : handleDeleteMeeting}
+              onSaved={isInboxMode || isSuggestedMode ? undefined : mutatePersonDetail}
             />
           </div>
         </div>
@@ -256,7 +256,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
               person={isInboxMode || isSuggestedMode ? null : personDetail!}
               displayMeetings={displayMeetings}
               filter={filter}
-              onFilterChange={setFilter}
+              onFilterChange={handleFilterChange}
               selectedMeetingIndex={selectedMeetingIdx}
               onSelectMeeting={handleMobileSelectMeeting}
               vaultPath={vaultPath}
@@ -264,6 +264,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
               inboxMode={isInboxMode}
               suggestedName={suggestedName}
               totalCount={inboxData?.totalCount}
+              onCreateNext={isInboxMode || isSuggestedMode ? undefined : handleCreateNext}
             />
           </div>
         </div>
@@ -377,13 +378,14 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
             person={isInboxMode || isSuggestedMode ? null : personDetail!}
             displayMeetings={displayMeetings}
             filter={filter}
-            onFilterChange={setFilter}
+            onFilterChange={handleFilterChange}
             selectedMeetingIndex={selectedMeetingIdx}
-            onSelectMeeting={setSelectedMeetingIdx}
+            onSelectMeeting={(idx) => setMeetingSelection({ slug: selectedSlug, index: idx })}
             vaultPath={vaultPath}
             inboxMode={isInboxMode}
             suggestedName={suggestedName}
             totalCount={inboxData?.totalCount}
+            onCreateNext={isInboxMode || isSuggestedMode ? undefined : handleCreateNext}
           />
         </div>
       ) : (
@@ -402,6 +404,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
               vaultPath={vaultPath}
               autoFocus={shouldAutoFocus}
               onDelete={isInboxMode || isSuggestedMode ? undefined : handleDeleteMeeting}
+              onSaved={isInboxMode || isSuggestedMode ? undefined : mutatePersonDetail}
             />
           ) : (
             <div className="flex items-center justify-center h-full text-[var(--text-tertiary)]">

@@ -9,6 +9,12 @@ import type {
   SuggestedMeeting,
 } from "../types";
 
+interface InlineNoteMeeting extends PersonMeeting {
+  noteTitle?: string;
+}
+
+const NEXT_SAVED_AT_FIELD = "next_saved_at";
+
 /**
  * Parse people/index.md to extract slug → description mapping.
  * Lines like: - [[amrit]] — Product counterpart
@@ -83,9 +89,8 @@ export function parsePersonFile(
 
   // Extract ## Next section bullets
   const nextTopics: string[] = [];
-  const nextMatch = body.match(/^##\s+Next\s*\n([\s\S]*?)(?=\n##\s)/m);
-  if (nextMatch) {
-    const nextBlock = nextMatch[1];
+  const nextBlock = extractNextRaw(content);
+  if (nextBlock) {
     for (const line of nextBlock.split("\n")) {
       const bulletMatch = line.match(/^\s*-\s+(.+)/);
       if (bulletMatch) {
@@ -492,16 +497,184 @@ export function parseNextSection(nextRaw: string): { date: string | null; conten
   return { date: null, content: nextRaw.trim() };
 }
 
+function normalizeTitle(title: string): string {
+  return title.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeNotes(notes: string): string {
+  return notes.trim().replace(/\s+/g, " ");
+}
+
+function meetingSortKey(meeting: PersonMeeting): string {
+  return meeting.time || meeting.date;
+}
+
+function meetingTimestamp(meeting: PersonMeeting): number | null {
+  const raw = meeting.time || meeting.date;
+  if (!raw) return null;
+  const timestamp = Date.parse(raw);
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function parseNextSavedAt(fileContent: string): Date | null {
+  const { fm } = parseFrontmatter(fileContent);
+  const raw = fm[NEXT_SAVED_AT_FIELD];
+  if (!raw) return null;
+
+  const savedAt = new Date(raw);
+  return Number.isNaN(savedAt.getTime()) ? null : savedAt;
+}
+
+function extractNextRaw(fileContent: string): string {
+  const { body } = parseFrontmatter(fileContent);
+  const nextRawMatch = body.match(/^##[ \t]+Next[ \t]*\n([\s\S]*?)(?=^##[ \t]+Notes[ \t]*$|(?![\s\S]))/m);
+  return nextRawMatch ? nextRawMatch[1].trim() : "";
+}
+
+function parseInlineMeetings(fileContent: string): InlineNoteMeeting[] {
+  const { body } = parseFrontmatter(fileContent);
+  const meetings: InlineNoteMeeting[] = [];
+  const notesMatch = body.match(/^##[ \t]+Notes[ \t]*\n([\s\S]*)/m);
+  if (!notesMatch) return meetings;
+
+  const notesBlock = notesMatch[1];
+  const sections = notesBlock.split(/(?=^###\s+\d{4}-\d{2}-\d{2})/m);
+  for (const section of sections) {
+    const headingMatch = section.match(/^###[ \t]+(\d{4}-\d{2}-\d{2})(?:[ \t]+(?:—|-)[ \t]+(.+))?/);
+    if (!headingMatch) continue;
+
+    const date = headingMatch[1];
+    const noteTitle = headingMatch[2]?.trim();
+    const notes = section.replace(/^###\s+.+\n?/, "").trim();
+    meetings.push({
+      source: "inline",
+      date,
+      title: noteTitle || "Notes",
+      notes,
+      noteTitle,
+    });
+  }
+
+  return meetings;
+}
+
+function findMatchingInlineNote(
+  inlineMeetings: InlineNoteMeeting[],
+  granolaMeeting: PersonMeeting,
+  usedIndexes: Set<number>,
+): number | null {
+  const exactTitleIndex = inlineMeetings.findIndex((meeting, index) =>
+    !usedIndexes.has(index) &&
+    meeting.date === granolaMeeting.date &&
+    !!meeting.noteTitle &&
+    normalizeTitle(meeting.noteTitle) === normalizeTitle(granolaMeeting.title)
+  );
+  if (exactTitleIndex !== -1) return exactTitleIndex;
+
+  const sameDateIndexes = inlineMeetings
+    .map((meeting, index) => ({ meeting, index }))
+    .filter(({ meeting, index }) => !usedIndexes.has(index) && meeting.date === granolaMeeting.date);
+
+  if (sameDateIndexes.length === 1) return sameDateIndexes[0].index;
+
+  const untitledSameDate = sameDateIndexes.find(({ meeting }) => !meeting.noteTitle);
+  return untitledSameDate?.index ?? null;
+}
+
+function mergeInlineNotesIntoGranola(
+  granolaMeetings: PersonMeeting[],
+  inlineMeetings: InlineNoteMeeting[],
+): PersonMeeting[] {
+  const usedInlineIndexes = new Set<number>();
+  const mergedGranola = granolaMeetings.map((meeting) => {
+    const inlineIndex = findMatchingInlineNote(inlineMeetings, meeting, usedInlineIndexes);
+    if (inlineIndex === null) return meeting;
+
+    usedInlineIndexes.add(inlineIndex);
+    return {
+      ...meeting,
+      notes: inlineMeetings[inlineIndex].notes,
+    };
+  });
+
+  return [
+    ...mergedGranola,
+    ...inlineMeetings.filter((_, index) => !usedInlineIndexes.has(index)),
+  ];
+}
+
+function shouldPromoteNextToMeeting(
+  next: { date: string | null; content: string },
+  meeting: PersonMeeting | undefined,
+  nextSavedAt?: Date,
+): meeting is PersonMeeting {
+  if (!next.content || !meeting) return false;
+
+  if (nextSavedAt) {
+    const meetingTime = meetingTimestamp(meeting);
+    if (meetingTime !== null) return meetingTime >= nextSavedAt.getTime();
+
+    const savedDate = nextSavedAt.toISOString().slice(0, 10);
+    return meeting.date >= savedDate;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  return meeting.date === today;
+}
+
+function findPromotionTarget(
+  next: { date: string | null; content: string },
+  meetings: PersonMeeting[],
+  nextSavedAt?: Date,
+): PersonMeeting | undefined {
+  return meetings
+    .filter((meeting) => shouldPromoteNextToMeeting(next, meeting, nextSavedAt))
+    .sort((a, b) => meetingSortKey(a).localeCompare(meetingSortKey(b)))[0];
+}
+
+function findDatedNotesSection(
+  body: string,
+  date: string,
+  noteTitle?: string,
+): { heading: string; noteTitle?: string; start: number; end: number } | null {
+  const headingRegex = /^###[ \t]+(\d{4}-\d{2}-\d{2})(?:[ \t]+(?:—|-)[ \t]+(.+))?[ \t]*$/gm;
+  const candidates: { heading: string; noteTitle?: string; start: number; end: number }[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = headingRegex.exec(body)) !== null) {
+    if (match[1] !== date) continue;
+
+    const nextHeadingRegex = /^###[ \t]+\d{4}-\d{2}-\d{2}(?:[ \t]+(?:—|-)[ \t]+.+)?[ \t]*$/gm;
+    nextHeadingRegex.lastIndex = headingRegex.lastIndex;
+    const nextHeading = nextHeadingRegex.exec(body);
+    candidates.push({
+      heading: match[0],
+      noteTitle: match[2]?.trim(),
+      start: match.index,
+      end: nextHeading?.index ?? body.length,
+    });
+  }
+
+  if (!noteTitle) return candidates[0] ?? null;
+
+  const exactTitle = candidates.find((candidate) =>
+    candidate.noteTitle && normalizeTitle(candidate.noteTitle) === normalizeTitle(noteTitle)
+  );
+  if (exactTitle) return exactTitle;
+
+  if (candidates.length === 1) return candidates[0];
+  return candidates.find((candidate) => !candidate.noteTitle) ?? null;
+}
+
 /**
  * Decay the ## Next section: move its content into ## Notes ### YYYY-MM-DD,
  * then clear ## Next. Returns the updated file content.
  */
 export function decayNext(fileContent: string, date: string): string {
-  const { body } = parseFrontmatter(fileContent);
-  const nextRawMatch = body.match(/^##\s+Next\s*\n([\s\S]*?)(?=\n##\s)/m);
-  if (!nextRawMatch) return fileContent;
+  const nextRaw = extractNextRaw(fileContent);
+  if (!nextRaw) return fileContent;
 
-  const { content } = parseNextSection(nextRawMatch[1].trim());
+  const { content } = parseNextSection(nextRaw);
   if (!content) return fileContent; // Nothing to decay
 
   // Insert content as a dated notes section, then clear Next
@@ -510,11 +683,21 @@ export function decayNext(fileContent: string, date: string): string {
   return updated;
 }
 
+export function extractPersonNotes(fileContent: string, date: string, noteTitle?: string): string {
+  const { body } = parseFrontmatter(fileContent);
+  const section = findDatedNotesSection(body, date, noteTitle);
+  if (!section) return "";
+
+  let notes = body.slice(section.start + section.heading.length, section.end);
+  if (notes.startsWith("\n")) notes = notes.slice(1);
+  return notes.trim();
+}
+
 /**
  * Delete a dated notes section (### YYYY-MM-DD) from a person's markdown file.
  * Removes the heading and all content until the next ### or end of ## Notes.
  */
-export function deletePersonNotes(fileContent: string, date: string): string {
+export function deletePersonNotes(fileContent: string, date: string, noteTitle?: string): string {
   const { fm, body } = parseFrontmatter(fileContent);
 
   let fmBlock = "";
@@ -526,13 +709,12 @@ export function deletePersonNotes(fileContent: string, date: string): string {
     fmBlock += "---\n";
   }
 
-  const escapedDate = date.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const sectionRegex = new RegExp(
-    `\\n?###\\s+${escapedDate}[^\\n]*\\n[\\s\\S]*?(?=\\n###\\s|$)`,
-    "m"
-  );
+  const section = findDatedNotesSection(body, date, noteTitle);
+  if (!section) return fmBlock + body;
 
-  const updatedBody = body.replace(sectionRegex, "");
+  const before = body.slice(0, section.start).replace(/\n{3,}$/, "\n\n");
+  const after = body.slice(section.end).replace(/^\n{2,}/, "\n");
+  const updatedBody = before + after;
   return fmBlock + updatedBody;
 }
 
@@ -544,6 +726,7 @@ export function updatePersonNotes(
   fileContent: string,
   date: string,
   newNotes: string,
+  noteTitle?: string,
 ): string {
   const { fm, body } = parseFrontmatter(fileContent);
 
@@ -557,29 +740,29 @@ export function updatePersonNotes(
     fmBlock += "---\n";
   }
 
-  // Find the ### date section and replace its content
-  const sectionRegex = new RegExp(
-    `(^###\\s+${date.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^\\n]*\\n)([\\s\\S]*?)(?=\\n###\\s|$)`,
-    "m"
-  );
-
-  const match = body.match(sectionRegex);
-  if (match) {
-    const updatedBody = body.replace(sectionRegex, `$1\n${newNotes}\n`);
+  // Find the matching dated section and replace its content. When a title is
+  // provided, only replace that exact meeting's written notes.
+  const section = findDatedNotesSection(body, date, noteTitle);
+  if (section) {
+    const before = body.slice(0, section.start);
+    const after = body.slice(section.end);
+    const heading = noteTitle ? `### ${date} - ${noteTitle}` : section.heading;
+    const updatedBody = `${before}${heading}\n\n${newNotes}\n${after}`;
     return fmBlock + updatedBody;
   }
 
   // Section not found — append to end of ## Notes
+  const heading = noteTitle ? `${date} - ${noteTitle}` : date;
   const notesHeaderMatch = body.match(/^(##\s+Notes\s*\n)/m);
   if (notesHeaderMatch) {
     const insertPos = body.indexOf(notesHeaderMatch[0]) + notesHeaderMatch[0].length;
     const before = body.slice(0, insertPos);
     const after = body.slice(insertPos);
-    return fmBlock + before + `\n### ${date}\n\n${newNotes}\n` + after;
+    return fmBlock + before + `\n### ${heading}\n\n${newNotes}\n` + after;
   }
 
   // No ## Notes section — append one
-  return fmBlock + body + `\n\n## Notes\n\n### ${date}\n\n${newNotes}\n`;
+  return fmBlock + body + `\n\n## Notes\n\n### ${heading}\n\n${newNotes}\n`;
 }
 
 /**
@@ -592,6 +775,12 @@ export function updatePersonNext(
 ): string {
   const { fm, body } = parseFrontmatter(fileContent);
 
+  if (newNext.trim()) {
+    fm[NEXT_SAVED_AT_FIELD] = new Date().toISOString();
+  } else {
+    delete fm[NEXT_SAVED_AT_FIELD];
+  }
+
   // Reconstruct frontmatter
   let fmBlock = "";
   if (Object.keys(fm).length > 0) {
@@ -603,7 +792,7 @@ export function updatePersonNext(
   }
 
   // Find ## Next section and replace its content
-  const nextRegex = /^(##\s+Next\s*\n)([\s\S]*?)(?=\n##\s)/m;
+  const nextRegex = /^(##[ \t]+Next[ \t]*\n)([\s\S]*?)(?=^##[ \t]+Notes[ \t]*$|(?![\s\S]))/m;
   const match = body.match(nextRegex);
   if (match) {
     const updatedBody = body.replace(nextRegex, `$1\n${newNext}\n`);
@@ -657,60 +846,21 @@ export async function getPersonDetail(
     return null;
   }
 
-  // eslint-disable-next-line prefer-const
+  const personFileStat = fs.statSync(filePath);
   let person = parsePersonFile(content, slug, description);
 
-  // Extract raw ## Next section and parse date
-  const { body } = parseFrontmatter(content);
-  const nextRawMatch = body.match(/^##\s+Next\s*\n([\s\S]*?)(?=\n##\s)/m);
-  let nextRaw = nextRawMatch ? nextRawMatch[1].trim() : "";
-  let parsedNext = parseNextSection(nextRaw);
-
-  // Auto-decay: if Next has a past date, move content to Notes
-  const today = new Date().toISOString().slice(0, 10);
-  if (parsedNext.date && parsedNext.date < today) {
-    const decayedContent = decayNext(content, parsedNext.date);
-    // Atomic rewrite
-    const tmpPath = filePath + ".tmp." + Date.now();
-    fs.writeFileSync(tmpPath, decayedContent, "utf-8");
-    fs.renameSync(tmpPath, filePath);
-    // Re-read and re-parse after decay
-    content = decayedContent;
-    person = parsePersonFile(content, slug, description);
-    const { body: newBody } = parseFrontmatter(content);
-    const newNextMatch = newBody.match(/^##\s+Next\s*\n([\s\S]*?)(?=\n##\s)/m);
-    nextRaw = newNextMatch ? newNextMatch[1].trim() : "";
-    parsedNext = parseNextSection(nextRaw);
-  }
-
-  // Extract inline meetings from ## Notes section
-  const meetings: PersonMeeting[] = [];
-  const notesMatch = body.match(/^##\s+Notes\s*\n([\s\S]*)/m);
-  if (notesMatch) {
-    const notesBlock = notesMatch[1];
-    // Split into dated sections
-    const sections = notesBlock.split(/(?=^###\s+\d{4}-\d{2}-\d{2})/m);
-    for (const section of sections) {
-      const dateMatch = section.match(/^###\s+(\d{4}-\d{2}-\d{2})/);
-      if (dateMatch) {
-        const date = dateMatch[1];
-        // Notes content is everything after the ### heading line
-        const notes = section.replace(/^###\s+.+\n?/, "").trim();
-        meetings.push({
-          source: "inline",
-          date,
-          title: "Notes",
-          notes,
-        });
-      }
-    }
-  }
+  // Extract raw ## Next scratchpad content. "Next" is tied to the next
+  // recorded meeting after it was saved, not to a manually chosen date.
+  let nextRaw = extractNextRaw(content);
+  let parsedNext = { date: null as string | null, content: nextRaw.trim() };
+  const nextSavedAt = parseNextSavedAt(content) ?? personFileStat.mtime;
 
   // Match Granola meetings (supports nested date folders)
   const meetingFileEntries = collectMeetingFiles(meetingsDir);
   const meetingFilenames = meetingFileEntries.map((e) => e.filename);
   const meetingFileMap = new Map(meetingFileEntries.map((e) => [e.filename, e.fullPath]));
 
+  const granolaMeetings: PersonMeeting[] = [];
   const matchedMeetings = matchMeetingsToSlug(slug, person.name, meetingFilenames, person.aliases);
   for (const mf of matchedMeetings) {
     const mfPath = meetingFileMap.get(mf);
@@ -722,7 +872,7 @@ export async function getPersonDetail(
       const { body: mfBody } = parseFrontmatter(mfContent);
       const summary = mfBody.trim();
 
-      meetings.push({
+      granolaMeetings.push({
         source: "granola",
         date,
         time: mfMeta.created || undefined,
@@ -737,13 +887,46 @@ export async function getPersonDetail(
       // Skip unreadable meeting
     }
   }
+  granolaMeetings.sort((a, b) => meetingSortKey(b).localeCompare(meetingSortKey(a)));
 
-  // Sort newest first (use full timestamp when available for same-day ordering)
-  meetings.sort((a, b) => (b.time || b.date).localeCompare(a.time || a.date));
+  let inlineMeetings = parseInlineMeetings(content);
+  const promotionTarget = findPromotionTarget(parsedNext, granolaMeetings, nextSavedAt);
+
+  if (promotionTarget && parsedNext.content) {
+    const matchingIndex = findMatchingInlineNote(inlineMeetings, promotionTarget, new Set());
+    const existingNotes = matchingIndex === null ? "" : inlineMeetings[matchingIndex].notes || "";
+    const shouldAppend = !existingNotes || !normalizeNotes(existingNotes).includes(normalizeNotes(parsedNext.content));
+    const promotedNotes = existingNotes && shouldAppend
+      ? `${existingNotes}\n\n${parsedNext.content}`
+      : existingNotes || parsedNext.content;
+
+    if (shouldAppend || existingNotes) {
+      let promotedContent = updatePersonNotes(
+        content,
+        promotionTarget.date,
+        promotedNotes,
+        promotionTarget.title,
+      );
+      promotedContent = updatePersonNext(promotedContent, "");
+
+      const tmpPath = filePath + ".tmp." + Date.now();
+      fs.writeFileSync(tmpPath, promotedContent, "utf-8");
+      fs.renameSync(tmpPath, filePath);
+
+      content = promotedContent;
+      person = parsePersonFile(content, slug, description);
+      nextRaw = extractNextRaw(content);
+      parsedNext = { date: null, content: nextRaw.trim() };
+      inlineMeetings = parseInlineMeetings(content);
+    }
+  }
+
+  const meetings = mergeInlineNotesIntoGranola(granolaMeetings, inlineMeetings);
+  meetings.sort((a, b) => meetingSortKey(b).localeCompare(meetingSortKey(a)));
 
   // Update counts to reflect total
   const totalMeetings = meetings.length;
-  const latestTimestamp = meetings.length > 0 ? (meetings[0].time || meetings[0].date) : null;
+  const latestTimestamp = meetings.length > 0 ? meetingSortKey(meetings[0]) : null;
 
   return {
     ...person,

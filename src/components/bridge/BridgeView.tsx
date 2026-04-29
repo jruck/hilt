@@ -14,13 +14,15 @@ import { RecycleModal } from "./RecycleModal";
 import { BridgeTaskPanel } from "./BridgeTaskPanel";
 import { parseLifecycle } from "@/lib/attribution";
 import { Loader2 } from "lucide-react";
-import type { BridgeTask, BridgeProject, BridgeThought } from "@/lib/types";
+import type { BridgeTask, BridgeProject } from "@/lib/types";
 
 interface BridgeViewProps {
   addTaskTrigger?: number;
   searchQuery?: string;
   onNavigateToProject?: (project: BridgeProject) => void;
 }
+
+const NEW_TASK_TITLE = "New Task";
 
 export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToProject }: BridgeViewProps) {
   const {
@@ -32,6 +34,7 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
     reorderTasks,
     updateTaskDetails,
     updateTaskTitle,
+    updateTaskDueDate,
     updateTaskProject,
     removeTaskProject,
     updateNotes,
@@ -50,6 +53,7 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
   const [showRecycleModal, setShowRecycleModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<BridgeTask | null>(null);
   const [autoFocusPanel, setAutoFocusPanel] = useState(false);
+  const [autoFocusTitleToken, setAutoFocusTitleToken] = useState(0);
   const [sheetVisible, setSheetVisible] = useState(false);
 
   // Build project path → title map for markdown serialization
@@ -85,13 +89,22 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
 
   // Animate bottom sheet in on mobile when task is selected
   useEffect(() => {
+    let cancelled = false;
     if (resolvedTask && isMobile) {
       // Trigger slide-up animation after mount
       const frame = requestAnimationFrame(() => setSheetVisible(true));
-      return () => cancelAnimationFrame(frame);
+      return () => {
+        cancelled = true;
+        cancelAnimationFrame(frame);
+      };
     } else {
-      setSheetVisible(false);
+      queueMicrotask(() => {
+        if (!cancelled) setSheetVisible(false);
+      });
     }
+    return () => {
+      cancelled = true;
+    };
   }, [resolvedTask, isMobile]);
 
   // Strip 🆕 marker when user navigates away from a task ("read receipt")
@@ -110,17 +123,34 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
     setTimeout(() => {
       markTaskRead(selectedTask);
       setSelectedTask(null);
+      setAutoFocusPanel(false);
     }, 300);
   }, [selectedTask, markTaskRead]);
+
+  const handleAddTask = useCallback((title: string) => {
+    // Select immediately — the optimistic task has id "task-0"
+    setSelectedTask({ id: "task-0", title, done: false, details: [], rawLines: [`- [ ] ${title}`], projectPath: null, projectPaths: [], dueDate: null, group: null });
+    setAutoFocusPanel(true);
+    setAutoFocusTitleToken((token) => token + 1);
+    addTask(title);
+  }, [addTask]);
 
   // Handle add-task trigger from toolbar button (counter + ref prevents double-fires)
   const lastAddTrigger = useRef(0);
   useEffect(() => {
+    let cancelled = false;
     if (addTaskTrigger > lastAddTrigger.current) {
-      lastAddTrigger.current = addTaskTrigger;
-      handleAddTask("New task");
+      const trigger = addTaskTrigger;
+      queueMicrotask(() => {
+        if (cancelled || trigger <= lastAddTrigger.current) return;
+        lastAddTrigger.current = trigger;
+        handleAddTask(NEW_TASK_TITLE);
+      });
     }
-  }, [addTaskTrigger]);
+    return () => {
+      cancelled = true;
+    };
+  }, [addTaskTrigger, handleAddTask]);
 
   // Display sort: unchecked first, checked last, both in file order
   const displayTasks = useMemo(() => {
@@ -177,13 +207,6 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
     ? Object.values(filteredThoughtColumns).some(col => col.length > 0)
     : false;
   const hasAnyResults = hasFilteredTasks || showNotes || hasFilteredProjects || hasFilteredThoughts;
-
-  function handleAddTask(title: string) {
-    // Select immediately — the optimistic task has id "task-0"
-    setSelectedTask({ id: "task-0", title, done: false, details: [], rawLines: [`- [ ] ${title}`], projectPath: null, projectPaths: [], dueDate: null, group: null });
-    setAutoFocusPanel(true);
-    addTask(title);
-  }
 
   function handleSelectTask(task: BridgeTask) {
     // Mark outgoing task as read before switching
@@ -256,7 +279,7 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
                 if (selectedTask?.id === id) setSelectedTask(null);
               }}
               onSelectTask={handleSelectTask}
-              onAddTask={() => handleAddTask("New task")}
+              onAddTask={() => handleAddTask(NEW_TASK_TITLE)}
             />
           )}
 
@@ -316,16 +339,20 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
           <BridgeTaskPanel
             task={resolvedTask}
             autoFocusTitle={autoFocusPanel}
+            autoFocusTitleToken={autoFocusTitleToken}
+            autoFocusTitleValue={NEW_TASK_TITLE}
             vaultPath={weekly.vaultPath}
             filePath={weekly.filePath}
-            onClose={() => { markTaskRead(resolvedTask); setSelectedTask(null); }}
+            onClose={() => { markTaskRead(resolvedTask); setSelectedTask(null); setAutoFocusPanel(false); }}
             onUpdateTitle={updateTaskTitle}
+            onUpdateDueDate={updateTaskDueDate}
             onUpdateDetails={updateTaskDetails}
             onUpdateProject={updateTaskProjectWithTitles}
-                onRemoveProject={removeTaskProjectWithTitles}
+            onRemoveProject={removeTaskProjectWithTitles}
             onDelete={(id) => {
               deleteTask(id);
               setSelectedTask(null);
+              setAutoFocusPanel(false);
             }}
             onNavigateToProject={(projectPath, vpPath) => {
               // Check projects
@@ -378,16 +405,20 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
               <BridgeTaskPanel
                 task={resolvedTask}
                 autoFocusTitle={autoFocusPanel}
+                autoFocusTitleToken={autoFocusTitleToken}
+                autoFocusTitleValue={NEW_TASK_TITLE}
                 vaultPath={weekly.vaultPath}
                 filePath={weekly.filePath}
                 onClose={closeSheet}
                 onUpdateTitle={updateTaskTitle}
+                onUpdateDueDate={updateTaskDueDate}
                 onUpdateDetails={updateTaskDetails}
                 onUpdateProject={updateTaskProjectWithTitles}
                 onRemoveProject={removeTaskProjectWithTitles}
                 onDelete={(id) => {
                   deleteTask(id);
                   setSelectedTask(null);
+                  setAutoFocusPanel(false);
                 }}
                 onNavigateToProject={(projectPath, vpPath) => {
                   if (projects) {

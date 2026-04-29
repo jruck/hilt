@@ -123,6 +123,22 @@ export function useBridgeWeekly() {
     mutate();
   }
 
+  async function updateTaskDueDate(id: string, dueDate: string | null) {
+    if (data) {
+      const updatedTasks = data.tasks.map(t =>
+        t.id === id ? { ...t, dueDate } : t
+      );
+      mutate({ ...data, tasks: updatedTasks }, false);
+    }
+
+    await fetch(`/api/bridge/tasks/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dueDate }),
+    });
+    mutate();
+  }
+
   async function updateNotes(notes: string) {
     if (data) {
       mutate({ ...data, notes }, false);
@@ -278,6 +294,7 @@ export function useBridgeWeekly() {
     reorderTasks,
     updateTaskDetails,
     updateTaskTitle,
+    updateTaskDueDate,
     updateTaskProject,
     removeTaskProject,
     updateNotes,

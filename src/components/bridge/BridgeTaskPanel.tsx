@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { X, Trash2, FolderOpen, MoreVertical, Copy } from "lucide-react";
-import type { BridgeTask, BridgeProject } from "@/lib/types";
+import { X, Trash2, FolderOpen, MoreVertical, Copy, CalendarDays } from "lucide-react";
+import type { BridgeTask } from "@/lib/types";
 import { parseLifecycle } from "@/lib/attribution";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
 import { useBridgeThoughts } from "@/hooks/useBridgeThoughts";
 import { ProjectPicker } from "./ProjectPicker";
+import { DatePickerPopover, formatDueDate } from "./DatePickerPopover";
 import dynamic from "next/dynamic";
 
 const BridgeTaskEditor = dynamic(
@@ -17,10 +18,13 @@ const BridgeTaskEditor = dynamic(
 interface BridgeTaskPanelProps {
   task: BridgeTask;
   autoFocusTitle?: boolean;
+  autoFocusTitleToken?: number;
+  autoFocusTitleValue?: string;
   vaultPath?: string;
   filePath?: string;
   onClose: () => void;
   onUpdateTitle: (id: string, title: string) => void;
+  onUpdateDueDate: (id: string, dueDate: string | null) => void;
   onUpdateDetails: (id: string, details: string[]) => void;
   onUpdateProject: (id: string, projectPath: string | null) => void;
   onRemoveProject?: (id: string, projectPath: string) => void;
@@ -31,10 +35,13 @@ interface BridgeTaskPanelProps {
 export function BridgeTaskPanel({
   task,
   autoFocusTitle,
+  autoFocusTitleToken,
+  autoFocusTitleValue,
   vaultPath,
   filePath,
   onClose,
   onUpdateTitle,
+  onUpdateDueDate,
   onUpdateDetails,
   onUpdateProject,
   onRemoveProject,
@@ -44,28 +51,44 @@ export function BridgeTaskPanel({
   const [title, setTitle] = useState(task.title);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const lastSavedTitle = useRef(task.title);
   const lastSavedDetails = useRef(task.details.join("\n"));
   const menuRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const editorAreaRef = useRef<HTMLDivElement>(null);
+  const lastAutoFocusToken = useRef<string | null>(null);
 
   const { data: projects } = useBridgeProjects();
   const { data: thoughts } = useBridgeThoughts();
 
   useEffect(() => {
+    let cancelled = false;
     if (task.title !== lastSavedTitle.current) {
-      setTitle(task.title);
       lastSavedTitle.current = task.title;
+      queueMicrotask(() => {
+        if (!cancelled) setTitle(task.title);
+      });
     }
     lastSavedDetails.current = task.details.join("\n");
+    return () => {
+      cancelled = true;
+    };
   }, [task.title, task.details]);
 
   useEffect(() => {
-    setConfirmDelete(false);
-    setShowPicker(false);
-    setShowMenu(false);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setConfirmDelete(false);
+      setShowPicker(false);
+      setShowDatePicker(false);
+      setShowMenu(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [task.id]);
 
   // Close menu on click outside
@@ -80,13 +103,39 @@ export function BridgeTaskPanel({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [showMenu]);
 
-  // Auto-focus and select title for newly added tasks
+  // Auto-focus and select title for newly added tasks.
   useEffect(() => {
-    if (autoFocusTitle && titleRef.current) {
-      titleRef.current.focus();
-      titleRef.current.select();
+    if (!autoFocusTitle || !titleRef.current) return;
+
+    const focusToken = autoFocusTitleToken ?? task.id;
+    const expectedValue = autoFocusTitleValue ?? parseLifecycle(task.title, task.done).displayTitle;
+    const focusKey = `${focusToken}:${expectedValue}`;
+    if (lastAutoFocusToken.current === focusKey) return;
+
+    function selectTitle() {
+      if (lastAutoFocusToken.current === focusKey) return;
+      const el = titleRef.current;
+      if (!el || el.value !== expectedValue) return;
+      el.focus({ preventScroll: true });
+      el.setSelectionRange(0, el.value.length, "forward");
+      lastAutoFocusToken.current = focusKey;
     }
-  }, [autoFocusTitle, task.id]);
+
+    selectTitle();
+
+    let secondFrame: number | null = null;
+    const firstFrame = requestAnimationFrame(() => {
+      selectTitle();
+      secondFrame = requestAnimationFrame(selectTitle);
+    });
+    const timeout = window.setTimeout(selectTitle, 80);
+
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame !== null) cancelAnimationFrame(secondFrame);
+      window.clearTimeout(timeout);
+    };
+  }, [autoFocusTitle, autoFocusTitleToken, autoFocusTitleValue, task.id, task.title, task.done]);
 
   function focusEditor() {
     const el = editorAreaRef.current?.querySelector("[contenteditable]") as HTMLElement;
@@ -120,7 +169,10 @@ export function BridgeTaskPanel({
   );
 
   // Resolve all linked projects/thoughts
-  const projectPaths = task.projectPaths ?? (task.projectPath ? [task.projectPath] : []);
+  const projectPaths = useMemo(
+    () => task.projectPaths ?? (task.projectPath ? [task.projectPath] : []),
+    [task.projectPath, task.projectPaths]
+  );
 
   const linkedItems = useMemo(() => {
     const allProjects = projects ? Object.values(projects.columns).flat() : [];
@@ -134,10 +186,6 @@ export function BridgeTaskPanel({
       return { path: pp, title: pp.split("/").pop() || pp, icon: "", type: "unknown" as const };
     });
   }, [projectPaths, projects, thoughts]);
-
-  // Legacy compat
-  const linkedProject = linkedItems.length > 0 ? linkedItems[0] : null;
-  const projectDisplayName = linkedProject?.title ?? null;
 
   const fullMarkdown = task.details.join("\n");
 
@@ -208,7 +256,7 @@ export function BridgeTaskPanel({
           </button>
 
           {showMenu && (
-            <div className="absolute right-0 top-full mt-1 w-48 z-50 rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] shadow-lg overflow-hidden py-1">
+            <div className="absolute right-0 top-full mt-1 w-56 z-50 rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] shadow-lg overflow-hidden py-1">
               <button
                 onClick={() => {
                   setShowMenu(false);
@@ -218,6 +266,21 @@ export function BridgeTaskPanel({
               >
                 <FolderOpen className="w-4 h-4 text-[var(--text-tertiary)]" />
                 Attach project
+              </button>
+              <button
+                onClick={() => {
+                  setShowMenu(false);
+                  setShowDatePicker(true);
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
+              >
+                <CalendarDays className="w-4 h-4 text-[var(--text-tertiary)]" />
+                <span className="flex-1 text-left">Due date</span>
+                {task.dueDate && (
+                  <span className="max-w-24 truncate text-[10px] text-[var(--text-tertiary)]">
+                    {formatDueDate(task.dueDate)}
+                  </span>
+                )}
               </button>
               <button
                 onClick={copyAsMarkdown}
@@ -248,6 +311,17 @@ export function BridgeTaskPanel({
                 setShowPicker(false);
               }}
               onClose={() => setShowPicker(false)}
+            />
+          )}
+
+          {showDatePicker && (
+            <DatePickerPopover
+              value={task.dueDate}
+              onSelect={(dueDate) => {
+                onUpdateDueDate(task.id, dueDate);
+                setShowDatePicker(false);
+              }}
+              onClose={() => setShowDatePicker(false)}
             />
           )}
         </div>

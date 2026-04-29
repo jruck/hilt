@@ -350,7 +350,7 @@ export function reorderTasks(content: string, newOrder: string[], groupUpdates?:
 export function updateTask(
   content: string,
   taskId: string,
-  updates: Partial<Pick<BridgeTask, "done" | "title" | "details" | "projectPaths">>,
+  updates: Partial<Pick<BridgeTask, "done" | "title" | "details" | "projectPaths" | "dueDate">>,
   /** Map of project path → display title for serializing additional project links */
   projectTitles?: Record<string, string>
 ): string {
@@ -361,6 +361,7 @@ export function updateTask(
     const title = updates.title !== undefined ? updates.title : task.title;
     const details = updates.details !== undefined ? updates.details : task.details;
     const projectPaths = updates.projectPaths !== undefined ? updates.projectPaths : task.projectPaths;
+    const dueDate = updates.dueDate !== undefined ? updates.dueDate : task.dueDate;
     const checkbox = done ? "[x]" : "[ ]";
     // Serialize: first project wraps the title, additional projects appended as separate links
     let titleText: string;
@@ -373,13 +374,12 @@ export function updateTask(
         titleText += ` [+ ${name}](${projectPaths[i]})`;
       }
     }
-    // Preserve due date if present
-    const dueSuffix = task.dueDate ? ` [due:: ${task.dueDate}]` : "";
+    const dueSuffix = dueDate ? ` [due:: ${dueDate}]` : "";
     const titleLine = `- ${checkbox} ${titleText}${dueSuffix}`;
     // Re-indent details for file storage
     const indentedDetails = details.map(addOneIndent);
     const rawLines = [titleLine, ...indentedDetails];
-    return { ...task, done, title, details, rawLines, projectPath: projectPaths[0] ?? null, projectPaths, dueDate: task.dueDate };
+    return { ...task, done, title, details, rawLines, projectPath: projectPaths[0] ?? null, projectPaths, dueDate };
   });
 
   return rebuildContent(content, updatedTasks, null);

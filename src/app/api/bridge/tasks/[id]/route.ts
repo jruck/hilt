@@ -19,14 +19,32 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { done, title, details, moveTo, projectPath, projectPaths, projectTitles } = body;
+    const { done, title, details, moveTo, projectPath, projectPaths, projectTitles, dueDate } = body;
 
     const { filename, content } = await getCurrentWeekly();
 
-    const updates: { done?: boolean; title?: string; details?: string[]; projectPaths?: string[] } = {};
+    const updates: { done?: boolean; title?: string; details?: string[]; projectPaths?: string[]; dueDate?: string | null } = {};
     if (done !== undefined) updates.done = done;
     if (title !== undefined) updates.title = title;
     if (details !== undefined) updates.details = details;
+    if (dueDate !== undefined) {
+      if (dueDate !== null) {
+        const match = typeof dueDate === "string" ? dueDate.match(/^(\d{4})-(\d{2})-(\d{2})$/) : null;
+        const parsed = match
+          ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+          : null;
+        if (
+          !match ||
+          !parsed ||
+          parsed.getFullYear() !== Number(match[1]) ||
+          parsed.getMonth() !== Number(match[2]) - 1 ||
+          parsed.getDate() !== Number(match[3])
+        ) {
+          return NextResponse.json({ error: "Invalid due date" }, { status: 400 });
+        }
+      }
+      updates.dueDate = dueDate;
+    }
     // Support both legacy projectPath and new projectPaths
     if (projectPaths !== undefined) updates.projectPaths = projectPaths;
     else if (projectPath !== undefined) updates.projectPaths = projectPath ? [projectPath] : [];

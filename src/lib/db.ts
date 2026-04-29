@@ -318,8 +318,11 @@ export async function getBridgeVaultPath(): Promise<string> {
   const folder = getActiveFolder();
   if (folder) return folder;
 
+  // Fall back to the app's saved working folder before generic env/default paths.
+  if (prefs.workingFolder) return prefs.workingFolder;
+
   // Legacy env var fallback (set by Electron spawn or .env)
-  return process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || path.join(process.env.HOME || "~", "work");
+  return process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || path.join(process.env.HOME || "~", "work/bridge");
 }
 
 export async function setBridgeVaultPath(vaultPath: string): Promise<void> {

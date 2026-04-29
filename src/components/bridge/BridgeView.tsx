@@ -180,6 +180,8 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
       result[status] = list.filter(p =>
         p.title.toLowerCase().includes(q) ||
         p.area.toLowerCase().includes(q) ||
+        p.source.toLowerCase().includes(q) ||
+        p.relativePath.toLowerCase().includes(q) ||
         p.tags.some(t => t.toLowerCase().includes(q)) ||
         p.description.toLowerCase().includes(q)
       );

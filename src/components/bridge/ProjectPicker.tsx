@@ -2,15 +2,9 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Search, X, ArchiveRestore } from "lucide-react";
-import type { BridgeProject, BridgeProjectStatus } from "@/lib/types";
+import type { BridgeProject } from "@/lib/types";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
 import { useBridgeThoughts } from "@/hooks/useBridgeThoughts";
-
-const RESTORE_OPTIONS: { key: BridgeProjectStatus; label: string }[] = [
-  { key: "considering", label: "Considering" },
-  { key: "refining", label: "Refining" },
-  { key: "doing", label: "Doing" },
-];
 
 interface ProjectPickerProps {
   onSelect: (projectPath: string) => void;
@@ -22,10 +16,8 @@ export function ProjectPicker({ onSelect, onClose }: ProjectPickerProps) {
   const { data: thoughts } = useBridgeThoughts();
   const [search, setSearch] = useState("");
   const [showDone, setShowDone] = useState(false);
-  const [restoreProject, setRestoreProject] = useState<BridgeProject | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const restoreRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -39,9 +31,7 @@ export function ProjectPicker({ onSelect, onClose }: ProjectPickerProps) {
     }
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        if (restoreProject) {
-          setRestoreProject(null);
-        } else if (showDone) {
+        if (showDone) {
           setShowDone(false);
         } else {
           onClose();
@@ -54,19 +44,7 @@ export function ProjectPicker({ onSelect, onClose }: ProjectPickerProps) {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onClose, showDone, restoreProject]);
-
-  // Close restore menu on click outside
-  useEffect(() => {
-    if (!restoreProject) return;
-    function handleClick(e: MouseEvent) {
-      if (restoreRef.current && !restoreRef.current.contains(e.target as Node)) {
-        setRestoreProject(null);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [restoreProject]);
+  }, [onClose, showDone]);
 
   const allActive: BridgeProject[] = projects
     ? Object.entries(projects.columns)
@@ -92,7 +70,8 @@ export function ProjectPicker({ onSelect, onClose }: ProjectPickerProps) {
         p.title.toLowerCase().includes(q) ||
         p.area.toLowerCase().includes(q) ||
         p.slug.toLowerCase().includes(q) ||
-        p.source.toLowerCase().includes(q)
+        p.source.toLowerCase().includes(q) ||
+        p.relativePath.toLowerCase().includes(q)
       )
     : allActive;
 
@@ -108,7 +87,8 @@ export function ProjectPicker({ onSelect, onClose }: ProjectPickerProps) {
         p.title.toLowerCase().includes(q) ||
         p.area.toLowerCase().includes(q) ||
         p.slug.toLowerCase().includes(q) ||
-        p.source.toLowerCase().includes(q)
+        p.source.toLowerCase().includes(q) ||
+        p.relativePath.toLowerCase().includes(q)
       )
     : allDone;
 
@@ -245,40 +225,16 @@ export function ProjectPicker({ onSelect, onClose }: ProjectPickerProps) {
                   )}
                 </button>
 
-                {/* Restore menu */}
-                <div ref={restoreProject?.relativePath === project.relativePath ? restoreRef : undefined} className="relative flex-shrink-0">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setRestoreProject(restoreProject?.relativePath === project.relativePath ? null : project);
-                    }}
-                    className="p-1 rounded text-[var(--text-tertiary)] opacity-0 group-hover:opacity-100 hover:text-[var(--text-secondary)] transition-all"
-                    title="Restore to board"
-                  >
-                    <ArchiveRestore className="w-3.5 h-3.5" />
-                  </button>
-
-                  {restoreProject?.relativePath === project.relativePath && (
-                    <div className="absolute right-0 top-full mt-1 w-36 z-50 rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] shadow-lg overflow-hidden py-1">
-                      <div className="px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">
-                        Restore to
-                      </div>
-                      {RESTORE_OPTIONS.map(({ key, label }) => (
-                        <button
-                          key={key}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            updateProjectStatus(project.path, key);
-                            setRestoreProject(null);
-                          }}
-                          className="w-full text-left px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    updateProjectStatus(project.path, "doing");
+                  }}
+                  className="p-1 rounded text-[var(--text-tertiary)] opacity-0 group-hover:opacity-100 hover:text-[var(--text-secondary)] transition-all"
+                  title="Restore to projects"
+                >
+                  <ArchiveRestore className="w-3.5 h-3.5" />
+                </button>
               </div>
             ))}
           </>

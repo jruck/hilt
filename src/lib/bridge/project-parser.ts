@@ -21,6 +21,50 @@ const STATUS_ALIASES: Record<string, BridgeProjectStatus> = {
   "designing": "refining",
 };
 
+function cleanFrontmatterScalar(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length >= 2) {
+    const first = trimmed[0];
+    const last = trimmed[trimmed.length - 1];
+    if ((first === "\"" && last === "\"") || (first === "'" && last === "'")) {
+      return trimmed.slice(1, -1).trim();
+    }
+  }
+  return trimmed;
+}
+
+function codePointFromHex(hex: string): string {
+  const codePoint = Number.parseInt(hex, 16);
+  if (!Number.isFinite(codePoint) || codePoint < 0 || codePoint > 0x10ffff) return "";
+  return String.fromCodePoint(codePoint);
+}
+
+function decodeUnicodeEscapes(value: string): string {
+  return value
+    .replace(/\\+U([0-9a-fA-F]{8})/g, (_, hex: string) => codePointFromHex(hex))
+    .replace(/\\+u\{([0-9a-fA-F]{1,6})\}/g, (_, hex: string) => codePointFromHex(hex))
+    .replace(/\\+u([0-9a-fA-F]{4})/g, (_, hex: string) => codePointFromHex(hex))
+    .replace(/\\"/g, "\"")
+    .replace(/\\'/g, "'");
+}
+
+function normalizeIcon(value: string): string {
+  const decoded = decodeUnicodeEscapes(cleanFrontmatterScalar(value)).trim();
+  if (!decoded || decoded.includes("\n")) return "";
+
+  const hasPictograph = (text: string) => /\p{Extended_Pictographic}/u.test(text);
+  if (!hasPictograph(decoded)) return "";
+
+  if (typeof Intl.Segmenter === "function") {
+    const segmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
+    for (const segment of segmenter.segment(decoded)) {
+      if (hasPictograph(segment.segment)) return segment.segment;
+    }
+  }
+
+  return decoded.match(/\p{Extended_Pictographic}/u)?.[0] ?? "";
+}
+
 /**
  * Parse a project index.md file into partial project data.
  * Returns extracted fields, or defaults for missing/invalid content.
@@ -57,7 +101,7 @@ function parseIndexFile(content: string): { title: string | null; status: Bridge
         }
       }
       area = fm.area || "";
-      icon = fm.icon || "";
+      icon = fm.icon ? normalizeIcon(fm.icon) : "";
       if (fm.tags) {
         const tagsStr = fm.tags.replace(/^\[|\]$/g, "");
         tags = tagsStr.split(",").map(t => t.trim()).filter(Boolean);
@@ -87,7 +131,13 @@ function parseIndexFile(content: string): { title: string | null; status: Bridge
  */
 function humanizeFolderName(name: string): string {
   // Special cases
-  const specials: Record<string, string> = { everpro: "EverPro" };
+  const specials: Record<string, string> = {
+    cde: "CDE",
+    cml: "CML",
+    everpro: "EverPro",
+    fftc: "FFTC",
+    lanc: "LANC",
+  };
   if (specials[name]) return specials[name];
 
   return name
@@ -97,9 +147,8 @@ function humanizeFolderName(name: string): string {
 }
 
 /**
- * Scan a single projects directory and return all projects found.
+ * Build project metadata from a single project folder.
  */
-/** Get the most recent mtime of any file in a directory (recursive, shallow depth). */
 function getLatestMtime(dir: string, depth = 2): number {
   let latest = 0;
   try {
@@ -121,59 +170,107 @@ function getLatestMtime(dir: string, depth = 2): number {
   return latest;
 }
 
+function buildProject(
+  projectDir: string,
+  vaultPath: string,
+  source: string,
+): BridgeProject {
+  const slug = path.basename(projectDir);
+  const indexPath = path.join(projectDir, "index.md");
+  const relativePath = path.relative(vaultPath, projectDir);
+
+  let title = humanizeFolderName(slug);
+  let status: BridgeProjectStatus = "considering";
+  let area = "";
+  let icon = "";
+  let tags: string[] = [];
+  let description = "";
+
+  // Try to read index.md for richer metadata
+  if (fs.existsSync(indexPath)) {
+    try {
+      const content = fs.readFileSync(indexPath, "utf-8");
+      const parsed = parseIndexFile(content);
+      if (parsed.title) title = parsed.title;
+      status = parsed.status;
+      area = parsed.area;
+      icon = parsed.icon;
+      tags = parsed.tags;
+      description = parsed.description;
+    } catch {
+      // Use defaults
+    }
+  }
+
+  return {
+    slug,
+    path: projectDir,
+    relativePath,
+    title,
+    status,
+    area,
+    icon,
+    tags,
+    source,
+    description,
+    lastModified: getLatestMtime(projectDir),
+  };
+}
+
+function getDirectoryEntries(dir: string): fs.Dirent[] {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true });
+}
+
+/**
+ * Scan a single projects directory and return all projects found.
+ */
 function scanProjectsDir(
   projectsDir: string,
   vaultPath: string,
   source: string,
 ): BridgeProject[] {
-  if (!fs.existsSync(projectsDir)) return [];
+  const entries = getDirectoryEntries(projectsDir);
 
   const results: BridgeProject[] = [];
-  const entries = fs.readdirSync(projectsDir, { withFileTypes: true });
-
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+    results.push(buildProject(path.join(projectsDir, entry.name), vaultPath, source));
+  }
 
-    const projectDir = path.join(projectsDir, entry.name);
-    const indexPath = path.join(projectDir, "index.md");
-    const relativePath = path.relative(vaultPath, projectDir);
+  return results;
+}
 
-    let title = humanizeFolderName(entry.name);
-    let status: BridgeProjectStatus = "considering";
-    let area = "";
-    let icon = "";
-    let tags: string[] = [];
-    let description = "";
+/**
+ * Scan clients/{client}/{project} folders. If a client has no child project
+ * folders but does have its own index.md, include the client folder itself.
+ */
+function scanClientsDir(
+  clientsDir: string,
+  vaultPath: string,
+  parentSource: string | null,
+): BridgeProject[] {
+  const clientEntries = getDirectoryEntries(clientsDir);
+  const results: BridgeProject[] = [];
 
-    // Try to read index.md for richer metadata
-    if (fs.existsSync(indexPath)) {
-      try {
-        const content = fs.readFileSync(indexPath, "utf-8");
-        const parsed = parseIndexFile(content);
-        if (parsed.title) title = parsed.title;
-        status = parsed.status;
-        area = parsed.area;
-        icon = parsed.icon;
-        tags = parsed.tags;
-        description = parsed.description;
-      } catch {
-        // Use defaults
-      }
+  for (const clientEntry of clientEntries) {
+    if (!clientEntry.isDirectory() || clientEntry.name.startsWith(".")) continue;
+
+    const clientDir = path.join(clientsDir, clientEntry.name);
+    const clientName = humanizeFolderName(clientEntry.name);
+    const source = parentSource ? `${parentSource} / ${clientName}` : clientName;
+    const beforeCount = results.length;
+
+    for (const entry of getDirectoryEntries(clientDir)) {
+      if (!entry.isDirectory() || entry.name.startsWith(".") || entry.name === "projects") continue;
+      results.push(buildProject(path.join(clientDir, entry.name), vaultPath, source));
     }
 
-    results.push({
-      slug: entry.name,
-      path: projectDir,
-      relativePath,
-      title,
-      status,
-      area,
-      icon,
-      tags,
-      source,
-      description,
-      lastModified: getLatestMtime(projectDir),
-    });
+    results.push(...scanProjectsDir(path.join(clientDir, "projects"), vaultPath, source));
+
+    if (results.length === beforeCount && fs.existsSync(path.join(clientDir, "index.md"))) {
+      results.push(buildProject(clientDir, vaultPath, parentSource ?? "Clients"));
+    }
   }
 
   return results;
@@ -181,7 +278,8 @@ function scanProjectsDir(
 
 /**
  * Read all projects from the vault and group by status.
- * Scans top-level projects/ and each libraries/{name}/projects/ folder.
+ * Scans root projects, client projects, library projects, and library client
+ * projects.
  */
 export async function getAllProjects(vaultPath: string): Promise<BridgeProjectsResponse> {
   const columns: Record<BridgeProjectStatus, BridgeProject[]> = {
@@ -191,30 +289,34 @@ export async function getAllProjects(vaultPath: string): Promise<BridgeProjectsR
     done: [],
   };
 
-  // 1. Scan top-level projects/
-  const topLevelProjects = scanProjectsDir(
-    path.join(vaultPath, "projects"),
-    vaultPath,
-    "Projects",
-  );
-  for (const p of topLevelProjects) {
-    columns[p.status].push(p);
+  function addProjects(projects: BridgeProject[]) {
+    for (const p of projects) {
+      columns[p.status].push(p);
+    }
   }
 
-  // 2. Scan libraries/*/projects/
-  const librariesDir = path.join(vaultPath, "libraries");
-  if (fs.existsSync(librariesDir)) {
-    const libEntries = fs.readdirSync(librariesDir, { withFileTypes: true });
-    for (const libEntry of libEntries) {
-      if (!libEntry.isDirectory() || libEntry.name.startsWith(".")) continue;
+  // 1. Scan root-level projects/ and clients/
+  addProjects(scanProjectsDir(path.join(vaultPath, "projects"), vaultPath, "Projects"));
+  addProjects(scanClientsDir(path.join(vaultPath, "clients"), vaultPath, null));
 
-      const libProjectsDir = path.join(librariesDir, libEntry.name, "projects");
-      const source = humanizeFolderName(libEntry.name);
-      const libProjects = scanProjectsDir(libProjectsDir, vaultPath, source);
-      for (const p of libProjects) {
-        columns[p.status].push(p);
-      }
+  // 2. Scan libraries/*/projects/ and libraries/*/clients/
+  const librariesDir = path.join(vaultPath, "libraries");
+  for (const libEntry of getDirectoryEntries(librariesDir)) {
+    if (!libEntry.isDirectory() || libEntry.name.startsWith(".")) continue;
+
+    const libraryDir = path.join(librariesDir, libEntry.name);
+    const source = humanizeFolderName(libEntry.name);
+    addProjects(scanProjectsDir(path.join(libraryDir, "projects"), vaultPath, source));
+    addProjects(scanClientsDir(path.join(libraryDir, "clients"), vaultPath, source));
+  }
+
+  // Fold legacy planning statuses into the active Projects list.
+  for (const status of ["considering", "refining"] as const) {
+    for (const p of columns[status]) {
+      p.status = "doing";
+      columns[p.status].push(p);
     }
+    columns[status] = [];
   }
 
   // Sort each column by most recently updated first

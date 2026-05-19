@@ -58,6 +58,8 @@ next-env.d.ts
 # Local files
 WARP.md
 local/
+!src/app/api/map/local/
+!src/app/api/map/local/**
 .dev-port
 dist/
 /.obsidian

@@ -37,6 +37,18 @@ function normalizeUrl(url: string): string {
   }
 }
 
+async function loadSourcesFromApi(): Promise<Source[]> {
+  try {
+    const res = await fetch("/api/sources");
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {
+    // API not available
+  }
+  return [];
+}
+
 export interface SourceWithStatus extends Source {
   available: boolean | null; // null = unknown/checking
   isActive: boolean;
@@ -68,24 +80,25 @@ export function useSources() {
 
   // Fetch sources from API
   const fetchSources = useCallback(async () => {
-    try {
-      const res = await fetch("/api/sources");
-      if (res.ok) {
-        const data: Source[] = await res.json();
-        setSources(data);
-        setLoaded(true);
-        return data;
-      }
-    } catch {
-      // API not available
-    }
+    const data = await loadSourcesFromApi();
+    setSources(data);
     setLoaded(true);
-    return [];
+    return data;
   }, []);
 
   useEffect(() => {
-    fetchSources();
-  }, [fetchSources]);
+    let cancelled = false;
+
+    loadSourcesFromApi().then(data => {
+      if (cancelled) return;
+      setSources(data);
+      setLoaded(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Self-heal: if running on localhost but no source URL matches (e.g. port changed),
   // update the first local source's URL to match the actual origin
@@ -157,12 +170,34 @@ export function useSources() {
     };
   }, [sources, currentOrigin]);
 
-  // Auto-fallback: if on a remote source and it goes down, redirect to a local
+  // Auto-fallback: if on a remote source and it goes down, redirect to the
+  // next available configured source in rank order.
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!activeSource || activeSource.type === "local") return;
 
     let mounted = true;
+
+    async function findFallbackUrl(): Promise<string> {
+      const activeId = activeSource?.id;
+      const sorted = [...sources].sort((a, b) => a.rank - b.rank);
+
+      for (const source of sorted) {
+        if (source.id === activeId || !source.url) continue;
+
+        if (source.type === "local") {
+          return source.url;
+        }
+
+        const available = await probeUrl(source.url);
+        if (mounted) {
+          setAvailability(prev => ({ ...prev, [source.id]: available }));
+        }
+        if (available) return source.url;
+      }
+
+      return LOCAL_FALLBACK;
+    }
 
     async function check() {
       try {
@@ -181,17 +216,10 @@ export function useSources() {
 
       consecutiveFailuresRef.current++;
       if (consecutiveFailuresRef.current >= 2 && mounted && !fallbackTimerRef.current) {
-        // Find fallback: topmost local, then topmost remote, then hardcoded
-        const activeId = activeSource?.id;
-        const sorted = [...sources].sort((a, b) => a.rank - b.rank);
-        const fallback =
-          sorted.find(s => s.type === "local" && s.id !== activeId) ??
-          sorted.find(s => s.type === "remote" && s.id !== activeId) ??
-          null;
-        const fallbackUrl = fallback?.url ?? LOCAL_FALLBACK;
-
         fallbackTimerRef.current = setTimeout(() => {
-          window.location.href = fallbackUrl;
+          void (async () => {
+            window.location.href = await findFallbackUrl();
+          })();
         }, FALLBACK_DELAY_MS);
       }
     }

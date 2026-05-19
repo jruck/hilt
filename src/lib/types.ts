@@ -172,7 +172,7 @@ export interface BridgePeopleResponse {
 export interface Source {
   id: string;                    // "src-<timestamp>-<random>"
   name: string;                  // User label: "My MacBook", "Mac Mini"
-  type: "local" | "remote";     // Affects fallback priority
+  type: "local" | "remote";     // Connection behavior and display; rank controls default/fallback order
   url: string;                   // Local: auto-derived by Electron. Remote: user-provided.
   folder?: string;               // Local only: absolute path (e.g., "/Users/me/work/bridge")
   rank: number;                  // 0-based, lower = higher priority

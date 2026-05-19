@@ -13,10 +13,19 @@ const SHORTCUTS = [
   { keys: "⌘ J", description: "Add task" },
   { keys: "⌘ 1", description: "Briefing" },
   { keys: "⌘ 2", description: "Bridge" },
-  { keys: "⌘ 3", description: "Docs" },
-  { keys: "⌘ 4", description: "People" },
+  { keys: "⌘ 3", description: "Map" },
+  { keys: "⌘ 4", description: "Docs" },
+  { keys: "⌘ 5", description: "People" },
   { keys: "Esc", description: "Close search" },
 ];
+
+const VIEW_KEYS: Record<string, ViewMode> = {
+  "1": "briefings",
+  "2": "bridge",
+  "3": "map",
+  "4": "docs",
+  "5": "people",
+};
 
 function ShortcutsPopup({ visible, onFocus }: { visible: boolean; onClose: () => void; onFocus?: () => void }) {
   if (!visible) return null;
@@ -70,11 +79,7 @@ export function NavBar({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const lastCmdPressRef = useRef<number>(0);
 
-  const VIEW_KEYS: Record<string, ViewMode> = { "1": "briefings", "2": "bridge", "3": "docs", "4": "people" };
-
   const showShortcuts = devMode && (activePanel === "all" || activePanel === "shortcuts");
-  const showNextjs = devMode && (activePanel === "all" || activePanel === "nextjs");
-  const showInspector = devMode && (activePanel === "all" || activePanel === "inspector");
 
   // Sync dev mode + focus attributes on body
   useEffect(() => {

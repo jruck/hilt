@@ -11,10 +11,11 @@ This document provides a comprehensive architectural overview of Hilt for AI age
 │  │  Next.js 16 + React 19                                            │  │
 │  │  ┌─────────────────────────────────────────────────────────────┐  │  │
 │  │  │  Board.tsx (Main Container)                                  │  │  │
-│  │  │  ├── ViewToggle (Bridge / Docs / Briefings / People)         │  │  │
+│  │  │  ├── ViewToggle (Briefing / Bridge / Map / Docs / People)    │  │  │
 │  │  │  ├── BridgeView (weekly tasks, projects, notes)              │  │  │
 │  │  │  ├── DocsView (markdown file browser + editor)               │  │  │
 │  │  │  ├── StackView (Claude config inspector)                     │  │  │
+│  │  │  ├── MapView (local work/session map)                        │  │  │
 │  │  │  └── PeopleView (people, groups, meeting history)            │  │  │
 │  │  └─────────────────────────────────────────────────────────────┘  │  │
 │  └───────────────────────────────────────────────────────────────────┘  │
@@ -207,7 +208,7 @@ hilt/
 ### 1. View Routing Flow
 
 ```
-URL: /bridge or /docs/Users/you/work/project or /stack/Users/you/work/project
+URL: /bridge, /map, /docs/Users/you/work/project, or /stack/Users/you/work/project
          │
          ▼
 [[...path]]/page.tsx (catch-all route)
@@ -218,10 +219,11 @@ ScopeProvider (ScopeContext.tsx)
          │ Handles pushState / popstate for SPA navigation
          ▼
 Board.tsx receives context via useScope()
-         │ Derives ViewMode: "bridge" | "docs" | "stack"
+         │ Derives ViewMode: "briefings" | "bridge" | "map" | "docs" | "stack" | "people"
          ▼
 Conditionally renders:
   - "bridge" → BridgeView
+  - "map"    → MapView (with global search)
   - "docs"   → DocsView (with scope + search)
   - "stack"  → StackView (with scope + search)
   - "people" → PeopleView (scope = person slug for deep links)
@@ -324,7 +326,33 @@ URL deep links: /people → list, /people/{slug} → detail
 Scope context carries the slug (not a filesystem path)
 ```
 
-### 6. Real-Time Event Flow
+### 6. Map View Data Flow
+
+```
+Codex state sqlite + Claude JSONL/JSON files
+         │
+         ▼
+ensureMapIndexFresh(maxAgeMs=15000)
+         │ compares source mtimeMs + size
+         ▼
+${DATA_DIR}/map.sqlite
+         │ normalized metadata only; no raw transcripts
+         ├── map_sessions
+         ├── map_source_files
+         ├── map_overrides
+         └── map_checkpoints
+         │
+         ├── GET /api/map/local/work-graph
+         │     returns filtered tree, counts, diagnostics
+         ├── GET /api/map/local/sessions
+         │     returns paginated session summaries
+         └── GET /api/map/local/session-detail
+               reads provider history file on explicit click
+```
+
+The Map feature is local-first and designed for Tailscale-served access to the development machine. Convex/cloud replication is intentionally deferred unless Hilt needs multi-machine collaboration, offline cloud availability, or cross-mothership replication. Browser requests never provide file paths for history reads; the server resolves `sourcePath` from indexed session metadata. Map visibility is classified as `foreground` or `background`: foreground is the default human-legible work view, while background keeps workers, sidechains, unmapped, stale, and automation-like sessions available without letting them dominate the default map.
+
+### 7. Real-Time Event Flow
 
 ```
 WebSocket connection: ws://localhost:3001/events
@@ -355,10 +383,12 @@ Components receive events and trigger SWR revalidation
 | State | Location | Persistence | Purpose |
 |-------|----------|-------------|---------|
 | Theme preference | `data/preferences.json` | Server JSON | Light/dark/system |
-| View mode | `data/preferences.json` + URL | Server JSON + URL | Bridge/Docs/Stack |
+| View mode | `data/preferences.json` + URL | Server JSON + URL | Briefing/Bridge/Map/Docs/Stack/People |
 | Bridge vault path | `data/preferences.json` | Server JSON | Path to bridge vault |
 | Working folder | `data/preferences.json` | Server JSON | Default scope for all views |
 | Draft prompts | `Todo.md` / `data/inbox.json` | Local files | Queued prompts |
+| Source list | `${DATA_DIR}/sources.json` | Server JSON | Local/remote Hilt sources; rank order controls startup and fallback |
+| Map index | `${DATA_DIR}/map.sqlite` | SQLite | Local Codex/Claude session metadata, source scan status, overrides |
 | Scope path | URL + ScopeContext | URL state | Current folder scope |
 
 ## API Routes
@@ -385,6 +415,11 @@ Components receive events and trigger SWR revalidation
 | `/api/claude-stack` | GET | Stack discovery | `scope` |
 | `/api/claude-stack/file` | GET/PUT | Config file read/write | `path` |
 | `/api/claude-stack/mcp` | GET | MCP server details | `scope` |
+| `/api/map/local/work-graph` | GET | Indexed local Map tree + counts | `window`, `status`, `source`, `q` |
+| `/api/map/local/sessions` | GET | Paginated indexed session summaries | `nodeId`, `cursor`, `limit` |
+| `/api/map/local/session-detail` | GET | Explicit read-only history preview | `id`, `limit` |
+| `/api/map/local/refresh` | POST | Force Map index scan | - |
+| `/api/map/local/source-status` | GET | Latest Map scan diagnostics | - |
 | `/api/inbox` | GET | List draft prompts | `scope` |
 | `/api/inbox` | POST | Create draft | `prompt`, `projectPath` |
 | `/api/inbox` | PATCH | Update draft | `id`, `prompt` |
@@ -454,7 +489,7 @@ Board.tsx (274 lines)
 ├── Top Toolbar
 │   ├── Search input
 │   ├── ThemeToggle
-│   └── ViewToggle (Bridge / Docs / Stack) — centered
+│   └── ViewToggle (Briefing / Bridge / Map / Docs / People) — centered
 │
 ├── Main Content (conditional on viewMode)
 │   ├── viewMode === "bridge"
@@ -486,6 +521,13 @@ Board.tsx (274 lines)
 │   │           ├── MCPServerDetail (MCP inspector)
 │   │           ├── PluginDetail (plugin inspector)
 │   │           └── CreateFileDialog (new config)
+│   │
+│   ├── viewMode === "map"
+│   │   └── MapView
+│   │       ├── compact activity/status/source toolbar
+│   │       ├── treemap work graph
+│   │       ├── paginated session list
+│   │       └── explicit history preview
 │   │
 │   └── viewMode === "people"
 │       └── PeopleView (URL: /people or /people/{slug})
@@ -562,7 +604,7 @@ interface BridgeProject {
 ```typescript
 interface UserPreferences {
   theme: "light" | "dark" | "system";
-  viewMode: "bridge" | "docs" | "stack";
+  viewMode: "briefings" | "bridge" | "map" | "docs" | "stack" | "people";
   inboxPath?: string;
   bridgeVaultPath?: string;
   workingFolder?: string;

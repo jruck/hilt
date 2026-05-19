@@ -36,6 +36,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
+const http = __importStar(require("http"));
+const https = __importStar(require("https"));
 const child_process_1 = require("child_process");
 // Load .env file so Electron has access to the same env vars as Next.js
 const envPath = path.join(__dirname, "..", ".env");
@@ -84,6 +86,9 @@ function flushPendingStartupActivities() {
         }
         pendingStartupActivities.length = 0;
     }
+}
+function sortSourcesByRank(sources) {
+    return [...sources].sort((a, b) => a.rank - b.rank);
 }
 /**
  * Find an available port
@@ -145,6 +150,61 @@ async function isHiltServer(port) {
         });
         req.end();
     });
+}
+/**
+ * Probe any configured source URL for Hilt's /api/ws-port route.
+ * Accepts 200 (WS available) and 503 (Hilt route exists, WS still starting).
+ */
+async function isHiltSourceUrl(url) {
+    return new Promise((resolve) => {
+        let endpoint;
+        try {
+            endpoint = new URL("/api/ws-port", url);
+        }
+        catch {
+            resolve(false);
+            return;
+        }
+        const client = endpoint.protocol === "https:" ? https : http;
+        const req = client.request(endpoint, { method: "GET", timeout: 2000 }, (res) => {
+            const contentType = String(res.headers["content-type"] || "");
+            const status = res.statusCode;
+            const looksLikeHilt = contentType.includes("application/json") && (status === 200 || status === 503);
+            resolve(looksLikeHilt);
+            res.resume();
+        });
+        req.on("error", () => resolve(false));
+        req.on("timeout", () => {
+            req.destroy();
+            resolve(false);
+        });
+        req.end();
+    });
+}
+async function resolveStartupUrl(sources, fallbackPort) {
+    for (const source of sortSourcesByRank(sources)) {
+        if (source.type === "local") {
+            if (source.url) {
+                try {
+                    const port = parseInt(new URL(source.url).port || "3000", 10);
+                    if (await isHiltServer(port))
+                        return source.url;
+                }
+                catch {
+                    // Try the local server started for this launch.
+                }
+            }
+            if (await isHiltServer(fallbackPort))
+                return `http://localhost:${fallbackPort}`;
+            continue;
+        }
+        if (!source.url)
+            continue;
+        if (await isHiltSourceUrl(source.url)) {
+            return source.url;
+        }
+    }
+    return `http://localhost:${fallbackPort}`;
 }
 /**
  * Find an existing Hilt dev server on common ports.
@@ -617,7 +677,7 @@ async function createWindow() {
         detail: DATA_DIR,
     });
     // Read sources and start servers
-    const sources = readSourcesConfig();
+    const sources = sortSourcesByRank(readSourcesConfig());
     const localSourcesWithFolder = sources.filter(s => s.type === "local" && s.folder);
     let port;
     if (localSourcesWithFolder.length > 0 && !electron_1.app.isPackaged) {
@@ -658,7 +718,7 @@ async function createWindow() {
             status: "complete",
             detail: `${servers.size} server(s) running`,
         });
-        // Use first local source's port
+        // Keep a local port available even when startup opens a higher-priority remote.
         const firstInstance = servers.get(localSourcesWithFolder[0].id);
         port = firstInstance?.port ?? 3000;
         serverPort = port;
@@ -709,14 +769,15 @@ async function createWindow() {
         label: "Creating application window",
         status: "complete",
     });
-    // Load the Next.js app
+    // Load the first available source by configured order.
+    const startupUrl = await resolveStartupUrl(sources, port);
     sendStartupActivity({
         id: "load-app",
         label: "Loading application",
         status: "active",
-        detail: `Connecting to localhost:${port}...`,
+        detail: `Connecting to ${new URL(startupUrl).host}...`,
     });
-    mainWindow.loadURL(`http://localhost:${port}`);
+    mainWindow.loadURL(startupUrl);
     // Log any load errors
     mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
         console.error(`Failed to load: ${errorCode} - ${errorDescription}`);

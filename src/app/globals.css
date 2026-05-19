@@ -209,6 +209,62 @@ body {
   overflow: hidden;
 }
 
+.map-activity-range {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+
+.map-activity-range:focus {
+  outline: none;
+}
+
+.map-activity-range::-webkit-slider-runnable-track {
+  height: 2px;
+  border-radius: 999px;
+  background: var(--border-default);
+}
+
+.map-activity-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -6px;
+  border: 2px solid var(--bg-primary);
+  border-radius: 999px;
+  background: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35);
+}
+
+.map-activity-range:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 1px rgba(59, 130, 246, 0.45),
+    0 0 0 4px rgba(59, 130, 246, 0.18);
+}
+
+.map-activity-range::-moz-range-track {
+  height: 2px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--border-default);
+}
+
+.map-activity-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--bg-primary);
+  border-radius: 999px;
+  background: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35);
+}
+
+.map-activity-range:focus-visible::-moz-range-thumb {
+  box-shadow:
+    0 0 0 1px rgba(59, 130, 246, 0.45),
+    0 0 0 4px rgba(59, 130, 246, 0.18);
+}
+
 /* ============================================
    MDXEditor Light Theme
    ============================================ */
@@ -1826,4 +1882,3 @@ body[data-dev-focus="inspector"] [data-feedback-toolbar] {
   height: 0;
   pointer-events: none;
 }
-

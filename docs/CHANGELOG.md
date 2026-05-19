@@ -6,11 +6,47 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Added
+
+- **Map local SQLite readiness pass** — The Map view is now local-first and indexed in `${DATA_DIR}/map.sqlite` instead of reading Codex/Claude source stores on every request. Added `better-sqlite3`, incremental source scans keyed by file `mtimeMs + size`, `map_sessions`, `map_source_files`, `map_overrides`, and `map_checkpoints` tables, plus `HILT_MAP_LOCAL_ENABLED` and `HILT_MAP_HISTORY_PREVIEW` gates. Codex ingestion no longer has the prototype `LIMIT 500`; Claude project/app files are scanned incrementally. Graph responses now omit full session arrays and raw history, session lists are paginated, and history preview resolves source paths only from indexed metadata.
+
+- **Map readiness tests and perf gate** — Added Map query/contract tests for status/source/window filtering, override precedence, background inclusion, paginated sessions, pathless graph/session responses, session-detail rejection, and history caps/redaction. Added `npm run test:map:perf`, which seeds a 50k-session/1k-workspace SQLite fixture and asserts warm graph/page payload and latency targets.
+
+- **Map copyable session identifiers** — Session rows and history preview now show a copyable Map session id, so the user can paste a specific id back into chat or search. Map text search now includes Map ids, provider ids, and provider external keys.
+
 ### Changed
+
+- **Map UI compact toolbar** — Replaced the prototype title/sidebar controls with a compact control bar: activity slider, status dropdown, source dropdown, refresh action, counts, and collapsed diagnostics. Source filters now collapse to `All`, `Codex`, and `Claude`; advanced provider diagnostics stay behind the database icon. Mobile keeps a staged flow: tree first, filters behind a button, sessions after non-root selection, history after session selection.
+
+- **Map selection chrome cleanup** — Folded the selected tree summary into the filter toolbar, removed the separate treemap header row and `All` reset button, added tick marks to the activity slider, made treemap/session clicks toggle selection, and only renders the history pane after a session is selected. History preview now also has its own close button.
+
+- **Map activity chrome cleanup** — Consolidated the selected work summary and global session/workspace counts on the right side of the toolbar. Removed visible raw `heat` scores from the toolbar and treemap nodes; activity heat remains an internal sizing/sorting signal, while visible labels stick to sessions/workspaces/active counts.
+
+- **Map responsive toolbar ladder** — The selected work/session/workspace summary now hides at a custom intermediate width before the filter controls run out of room, and the filters collapse behind the compact filter button at the next narrower breakpoint. This keeps narrow Map widths from overlapping the filter controls without dropping the summary too early on roomy desktop widths.
+
+- **Map selected-session responsive layout** — The Map now keeps tree, session list, and history preview in a three-column layout down to the mobile breakpoint. When a history preview is open on narrower desktop/tablet widths, the treemap shrinks first instead of wrapping the history panel below the map.
+
+- **Map foreground/background visibility model** — Replaced the prototype `Tracked`/`Unmatched`/`Ignored` status language with `Foreground`/`Background`. Foreground is now reserved for human-legible top-level work; background keeps disposable workers, sidechains, unmapped, stale, suppressed, and automation-like sessions inspectable without letting them dominate the default map. Legacy `tracked`, `unmatched`, and `ignored` rows/query params are migrated to `foreground` and `background`.
+
+- **Map background status icon** — Replaced the amber warning triangle on background sessions with a small amber dot. Background is a lower-salience visibility state, not an error or caution state.
+
+- **Map Codex foreground signal tuning** — Codex Mac app / remote-control rows now treat a stored `first_user_message` as a foreground human signal, since those sessions may not populate `thread_source=user` or `has_user_event`. OpenClaw/Clawd automation workspaces remain background via an explicit automation-like workspace heuristic, which keeps human-titled Codex sessions such as Chief of Staff, Documents planning, and Sonarr/Radarr visible without promoting routine background runs.
+
+- **Map Claude title detection** — Claude project JSONL parsing now recognizes `aiTitle` from `ai-title` rows. These titles count as human-readable session titles, so real Claude sessions with generated titles are not incorrectly backgrounded as `missing human-readable title`.
+
+- **Map foreground signal precedence** — User turns are now sufficient to classify a non-worker, non-automation session as foreground even when no generated title exists. Claude sessions without `aiTitle` fall back to a compact first-user-message title, while explicit cron prompts still remain background.
+
+- **Map OpenClaw source-aware classification** — Claude project sessions now distinguish direct user prompts from OpenClaw-routed background prompts. Slack DMs from Justin and plain user prompts remain foreground; inter-session `isUser=false` messages, heartbeat checks, continued background transcripts, OpenClaw update notices, cron prompts, and probe sessions stay background with explicit reasons.
+
+- **Source startup and fallback order** — The source list order is now authoritative for default library selection. Electron startup opens the first available configured source by rank, whether local or remote, and renderer fallback uses the same order when an active remote stops responding. Local sources no longer leapfrog higher-ranked remote sources; unavailable remotes are skipped until the next available source.
 
 - **Docs editor: replaced MDXEditor with CodeMirror + ReactMarkdown** — Edit mode now uses a plain markdown source editor (`@codemirror/lang-markdown`) so files round-trip byte-exact: no more escaped `[[wikilinks]]`, no normalized bullet markers, no reformatted line breaks. Read mode unifies on `ReactMarkdown + remarkGfm + rehypeRaw` (previously only used for files containing `<details>` blocks); wikilink + image rewriting and Mermaid block rendering are preserved. Frontmatter editing UI is unchanged. **Tradeoffs:** no WYSIWYG toolbar, no rich image-insert dialog, no syntax-colored code blocks in read mode (added `rehype-highlight` as a dep for a follow-up). `DocsEditor`'s imperative ref API (`getMarkdown`/`setMarkdown`) is dropped — no consumers used it. Deleted orphan `src/components/PlanEditor.tsx`. Removed `@mdxeditor/editor` from dependencies. Simplified the "baseline content" workaround in `useDocs.ts` and `StackContentPane.tsx` since byte-exact edits make the comparison `editedContent !== loadedContent`.
 
 ### Fixed
+
+- **Map activity slider alignment** — Moved activity tick marks above the slider track, centered each label/tick/thumb stop on the same horizontal position, and restyled the range thumb with an opaque app-background border so ticks do not show through the selected dot.
+
+- **Tailscale-served dev routes rendering blank** — Added `allowedDevOrigins` in `next.config.ts`, derived from `NEXT_PUBLIC_REMOTE_HOST`, so Next dev allows the Tailscale host to load development assets/endpoints. Without this, `/map/...` over `https://xochipilli...ts.net` could return HTML and API data but never hydrate the client shell.
 
 - **Wikilinks with section anchors rendered as broken** — `resolveWikilink` in `src/lib/docs/wikilink-resolver.ts` did an exact-target lookup against the file map, so `[[file#Heading]]` never matched. Now strips the `#anchor` portion before resolution; the link opens the file at the top, and the alias half (`[[file#Heading|Display]]`) preserves the section label in the rendered text.
 
@@ -86,11 +122,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   - Types: `Source` interface in `src/lib/types.ts`
   - Persistence: `readSourcesFile`/`writeSourcesFile` + CRUD ops (`getSources`, `addSource`, `updateSource`, `deleteSource`, `reorderSources`) in `src/lib/db.ts`. Includes one-time migration from `NEXT_PUBLIC_REMOTE_HOST` env var.
   - API: `src/app/api/sources/route.ts` — GET (list), POST (add), PATCH (update/reorder), DELETE (remove)
-  - Hook: `useSources()` in `src/hooks/useSource.ts` — full rewrite. Fetches sources from API, detects active source by URL match, polls availability of non-active sources, auto-fallback when remote goes down (local-first priority), CRUD wrappers.
+  - Hook: `useSources()` in `src/hooks/useSource.ts` — full rewrite. Fetches sources from API, detects active source by URL match, polls availability of non-active sources, auto-fallback when remote goes down, CRUD wrappers.
   - Management modal: `src/components/SourceManageModal.tsx` — drag-and-drop reordering via @dnd-kit, inline name editing, type toggle, add form, delete
   - SourceToggle rewrite: Unconfigured state shows onboarding with quick-add; configured state shows dropdown with source list, availability dots, active checkmark, and "Manage Sources..." link. Smart hint when running at an unrecognized origin.
   - Electron: `electron/main.ts` — internal URL allowlist now reads from `sources.json` instead of hardcoded `NEXT_PUBLIC_REMOTE_HOST`
-  - Fallback priority: topmost local → next local → topmost remote → `localhost:3000`
+  - Default/fallback priority: configured rank order, skipping unavailable remote sources, then `localhost:3000`
 
 - **People tab (Phase 1)** — New primary tab (⌘4) that surfaces people, groups, and meeting history from the bridge vault's `people/` and `meetings/` directories. Features: people list view with search filtering, person detail panel with inline notes and Granola meeting matching, responsive split-panel layout (desktop) and full-screen detail (mobile). Read-only in Phase 1.
   - Types: `BridgePerson`, `PersonMeeting`, `PersonDetail`, `BridgePeopleResponse` in `src/lib/types.ts`

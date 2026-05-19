@@ -1,14 +1,14 @@
 "use client";
 
 import React from "react";
-import { FileText, Compass, CalendarDays, Users } from "lucide-react";
+import { FileText, Compass, CalendarDays, Users, Map as MapIcon } from "lucide-react";
 import { useHaptics } from "@/hooks/useHaptics";
 
 // The underlying view mode stored in state/preferences
-export type ViewMode = "docs" | "stack" | "bridge" | "briefings" | "people";
+export type ViewMode = "docs" | "stack" | "bridge" | "briefings" | "people" | "map";
 
 // Primary view categories (same as ViewMode now)
-export type PrimaryView = "docs" | "stack" | "bridge" | "briefings" | "people";
+export type PrimaryView = "docs" | "stack" | "bridge" | "briefings" | "people" | "map";
 
 // Helper to derive primary view from viewMode
 export function getPrimaryView(viewMode: ViewMode): PrimaryView {
@@ -31,8 +31,9 @@ interface ViewToggleProps {
 const VIEW_CONFIG = [
   { id: "briefings" as const, label: "Briefing", icon: CalendarDays, title: "Daily briefing", shortcut: "1" },
   { id: "bridge" as const, label: "Bridge", icon: Compass, title: "Bridge weekly tasks & projects", shortcut: "2" },
-  { id: "docs" as const, label: "Docs", icon: FileText, title: "Documentation", shortcut: "3" },
-  { id: "people" as const, label: "People", icon: Users, title: "People & meetings", shortcut: "4" },
+  { id: "map" as const, label: "Map", icon: MapIcon, title: "Work-state map", shortcut: "3" },
+  { id: "docs" as const, label: "Docs", icon: FileText, title: "Documentation", shortcut: "4" },
+  { id: "people" as const, label: "People", icon: Users, title: "People & meetings", shortcut: "5" },
 ];
 
 export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActive, unreadTabs }: ViewToggleProps) {

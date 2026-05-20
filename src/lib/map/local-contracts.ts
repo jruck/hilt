@@ -34,6 +34,14 @@ const activityHeatSchema = z.object({
   heatAll: z.number(),
 }).strict();
 
+const workFootprintSchema = z.object({
+  path: z.string(),
+  label: z.string(),
+  weight: z.number(),
+  eventCount: z.number(),
+  kinds: z.array(z.enum(["read", "write", "shell", "search"])),
+}).strict();
+
 export const publicSessionSchema: z.ZodType<Omit<LocalSession, "sourcePath">> = z.object({
   id: z.string(),
   provider: z.enum(["codex", "claude"]),
@@ -59,6 +67,7 @@ export const publicSessionSchema: z.ZodType<Omit<LocalSession, "sourcePath">> = 
   tokenEstimate: z.number().optional(),
   parentExternalId: z.string().optional(),
   childExternalIds: z.array(z.string()).optional(),
+  workFootprint: z.array(workFootprintSchema).optional(),
   activity: activityHeatSchema,
   signals: z.array(z.string()),
   ignoreReasons: z.array(z.string()),
@@ -67,7 +76,7 @@ export const publicSessionSchema: z.ZodType<Omit<LocalSession, "sourcePath">> = 
 export const mapNodeSchema: z.ZodType<LocalMapNode> = z.lazy(() => z.object({
   id: z.string(),
   title: z.string(),
-  kind: z.enum(["root", "space", "workspace", "workItem"]),
+  kind: z.enum(["root", "space", "workspace", "folder", "workItem"]),
   parentId: z.string().optional(),
   path: z.string().optional(),
   repoRemote: z.string().optional(),

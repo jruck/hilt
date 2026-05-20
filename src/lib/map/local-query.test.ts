@@ -105,6 +105,48 @@ test("graph response omits full sessions and strips node session ids", async () 
   });
 });
 
+test("indexed graph exposes work footprint folder nodes and pages by folder", async () => {
+  await withTempMapDb(() => {
+    upsertMapSessions(getMapDb(), [
+      sampleSession("folder-work", {
+        workspaceRoot: "/work/engineering/hilt",
+        workspaceLabel: "hilt",
+        spaceLabel: "work/engineering",
+        workFootprint: [{
+          path: "/work/engineering/hilt/src/lib/map",
+          label: "src/lib/map",
+          weight: 18,
+          eventCount: 4,
+          kinds: ["read", "write"],
+        }],
+      }),
+    ]);
+
+    const graph = graphResponseSchema.parse(buildIndexedWorkGraph(graphQuerySchema.parse({
+      window: "7d",
+      status: "foreground",
+      source: "all",
+    })));
+    const folder = graph.root.children[0].children[0].children[0];
+
+    assert.equal(folder.kind, "folder");
+    assert.equal(folder.title, "src/lib/map");
+    assert.equal(folder.path, undefined);
+    assert.deepEqual(folder.sessionIds, []);
+
+    const page = sessionsResponseSchema.parse(queryIndexedSessionPage(sessionsQuerySchema.parse({
+      window: "7d",
+      status: "foreground",
+      source: "all",
+      nodeId: folder.id,
+    })));
+
+    assert.equal(page.total, 1);
+    assert.equal(page.items[0].id, "folder-work");
+    assert.equal(page.items[0].workFootprint?.[0].label, "src/lib/map");
+  });
+});
+
 test("overrides take precedence for tracking and workspace grouping", async () => {
   await withTempMapDb(() => {
     upsertMapSessions(getMapDb(), [

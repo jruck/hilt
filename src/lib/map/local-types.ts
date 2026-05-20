@@ -19,6 +19,16 @@ export interface ActivityHeat {
   heatAll: number;
 }
 
+export type WorkFootprintKind = "read" | "write" | "shell" | "search";
+
+export interface WorkFootprintEntry {
+  path: string;
+  label: string;
+  weight: number;
+  eventCount: number;
+  kinds: WorkFootprintKind[];
+}
+
 export interface LocalSession {
   id: string;
   provider: LocalSessionProvider;
@@ -45,6 +55,7 @@ export interface LocalSession {
   tokenEstimate?: number;
   parentExternalId?: string;
   childExternalIds?: string[];
+  workFootprint?: WorkFootprintEntry[];
   activity: ActivityHeat;
   signals: string[];
   ignoreReasons: string[];
@@ -68,7 +79,7 @@ export interface LocalSourceStatus {
 export interface LocalMapNode {
   id: string;
   title: string;
-  kind: "root" | "space" | "workspace" | "workItem";
+  kind: "root" | "space" | "workspace" | "folder" | "workItem";
   parentId?: string;
   path?: string;
   repoRemote?: string;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   CheckCircle2,
@@ -48,6 +48,26 @@ interface Rect {
   height: number;
 }
 
+interface VisibleRect extends Rect {
+  depth: number;
+  hasVisibleChildren: boolean;
+}
+
+interface TreemapSize {
+  width: number;
+  height: number;
+}
+
+type TreemapViewport = Pick<Rect, "x" | "y" | "width" | "height">;
+
+const MAX_INLINE_TREEMAP_DEPTH = 2;
+const INLINE_CHILD_MIN_WIDTH = 190;
+const INLINE_CHILD_MIN_HEIGHT = 132;
+const INLINE_CHILD_MIN_AREA = 34_000;
+const INLINE_CHILD_INSET = 6;
+const INLINE_PARENT_HEADER_HEIGHT = 48;
+const INLINE_CHILD_MIN_VIEWPORT_HEIGHT = 92;
+
 function heat(node: LocalMapNode, window: ActivityWindow): number {
   return Math.max(heatForWindow(node.activity, window), 0.01);
 }
@@ -86,6 +106,48 @@ function layoutTreemap(nodes: LocalMapNode[], window: ActivityWindow, x = 0, y =
   ];
 }
 
+function canShowInlineChildren(node: LocalMapNode, rect: Rect, depth: number): boolean {
+  if (node.children.length === 0 || depth >= MAX_INLINE_TREEMAP_DEPTH) return false;
+  if (rect.width < INLINE_CHILD_MIN_WIDTH || rect.height < INLINE_CHILD_MIN_HEIGHT) return false;
+
+  const viewport = childViewport(rect);
+  if (viewport.width < 120 || viewport.height < INLINE_CHILD_MIN_VIEWPORT_HEIGHT) return false;
+
+  const childAreaBudget = Math.min(node.children.length, 6) * 7_500;
+  return viewport.width * viewport.height >= Math.max(INLINE_CHILD_MIN_AREA, childAreaBudget);
+}
+
+function childViewport(rect: Rect): TreemapViewport {
+  return {
+    x: rect.x + INLINE_CHILD_INSET,
+    y: rect.y + INLINE_PARENT_HEADER_HEIGHT,
+    width: Math.max(0, rect.width - INLINE_CHILD_INSET * 2),
+    height: Math.max(0, rect.height - INLINE_PARENT_HEADER_HEIGHT - INLINE_CHILD_INSET),
+  };
+}
+
+function layoutVisibleTreemap(
+  nodes: LocalMapNode[],
+  window: ActivityWindow,
+  viewport: TreemapViewport,
+  depth = 0,
+): VisibleRect[] {
+  const directRects = layoutTreemap(nodes, window, viewport.x, viewport.y, viewport.width, viewport.height);
+  const visible: VisibleRect[] = [];
+
+  for (const rect of directRects) {
+    const hasVisibleChildren = canShowInlineChildren(rect.node, rect, depth);
+    visible.push({ ...rect, depth, hasVisibleChildren });
+
+    if (hasVisibleChildren) {
+      const viewport = childViewport(rect);
+      visible.push(...layoutVisibleTreemap(rect.node.children, window, viewport, depth + 1));
+    }
+  }
+
+  return visible;
+}
+
 function formatAge(timestamp?: number) {
   if (!timestamp) return "unknown";
   const diff = Date.now() - timestamp;
@@ -121,6 +183,19 @@ function paramsFor(filters: {
 function walkNode(node: LocalMapNode, visit: (node: LocalMapNode) => void) {
   visit(node);
   node.children.forEach((child) => walkNode(child, visit));
+}
+
+function nodePath(node: LocalMapNode | undefined, nodeById: Map<string, LocalMapNode>): LocalMapNode[] {
+  if (!node) return [];
+  const path: LocalMapNode[] = [];
+  const seen = new Set<string>();
+  let current: LocalMapNode | undefined = node;
+  while (current && !seen.has(current.id)) {
+    path.unshift(current);
+    seen.add(current.id);
+    current = current.parentId ? nodeById.get(current.parentId) : undefined;
+  }
+  return path;
 }
 
 function statusIcon(status: LocalSession["trackingState"]) {
@@ -331,6 +406,7 @@ function FilterControls({
 }
 
 export function MapView({ searchQuery }: { searchQuery?: string }) {
+  const treemapRef = useRef<HTMLDivElement | null>(null);
   const [window, setWindow] = useState<ActivityWindow>("7d");
   const [statusFilter, setStatusFilter] = useState<MapStatusFilter>("foreground");
   const [sourceFilter, setSourceFilter] = useState<MapSourceFilter>("all");
@@ -349,6 +425,7 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
   const [error, setError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null);
+  const [treemapSize, setTreemapSize] = useState<TreemapSize>({ width: 0, height: 0 });
 
   const filterParams = useMemo(() => paramsFor({
     window,
@@ -412,6 +489,27 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterParams]);
 
+  useEffect(() => {
+    const element = treemapRef.current;
+    if (!element) return;
+
+    const updateSize = () => {
+      const rect = element.getBoundingClientRect();
+      const next = {
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      };
+      setTreemapSize((current) => (
+        current.width === next.width && current.height === next.height ? current : next
+      ));
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   const nodeById = useMemo(() => {
     const map = new Map<string, LocalMapNode>();
     if (graph?.root) walkNode(graph.root, (node) => map.set(node.id, node));
@@ -466,7 +564,22 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
   }, [selectedSessionId]);
 
   const selectedNode = nodeById.get(selectedId) ?? graph?.root;
-  const treemapRects = useMemo(() => layoutTreemap(graph?.root.children ?? [], window), [graph?.root.children, window]);
+  const selectedPath = useMemo(() => nodePath(selectedNode, nodeById), [nodeById, selectedNode]);
+  const treemapParent = useMemo(() => {
+    if (!graph?.root) return undefined;
+    const current = nodeById.get(selectedId) ?? graph.root;
+    if (current.children.length > 0) return current;
+    return current.parentId ? nodeById.get(current.parentId) ?? graph.root : graph.root;
+  }, [graph?.root, nodeById, selectedId]);
+  const treemapRects = useMemo(() => {
+    if (!treemapParent || treemapSize.width <= 0 || treemapSize.height <= 0) return [];
+    return layoutVisibleTreemap(treemapParent.children, window, {
+      x: 0,
+      y: 0,
+      width: treemapSize.width,
+      height: treemapSize.height,
+    });
+  }, [treemapParent, treemapSize, window]);
   const selectedSessionCount = selectedNode?.sessionCount ?? graph?.summary.totalSessions ?? 0;
   const selectedTitle = selectedNode?.title ?? "All matching work";
   const hasSelectedSession = Boolean(selectedSessionId);
@@ -612,10 +725,47 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
       ) : (
         <div className={`grid min-h-0 flex-1 ${layoutColumns}`}>
           <main className="flex min-h-0 flex-col overflow-hidden border-r border-[var(--border-default)] max-md:border-r-0">
-            <div className="min-h-[420px] flex-1 overflow-hidden p-3">
-              <div className="relative h-full min-h-[360px] rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)]">
+            <div className="flex min-h-[420px] flex-1 flex-col overflow-hidden p-3">
+              {selectedId !== "root" && selectedPath.length > 0 && (
+                <div className="mb-2 flex min-h-7 min-w-0 items-center gap-1 text-xs text-[var(--text-tertiary)]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedId("root");
+                      setSelectedSessionId(null);
+                    }}
+                    className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-[var(--border-default)] px-2 font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                    All
+                  </button>
+                  <div className="flex min-w-0 items-center gap-1 overflow-hidden">
+                    {selectedPath.slice(1).map((node, index) => (
+                      <button
+                        key={node.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedId(node.id);
+                          setSelectedSessionId(null);
+                        }}
+                        className={`min-w-0 truncate rounded px-1.5 py-1 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] ${
+                          index === selectedPath.length - 2 ? "text-[var(--text-secondary)]" : ""
+                        }`}
+                        title={node.title}
+                      >
+                        {node.title}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div ref={treemapRef} className="relative min-h-[360px] flex-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)]">
                 {treemapRects.map((rect) => {
                   const selected = rect.node.id === selectedId;
+                  const isNested = rect.depth > 0;
+                  const isTiny = rect.width < 120 || rect.height < 74;
+                  const showMeta = rect.height >= 74 && rect.width >= 120;
+                  const showKind = rect.height >= 92 && rect.width >= 150;
                   return (
                     <button
                       key={rect.node.id}
@@ -626,24 +776,33 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
                       className={`absolute overflow-hidden border text-left transition-colors ${
                         selected
                           ? "border-blue-500 bg-blue-500/15"
-                          : "border-[var(--border-default)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-tertiary)]"
+                          : isNested
+                            ? "border-[var(--border-subtle)] bg-[var(--bg-primary)]/90 hover:bg-[var(--bg-tertiary)]"
+                            : "border-[var(--border-default)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-tertiary)]"
                       }`}
                       style={{
-                        left: `${rect.x}%`,
-                        top: `${rect.y}%`,
-                        width: `${rect.width}%`,
-                        height: `${rect.height}%`,
+                        left: rect.x,
+                        top: rect.y,
+                        width: rect.width,
+                        height: rect.height,
+                        zIndex: rect.depth * 10 + (selected ? 3 : 1),
                       }}
                     >
-                      <div className="flex h-full flex-col justify-between p-2">
+                      <div className={`flex h-full flex-col ${rect.hasVisibleChildren ? "justify-start p-1.5" : "justify-between p-2"}`}>
                         <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold">{rect.node.title}</div>
-                          <div className="mt-0.5 truncate text-xs text-[var(--text-tertiary)]">{rect.node.kind}</div>
+                          <div className={`truncate font-semibold ${isNested || isTiny ? "text-xs" : "text-sm"}`}>{rect.node.title}</div>
+                          {showKind && (
+                            <div className="mt-0.5 truncate text-xs text-[var(--text-tertiary)]">
+                              {rect.hasVisibleChildren ? `${rect.node.children.length} areas` : rect.node.kind}
+                            </div>
+                          )}
                         </div>
-                        <div className="flex items-center justify-between gap-2 text-xs text-[var(--text-secondary)]">
-                          <span>{rect.node.sessionCount} sessions</span>
-                          {rect.node.activeSessionCount > 0 && <span>{rect.node.activeSessionCount} active</span>}
-                        </div>
+                        {showMeta && !rect.hasVisibleChildren && (
+                          <div className="flex items-center justify-between gap-2 text-xs text-[var(--text-secondary)]">
+                            <span>{rect.node.sessionCount} sessions</span>
+                            {rect.node.activeSessionCount > 0 && <span>{rect.node.activeSessionCount} active</span>}
+                          </div>
+                        )}
                       </div>
                     </button>
                   );

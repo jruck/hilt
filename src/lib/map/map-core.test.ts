@@ -6,10 +6,11 @@ import test from "node:test";
 import { computeActivityHeat } from "./activity-heat";
 import { classifyTrackingState } from "./ignore-rules";
 import { claudeAutomationReason, isClaudeAutomationPrompt, isClaudeDirectUserPrompt, readClaudeProjectSession } from "./local-adapters/claude";
-import { hasCodexForegroundHumanSignal, isCodexAutomationLike } from "./local-adapters/codex";
+import { hasCodexForegroundHumanSignal, isCodexAutomationLike, mapCodexRowsToLocalSessions, parseCodexSource } from "./local-adapters/codex";
 import { extractClaudeProjectHistoryEntries, extractCodexHistoryEntries } from "./local-session-detail";
 import type { LocalSession } from "./local-types";
 import { buildSessionTree } from "./work-graph-builder";
+import { extractCodexWorkFootprintFromRows } from "./work-footprint";
 import { inferWorkspace } from "./workspace-grouping";
 
 function sampleSession(id: string, overrides: Partial<LocalSession> = {}): LocalSession {
@@ -248,6 +249,140 @@ test("Codex foreground signal handles Mac app rows while automation workspaces s
   assert.equal(isCodexAutomationLike({ cwd: "/Users/jruck/Documents/Codex/2026-05-19/session" }), false);
 });
 
+test("Codex subagents spawned by foreground human-led sessions stay foreground", () => {
+  const now = Date.now();
+  const parentId = "parent-human";
+  const childId = "child-worker";
+  const automationChildId = "child-automation";
+  const childSource = JSON.stringify({
+    subagent: {
+      thread_spawn: {
+        parent_thread_id: parentId,
+        depth: 1,
+        agent_path: null,
+        agent_nickname: "Lorentz",
+        agent_role: "worker",
+      },
+    },
+  });
+
+  assert.equal(parseCodexSource(childSource).kind, "subagent");
+
+  const sessions = mapCodexRowsToLocalSessions([
+    {
+      id: childId,
+      rollout_path: "/tmp/child.jsonl",
+      created_at: Math.floor(now / 1000),
+      updated_at: Math.floor(now / 1000),
+      source: childSource,
+      thread_source: "subagent",
+      model_provider: "openai",
+      cwd: join(homedir(), "work", "quality", "magnet"),
+      title: "Plan Tailscale CLI migration",
+      archived: 0,
+      agent_role: "worker",
+      tokens_used: 2_925_826,
+      created_at_ms: now - 20_000,
+      updated_at_ms: now - 10_000,
+      has_user_event: 0,
+      first_user_message: "You are the Tailscale migration worker for this Mac.",
+    },
+    {
+      id: automationChildId,
+      rollout_path: "/tmp/automation-child.jsonl",
+      created_at: Math.floor(now / 1000),
+      updated_at: Math.floor(now / 1000),
+      source: childSource,
+      thread_source: "subagent",
+      model_provider: "openai",
+      cwd: join(homedir(), ".openclaw", "workspace-home"),
+      title: "OpenClaw maintenance worker",
+      archived: 0,
+      agent_role: "worker",
+      tokens_used: 50_000,
+      created_at_ms: now - 20_000,
+      updated_at_ms: now - 10_000,
+      has_user_event: 0,
+      first_user_message: "Check routine background state.",
+    },
+    {
+      id: parentId,
+      rollout_path: "/tmp/parent.jsonl",
+      created_at: Math.floor(now / 1000),
+      updated_at: Math.floor(now / 1000),
+      source: "vscode",
+      thread_source: "user",
+      model_provider: "openai",
+      cwd: join(homedir(), "work", "quality", "magnet"),
+      title: "Chief of Staff",
+      archived: 0,
+      tokens_used: 21_193_854,
+      created_at_ms: now - 60_000,
+      updated_at_ms: now,
+      has_user_event: 0,
+      first_user_message: "test",
+    },
+  ], [
+    { parent_thread_id: parentId, child_thread_id: childId, status: "open" },
+    { parent_thread_id: parentId, child_thread_id: automationChildId, status: "open" },
+  ], now);
+
+  const parent = sessions.find((session) => session.externalId === parentId);
+  const child = sessions.find((session) => session.externalId === childId);
+  const automationChild = sessions.find((session) => session.externalId === automationChildId);
+
+  assert.ok(parent);
+  assert.ok(child);
+  assert.ok(automationChild);
+  assert.equal(parent.role, "orchestrator");
+  assert.equal(parent.trackingState, "foreground");
+  assert.deepEqual(parent.childExternalIds?.sort(), [automationChildId, childId].sort());
+
+  assert.equal(child.harness, "subagent");
+  assert.equal(child.parentExternalId, parentId);
+  assert.equal(child.role, "worker");
+  assert.equal(child.trackingState, "foreground");
+  assert.deepEqual(child.ignoreReasons, []);
+  assert.ok(child.signals.includes("human-led parent"));
+  assert.ok(child.signals.includes("agent:Lorentz"));
+
+  assert.equal(automationChild.trackingState, "background");
+  assert.deepEqual(automationChild.ignoreReasons, ["automation-like workspace"]);
+});
+
+test("work footprint extracts nested folders from Codex tool activity", () => {
+  const cwd = join(homedir(), "work", "engineering", "hilt");
+  const footprint = extractCodexWorkFootprintFromRows([
+    {
+      row: {
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "exec_command",
+          arguments: JSON.stringify({
+            cmd: "sed -n '1,220p' src/lib/map/work-graph-builder.ts",
+            workdir: cwd,
+          }),
+        },
+      },
+    },
+    {
+      row: {
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "apply_patch",
+          arguments: "*** Begin Patch\n*** Update File: src/lib/map/local-types.ts\n@@\n+test\n*** End Patch",
+        },
+      },
+    },
+  ], cwd);
+
+  assert.ok(footprint.length > 0);
+  assert.equal(footprint[0].label, "src/lib/map");
+  assert.ok(footprint[0].kinds.includes("write"));
+});
+
 test("session tree includes foreground and background sessions", () => {
   const foreground = sampleSession("foreground");
   const background = sampleSession("background", {
@@ -262,6 +397,31 @@ test("session tree includes foreground and background sessions", () => {
   assert.equal(tree.root.trackingCounts.foreground, 1);
   assert.equal(tree.root.trackingCounts.background, 1);
   assert.equal(tree.root.children[0].sessionCount, 2);
+});
+
+test("session tree includes dominant work footprint folders under workspaces", () => {
+  const session = sampleSession("focused-session", {
+    workspaceRoot: "/Users/jruck/work/engineering/hilt",
+    workspaceLabel: "hilt",
+    spaceLabel: "work/engineering",
+    workFootprint: [{
+      path: "/Users/jruck/work/engineering/hilt/src/lib/map",
+      label: "src/lib/map",
+      weight: 12,
+      eventCount: 3,
+      kinds: ["read", "write"],
+    }],
+  });
+
+  const tree = buildSessionTree([session], "7d");
+  const workspace = tree.root.children[0].children[0];
+  const folder = workspace.children[0];
+
+  assert.equal(workspace.title, "hilt");
+  assert.equal(folder.kind, "folder");
+  assert.equal(folder.title, "src/lib/map");
+  assert.equal(folder.sessionCount, 1);
+  assert.deepEqual(folder.sessionIds, ["focused-session"]);
 });
 
 test("Codex history extraction returns user, assistant, and tool preview entries", () => {

@@ -96,6 +96,27 @@ function jsonArray(value: string | null | undefined): string[] {
   }
 }
 
+function sessionMetadata(value: string | null | undefined): Pick<LocalSession, "workFootprint"> {
+  if (!value) return {};
+  if (value === "{}" || value === "null" || value === "{\"workFootprint\":[]}") return {};
+  try {
+    const parsed = JSON.parse(value) as Partial<LocalSession>;
+    const workFootprint = Array.isArray(parsed.workFootprint)
+      ? parsed.workFootprint.filter((entry): entry is NonNullable<LocalSession["workFootprint"]>[number] => (
+        Boolean(entry) &&
+        typeof entry.path === "string" &&
+        typeof entry.label === "string" &&
+        typeof entry.weight === "number" &&
+        typeof entry.eventCount === "number" &&
+        Array.isArray(entry.kinds)
+      ))
+      : undefined;
+    return workFootprint && workFootprint.length > 0 ? { workFootprint } : {};
+  } catch {
+    return {};
+  }
+}
+
 function jsonString(value: unknown): string {
   return JSON.stringify(value ?? null);
 }
@@ -106,6 +127,7 @@ function normalizeTrackingState(value: string | null | undefined): LocalSessionT
 }
 
 function mapRowToSession(row: MapSessionRow): LocalSession {
+  const metadata = sessionMetadata(row.metadata_json);
   const trackingState = normalizeTrackingState(row.override_tracking_state ?? row.tracking_state);
   const workspaceRoot = row.override_workspace_root ?? row.workspace_root ?? undefined;
   const workspaceLabel = row.override_workspace_label ?? row.workspace_label ?? undefined;
@@ -140,6 +162,7 @@ function mapRowToSession(row: MapSessionRow): LocalSession {
     tokenEstimate: row.token_estimate ?? undefined,
     parentExternalId: row.parent_external_id ?? undefined,
     childExternalIds: jsonArray(row.child_external_ids_json),
+    workFootprint: metadata.workFootprint,
     activity: {
       heat24h: row.activity_heat_24h,
       heat7d: row.activity_heat_7d,
@@ -197,10 +220,11 @@ function buildWhere(filters: IndexedSessionFilters): { whereSql: string; params:
       OR LOWER(COALESCE(s.workspace_label, '')) LIKE ?
       OR LOWER(COALESCE(s.space_label, '')) LIKE ?
       OR LOWER(COALESCE(s.git_branch, '')) LIKE ?
+      OR LOWER(COALESCE(s.metadata_json, '')) LIKE ?
       OR LOWER(s.provider) LIKE ?
       OR LOWER(s.harness) LIKE ?
     )`);
-    params.push(like, like, like, like, like, like, like, like, like, like);
+    params.push(like, like, like, like, like, like, like, like, like, like, like);
   }
 
   const orderColumn = heatColumn ?? "s.activity_heat_7d";
@@ -432,7 +456,9 @@ export function upsertMapSessions(db: Database.Database, sessions: LocalSession[
         heatAll: session.activity.heatAll,
         signalsJson: jsonString(session.signals),
         ignoreReasonsJson: jsonString(session.ignoreReasons),
-        metadataJson: jsonString({}),
+        metadataJson: session.workFootprint && session.workFootprint.length > 0
+          ? jsonString({ workFootprint: session.workFootprint })
+          : "{}",
         indexedAt,
       });
     }

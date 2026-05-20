@@ -27,13 +27,19 @@ function findNode(node: LocalMapNode, nodeId: string): LocalMapNode | undefined 
 }
 
 function publicGraphNode(node: LocalMapNode): LocalMapNode {
+  const children = node.kind === "workspace"
+    ? node.children.filter((child) => child.kind === "folder")
+    : node.kind === "folder" || node.kind === "workItem"
+      ? []
+      : node.children;
+
   return {
     ...node,
     path: undefined,
     repoRemote: undefined,
     sessionIds: [],
     signals: node.signals.slice(0, 5),
-    children: node.kind === "workspace" ? [] : node.children.map(publicGraphNode),
+    children: children.map(publicGraphNode),
   };
 }
 

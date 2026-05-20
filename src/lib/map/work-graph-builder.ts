@@ -46,6 +46,15 @@ function workItemForSession(session: LocalSession): { id: string; title: string;
   return undefined;
 }
 
+function focusFolderForSession(session: LocalSession): { path: string; title: string } | undefined {
+  const entry = session.workFootprint?.find((item) => item.path !== session.workspaceRoot);
+  if (!entry) return undefined;
+  return {
+    path: entry.path,
+    title: entry.label,
+  };
+}
+
 function attachSession(node: LocalMapNode, session: LocalSession) {
   node.sessionIds.push(session.id);
   node.sessionCount += 1;
@@ -106,19 +115,40 @@ export function buildSessionTree(
     }
     attachSession(workspace, session);
 
+    const focusFolder = focusFolderForSession(session);
+    let workParent = workspace;
+    if (focusFolder) {
+      const folderId = safeMapId(`folder:${workspace.id}`, focusFolder.path);
+      let folder = nodes.get(folderId);
+      if (!folder) {
+        folder = makeMapNode({
+          id: folderId,
+          title: focusFolder.title,
+          kind: "folder",
+          parentId: workspace.id,
+          path: focusFolder.path,
+        });
+        nodes.set(folderId, folder);
+        workspace.children.push(folder);
+      }
+      attachSession(folder, session);
+      workParent = folder;
+    }
+
     const workItemInfo = workItemForSession(session);
     if (!workItemInfo) continue;
-    let workItem = nodes.get(workItemInfo.id);
+    const workItemId = safeMapId(`work:${workParent.id}`, workItemInfo.branch);
+    let workItem = nodes.get(workItemId);
     if (!workItem) {
       workItem = makeMapNode({
-        id: workItemInfo.id,
+        id: workItemId,
         title: workItemInfo.title,
         kind: "workItem",
-        parentId: workspace.id,
+        parentId: workParent.id,
         branch: workItemInfo.branch,
       });
-      nodes.set(workItemInfo.id, workItem);
-      workspace.children.push(workItem);
+      nodes.set(workItemId, workItem);
+      workParent.children.push(workItem);
     }
     attachSession(workItem, session);
   }

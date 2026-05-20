@@ -141,10 +141,23 @@ interface MapSessionRow {
   last_activity_at?: number;
   event_count: number;
   token_estimate?: number;
+  metadata_json: string;           // JSON object for bounded derived metadata such as workFootprint
   activity_heat_24h: number;
   activity_heat_7d: number;
   activity_heat_30d: number;
   activity_heat_all: number;
+}
+```
+
+`metadata_json.workFootprint` is capped metadata derived from tool/path activity, not transcript content:
+
+```typescript
+interface WorkFootprintEntry {
+  path: string;                    // Server-derived absolute folder path
+  label: string;                   // Workspace-relative label when possible
+  weight: number;                  // Aggregate path-signal strength
+  eventCount: number;
+  kinds: Array<"read" | "write" | "shell" | "search">;
 }
 ```
 

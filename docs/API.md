@@ -226,7 +226,7 @@ Local-first session/work graph APIs backed by `${DATA_DIR}/map.sqlite`. Set `HIL
 
 ### GET /api/map/local/work-graph
 
-Returns the filtered tree, counts, and scan diagnostics. It does **not** include full session arrays or raw history. `foreground` is the default human-legible work view; `background` keeps worker, sidechain, unmapped, and automation-like sessions available without letting them dominate the map.
+Returns the filtered tree, counts, and scan diagnostics. It does **not** include full session arrays or raw history. `foreground` is the default human-legible work view; `background` keeps worker, sidechain, unmapped, and automation-like sessions available without letting them dominate the map. Tree node kinds are `root`, `space`, `workspace`, `folder`, and `workItem`; `folder` nodes come from summarized work-footprint path signals.
 
 **Query Parameters**
 
@@ -239,7 +239,7 @@ Returns the filtered tree, counts, and scan diagnostics. It does **not** include
 
 ### GET /api/map/local/sessions
 
-Returns paginated session summaries for the same filters, optionally narrowed to a tree node.
+Returns paginated session summaries for the same filters, optionally narrowed to a tree node. Summaries may include capped `workFootprint` metadata entries with relative labels and aggregate kind/weight counts; they never include raw transcript text or `sourcePath`.
 
 **Query Parameters**
 

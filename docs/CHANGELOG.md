@@ -38,11 +38,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Map OpenClaw source-aware classification** — Claude project sessions now distinguish direct user prompts from OpenClaw-routed background prompts. Slack DMs from Justin and plain user prompts remain foreground; inter-session `isUser=false` messages, heartbeat checks, continued background transcripts, OpenClaw update notices, cron prompts, and probe sessions stay background with explicit reasons.
 
+- **Map Codex subagent lineage classification** — Codex subagent rows now parse structured `source.subagent.thread_spawn` metadata instead of treating it as an opaque harness string. Worker/subagent sessions spawned by foreground human-led parent sessions stay foreground, with `human-led parent` and agent nickname signals; automation workspaces still remain background even when spawned from a foreground parent.
+
+- **Map work-footprint drilldown** — Map indexing now extracts metadata-only path signals from Codex and Claude tool activity so sessions that start in a parent folder can still appear under the nested folder where work happened. Workspaces can now contain folder nodes before branch/work-item nodes, and the treemap conditionally reveals child nodes inside large parent tiles while still supporting drill-in selection with breadcrumb navigation.
+
 - **Source startup and fallback order** — The source list order is now authoritative for default library selection. Electron startup opens the first available configured source by rank, whether local or remote, and renderer fallback uses the same order when an active remote stops responding. Local sources no longer leapfrog higher-ranked remote sources; unavailable remotes are skipped until the next available source.
 
 - **Docs editor: replaced MDXEditor with CodeMirror + ReactMarkdown** — Edit mode now uses a plain markdown source editor (`@codemirror/lang-markdown`) so files round-trip byte-exact: no more escaped `[[wikilinks]]`, no normalized bullet markers, no reformatted line breaks. Read mode unifies on `ReactMarkdown + remarkGfm + rehypeRaw` (previously only used for files containing `<details>` blocks); wikilink + image rewriting and Mermaid block rendering are preserved. Frontmatter editing UI is unchanged. **Tradeoffs:** no WYSIWYG toolbar, no rich image-insert dialog, no syntax-colored code blocks in read mode (added `rehype-highlight` as a dep for a follow-up). `DocsEditor`'s imperative ref API (`getMarkdown`/`setMarkdown`) is dropped — no consumers used it. Deleted orphan `src/components/PlanEditor.tsx`. Removed `@mdxeditor/editor` from dependencies. Simplified the "baseline content" workaround in `useDocs.ts` and `StackContentPane.tsx` since byte-exact edits make the comparison `editedContent !== loadedContent`.
 
 ### Fixed
+
+- **Map nested treemap positioning** — Fixed adaptive inline child nodes using their own local origin instead of the parent tile's offset, which caused nested folders/workspaces to pile up in the top-left of the treemap and ghost through unrelated parent tiles.
+
+- **Map nested treemap legibility** — Inline child nodes now reserve a fixed parent header band and only render when the remaining child viewport is large enough, preventing child tiles from overlapping parent labels.
 
 - **Map activity slider alignment** — Moved activity tick marks above the slider track, centered each label/tick/thumb stop on the same horizontal position, and restyled the range thumb with an opaque app-background border so ticks do not show through the selected dot.
 

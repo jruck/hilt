@@ -8,6 +8,7 @@ export function classifyTrackingState(session: Pick<LocalSession,
   hasHumanSignal?: boolean;
   hasReadableTitle?: boolean;
   isWorkerLike?: boolean;
+  hasForegroundParent?: boolean;
   automationReason?: string;
 }): { trackingState: LocalSessionTrackingState; reasons: string[] } {
   const reasons: string[] = [];
@@ -39,13 +40,13 @@ export function classifyTrackingState(session: Pick<LocalSession,
     return { trackingState: "background", reasons };
   }
 
-  if (session.role === "worker") {
-    reasons.push("worker/subtask session");
+  if (session.isWorkerLike) {
+    reasons.push(session.automationReason ?? "automation-like workspace");
     return { trackingState: "background", reasons };
   }
 
-  if (session.isWorkerLike) {
-    reasons.push(session.automationReason ?? "automation-like workspace");
+  if (session.role === "worker" && !session.hasForegroundParent) {
+    reasons.push("worker/subtask session");
     return { trackingState: "background", reasons };
   }
 

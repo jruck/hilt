@@ -334,6 +334,7 @@ Codex state sqlite + Claude JSONL/JSON files
          ▼
 ensureMapIndexFresh(maxAgeMs=15000)
          │ compares source mtimeMs + size
+         │ extracts metadata-only title/workspace/activity/path-footprint signals
          ▼
 ${DATA_DIR}/map.sqlite
          │ normalized metadata only; no raw transcripts
@@ -351,6 +352,8 @@ ${DATA_DIR}/map.sqlite
 ```
 
 The Map feature is local-first and designed for Tailscale-served access to the development machine. Convex/cloud replication is intentionally deferred unless Hilt needs multi-machine collaboration, offline cloud availability, or cross-mothership replication. Browser requests never provide file paths for history reads; the server resolves `sourcePath` from indexed session metadata. Map visibility is classified as `foreground` or `background`: foreground is the default human-legible work view, while background keeps workers, sidechains, unmapped, stale, and automation-like sessions available without letting them dominate the default map.
+
+Map tree specificity comes from both launch workspace and work footprint metadata. Codex/Claude tool calls are scanned for file/folder path signals and summarized into small `workFootprint` entries in session metadata; the tree groups those under workspace-level `folder` nodes so a session launched from a parent repo can still show activity in `src/lib/map`, `apps/web`, or another nested area. Raw tool transcripts stay in provider files and are only read for explicit history previews.
 
 ### 7. Real-Time Event Flow
 

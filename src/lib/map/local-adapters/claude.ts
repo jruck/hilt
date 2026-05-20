@@ -4,6 +4,7 @@ import { basename, dirname, join } from "path";
 import { computeActivityHeat } from "../activity-heat";
 import { classifyTrackingState } from "../ignore-rules";
 import type { LocalSession, ProviderAdapterResult } from "../local-types";
+import { extractClaudeWorkFootprintFromRows } from "../work-footprint";
 import { inferWorkspace } from "../workspace-grouping";
 
 interface ClaudeJsonlRow {
@@ -149,6 +150,7 @@ export function readClaudeProjectSession(path: string): LocalSession | undefined
   let humanTurnCount = 0;
   let assistantTextTurnCount = 0;
   let firstHumanText: string | undefined;
+  const footprintRows: Array<{ row: Record<string, unknown>; cwd?: string }> = [];
 
   for (const line of lines) {
     let row: ClaudeJsonlRow;
@@ -161,6 +163,7 @@ export function readClaudeProjectSession(path: string): LocalSession | undefined
     eventCount += 1;
     if (row.sessionId) sessionId = row.sessionId;
     if (row.cwd) cwd = row.cwd;
+    footprintRows.push({ row: row as Record<string, unknown>, cwd });
     if (row.gitBranch) gitBranch = row.gitBranch;
     if (row.version) version = row.version;
     if (row.isSidechain) isSidechain = true;
@@ -188,6 +191,7 @@ export function readClaudeProjectSession(path: string): LocalSession | undefined
   lastActivityAt = lastActivityAt ?? stat.mtimeMs;
   createdAt = createdAt ?? stat.birthtimeMs;
   const workspace = inferWorkspace(cwd);
+  const workFootprint = extractClaudeWorkFootprintFromRows(footprintRows, workspace.root, cwd);
   const observedState = Date.now() - lastActivityAt < 15 * 60 * 1000 ? "active" : "idle";
   const activity = computeActivityHeat({ lastActivityAt, eventCount });
   const hasHumanSignal = humanTurnCount > 0;
@@ -232,6 +236,7 @@ export function readClaudeProjectSession(path: string): LocalSession | undefined
     lastActivityAt,
     eventCount,
     parentExternalId: parentUuid,
+    workFootprint,
     activity,
     signals: [
       "project jsonl",

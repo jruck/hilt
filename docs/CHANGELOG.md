@@ -6,6 +6,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-05-21
+
 ### Added
 
 - **Map local SQLite readiness pass** — The Map view is now local-first and indexed in `${DATA_DIR}/map.sqlite` instead of reading Codex/Claude source stores on every request. Added `better-sqlite3`, incremental source scans keyed by file `mtimeMs + size`, `map_sessions`, `map_source_files`, `map_overrides`, and `map_checkpoints` tables, plus `HILT_MAP_LOCAL_ENABLED` and `HILT_MAP_HISTORY_PREVIEW` gates. Codex ingestion no longer has the prototype `LIMIT 500`; Claude project/app files are scanned incrementally. Graph responses now omit full session arrays and raw history, session lists are paginated, and history preview resolves source paths only from indexed metadata.

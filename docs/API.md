@@ -220,6 +220,55 @@ Write or update a plan file.
 
 ---
 
+## Map Routes
+
+Local-first session/work graph APIs backed by `${DATA_DIR}/map.sqlite`. Set `HILT_MAP_LOCAL_ENABLED=false` to disable them. History preview is controlled by `HILT_MAP_HISTORY_PREVIEW`; it defaults on in local dev and should be explicitly enabled for shared/packaged deployments.
+
+### GET /api/map/local/work-graph
+
+Returns the filtered tree, counts, and scan diagnostics. It does **not** include full session arrays or raw history. `foreground` is the default human-legible work view; `background` keeps worker, sidechain, unmapped, and automation-like sessions available without letting them dominate the map. Tree node kinds are `root`, `space`, `workspace`, `folder`, and `workItem`; `folder` nodes come from summarized work-footprint path signals.
+
+**Query Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `window` | `24h \| 7d \| 30d \| all` | Activity window, default `7d` |
+| `status` | `all \| foreground \| background` | Visibility filter, default `foreground` |
+| `source` | `all \| codex \| claude` | Provider filter, default `all` |
+| `q` | string | Optional text search across titles, workspaces, providers, branches, Map session ids, and provider session ids |
+
+### GET /api/map/local/sessions
+
+Returns paginated session summaries for the same filters, optionally narrowed to a tree node. Summaries may include capped `workFootprint` metadata entries with relative labels and aggregate kind/weight counts; they never include raw transcript text or `sourcePath`.
+
+**Query Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `nodeId` | string | Tree node id, default `root` |
+| `cursor` | string | Offset cursor returned by the previous page |
+| `limit` | number | Page size, max 200 |
+| `window`, `status`, `source`, `q` | same as graph | Same filters as work graph |
+
+### GET /api/map/local/session-detail
+
+Read-only history preview for one indexed session. The browser supplies only `id` and `limit`; arbitrary source paths are rejected. Provider files are read on demand, capped, and redacted.
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `id` | string | Indexed session id |
+| `limit` | number | Preview cap, 20-240 |
+
+### POST /api/map/local/refresh
+
+Forces an index scan and returns diagnostics.
+
+### GET /api/map/local/source-status
+
+Returns the latest scan diagnostics and source status list.
+
+---
+
 ## Bridge Routes
 
 Routes for the Bridge view, which manages weekly task lists and projects from an Obsidian vault.

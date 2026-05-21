@@ -98,7 +98,77 @@ interface PinnedFolder {
 }
 ```
 
+### Source
+
+Configured local or remote Hilt library source.
+
+```typescript
+interface Source {
+  id: string;                    // "src-<timestamp>-<random>"
+  name: string;                  // User label
+  type: "local" | "remote";     // Connection behavior and display
+  url: string;                   // Local: Electron-assigned URL. Remote: user-provided URL.
+  folder?: string;               // Local only: absolute library folder path
+  rank: number;                  // 0-based; lower rank is tried first for startup/fallback
+}
+```
+
 ## Persistence Formats
+
+### map.sqlite
+
+Stored at `${DATA_DIR}/map.sqlite`. This is the local-first Map index for Codex and Claude session metadata. It stores normalized metadata only; raw transcripts remain in provider files and are read on explicit history-preview requests.
+
+```typescript
+interface MapSessionRow {
+  id: string;
+  provider: "codex" | "claude";
+  harness: string;                 // cli, state-sqlite, project-jsonl, code-session-json, etc.
+  external_id: string;
+  external_key: string;            // Stable provider/harness/session key
+  title?: string;
+  cwd?: string;
+  workspace_root?: string;
+  workspace_label?: string;
+  space_label?: string;
+  repo_remote?: string;
+  git_branch?: string;
+  role: "orchestrator" | "worker" | "peer" | "unknown";
+  observed_state: "active" | "idle" | "archived" | "unknown";
+  tracking_state: "foreground" | "background"; // Visibility state: human-legible work or lower-salience background work
+  source_path?: string;            // Server-only history lookup; not exposed in graph/session pages
+  last_seen_at: number;
+  last_activity_at?: number;
+  event_count: number;
+  token_estimate?: number;
+  metadata_json: string;           // JSON object for bounded derived metadata such as workFootprint
+  activity_heat_24h: number;
+  activity_heat_7d: number;
+  activity_heat_30d: number;
+  activity_heat_all: number;
+}
+```
+
+`metadata_json.workFootprint` is capped metadata derived from tool/path activity, not transcript content:
+
+```typescript
+interface WorkFootprintEntry {
+  path: string;                    // Server-derived absolute folder path
+  label: string;                   // Workspace-relative label when possible
+  weight: number;                  // Aggregate path-signal strength
+  eventCount: number;
+  kinds: Array<"read" | "write" | "shell" | "search">;
+}
+```
+
+Additional Map tables:
+
+| Table | Purpose |
+|-------|---------|
+| `map_source_files` | Tracks provider file path, harness, mtime, size, last scan status/error, and associated session id |
+| `map_overrides` | Manual tracking/workspace overrides that take precedence over inferred metadata |
+| `map_checkpoints` | Schema-ready local resume checkpoints for future human-written sign-offs |
+| `map_meta` | Last scan timestamp and diagnostics JSON |
 
 ### preferences.json
 
@@ -118,7 +188,7 @@ interface UserPreferences {
   recentScopes: string[];
   // Last 10 visited folder paths (most recent first)
 
-  viewMode: "docs" | "stack" | "bridge" | "chat";
+  viewMode: "briefings" | "bridge" | "map" | "docs" | "stack" | "people" | "chat";
   // Current view mode
 
   folderEmojis?: Record<string, string>;
@@ -242,4 +312,4 @@ Browser-side persistence (limited -- most preferences now server-side).
 
 ---
 
-*Last updated: 2026-02-05*
+*Last updated: 2026-05-19*

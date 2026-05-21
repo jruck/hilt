@@ -16,6 +16,7 @@ const StackView = dynamic(() => import("./stack").then(m => ({ default: m.StackV
 const BridgeView = dynamic(() => import("./bridge/BridgeView").then(m => ({ default: m.BridgeView })), { ssr: false });
 const BriefingsView = dynamic(() => import("./briefings/BriefingsView").then(m => ({ default: m.BriefingsView })), { ssr: false });
 const PeopleView = dynamic(() => import("./people/PeopleView").then(m => ({ default: m.PeopleView })), { ssr: false });
+const MapView = dynamic(() => import("./map/MapView").then(m => ({ default: m.MapView })), { ssr: false });
 
 export function Board() {
   // Scope path and view mode from context — URL-based routing
@@ -32,6 +33,7 @@ export function Board() {
 
   // Derive ViewMode from URL prefix
   const viewMode: ViewMode = urlViewMode === "bridge" ? "bridge"
+    : urlViewMode === "map" ? "map"
     : urlViewMode === "docs" ? "docs"
     : urlViewMode === "stack" ? "stack"
     : urlViewMode === "briefings" ? "briefings"
@@ -42,6 +44,8 @@ export function Board() {
   const setViewMode = useCallback((mode: ViewMode) => {
     if (mode === "bridge") {
       setUrlViewMode("bridge");
+    } else if (mode === "map") {
+      setUrlViewMode("map");
     } else if (mode === "docs") {
       setUrlViewMode("docs");
     } else if (mode === "stack") {
@@ -60,8 +64,9 @@ export function Board() {
       replaceViewMode("bridge");
     }
 
-    setIsHydrated(true);
-  }, []);
+    const frame = window.requestAnimationFrame(() => setIsHydrated(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, [replaceViewMode, urlViewMode]);
 
   // Persist view mode to server when it changes (skip during initial hydration)
   useEffect(() => {
@@ -167,6 +172,8 @@ export function Board() {
             onPathChange={setScopePath}
             searchQuery={searchQuery}
           />
+        ) : viewMode === "map" ? (
+          <MapView searchQuery={searchQuery} />
         ) : viewMode === "stack" ? (
           <div className="flex-1 overflow-hidden">
             <StackView scopePath={workingFolder || ""} searchQuery={searchQuery} />
@@ -196,6 +203,8 @@ export function Board() {
             onPathChange={setScopePath}
             searchQuery={searchQuery}
           />
+        ) : viewMode === "map" ? (
+          <MapView searchQuery={searchQuery} />
         ) : viewMode === "stack" ? (
           <div className="flex-1 overflow-hidden">
             <StackView scopePath={workingFolder || ""} searchQuery={searchQuery} />

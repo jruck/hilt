@@ -138,6 +138,42 @@ Every action should have visible feedback:
 
 This section tracks design decisions and refinements over time. Each entry should note what was tried, what was rejected, and why.
 
+### 2026-05-19: Map View — Controls as Operational Chrome
+
+**Change**: Map moved from a title/sidebar prototype to a compact top toolbar with activity, status, source, refresh, counts, and collapsed diagnostics.
+
+**Pattern established**:
+- Prefer compact control bars for operational views where the data visualization is the primary surface.
+- Selection summaries belong in the control chrome when possible; avoid adding standalone header rows above dense visualizations.
+- Click-selected means toggle-selected for exploratory Map surfaces: clicking the selected treemap block or session again should return to the broader state.
+- Keep provider/source diagnostics available but collapsed; they are troubleshooting material, not the main mental model.
+- Mobile Map should stage the workflow: tree first, sessions after selecting a non-root node, history after selecting a session.
+- Source/status controls should filter both the visual tree and session list. Counts can live in the controls as feedback.
+- Activity heat is a layout signal, not user-facing language. Use it to size/order the map, but expose plain operational counts like sessions, workspaces, and active sessions instead of raw heat values.
+- Responsive Map chrome should shed nonessential summary text before hiding primary controls, but not too early. Use a custom intermediate breakpoint when needed so the selected summary stays visible while there is still comfortable toolbar space; filters should collapse behind the compact filter button only at the next narrower breakpoint.
+- Keep selected-session inspection as a three-column desktop/tablet layout whenever there is room for more than mobile flow. The treemap should shrink before the history preview wraps below the map; wrapping the detail panel under the visualization makes the Map feel like it changed modes.
+- Map status should describe mental visibility, not only mapping confidence. Foreground means human-legible work; background means disposable workers, sidechains, unmapped, automation-like, stale, or explicitly suppressed sessions.
+- Treat preserved first user prompts as strong human intent signals for Codex desktop/Mac-app/remote-control sessions. Some Codex rows do not set explicit human-event flags even when they were human-initiated, so the visible prompt/title is often the best foreground clue.
+- Treat readable user turns as sufficient foreground evidence unless an explicit automation/worker signal wins first. Missing generated titles should not hide real human conversations; use the first user turn as the fallback title when needed.
+- Treat Codex worker/subagent lineage as part of human intent. A worker spawned by an already-foreground human-led parent belongs with foreground work unless an explicit automation/workspace suppression signal wins.
+- The Map should show where work actually happened, not only where a session started. Use metadata-only path/tool signals to add nested folder detail under workspaces. When a parent tile has enough room, show its children inline inside the tile; use click-through drilldown only as the fallback for smaller areas. Parent tile labels must keep their own reserved header space so nested child content never overlaps the parent context.
+- For OpenClaw/Claude sessions, classify by prompt source before folder. Slack DMs from Justin and plain prompts are foreground even inside OpenClaw workspaces; `isUser=false` inter-session routes, heartbeat checks, continued transcript bootstraps, update notices, cron prompts, and probe sessions are background even though Claude records them as `user` turns.
+- Prefer explainable automatic suppression over manual overrides. Known automation workspaces can be backgrounded by path/workspace heuristics when they otherwise look human-titled, but the reason should remain visible in the session row.
+- Background status should not use warning iconography. A small amber dot is enough to signal lower salience without implying something is wrong.
+
+**Rationale**: The Map is meant to restore situational awareness, so the first viewport should be the work state itself. Explanatory headers and always-open filter sidebars dilute that purpose.
+
+### 2026-05-19: Source Management — Order Is Intent
+
+**Change**: Source startup and fallback now follow the order shown in Manage Sources, regardless of whether entries are local or remote.
+
+**Pattern established**:
+- Drag order is the default library preference. The top available source should win at app startup.
+- Source type should explain behavior and display, not secretly override priority.
+- Availability is the only reason to skip a higher-ranked source; fall through the list in order before using a hardcoded local fallback.
+
+**Rationale**: The source picker is the user-facing control for default context. If the app silently privileges local sources, the configured order stops being trustworthy.
+
 ### 2026-01-09: Hierarchical View Toggle
 
 **Change**: Restructured view toggle from 4 equal options to a hierarchical system.

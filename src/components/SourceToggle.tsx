@@ -116,13 +116,23 @@ export function SourceToggle() {
 
   const CurrentIcon = activeSource?.type === "remote" ? Wifi : House;
 
+  function toggleDropdown() {
+    if (isOpen) {
+      haptics.rigid();
+      setIsOpen(false);
+    } else {
+      haptics.light();
+      openDropdown();
+    }
+  }
+
   // Unconfigured state: plus button with onboarding
   if (isUnconfigured) {
     return (
       <div ref={containerRef} className="relative">
         <button
           ref={buttonRef}
-          onClick={() => { isOpen ? haptics.rigid() : haptics.light(); isOpen ? setIsOpen(false) : openDropdown(); }}
+          onClick={toggleDropdown}
           className="relative p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
           title="Add your first source"
         >
@@ -186,7 +196,7 @@ export function SourceToggle() {
     <div ref={containerRef} className="relative">
       <button
         ref={buttonRef}
-        onClick={() => { isOpen ? haptics.rigid() : haptics.light(); isOpen ? setIsOpen(false) : openDropdown(); }}
+        onClick={toggleDropdown}
         className="relative p-1.5 rounded transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
         title={`Source: ${activeSource?.name ?? "Unknown"} (${connected ? "connected" : "disconnected"})`}
       >

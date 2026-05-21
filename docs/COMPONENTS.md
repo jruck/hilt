@@ -11,7 +11,7 @@ App (layout.tsx)
     ├── Top Toolbar
     │   ├── Search input (expandable)
     │   ├── ThemeToggle
-    │   └── ViewToggle (Bridge/Docs/Stack) — centered
+    │   └── ViewToggle (Briefing/Bridge/Map/Docs/People) — centered
     │
     ├── Main Content (conditional on viewMode)
     │   │
@@ -42,14 +42,21 @@ App (layout.tsx)
     │   │       │   └── DocsFallbackView
     │   │       └── DocsEditToggle
     │   │
-    │   └── viewMode === "stack"
-    │       └── StackView
-    │           ├── StackFileTree
-    │           ├── StackContentPane
-    │           │   ├── StackSummary
-    │           │   ├── MCPServerDetail
-    │           │   └── PluginDetail
-    │           └── CreateFileDialog
+    │   ├── viewMode === "stack"
+    │   │   └── StackView
+    │   │       ├── StackFileTree
+    │   │       ├── StackContentPane
+    │   │       │   ├── StackSummary
+    │   │       │   ├── MCPServerDetail
+    │   │       │   └── PluginDetail
+    │   │       └── CreateFileDialog
+    │   │
+    │   └── viewMode === "map"
+    │       └── MapView
+    │           ├── Compact filter toolbar
+    │           ├── Treemap work graph
+    │           ├── Paginated sessions panel
+    │           └── Session history preview
     │
     └── Bottom Toolbar (hidden on Bridge view)
         ├── ScopeBreadcrumbs
@@ -82,6 +89,7 @@ Derives `viewMode` from the URL and renders the appropriate view:
 
 ```typescript
 const viewMode: ViewMode = urlViewMode === "bridge" ? "bridge"
+  : urlViewMode === "map" ? "map"
   : urlViewMode === "docs" ? "docs"
   : urlViewMode === "stack" ? "stack"
   : "bridge"; // fallback
@@ -105,10 +113,10 @@ const viewMode: ViewMode = urlViewMode === "bridge" ? "bridge"
 
 **File**: `src/components/ViewToggle.tsx` (~52 lines)
 
-Three-way toggle for view modes.
+Primary toggle for view modes.
 
 ```typescript
-type ViewMode = "docs" | "stack" | "bridge";
+type ViewMode = "briefings" | "bridge" | "map" | "docs" | "stack" | "people";
 ```
 
 **View Configuration**
@@ -116,8 +124,25 @@ type ViewMode = "docs" | "stack" | "bridge";
 | View | Icon | Description |
 |------|------|-------------|
 | Bridge | Compass | Weekly tasks and projects |
+| Map | Map | Local work-state map |
 | Docs | FileText | Documentation browser/editor |
 | Stack | Layers | Claude configuration stack |
+
+---
+
+### MapView.tsx
+
+**File**: `src/components/map/MapView.tsx`
+
+Local work-state map backed by `/api/map/local/*`.
+
+**Key behaviors**
+
+- Uses a compact top control bar for activity window, visibility status (`Foreground`/`Background`), source, refresh, counts, and collapsed diagnostics.
+- Fetches `/api/map/local/work-graph` for tree/count data and `/api/map/local/sessions` for paginated session summaries.
+- Fetches `/api/map/local/session-detail` only after the user selects a session.
+- Shows copyable Map session ids in session rows and history preview so a session can be referenced from chat or searched later.
+- Desktop presents tree, sessions, and history as separate panes. Mobile keeps a staged flow: tree first, sessions after a non-root tree selection, history after session selection.
 
 ---
 

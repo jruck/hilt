@@ -41,6 +41,9 @@ const https = __importStar(require("https"));
 const net = __importStar(require("net"));
 const os = __importStar(require("os"));
 const child_process_1 = require("child_process");
+// The dev .app launches the generic Electron binary, whose default app name is
+// "Electron". Set this before reading userData so the app uses Hilt's config.
+electron_1.app.setName("Hilt");
 // Load .env file so Electron has access to the same env vars as Next.js
 const envPath = path.join(__dirname, "..", ".env");
 if (fs.existsSync(envPath)) {

@@ -7,6 +7,10 @@ import * as net from "net";
 import * as os from "os";
 import { spawn, ChildProcess, execSync } from "child_process";
 
+// The dev .app launches the generic Electron binary, whose default app name is
+// "Electron". Set this before reading userData so the app uses Hilt's config.
+app.setName("Hilt");
+
 // Load .env file so Electron has access to the same env vars as Next.js
 const envPath = path.join(__dirname, "..", ".env");
 if (fs.existsSync(envPath)) {

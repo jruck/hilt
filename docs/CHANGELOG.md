@@ -20,6 +20,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
+- **Dev app using generic Electron user data instead of Hilt config** — The dev-mode `dist/Hilt.app` launches the generic Electron binary, so Electron defaulted `app.getPath("userData")` to `~/Library/Application Support/Electron`. That made app-open startup read stale `Electron/data/sources.json` instead of Hilt's configured sources, often leaving local sources without a `folder` and skipping the local environment server startup path. Electron now calls `app.setName("Hilt")` before computing `DATA_DIR`, so the dev app consistently uses `~/Library/Application Support/Hilt/data`.
+
 - **`/navigate` silently failing when Hilt window is hidden** — `POST /navigate` only broadcast over the renderer's WebSocket. Backgrounded Electron windows have their `setTimeout` reconnect timers throttled, so a renderer whose WS dropped while hidden would never reconnect, and the broadcast hit zero clients. The skill's main use case ("open this file in Hilt") thus appeared dead any time the user wasn't already focused on Hilt. Added a second path: WS server now also writes `~/.hilt-pending-navigate.json`, the Electron main process watches it (chokidar) and forwards via `webContents.send("navigate:goto", …)`, then focuses the window. Main is never throttled, so this works regardless of renderer state.
   - `server/ws-server.ts` — `POST /navigate` writes the intent file alongside the broadcast
   - `electron/main.ts` — `setupNavigateWatcher()` watches the file and forwards via IPC + focus

@@ -21,6 +21,7 @@ interface LocalAppsViewProps {
 export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
   const [snapshot, setSnapshot] = useState<LocalAppsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -33,6 +34,21 @@ export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
       setError(err instanceof Error ? err.message : "Failed to load local apps");
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const refresh = useCallback(async () => {
+    try {
+      setRefreshing(true);
+      setError(null);
+      const res = await fetch("/api/local-apps/refresh", { method: "POST", cache: "no-store" });
+      const data = await res.json();
+      setSnapshot(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to refresh local apps");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -109,11 +125,12 @@ export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
             </div>
           </div>
           <button
-            onClick={() => void load()}
+            onClick={() => void refresh()}
+            disabled={refreshing}
             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors"
-            title="Refresh local apps"
+            title="Refresh local apps and screenshots"
           >
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
           </button>
         </div>
 
@@ -168,14 +185,21 @@ function AppCard({ group, machine }: { group: ServiceGroup; machine: LocalAppsMa
   return (
     <article className="overflow-hidden rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)]">
       <button
-        className="block aspect-[16/9] w-full bg-[var(--bg-tertiary)] text-left"
+        className="relative block aspect-[16/9] w-full bg-[var(--bg-tertiary)] text-left"
         onClick={() => group.primary_url && openExternal(group.primary_url)}
         disabled={!group.primary_url}
         title={group.primary_url || "No URL available"}
       >
         {previewUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={previewUrl} alt="" className="h-full w-full object-cover" />
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={previewUrl} alt="" className="h-full w-full object-cover" />
+            {previewService?.preview?.captured_at ? (
+              <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                {relativeTime(previewService.preview.captured_at)}
+              </span>
+            ) : null}
+          </>
         ) : (
           <div className="flex h-full items-center justify-center px-4 text-xs text-[var(--text-tertiary)]">
             {fallback.icon}

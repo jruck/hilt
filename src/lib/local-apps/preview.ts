@@ -35,14 +35,29 @@ export function attachCachedPreviews(services: Service[]): void {
 
 export function startPreviewCapture(services: Service[]): void {
   if (!isPreviewCaptureEnabled()) return;
-  const candidates = services
-    .filter((service) => service.visible && isPreviewableService(service) && !service.preview)
-    .slice(0, AUTO_PREVIEW_LIMIT);
+  const candidates = previewCandidates(services, false);
   if (candidates.length === 0) return;
 
   void capturePreviews(candidates).catch((error) => {
     console.error("[local-apps/preview] capture failed:", error);
   });
+}
+
+export async function capturePreviewsNow(
+  services: Service[],
+  options: { force?: boolean } = {},
+): Promise<void> {
+  if (!isPreviewCaptureEnabled()) return;
+  const candidates = previewCandidates(services, !!options.force);
+  if (candidates.length === 0) return;
+  await capturePreviews(candidates);
+}
+
+function previewCandidates(services: Service[], force: boolean): Service[] {
+  const candidates = services
+    .filter((service) => service.visible && isPreviewableService(service) && (force || !service.preview))
+    .slice(0, AUTO_PREVIEW_LIMIT);
+  return candidates;
 }
 
 async function capturePreviews(services: Service[]): Promise<void> {
@@ -81,6 +96,7 @@ async function capturePreviews(services: Service[]): Promise<void> {
           }
           await page.addStyleTag({ content: "*, *::before, *::after { animation: none !important; transition: none !important; }" }).catch(() => {});
           await page.screenshot({ path: outPath, fullPage: false });
+          writePreviewSuccess(service, outPath);
           lastError = null;
           break;
         }
@@ -113,6 +129,14 @@ function writePreviewError(service: Service, error: string): void {
     path: previewPathForService(service.id),
     captured_at: new Date().toISOString(),
     error,
+  };
+}
+
+function writePreviewSuccess(service: Service, filePath: string): void {
+  service.preview = {
+    path: filePath,
+    captured_at: new Date().toISOString(),
+    error: null,
   };
 }
 

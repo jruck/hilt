@@ -207,4 +207,33 @@ describe("local apps settings, health, and safety", () => {
       "http://0.0.0.0:3000",
     ]);
   });
+
+  test("only previews healthy HTTP services", () => {
+    const notFound = classify(observed("node", "tsx server/ws-server.ts", "/Users/jane/work/hilt", 3001), settings());
+    notFound.visible = true;
+    notFound.health = {
+      status: "down",
+      label: "404 Not Found",
+      http_status: 404,
+      latency_ms: 10,
+      checked_at: "2026-05-21T12:00:00.000Z",
+      error: null,
+      url: "http://127.0.0.1:3001/",
+    };
+
+    const infra = classify(observed("ollama", "ollama serve", null, 11434), settings());
+    infra.visible = true;
+    infra.health = {
+      status: "up",
+      label: "Listening",
+      http_status: null,
+      latency_ms: null,
+      checked_at: "2026-05-21T12:00:00.000Z",
+      error: null,
+      url: null,
+    };
+
+    assert.equal(isPreviewableService(notFound), false);
+    assert.equal(isPreviewableService(infra), false);
+  });
 });

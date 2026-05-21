@@ -6,11 +6,16 @@ import { buildMachineSnapshots, summarizeMachines } from "./remotes";
 import { redactSensitiveArgs } from "./redact";
 import { isLocalAppsEnabled, loadSettings } from "./settings";
 import { machineIdentity } from "./tailnet";
-import { attachCachedPreviews, startPreviewCapture } from "./preview";
+import { attachCachedPreviews, capturePreviewsNow, startPreviewCapture } from "./preview";
 import type { LocalAppsDisabledResponse, LocalAppsEnabledResponse, ScanDiagnostics, ServiceGroup } from "./types";
 
 let latest: LocalAppsEnabledResponse | null = null;
 let inFlight: Promise<LocalAppsEnabledResponse> | null = null;
+
+interface ScanOptions {
+  forcePreviews?: boolean;
+  waitForPreviews?: boolean;
+}
 
 export function disabledResponse(): LocalAppsDisabledResponse {
   return {
@@ -65,9 +70,24 @@ export async function getLocalAppsResponse(
   }
 }
 
-export async function ensureScan(): Promise<LocalAppsEnabledResponse> {
+export async function refreshLocalApps(
+  options: ScanOptions & { includePeers?: boolean } = {},
+): Promise<LocalAppsEnabledResponse | LocalAppsDisabledResponse> {
+  if (!isLocalAppsEnabled()) return disabledResponse();
+  const includePeers = options.includePeers ?? true;
+  const snapshot = await ensureScan(options);
+  if (!includePeers) return withScanningFlag(snapshot);
+  const machines = await buildMachineSnapshots(snapshot);
+  return {
+    ...snapshot,
+    machines,
+    summary: summarizeMachines(machines),
+  };
+}
+
+export async function ensureScan(options: ScanOptions = {}): Promise<LocalAppsEnabledResponse> {
   if (!inFlight) {
-    inFlight = scanLocalApps()
+    inFlight = scanLocalApps(options)
       .then((snapshot) => {
         latest = snapshot;
         return snapshot;
@@ -79,7 +99,7 @@ export async function ensureScan(): Promise<LocalAppsEnabledResponse> {
   return inFlight;
 }
 
-export async function scanLocalApps(): Promise<LocalAppsEnabledResponse> {
+export async function scanLocalApps(options: ScanOptions = {}): Promise<LocalAppsEnabledResponse> {
   const started = Date.now();
   const errors: string[] = [];
   const settings = loadSettings();
@@ -92,8 +112,12 @@ export async function scanLocalApps(): Promise<LocalAppsEnabledResponse> {
     listenerCount = observed.length;
     const services = observed.map((service) => classify(service, settings));
     await probeServices(services);
-    attachCachedPreviews(services);
-    startPreviewCapture(services);
+    if (!options.forcePreviews) attachCachedPreviews(services);
+    if (options.waitForPreviews) {
+      await capturePreviewsNow(services, { force: options.forcePreviews });
+    } else {
+      startPreviewCapture(services);
+    }
     groups = redactGroups(groupServices(services, settings));
   } catch (error) {
     errors.push(error instanceof Error ? error.message : String(error));

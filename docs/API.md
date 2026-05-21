@@ -330,6 +330,19 @@ Use `?scope=local` when one Hilt instance is calling another Hilt instance. This
 }
 ```
 
+### POST /api/local-apps/refresh
+
+Forces a fresh Local Apps scan. By default this also waits for fresh local screenshot capture before returning, so the response can immediately include updated `service.preview` metadata for healthy HTTP services.
+
+Query params:
+
+| Param | Values | Description |
+| --- | --- | --- |
+| `scope` | `local` | Return only the serving machine's snapshot, matching `GET /api/local-apps?scope=local`. |
+| `previews` | `false` | Skip forced screenshot refresh and run a metadata-only scan. |
+
+Response shape matches `GET /api/local-apps`.
+
 ### GET /api/local-apps/settings
 
 Returns Hilt-owned Local Apps settings metadata. `api_url` is always `null` because Hilt does not expose a separate Port Authority-style daemon.

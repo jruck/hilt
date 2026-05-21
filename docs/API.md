@@ -360,6 +360,17 @@ Returns Hilt-owned Local Apps settings metadata. `api_url` is always `null` beca
 
 Serves cached PNG screenshots from the Local Apps preview directory. The route accepts only simple `.png` filenames and rejects `/` or `\` path separators.
 
+### GET /api/local-apps/remote-preview
+
+Proxies a cached PNG screenshot from a known remote Hilt machine so HTTPS-served Apps views do not load insecure HTTP image URLs directly in the browser. The browser supplies only a `machine` id already present in the current Hilt-discovered `machines` list and a safe `.png` `filename`; arbitrary remote URLs are not accepted.
+
+Query params:
+
+| Param | Description |
+| --- | --- |
+| `machine` | Machine id from the Local Apps `machines` array. |
+| `filename` | Safe `.png` filename from `service.preview.path`. |
+
 ---
 
 ## Bridge Routes

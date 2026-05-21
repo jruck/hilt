@@ -384,7 +384,7 @@ LocalAppsView
          └── machine sections with app-first monitor cards, service chips, and open links
 ```
 
-Local Apps is monitor-only in v1: no stop, kill, restart, or hide/show controls. It is gated by `HILT_LOCAL_APPS_ENABLED=true`. Optional screenshot capture is gated separately by `HILT_LOCAL_APPS_PREVIEWS=true`; preview files live under `${DATA_DIR}/local-apps/previews` and are served only by safe filename through `/api/local-apps/previews/[filename]`. Preview capture is limited to healthy HTTP services, prefers the public/tailnet URL that the UI opens, falls back to local probe URLs, and uses `HILT_LOCAL_APPS_PREVIEW_CACHE_MS` with a 2-minute default. Normal polling keeps previews lightweight and cache-backed; the toolbar refresh action calls `POST /api/local-apps/refresh` to force a fresh scan and local preview recapture. Tailnet peer aggregation is Hilt-to-Hilt only: the serving instance uses Tailscale status for machine discovery, then accepts only `/api/local-apps?scope=local` responses that match Hilt's API contract. Discovery tries the peer's Tailscale Serve HTTPS URL plus common Hilt dev ports `3000`-`3004`, because Electron may assign a non-3000 port when another local app is already using it. It does not remotely scrape processes or call Port Authority.
+Local Apps is monitor-only in v1: no stop, kill, restart, or hide/show controls. It is gated by `HILT_LOCAL_APPS_ENABLED=true`. Optional screenshot capture is gated separately by `HILT_LOCAL_APPS_PREVIEWS=true`; preview files live under `${DATA_DIR}/local-apps/previews` and are served only by safe filename through `/api/local-apps/previews/[filename]`. Remote preview images are served through `/api/local-apps/remote-preview`, which proxies only safe filenames from already-discovered Hilt peer machines so an HTTPS Tailscale Serve page never has to embed insecure HTTP image URLs. Preview capture is limited to healthy HTTP services, prefers the public/tailnet URL that the UI opens, falls back to local probe URLs, and uses `HILT_LOCAL_APPS_PREVIEW_CACHE_MS` with a 2-minute default. Normal polling keeps previews lightweight and cache-backed; the toolbar refresh action calls `POST /api/local-apps/refresh` to force a fresh scan and local preview recapture. Tailnet peer aggregation is Hilt-to-Hilt only: the serving instance uses Tailscale status for machine discovery, then accepts only `/api/local-apps?scope=local` responses that match Hilt's API contract. Discovery tries the peer's Tailscale Serve HTTPS URL plus common Hilt dev ports `3000`-`3004`, because Electron may assign a non-3000 port when another local app is already using it. It does not remotely scrape processes or call Port Authority.
 
 ### 8. Real-Time Event Flow
 
@@ -459,6 +459,7 @@ Components receive events and trigger SWR revalidation
 | `/api/local-apps/refresh` | POST | Force local scan and optional screenshot recapture | `scope`, `previews` |
 | `/api/local-apps/settings` | GET | Local Apps settings metadata | - |
 | `/api/local-apps/previews/[filename]` | GET | Safe PNG preview serving | `filename` |
+| `/api/local-apps/remote-preview` | GET | Safe known-peer PNG preview proxy | `machine`, `filename` |
 | `/api/inbox` | GET | List draft prompts | `scope` |
 | `/api/inbox` | POST | Create draft | `prompt`, `projectPath` |
 | `/api/inbox` | PATCH | Update draft | `id`, `prompt` |

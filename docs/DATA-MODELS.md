@@ -297,7 +297,7 @@ interface LocalAppsSettings {
 }
 ```
 
-Optional screenshots are cached under `${DATA_DIR}/local-apps/previews` and served only by filename through `/api/local-apps/previews/[filename]`.
+Optional screenshots are cached under `${DATA_DIR}/local-apps/previews` and served only by filename through `/api/local-apps/previews/[filename]`. Screenshots from remote Hilt peers are proxied by machine id and safe filename through `/api/local-apps/remote-preview`; arbitrary remote preview URLs are not part of the public model.
 
 ### preferences.json
 

@@ -291,7 +291,8 @@ function previewUrlForService(service: Service, machine: LocalAppsMachineSnapsho
   const filename = service.preview.path.split("/").pop() || "";
   if (!filename) return null;
   const route = `/api/local-apps/previews/${encodeURIComponent(filename)}`;
-  return machine.source_url ? `${machine.source_url}${route}` : route;
+  if (!machine.source_url) return route;
+  return `/api/local-apps/remote-preview?machine=${encodeURIComponent(machine.id)}&filename=${encodeURIComponent(filename)}`;
 }
 
 function ServiceChip({ service }: { service: Service }) {

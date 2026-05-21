@@ -20,6 +20,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Local Apps remote preview proxy** — Added a safe known-peer preview proxy so HTTPS-served Apps pages can display screenshots captured by remote Hilt machines without embedding insecure HTTP image URLs.
 
+- **Repository agent instructions and historical Map plan** — Added repo-local `AGENTS.md`, Codex documentation reminder hooks, the Hilt control skill, and the superseded Convex Map plan so Xochipilli, Mercury, and origin share the same agent-facing project context.
+
 ### Fixed
 
 - **Local Apps scan too slow for remote peer discovery** — The macOS Local Apps adapter read process metadata sequentially for every listening socket, so `/api/local-apps?scope=local` could take ~15 seconds on a busy machine. Tailnet peer discovery only waits briefly per candidate, making healthy remotes look unavailable. The adapter now reads each unique PID once and does that work with bounded concurrency, keeping local snapshots responsive enough for remote aggregation.

@@ -1,0 +1,2 @@
+export { LocalAppsView } from "./LocalAppsView";
+

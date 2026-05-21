@@ -11,12 +11,13 @@ This document provides a comprehensive architectural overview of Hilt for AI age
 │  │  Next.js 16 + React 19                                            │  │
 │  │  ┌─────────────────────────────────────────────────────────────┐  │  │
 │  │  │  Board.tsx (Main Container)                                  │  │  │
-│  │  │  ├── ViewToggle (Briefing / Bridge / Map / Docs / People)    │  │  │
+│  │  │  ├── ViewToggle (Briefing / Bridge / Map / Docs / People / Apps)│ │  │
 │  │  │  ├── BridgeView (weekly tasks, projects, notes)              │  │  │
 │  │  │  ├── DocsView (markdown file browser + editor)               │  │  │
 │  │  │  ├── StackView (Claude config inspector)                     │  │  │
 │  │  │  ├── MapView (local work/session map)                        │  │  │
-│  │  │  └── PeopleView (people, groups, meeting history)            │  │  │
+│  │  │  ├── PeopleView (people, groups, meeting history)            │  │  │
+│  │  │  └── LocalAppsView (local/tailnet service monitor)           │  │  │
 │  │  └─────────────────────────────────────────────────────────────┘  │  │
 │  └───────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -208,7 +209,7 @@ hilt/
 ### 1. View Routing Flow
 
 ```
-URL: /bridge, /map, /docs/Users/you/work/project, or /stack/Users/you/work/project
+URL: /bridge, /map, /local-apps, /docs/Users/you/work/project, or /stack/Users/you/work/project
          │
          ▼
 [[...path]]/page.tsx (catch-all route)
@@ -219,11 +220,12 @@ ScopeProvider (ScopeContext.tsx)
          │ Handles pushState / popstate for SPA navigation
          ▼
 Board.tsx receives context via useScope()
-         │ Derives ViewMode: "briefings" | "bridge" | "map" | "docs" | "stack" | "people"
+         │ Derives ViewMode: "briefings" | "bridge" | "map" | "local-apps" | "docs" | "stack" | "people"
          ▼
 Conditionally renders:
   - "bridge" → BridgeView
   - "map"    → MapView (with global search)
+  - "local-apps" → LocalAppsView (with global search)
   - "docs"   → DocsView (with scope + search)
   - "stack"  → StackView (with scope + search)
   - "people" → PeopleView (scope = person slug for deep links)
@@ -355,7 +357,34 @@ The Map feature is local-first and designed for Tailscale-served access to the d
 
 Map tree specificity comes from both launch workspace and work footprint metadata. Codex/Claude tool calls are scanned for file/folder path signals and summarized into small `workFootprint` entries in session metadata; the tree groups those under workspace-level `folder` nodes so a session launched from a parent repo can still show activity in `src/lib/map`, `apps/web`, or another nested area. Raw tool transcripts stay in provider files and are only read for explicit history previews.
 
-### 7. Real-Time Event Flow
+### 7. Local Apps Data Flow
+
+```
+macOS TCP listeners
+         │
+         ├── lsof -nP -iTCP -sTCP:LISTEN -F pcLunPT
+         ├── ps process metadata
+         ├── git/package project metadata
+         └── Tailscale/tailnet URL helpers
+         │
+         ▼
+src/lib/local-apps scanner
+         │ classifies services, groups by app/worktree, probes HTTP health
+         │ redacts process args before API/UI exposure
+         │ maintains a cached single-flight snapshot
+         ▼
+GET /api/local-apps
+         │ returns visible app groups, machine identity, diagnostics
+         ├── optionally probes tailnet peers for /api/local-apps?scope=local
+         │   and includes only peers that identify as hilt-local-apps
+         ▼
+LocalAppsView
+         └── machine sections with app-first monitor cards, service chips, and open links
+```
+
+Local Apps is monitor-only in v1: no stop, kill, restart, or hide/show controls. It is gated by `HILT_LOCAL_APPS_ENABLED=true`. Optional screenshot capture is gated separately by `HILT_LOCAL_APPS_PREVIEWS=true`; preview files live under `${DATA_DIR}/local-apps/previews` and are served only by safe filename through `/api/local-apps/previews/[filename]`. Tailnet peer aggregation is Hilt-to-Hilt only: the serving instance uses Tailscale status for machine discovery, then accepts only `/api/local-apps?scope=local` responses that match Hilt's API contract. It does not remotely scrape processes or call Port Authority.
+
+### 8. Real-Time Event Flow
 
 ```
 WebSocket connection: ws://localhost:3001/events
@@ -386,12 +415,13 @@ Components receive events and trigger SWR revalidation
 | State | Location | Persistence | Purpose |
 |-------|----------|-------------|---------|
 | Theme preference | `data/preferences.json` | Server JSON | Light/dark/system |
-| View mode | `data/preferences.json` + URL | Server JSON + URL | Briefing/Bridge/Map/Docs/Stack/People |
+| View mode | `data/preferences.json` + URL | Server JSON + URL | Briefing/Bridge/Map/Apps/Docs/Stack/People |
 | Bridge vault path | `data/preferences.json` | Server JSON | Path to bridge vault |
 | Working folder | `data/preferences.json` | Server JSON | Default scope for all views |
 | Draft prompts | `Todo.md` / `data/inbox.json` | Local files | Queued prompts |
 | Source list | `${DATA_DIR}/sources.json` | Server JSON | Local/remote Hilt sources; rank order controls startup and fallback |
 | Map index | `${DATA_DIR}/map.sqlite` | SQLite | Local Codex/Claude session metadata, source scan status, overrides |
+| Local Apps settings/previews | `${DATA_DIR}/local-apps/` | Server JSON + PNG cache | Local service monitor settings and optional screenshots |
 | Scope path | URL + ScopeContext | URL state | Current folder scope |
 
 ## API Routes
@@ -423,6 +453,9 @@ Components receive events and trigger SWR revalidation
 | `/api/map/local/session-detail` | GET | Explicit read-only history preview | `id`, `limit` |
 | `/api/map/local/refresh` | POST | Force Map index scan | - |
 | `/api/map/local/source-status` | GET | Latest Map scan diagnostics | - |
+| `/api/local-apps` | GET | Cached local service monitor snapshot | - |
+| `/api/local-apps/settings` | GET | Local Apps settings metadata | - |
+| `/api/local-apps/previews/[filename]` | GET | Safe PNG preview serving | `filename` |
 | `/api/inbox` | GET | List draft prompts | `scope` |
 | `/api/inbox` | POST | Create draft | `prompt`, `projectPath` |
 | `/api/inbox` | PATCH | Update draft | `id`, `prompt` |
@@ -492,7 +525,7 @@ Board.tsx (274 lines)
 ├── Top Toolbar
 │   ├── Search input
 │   ├── ThemeToggle
-│   └── ViewToggle (Briefing / Bridge / Map / Docs / People) — centered
+│   └── ViewToggle (Briefing / Bridge / Map / Docs / People / Apps) — centered
 │
 ├── Main Content (conditional on viewMode)
 │   ├── viewMode === "bridge"
@@ -532,11 +565,16 @@ Board.tsx (274 lines)
 │   │       ├── paginated session list
 │   │       └── explicit history preview
 │   │
-│   └── viewMode === "people"
+│   ├── viewMode === "people"
 │       └── PeopleView (URL: /people or /people/{slug})
 │           ├── PersonCard × N (list, searchable)
 │           └── PersonDetailPanel (selected person)
 │               └── MeetingEntry × N (inline notes + Granola meetings)
+│
+│   └── viewMode === "local-apps"
+│       └── LocalAppsView
+│           ├── machine/scan status toolbar
+│           └── app-first service cards
 ```
 
 ## Data Models

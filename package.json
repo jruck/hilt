@@ -11,6 +11,8 @@
     "lint": "eslint",
     "test:map": "tsx --test src/lib/map/**/*.test.ts",
     "test:map:perf": "tsx --test src/lib/map/**/*.perf.ts",
+    "test:local-apps": "tsx --test src/lib/local-apps/**/*.test.ts",
+    "test:local-apps:parity": "tsx scripts/local-apps-parity.ts",
     "ws-server": "tsx server/ws-server.ts",
     "event-server": "tsx server/event-server.ts",
     "dev:all": "concurrently \"DATA_DIR=$HOME/.hilt/data npm run dev\" \"DATA_DIR=$HOME/.hilt/data npm run ws-server\" \"DATA_DIR=$HOME/.hilt/data npm run event-server\"",

@@ -17,6 +17,7 @@ const BridgeView = dynamic(() => import("./bridge/BridgeView").then(m => ({ defa
 const BriefingsView = dynamic(() => import("./briefings/BriefingsView").then(m => ({ default: m.BriefingsView })), { ssr: false });
 const PeopleView = dynamic(() => import("./people/PeopleView").then(m => ({ default: m.PeopleView })), { ssr: false });
 const MapView = dynamic(() => import("./map/MapView").then(m => ({ default: m.MapView })), { ssr: false });
+const LocalAppsView = dynamic(() => import("./local-apps").then(m => ({ default: m.LocalAppsView })), { ssr: false });
 
 export function Board() {
   // Scope path and view mode from context — URL-based routing
@@ -34,6 +35,7 @@ export function Board() {
   // Derive ViewMode from URL prefix
   const viewMode: ViewMode = urlViewMode === "bridge" ? "bridge"
     : urlViewMode === "map" ? "map"
+    : urlViewMode === "local-apps" ? "local-apps"
     : urlViewMode === "docs" ? "docs"
     : urlViewMode === "stack" ? "stack"
     : urlViewMode === "briefings" ? "briefings"
@@ -46,6 +48,8 @@ export function Board() {
       setUrlViewMode("bridge");
     } else if (mode === "map") {
       setUrlViewMode("map");
+    } else if (mode === "local-apps") {
+      setUrlViewMode("local-apps");
     } else if (mode === "docs") {
       setUrlViewMode("docs");
     } else if (mode === "stack") {
@@ -174,6 +178,8 @@ export function Board() {
           />
         ) : viewMode === "map" ? (
           <MapView searchQuery={searchQuery} />
+        ) : viewMode === "local-apps" ? (
+          <LocalAppsView searchQuery={searchQuery} />
         ) : viewMode === "stack" ? (
           <div className="flex-1 overflow-hidden">
             <StackView scopePath={workingFolder || ""} searchQuery={searchQuery} />
@@ -205,6 +211,8 @@ export function Board() {
           />
         ) : viewMode === "map" ? (
           <MapView searchQuery={searchQuery} />
+        ) : viewMode === "local-apps" ? (
+          <LocalAppsView searchQuery={searchQuery} />
         ) : viewMode === "stack" ? (
           <div className="flex-1 overflow-hidden">
             <StackView scopePath={workingFolder || ""} searchQuery={searchQuery} />

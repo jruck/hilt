@@ -115,7 +115,7 @@ interface UserPreferences {
   sidebarCollapsed: boolean;
   theme: "light" | "dark" | "system";
   recentScopes: string[];
-  viewMode: "board" | "tree" | "docs" | "stack" | "bridge" | "chat";
+  viewMode: "board" | "tree" | "docs" | "stack" | "bridge" | "briefings" | "people" | "map" | "local-apps" | "chat";
   // Separate storage for folder emojis by path - persists across unpin/re-pin
   folderEmojis?: Record<string, string>;
   // Global inbox folder path for quick capture

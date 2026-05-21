@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Added
+
+- **Local Apps monitor view** — Added a gated `/local-apps` Apps tab (`Cmd+6`) that inspects local TCP listeners on the Hilt-serving machine, groups them by app/worktree, probes health, builds tailnet-friendly open URLs, and shows app-first service cards. APIs live under `/api/local-apps`, use a cached single-flight scanner, redact process args before UI/API exposure, and are disabled unless `HILT_LOCAL_APPS_ENABLED=true`.
+
+- **Local Apps scanner contracts and tests** — Added Local Apps Zod contracts, Hilt-owned settings import/defaults, Port Authority-compatible FNV stable ids, macOS `lsof`/`ps` parsing, service classification/grouping, tailnet helpers, optional preview scaffolding behind `HILT_LOCAL_APPS_PREVIEWS=true`, and `npm run test:local-apps` plus a Port Authority parity script.
+
+- **Local Apps tailnet aggregation** — `/api/local-apps` now keeps the local snapshot contract while adding a `machines` array for other online tailnet devices that are also running Hilt. Peer discovery is Hilt-to-Hilt only: it probes known Tailscale peers for `/api/local-apps?scope=local`, validates the Hilt API contract, and renders the Apps view grouped by machine.
+
 ## [5.0.0] - 2026-05-21
 
 ### Added

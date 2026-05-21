@@ -16,6 +16,7 @@ const SHORTCUTS = [
   { keys: "⌘ 3", description: "Map" },
   { keys: "⌘ 4", description: "Docs" },
   { keys: "⌘ 5", description: "People" },
+  { keys: "⌘ 6", description: "Apps" },
   { keys: "Esc", description: "Close search" },
 ];
 
@@ -25,6 +26,7 @@ const VIEW_KEYS: Record<string, ViewMode> = {
   "3": "map",
   "4": "docs",
   "5": "people",
+  "6": "local-apps",
 };
 
 function ShortcutsPopup({ visible, onFocus }: { visible: boolean; onClose: () => void; onFocus?: () => void }) {

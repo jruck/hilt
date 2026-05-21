@@ -174,6 +174,20 @@ This section tracks design decisions and refinements over time. Each entry shoul
 
 **Rationale**: The source picker is the user-facing control for default context. If the app silently privileges local sources, the configured order stops being trustworthy.
 
+### 2026-05-21: Local Apps — App-First Machine Inspection
+
+**Change**: Added Local Apps as a monitor-only Apps tab for local/tailnet service inspection.
+
+**Pattern established**:
+- Group services by app/worktree first, not by individual port.
+- Keep destructive process controls out of the first surface; opening a URL is the only primary action.
+- Show machine identity and scan freshness in the view chrome so remote/Tailscale use is always grounded.
+- When multiple Hilt machines are visible on the tailnet, group app cards by machine. Do not flatten everything into one undifferentiated port grid; machine context is part of the operational meaning.
+- Cards should be dense and operational: preview/fallback, app title, path, branch, and compact service chips.
+- Use source signals, hidden reasons, and diagnostics for explainability, but keep them secondary to the app overview.
+
+**Rationale**: Local Apps is situational awareness for running dev surfaces. It should answer "what is live on this machine?" without becoming a process manager or generic cloud dashboard.
+
 ### 2026-01-09: Hierarchical View Toggle
 
 **Change**: Restructured view toggle from 4 equal options to a hierarchical system.

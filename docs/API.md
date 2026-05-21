@@ -269,6 +269,86 @@ Returns the latest scan diagnostics and source status list.
 
 ---
 
+## Local Apps Routes
+
+Monitor-only local/tailnet service inspection for the machine serving the active Hilt instance. Set `HILT_LOCAL_APPS_ENABLED=true` to enable. Optional screenshot previews require `HILT_LOCAL_APPS_PREVIEWS=true`. By default, Hilt also discovers other online tailnet machines that are running Hilt and includes their local snapshots in `machines`; set `HILT_LOCAL_APPS_PEERS=false` to disable that aggregation.
+
+### GET /api/local-apps
+
+Returns the cached Local Apps snapshot. The scanner uses a single-flight cache, so requests return the latest snapshot while background refreshes run.
+
+Use `?scope=local` when one Hilt instance is calling another Hilt instance. This returns only the serving machine's snapshot and avoids recursive peer aggregation.
+
+**Enabled response**
+
+```typescript
+{
+  app: "hilt-local-apps";
+  enabled: true;
+  machine: {
+    hostname: string;
+    tailscale_dns?: string | null;
+    tailscale_ip4?: string | null;
+    origin: "local";
+  };
+  groups: ServiceGroup[];       // visible groups only; groups may include hidden child services
+  diagnostics: {
+    scanned_at: string | null;
+    is_scanning: boolean;
+    duration_ms: number | null;
+    listener_count: number;
+    group_count: number;
+    visible_group_count: number;
+    errors: string[];
+  };
+  machines?: Array<{
+    id: string;                  // tailscale DNS, IP, or hostname
+    self: boolean;
+    reachable: boolean;
+    source_url?: string | null;  // base URL used for this Hilt instance, remote only
+    machine: MachineIdentity;
+    groups: ServiceGroup[];
+    diagnostics: ScanDiagnostics;
+    error?: string | null;
+  }>;
+  summary?: {
+    machine_count: number;
+    group_count: number;
+    service_count: number;
+    visible_group_count: number;
+  };
+}
+```
+
+**Disabled response**
+
+```typescript
+{
+  app: "hilt-local-apps";
+  enabled: false;
+  reason: string;
+}
+```
+
+### GET /api/local-apps/settings
+
+Returns Hilt-owned Local Apps settings metadata. `api_url` is always `null` because Hilt does not expose a separate Port Authority-style daemon.
+
+```typescript
+{
+  settings: Settings;
+  api_url: null;
+  settings_path: string;
+  preview_dir: string;
+}
+```
+
+### GET /api/local-apps/previews/[filename]
+
+Serves cached PNG screenshots from the Local Apps preview directory. The route accepts only simple `.png` filenames and rejects `/` or `\` path separators.
+
+---
+
 ## Bridge Routes
 
 Routes for the Bridge view, which manages weekly task lists and projects from an Obsidian vault.

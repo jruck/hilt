@@ -1,0 +1,186 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, test } from "node:test";
+import { classify, groupServices, inferKind } from "./classifier";
+import { localAppsDisabledResponseSchema } from "./contracts";
+import { parseEndpoint, parseLsof } from "./adapters/macos";
+import { probeServices } from "./probe";
+import { isSafePreviewFilename } from "./preview";
+import { redactSensitiveArgs } from "./redact";
+import { defaultSettings, loadSettings } from "./settings";
+import { stableId } from "./stable-id";
+import { parseTailnetStatus, previewUrlForHost } from "./tailnet";
+import type { ObservedService, Settings } from "./types";
+
+const originalDataDir = process.env.DATA_DIR;
+
+afterEach(() => {
+  if (originalDataDir === undefined) {
+    delete process.env.DATA_DIR;
+  } else {
+    process.env.DATA_DIR = originalDataDir;
+  }
+});
+
+function settings(overrides: Partial<Settings> = {}): Settings {
+  return {
+    ...defaultSettings(),
+    dev_roots: ["/Users/jane/work"],
+    rules: [],
+    ai: {
+      enabled: false,
+      endpoint: "http://127.0.0.1:11434",
+      model: "llama3.2",
+    },
+    ...overrides,
+  };
+}
+
+function observed(command: string, args: string, cwd: string | null, port: number): ObservedService {
+  return {
+    listener: {
+      protocol: "TCP",
+      host: "127.0.0.1",
+      port,
+      pid: port,
+      command,
+      user: "jane",
+      parent_pid: 1,
+    },
+    process: {
+      pid: port,
+      parent_pid: 1,
+      parent_chain: [1],
+      cwd,
+      executable: `/usr/local/bin/${command}`,
+      args,
+      start_time: "2026-05-21T12:00:00.000Z",
+    },
+  };
+}
+
+describe("local apps macOS collector parsing", () => {
+  test("parses lsof records", () => {
+    const raw = "p397\ncDia\nLjruck\nPTCP\nn127.0.0.1:9222\nTST=LISTEN\np7118\ncmysqld\nLjruck\nPTCP\nn127.0.0.1:3306\n";
+    const listeners = parseLsof(raw);
+    assert.equal(listeners.length, 2);
+    assert.equal(listeners[0].pid, 397);
+    assert.equal(listeners[0].host, "127.0.0.1");
+    assert.equal(listeners[0].port, 9222);
+    assert.equal(listeners[1].command, "mysqld");
+  });
+
+  test("parses IPv6 endpoints", () => {
+    assert.deepEqual(parseEndpoint("[::1]:42050"), ["::1", 42050]);
+  });
+});
+
+describe("local apps identity and classification", () => {
+  test("stable ID matches Port Authority FNV-1a", () => {
+    assert.equal(stableId("svc:123:127.0.0.1:3000:npm run dev"), "e7af83764e7b9df0");
+    assert.equal(stableId("group:/Users/jane/work/hilt:main:next-server"), "faab51f3e960ee8a");
+  });
+
+  test("classifies key service kinds", () => {
+    assert.equal(inferKind(3000, "next-server npm run dev"), "fullstack");
+    assert.equal(inferKind(3001, "tsx server/ws-server.ts"), "backend");
+    assert.equal(inferKind(11434, "ollama serve"), "infra");
+  });
+
+  test("keeps browser debug noise hidden", () => {
+    const service = classify(observed("Dia", "Dia --remote-debugging-port=9222", "/Applications/Dia.app", 9222), settings());
+    assert.equal(service.kind, "browser_debug");
+    assert.equal(service.visible, false);
+  });
+
+  test("groups same repo and branch into one app", () => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-local-apps-"));
+    fs.writeFileSync(path.join(temp, "package.json"), JSON.stringify({ name: "@jruck/hilt" }));
+    fs.mkdirSync(path.join(temp, ".git"));
+    const services = [
+      classify(observed("next-server", "next dev", temp, 3000), settings({ dev_roots: [os.tmpdir()] })),
+      classify(observed("node", "tsx server/ws-server.ts", temp, 3001), settings({ dev_roots: [os.tmpdir()] })),
+    ];
+    services.forEach((service) => {
+      service.project.git_root = temp;
+      service.project.branch = "main";
+      service.project.package_name = "jruck / hilt";
+    });
+    const groups = groupServices(services, settings({ dev_roots: [os.tmpdir()] }));
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].services.length, 2);
+    assert.equal(groups[0].title, "jruck / hilt / main");
+  });
+});
+
+describe("local apps settings, health, and safety", () => {
+  test("loads default settings into Hilt data dir", () => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-local-apps-settings-"));
+    process.env.DATA_DIR = temp;
+    const loaded = loadSettings();
+    assert.equal(loaded.scan_interval_ms, 5000);
+    assert.equal(fs.existsSync(path.join(temp, "local-apps", "settings.json")), true);
+  });
+
+  test("redacts common secret forms", () => {
+    const redacted = redactSensitiveArgs("node server.js --token abc123 api_key=xyz Authorization: Bearer hello");
+    assert.match(redacted, /--token \[redacted\]/);
+    assert.match(redacted, /api_key=\[redacted\]/);
+    assert.doesNotMatch(redacted, /abc123|xyz|hello/);
+  });
+
+  test("marks infra as listening without HTTP probing", async () => {
+    const service = classify(observed("ollama", "ollama serve", null, 11434), settings());
+    await probeServices([service]);
+    assert.equal(service.health.status, "up");
+    assert.equal(service.health.label, "Listening");
+  });
+
+  test("builds tailnet preview URL with IPv6-safe host formatting", () => {
+    assert.equal(previewUrlForHost("xochipilli.tailc0acaa.ts.net", 3000), "http://xochipilli.tailc0acaa.ts.net:3000");
+    assert.equal(previewUrlForHost("fd7a:115c:a1e0::1", 3000), "http://[fd7a:115c:a1e0::1]:3000");
+  });
+
+  test("parses tailnet peers for remote Hilt discovery", () => {
+    const parsed = parseTailnetStatus(JSON.stringify({
+      Self: {
+        HostName: "Xochipilli",
+        DNSName: "xochipilli.tailc0acaa.ts.net.",
+        TailscaleIPs: ["100.104.52.2"],
+        OS: "macOS",
+      },
+      Peer: {
+        "node-1": {
+          HostName: "Mercury-V",
+          DNSName: "mercury-v.tailc0acaa.ts.net.",
+          Online: true,
+          OS: "macOS",
+          TailscaleIPs: ["100.80.0.95"],
+        },
+      },
+    }));
+
+    assert.equal(parsed?.self?.dns_name, "xochipilli.tailc0acaa.ts.net");
+    assert.equal(parsed?.peers[0].hostname, "Mercury-V");
+    assert.equal(parsed?.peers[0].ip4, "100.80.0.95");
+    assert.equal(parsed?.peers[0].online, true);
+  });
+
+  test("validates disabled API contract", () => {
+    const parsed = localAppsDisabledResponseSchema.parse({
+      app: "hilt-local-apps",
+      enabled: false,
+      reason: "HILT_LOCAL_APPS_ENABLED is not true",
+    });
+    assert.equal(parsed.enabled, false);
+  });
+
+  test("rejects unsafe preview filenames", () => {
+    assert.equal(isSafePreviewFilename("abc123.png"), true);
+    assert.equal(isSafePreviewFilename("../abc123.png"), false);
+    assert.equal(isSafePreviewFilename("nested\\abc123.png"), false);
+    assert.equal(isSafePreviewFilename("abc123.jpg"), false);
+  });
+});

@@ -113,6 +113,108 @@ interface Source {
 }
 ```
 
+### Local Apps
+
+Monitor-only local service/app discovery. Hilt owns the scanner and exposes only redacted process metadata to the browser.
+
+```typescript
+type ServiceKind =
+  | "frontend"
+  | "backend"
+  | "fullstack"
+  | "database"
+  | "queue"
+  | "infra"
+  | "browser_debug"
+  | "system"
+  | "unknown";
+
+interface LocalAppService {
+  id: string;                    // FNV-1a over svc:{pid}:{host}:{port}:{args}
+  listener: {
+    protocol: string;
+    host: string;
+    port: number;
+    pid: number;
+    command: string;
+    user?: string | null;
+    parent_pid?: number | null;
+  };
+  process: {
+    pid: number;
+    parent_pid?: number | null;
+    parent_chain: number[];
+    cwd?: string | null;
+    executable?: string | null;
+    args: string;                // Redacted before API/UI exposure
+    start_time?: string | null;
+  };
+  kind: ServiceKind;
+  title: string;
+  description: string;
+  confidence: number;
+  visible: boolean;
+  hidden_reason?: string | null;
+  source_signals: string[];
+  project: {
+    git_root?: string | null;
+    branch?: string | null;
+    worktree?: string | null;
+    package_name?: string | null;
+  };
+  preview_url?: string | null;
+  url_candidates: string[];
+  health: {
+    status: "up" | "down" | "unknown";
+    label: string;
+    http_status?: number | null;
+    latency_ms?: number | null;
+    checked_at?: string | null;
+    error?: string | null;
+    url?: string | null;
+  };
+  page_title?: string | null;
+  favicon_url?: string | null;
+  framework_hints: string[];
+  preview?: { path: string; captured_at: string; error?: string | null } | null;
+}
+
+interface LocalAppGroup {
+  id: string;                    // FNV-1a over group:{path-or-command}:{branch}:{first-command}
+  title: string;
+  description: string;
+  path?: string | null;
+  git_root?: string | null;
+  branch?: string | null;
+  package_name?: string | null;
+  confidence: number;
+  visible: boolean;
+  hidden_reason?: string | null;
+  services: LocalAppService[];
+  ports: number[];
+  primary_url?: string | null;
+  source_signals: string[];
+  ai?: null;
+  updated_at: string;
+}
+
+interface LocalAppsMachineSnapshot {
+  id: string;                    // tailscale DNS, IP, or hostname
+  self: boolean;
+  reachable: boolean;
+  source_url?: string | null;    // base URL used for remote Hilt preview/API reads
+  machine: {
+    hostname: string;
+    tailscale_dns?: string | null;
+    tailscale_ip4?: string | null;
+    origin: "local" | "remote";
+  };
+  groups: LocalAppGroup[];
+  diagnostics: ScanDiagnostics;
+  error?: string | null;
+}
+```
+
 ## Persistence Formats
 
 ### map.sqlite
@@ -170,6 +272,33 @@ Additional Map tables:
 | `map_checkpoints` | Schema-ready local resume checkpoints for future human-written sign-offs |
 | `map_meta` | Last scan timestamp and diagnostics JSON |
 
+### local-apps/settings.json
+
+Stored at `${DATA_DIR}/local-apps/settings.json`, falling back to `~/.hilt/local-apps/settings.json` when `DATA_DIR` is unset. If no Hilt settings exist, Hilt imports Port Authority settings once from `~/Library/Application Support/Port Authority/settings.json`.
+
+```typescript
+interface LocalAppsSettings {
+  dev_roots: string[];
+  rules: Array<{
+    id: string;
+    action: "hide" | "show";
+    scope: "process_name" | "command_contains" | "path_prefix" | "port" | "service_id" | "group_id";
+    pattern: string;
+    note?: string | null;
+    created_at: string;
+  }>;
+  scan_interval_ms: number;      // default 5000
+  api_port: number;              // compatibility metadata only
+  ai: {
+    enabled: boolean;            // unused in Hilt v1
+    endpoint: string;
+    model: string;
+  };
+}
+```
+
+Optional screenshots are cached under `${DATA_DIR}/local-apps/previews` and served only by filename through `/api/local-apps/previews/[filename]`.
+
 ### preferences.json
 
 Stored in `data/preferences.json`. Persists user preferences across app restarts and Electron rebuilds.
@@ -188,7 +317,7 @@ interface UserPreferences {
   recentScopes: string[];
   // Last 10 visited folder paths (most recent first)
 
-  viewMode: "briefings" | "bridge" | "map" | "docs" | "stack" | "people" | "chat";
+  viewMode: "briefings" | "bridge" | "map" | "local-apps" | "docs" | "stack" | "people" | "chat";
   // Current view mode
 
   folderEmojis?: Record<string, string>;

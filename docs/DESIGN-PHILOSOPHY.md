@@ -184,6 +184,7 @@ This section tracks design decisions and refinements over time. Each entry shoul
 - Show machine identity and scan freshness in the view chrome so remote/Tailscale use is always grounded.
 - When multiple Hilt machines are visible on the tailnet, group app cards by machine. Do not flatten everything into one undifferentiated port grid; machine context is part of the operational meaning.
 - Cards should be dense and operational: preview/fallback, app title, path, branch, and compact service chips.
+- Screenshot previews should show the app as the user would open it over the tailnet where possible. Keep fallback states honest: no web UI, HTTP status, or capture error is better than a stale decorative placeholder.
 - Use source signals, hidden reasons, and diagnostics for explainability, but keep them secondary to the app overview.
 
 **Rationale**: Local Apps is situational awareness for running dev surfaces. It should answer "what is live on this machine?" without becoming a process manager or generic cloud dashboard.

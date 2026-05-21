@@ -7,7 +7,7 @@ import { classify, groupServices, inferKind } from "./classifier";
 import { localAppsDisabledResponseSchema } from "./contracts";
 import { parseEndpoint, parseLsof } from "./adapters/macos";
 import { probeServices } from "./probe";
-import { isSafePreviewFilename } from "./preview";
+import { isPreviewableService, isSafePreviewFilename, previewCaptureUrls } from "./preview";
 import { redactSensitiveArgs } from "./redact";
 import { defaultSettings, loadSettings } from "./settings";
 import { stableId } from "./stable-id";
@@ -182,5 +182,29 @@ describe("local apps settings, health, and safety", () => {
     assert.equal(isSafePreviewFilename("../abc123.png"), false);
     assert.equal(isSafePreviewFilename("nested\\abc123.png"), false);
     assert.equal(isSafePreviewFilename("abc123.jpg"), false);
+  });
+
+  test("captures previews from tailnet URL first for healthy web services", () => {
+    const service = classify(observed("next-server", "next dev", "/Users/jane/work/hilt", 3000), settings());
+    service.visible = true;
+    service.preview_url = "http://hilt.tail.ts.net:3000";
+    service.url_candidates = ["http://127.0.0.1:3000", "http://0.0.0.0:3000"];
+    service.health = {
+      status: "up",
+      label: "200 OK",
+      http_status: 200,
+      latency_ms: 10,
+      checked_at: "2026-05-21T12:00:00.000Z",
+      error: null,
+      url: "http://127.0.0.1:3000/",
+    };
+
+    assert.equal(isPreviewableService(service), true);
+    assert.deepEqual(previewCaptureUrls(service), [
+      "http://hilt.tail.ts.net:3000",
+      "http://127.0.0.1:3000/",
+      "http://127.0.0.1:3000",
+      "http://0.0.0.0:3000",
+    ]);
   });
 });

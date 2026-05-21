@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertCircle,
-  Clock3,
   Database,
   ExternalLink,
   Loader2,
@@ -300,9 +299,10 @@ function previewFallback(group: ServiceGroup): { label: string; icon: ReactNode 
   if (group.services.every((service) => ["backend", "database", "infra", "queue", "unknown"].includes(service.kind))) {
     return { label: "No web UI", icon: <Database className="h-4 w-4" /> };
   }
+  const previewError = group.services.find((service) => service.preview?.error)?.preview?.error;
+  if (previewError) return { label: previewError, icon: <AlertCircle className="h-4 w-4" /> };
   const down = group.services.find((service) => service.health.status === "down");
   if (down) return { label: down.health.label, icon: <AlertCircle className="h-4 w-4" /> };
-  if (group.services.some((service) => service.preview?.error)) return { label: "Preview pending", icon: <Clock3 className="h-4 w-4" /> };
   return { label: "Preview disabled", icon: <Monitor className="h-4 w-4" /> };
 }
 

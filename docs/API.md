@@ -271,7 +271,7 @@ Returns the latest scan diagnostics and source status list.
 
 ## Local Apps Routes
 
-Monitor-only local/tailnet service inspection for the machine serving the active Hilt instance. Set `HILT_LOCAL_APPS_ENABLED=true` to enable. Optional screenshot previews require `HILT_LOCAL_APPS_PREVIEWS=true`. By default, Hilt also discovers other online tailnet machines that are running Hilt and includes their local snapshots in `machines`; set `HILT_LOCAL_APPS_PEERS=false` to disable that aggregation.
+Monitor-only local/tailnet service inspection for the machine serving the active Hilt instance. Set `HILT_LOCAL_APPS_ENABLED=true` to enable. Optional screenshot previews require `HILT_LOCAL_APPS_PREVIEWS=true`; `HILT_LOCAL_APPS_PREVIEW_CACHE_MS` controls the screenshot cache duration and defaults to 120000 ms. By default, Hilt also discovers other online tailnet machines that are running Hilt and includes their local snapshots in `machines`; set `HILT_LOCAL_APPS_PEERS=false` to disable that aggregation.
 
 ### GET /api/local-apps
 

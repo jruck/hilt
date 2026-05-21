@@ -14,6 +14,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Local Apps tailnet aggregation** — `/api/local-apps` now keeps the local snapshot contract while adding a `machines` array for other online tailnet devices that are also running Hilt. Peer discovery is Hilt-to-Hilt only: it probes known Tailscale peers for `/api/local-apps?scope=local`, checks Tailscale Serve HTTPS plus common Hilt dev ports `3000`-`3004`, validates the Hilt API contract, and renders the Apps view grouped by machine.
 
+- **Local Apps screenshot previews** — Added Playwright as an explicit runtime dependency for optional Local Apps previews, tightened preview capture to healthy HTTP services only, shortened the default screenshot cache to 2 minutes, and made capture prefer the same tailnet/public URL the user would open before falling back to local probe URLs.
+
 ### Fixed
 
 - **`/navigate` silently failing when Hilt window is hidden** — `POST /navigate` only broadcast over the renderer's WebSocket. Backgrounded Electron windows have their `setTimeout` reconnect timers throttled, so a renderer whose WS dropped while hidden would never reconnect, and the broadcast hit zero clients. The skill's main use case ("open this file in Hilt") thus appeared dead any time the user wasn't already focused on Hilt. Added a second path: WS server now also writes `~/.hilt-pending-navigate.json`, the Electron main process watches it (chokidar) and forwards via `webContents.send("navigate:goto", …)`, then focuses the window. Main is never throttled, so this works regardless of renderer state.

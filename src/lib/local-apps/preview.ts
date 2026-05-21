@@ -4,7 +4,7 @@ import { isPreviewCaptureEnabled, previewDir } from "./settings";
 import type { Preview, Service } from "./types";
 
 const AUTO_PREVIEW_LIMIT = 12;
-const CACHE_MS = 10 * 60 * 1000;
+const DEFAULT_CACHE_MS = 2 * 60 * 1000;
 
 type PlaywrightChromium = {
   launch: (options: { headless: boolean }) => Promise<{
@@ -36,7 +36,7 @@ export function attachCachedPreviews(services: Service[]): void {
 export function startPreviewCapture(services: Service[]): void {
   if (!isPreviewCaptureEnabled()) return;
   const candidates = services
-    .filter((service) => service.visible && service.health.status === "up" && service.health.url && !service.preview)
+    .filter((service) => service.visible && isPreviewableService(service) && !service.preview)
     .slice(0, AUTO_PREVIEW_LIMIT);
   if (candidates.length === 0) return;
 
@@ -57,22 +57,37 @@ async function capturePreviews(services: Service[]): Promise<void> {
   const browser = await chromium.launch({ headless: true });
   try {
     for (const service of services) {
-      const url = service.health.url || service.url_candidates[0];
-      if (!url) continue;
+      const urls = previewCaptureUrls(service);
+      if (urls.length === 0) continue;
       const outPath = previewPathForService(service.id);
       fs.mkdirSync(path.dirname(outPath), { recursive: true });
       const page = await browser.newPage({
         viewport: { width: 1280, height: 800 },
         deviceScaleFactor: 1,
       });
-      await page.addStyleTag({ content: "*, *::before, *::after { animation: none !important; transition: none !important; }" }).catch(() => {});
+      let lastError: unknown = null;
       try {
-        await page.goto(url, { waitUntil: "networkidle", timeout: 8000 });
-      } catch {
-        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 8000 });
+        for (const url of urls) {
+          try {
+            await page.goto(url, { waitUntil: "networkidle", timeout: 8000 });
+          } catch (error) {
+            lastError = error;
+            try {
+              await page.goto(url, { waitUntil: "domcontentloaded", timeout: 8000 });
+            } catch (fallbackError) {
+              lastError = fallbackError;
+              continue;
+            }
+          }
+          await page.addStyleTag({ content: "*, *::before, *::after { animation: none !important; transition: none !important; }" }).catch(() => {});
+          await page.screenshot({ path: outPath, fullPage: false });
+          lastError = null;
+          break;
+        }
+      } finally {
+        await page.close();
       }
-      await page.screenshot({ path: outPath, fullPage: false });
-      await page.close();
+      if (lastError) writePreviewError(service, previewErrorMessage(lastError));
     }
   } finally {
     await browser.close();
@@ -82,7 +97,7 @@ async function capturePreviews(services: Service[]): Promise<void> {
 function cachedPreview(filePath: string): Preview | null {
   try {
     const stat = fs.statSync(filePath);
-    if (Date.now() - stat.mtimeMs > CACHE_MS) return null;
+    if (Date.now() - stat.mtimeMs > previewCacheMs()) return null;
     return {
       path: filePath,
       captured_at: stat.mtime.toISOString(),
@@ -99,6 +114,47 @@ function writePreviewError(service: Service, error: string): void {
     captured_at: new Date().toISOString(),
     error,
   };
+}
+
+export function isPreviewableService(service: Service): boolean {
+  return (
+    service.health.status === "up" &&
+    service.health.http_status != null &&
+    service.health.http_status >= 200 &&
+    service.health.http_status < 400 &&
+    previewCaptureUrls(service).length > 0
+  );
+}
+
+export function previewCaptureUrls(service: Service): string[] {
+  return [
+    service.preview_url,
+    service.health.url,
+    ...service.url_candidates,
+  ].filter((url): url is string => !!url && isHttpUrl(url))
+    .filter(unique);
+}
+
+function isHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
+function unique(value: string, index: number, array: string[]): boolean {
+  return array.indexOf(value) === index;
+}
+
+function previewCacheMs(): number {
+  const raw = process.env.HILT_LOCAL_APPS_PREVIEW_CACHE_MS;
+  if (!raw) return DEFAULT_CACHE_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_CACHE_MS;
+}
+
+function previewErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) return "Preview capture failed";
+  if (/executable doesn't exist|browser.*not found/i.test(error.message)) return "Playwright browser is not installed";
+  if (/timeout/i.test(error.message)) return "Preview capture timed out";
+  return "Preview capture failed";
 }
 
 async function loadChromium(): Promise<PlaywrightChromium | null> {

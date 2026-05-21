@@ -59,6 +59,11 @@ function addDays(date: Date, days: number): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
 }
 
+function getFridayOfCurrentWeek(date: Date): Date {
+  const isoDay = date.getDay() === 0 ? 7 : date.getDay();
+  return addDays(date, 5 - isoDay);
+}
+
 function addMonths(date: Date, months: number): Date {
   return new Date(date.getFullYear(), date.getMonth() + months, 1);
 }
@@ -83,6 +88,7 @@ export function formatDueDate(value: string | null): string {
 export function DatePickerPopover({ value, onSelect, onClose }: DatePickerPopoverProps) {
   const selectedDate = useMemo(() => parseIsoDate(value), [value]);
   const today = useMemo(() => startOfDay(new Date()), []);
+  const endOfWeek = useMemo(() => getFridayOfCurrentWeek(today), [today]);
   const [visibleMonth, setVisibleMonth] = useState(() => selectedDate ?? today);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -190,23 +196,29 @@ export function DatePickerPopover({ value, onSelect, onClose }: DatePickerPopove
           })}
         </div>
 
-        <div className="flex items-center gap-2 mt-3">
+        <div className="flex items-center gap-1 mt-3">
           <button
             onClick={() => selectDate(today)}
-            className="flex-1 rounded-md px-2 py-1.5 text-xs font-medium text-[var(--text-secondary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+            className="flex-1 rounded-md px-1.5 py-1.5 text-xs font-medium whitespace-nowrap text-[var(--text-secondary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
           >
             Today
           </button>
           <button
             onClick={() => selectDate(addDays(today, 1))}
-            className="flex-1 rounded-md px-2 py-1.5 text-xs font-medium text-[var(--text-secondary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+            className="flex-1 rounded-md px-1.5 py-1.5 text-xs font-medium whitespace-nowrap text-[var(--text-secondary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
           >
             Tomorrow
+          </button>
+          <button
+            onClick={() => selectDate(endOfWeek)}
+            className="flex-1 rounded-md px-1.5 py-1.5 text-xs font-medium whitespace-nowrap text-[var(--text-secondary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+          >
+            EOW
           </button>
           {value && (
             <button
               onClick={() => onSelect(null)}
-              className="flex-1 rounded-md px-2 py-1.5 text-xs font-medium text-red-500 bg-red-500/10 hover:bg-red-500/15 transition-colors"
+              className="flex-1 rounded-md px-1.5 py-1.5 text-xs font-medium whitespace-nowrap text-red-500 bg-red-500/10 hover:bg-red-500/15 transition-colors"
             >
               Clear
             </button>

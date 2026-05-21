@@ -38,6 +38,8 @@ const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
 const http = __importStar(require("http"));
 const https = __importStar(require("https"));
+const net = __importStar(require("net"));
+const os = __importStar(require("os"));
 const child_process_1 = require("child_process");
 // Load .env file so Electron has access to the same env vars as Next.js
 const envPath = path.join(__dirname, "..", ".env");
@@ -59,6 +61,7 @@ if (fs.existsSync(envPath)) {
 const DATA_DIR = path.join(electron_1.app.getPath("userData"), "data");
 process.env.DATA_DIR = DATA_DIR;
 const PLANS_DIR = path.join(process.env.HOME || "~", ".claude", "plans");
+const NAVIGATE_FILE = path.join(process.env.HOME || "~", ".hilt-pending-navigate.json");
 // Track active windows and server processes
 let mainWindow = null;
 let isQuitting = false;
@@ -91,31 +94,53 @@ function sortSourcesByRank(sources) {
     return [...sources].sort((a, b) => a.rank - b.rank);
 }
 /**
- * Find an available port
+ * Find an available port.
+ *
+ * Two collision modes we have to avoid:
+ *  1. Wildcard probe missing IPv4-only listeners — Node's default
+ *     `listen(port)` binds the IPv6 dual-stack wildcard, which does NOT collide
+ *     with an IPv4-only listener (e.g. OrbStack forwarding `127.0.0.1:3001`).
+ *     Hilt would think the port was free, bind IPv6, then Electron's
+ *     `loadURL("localhost:3001")` resolves to IPv4 first and lands on the other
+ *     app — Hilt window shows BrowserSync.
+ *  2. Loopback-only probe missing wildcard listeners — `listen(port, "127.0.0.1")`
+ *     succeeds even when another process owns the IPv6 dual-stack wildcard
+ *     (because a more-specific bind doesn't conflict with a wildcard one in
+ *     the kernel's routing table). Hilt would think the port was free, then
+ *     `next dev` does the wildcard listen and crashes with EADDRINUSE.
+ *
+ * The probe must mirror what `next dev` actually does: a wildcard listen.
+ * Combine that with an IPv4 loopback check to also catch case 1.
  */
 async function findAvailablePort(startPort) {
-    return new Promise((resolve) => {
-        const net = require("net");
+    const probe = (port, host) => new Promise((resolve) => {
         const server = net.createServer();
-        server.listen(startPort, () => {
-            const port = server.address().port;
-            server.close(() => resolve(port));
-        });
-        server.on("error", () => {
-            resolve(findAvailablePort(startPort + 1));
-        });
+        server.once("error", () => resolve(false));
+        const cb = () => server.close(() => resolve(true));
+        if (host)
+            server.listen(port, host, cb);
+        else
+            server.listen(port, cb);
     });
+    let port = startPort;
+    while (true) {
+        const wildcardFree = await probe(port);
+        const ipv4Free = await probe(port, "127.0.0.1");
+        if (wildcardFree && ipv4Free)
+            return port;
+        port++;
+    }
 }
 /**
  * Check if a dev server is running on a given port
  */
 async function checkDevServer(port) {
     return new Promise((resolve) => {
-        const http = require("http");
         const req = http.request({ hostname: "localhost", port, path: "/", method: "GET", timeout: 2000 }, (res) => {
             // Must be a 2xx response with HTML content (not just any HTTP server like the WS server)
             const contentType = res.headers["content-type"] || "";
-            resolve(res.statusCode >= 200 && res.statusCode < 300 && contentType.includes("text/html"));
+            const status = res.statusCode || 0;
+            resolve(status >= 200 && status < 300 && String(contentType).includes("text/html"));
             res.resume(); // Drain the response
         });
         req.on("error", () => resolve(false));
@@ -133,13 +158,12 @@ async function checkDevServer(port) {
  */
 async function isHiltServer(port) {
     return new Promise((resolve) => {
-        const http = require("http");
         const req = http.request({ hostname: "localhost", port, path: "/api/ws-port", method: "GET", timeout: 2000 }, (res) => {
             const contentType = res.headers["content-type"] || "";
             // Hilt's route returns JSON for both success (200) and "WS not running yet" (503).
             // A different Next.js app would return HTML 404 for this path.
-            const status = res.statusCode;
-            const looksLikeHilt = contentType.includes("application/json") && (status === 200 || status === 503);
+            const status = res.statusCode || 0;
+            const looksLikeHilt = String(contentType).includes("application/json") && (status === 200 || status === 503);
             resolve(looksLikeHilt);
             res.resume();
         });
@@ -228,7 +252,6 @@ async function findExistingDevServer(ports) {
  */
 function recoverFromTurbopackPanic(projectRoot) {
     try {
-        const os = require("os");
         const tmpDir = os.tmpdir();
         const panicLogs = fs.readdirSync(tmpDir)
             .filter((f) => f.startsWith("next-panic-") && f.endsWith(".log"));
@@ -551,11 +574,10 @@ async function startNextServer() {
         // Use system node + detached process group to prevent a second dock icon.
         // macOS shows dock icons for child processes in the same process group as
         // a .app bundle, so we detach into a new group and kill on exit.
-        const { execSync } = require("child_process");
         let nodeBin = process.execPath;
         let extraEnv = { ELECTRON_RUN_AS_NODE: "1" };
         try {
-            const systemNode = execSync("which node", { encoding: "utf-8" }).trim();
+            const systemNode = (0, child_process_1.execSync)("which node", { encoding: "utf-8" }).trim();
             if (systemNode) {
                 nodeBin = systemNode;
                 extraEnv = {};
@@ -635,9 +657,17 @@ function startWsServer() {
     const logPath = path.join(logDir, "ws-server.log");
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
     logStream.write(`\n--- WS server starting at ${new Date().toISOString()} ---\n`);
+    // Pin WS to a port range that can't collide with the Next.js dev server.
+    // findAvailablePort(3000) for Next.js can return 3001+ when 3000 is taken
+    // by another app (e.g. Loft). Without WS_PORT, the WS server defaults to
+    // 3001 too, and whichever process binds first wins — leaving the other to
+    // crash. Using nextPort + 100 leaves room for several Next.js shifts before
+    // we'd ever collide.
+    const nextPort = serverPort ?? 3000;
+    const wsPort = nextPort + 100;
     wsServer = (0, child_process_1.spawn)("npm", ["run", "ws-server"], {
         cwd: projectDir,
-        env: { ...process.env, FORCE_COLOR: "0" },
+        env: { ...process.env, FORCE_COLOR: "0", WS_PORT: String(wsPort) },
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,
     });
@@ -888,6 +918,9 @@ async function createWindow() {
     });
     // Setup plan file watcher
     setupPlanWatcher();
+    // Setup navigate file watcher — main-process path that survives renderer
+    // throttling (backgrounded windows pause setTimeout, breaking WS reconnect).
+    setupNavigateWatcher();
 }
 /**
  * Setup plan file watcher
@@ -948,6 +981,57 @@ async function setupPlanWatcher() {
     }
     catch (err) {
         console.error("Error setting up plans watcher:", err);
+    }
+}
+/**
+ * Setup navigate file watcher.
+ *
+ * The WS server's POST /navigate writes to ~/.hilt-pending-navigate.json. We
+ * watch that file from the main process (never throttled) and forward via
+ * webContents IPC, so navigate works even when the renderer's WS reconnect
+ * timer is paused by a backgrounded window.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let navigateWatcher = null;
+let lastNavigateTs = 0;
+async function setupNavigateWatcher() {
+    try {
+        const chokidar = await Promise.resolve().then(() => __importStar(require("chokidar")));
+        navigateWatcher = chokidar.watch(NAVIGATE_FILE, {
+            ignoreInitial: true,
+            awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 25 },
+        });
+        const handleChange = () => {
+            try {
+                if (!fs.existsSync(NAVIGATE_FILE))
+                    return;
+                const raw = fs.readFileSync(NAVIGATE_FILE, "utf-8");
+                const intent = JSON.parse(raw);
+                // Dedupe: identical timestamps mean we already handled this write.
+                if (intent.ts === lastNavigateTs)
+                    return;
+                lastNavigateTs = intent.ts;
+                if (!mainWindow)
+                    return;
+                if (mainWindow.isMinimized())
+                    mainWindow.restore();
+                mainWindow.show();
+                mainWindow.focus();
+                mainWindow.webContents.send("navigate:goto", {
+                    view: intent.view,
+                    path: intent.path || "",
+                });
+            }
+            catch (err) {
+                console.error("Error handling navigate file:", err);
+            }
+        };
+        navigateWatcher.on("add", handleChange);
+        navigateWatcher.on("change", handleChange);
+        console.log(`Watching for navigate intents at: ${NAVIGATE_FILE}`);
+    }
+    catch (err) {
+        console.error("Error setting up navigate watcher:", err);
     }
 }
 // IPC handlers
@@ -1016,6 +1100,9 @@ function killAllServers() {
     wsServer = null;
     if (plansWatcher) {
         plansWatcher.close();
+    }
+    if (navigateWatcher) {
+        navigateWatcher.close();
     }
 }
 electron_1.app.on("window-all-closed", () => {

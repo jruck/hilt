@@ -14,6 +14,115 @@ interface InlineNoteMeeting extends PersonMeeting {
 }
 
 const NEXT_SAVED_AT_FIELD = "next_saved_at";
+const BRIDGE_PREFS_FILE = ".hilt-preferences.json";
+const HIDDEN_SUGGESTIONS_KEY = "people.hiddenSuggestions";
+
+type SuggestedPersonType = "person" | "group";
+
+interface HiddenSuggestionSnapshot {
+  count: number;
+  lastDate: string;
+  hiddenAt: string;
+}
+
+function readBridgePrefs(vaultPath: string): Record<string, unknown> {
+  try {
+    const raw = fs.readFileSync(path.join(vaultPath, BRIDGE_PREFS_FILE), "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+function writeBridgePrefs(vaultPath: string, prefs: Record<string, unknown>): void {
+  fs.writeFileSync(
+    path.join(vaultPath, BRIDGE_PREFS_FILE),
+    JSON.stringify(prefs, null, 2) + "\n",
+    "utf-8",
+  );
+}
+
+function readHiddenSuggestions(vaultPath: string): Record<string, HiddenSuggestionSnapshot> {
+  const prefs = readBridgePrefs(vaultPath);
+  const raw = prefs[HIDDEN_SUGGESTIONS_KEY];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return raw as Record<string, HiddenSuggestionSnapshot>;
+}
+
+function writeHiddenSuggestions(
+  vaultPath: string,
+  hiddenSuggestions: Record<string, HiddenSuggestionSnapshot>,
+): void {
+  const prefs = readBridgePrefs(vaultPath);
+  prefs[HIDDEN_SUGGESTIONS_KEY] = hiddenSuggestions;
+  writeBridgePrefs(vaultPath, prefs);
+}
+
+function isSuggestionHidden(
+  suggestion: SuggestedMeeting,
+  hiddenSuggestions: Record<string, HiddenSuggestionSnapshot>,
+): boolean {
+  const hidden = hiddenSuggestions[suggestion.name];
+  if (!hidden) return false;
+
+  return hidden.count >= suggestion.count && hidden.lastDate >= suggestion.lastDate;
+}
+
+function slugifyPersonName(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return slug || "person";
+}
+
+function uniquePersonSlug(peopleDir: string, baseSlug: string): string {
+  let slug = baseSlug;
+  let suffix = 2;
+  while (fs.existsSync(path.join(peopleDir, `${slug}.md`))) {
+    slug = `${baseSlug}-${suffix}`;
+    suffix++;
+  }
+  return slug;
+}
+
+function sanitizeIndexDescription(description: string): string {
+  return description.replace(/\s+/g, " ").trim();
+}
+
+function insertPersonIndexEntry(
+  indexContent: string,
+  slug: string,
+  type: SuggestedPersonType,
+  description: string,
+): string {
+  if (indexContent.includes(`[[${slug}]]`)) return indexContent;
+
+  const heading = type === "group" ? "## Groups" : "## People";
+  const sanitizedDescription = sanitizeIndexDescription(description);
+  const entry = sanitizedDescription
+    ? `- [[${slug}]] — ${sanitizedDescription}\n`
+    : `- [[${slug}]]\n`;
+  const headingRegex = new RegExp(`^${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "m");
+  const headingMatch = headingRegex.exec(indexContent);
+
+  if (!headingMatch) {
+    return `${indexContent.replace(/\s*$/, "")}\n\n${heading}\n\n${entry}`;
+  }
+
+  const sectionStart = headingMatch.index + headingMatch[0].length;
+  const afterHeading = indexContent.slice(sectionStart);
+  const nextHeadingMatch = /^##\s+/m.exec(afterHeading);
+  const insertAt = nextHeadingMatch ? sectionStart + nextHeadingMatch.index : indexContent.length;
+  const before = indexContent.slice(0, insertAt).replace(/\s*$/, "\n");
+  const after = indexContent.slice(insertAt).replace(/^\n*/, "");
+
+  return `${before}${entry}${after ? `\n${after}` : ""}`;
+}
 
 /**
  * Parse people/index.md to extract slug → description mapping.
@@ -21,10 +130,10 @@ const NEXT_SAVED_AT_FIELD = "next_saved_at";
  */
 export function parsePeopleIndex(content: string): Record<string, string> {
   const result: Record<string, string> = {};
-  const regex = /^\s*-\s*\[\[([^\]]+)\]\]\s*(?:—|--)\s*(.+)$/gm;
+  const regex = /^\s*-\s*\[\[([^\]]+)\]\]\s*(?:(?:—|--)\s*(.*))?$/gm;
   let match;
   while ((match = regex.exec(content)) !== null) {
-    result[match[1].trim()] = match[2].trim();
+    result[match[1].trim()] = (match[2] || "").trim();
   }
   return result;
 }
@@ -384,9 +493,13 @@ export async function getAllPeople(
     }
   }
 
+  const hiddenSuggestions = readHiddenSuggestions(vaultPath);
   for (const [name, { count, lastDate }] of nameGroups) {
     if (count >= 3) {
-      suggestedMeetings.push({ name, count, lastDate });
+      const suggestion = { name, count, lastDate };
+      if (!isSuggestionHidden(suggestion, hiddenSuggestions)) {
+        suggestedMeetings.push(suggestion);
+      }
     }
   }
   suggestedMeetings.sort((a, b) => b.count - a.count);
@@ -401,6 +514,71 @@ export async function getAllPeople(
 export function normalizeMeetingName(filename: string): string {
   const base = filename.replace(/\.md$/, "");
   return base.replace(/-\d{4}-\d{2}-\d{2}\s*@\s*\d{2}-\d{2}-\d{2}$/, "").trim();
+}
+
+export function hideSuggestedMeeting(
+  vaultPath: string,
+  suggestion: Pick<SuggestedMeeting, "name" | "count" | "lastDate">,
+): void {
+  const hiddenSuggestions = readHiddenSuggestions(vaultPath);
+  hiddenSuggestions[suggestion.name] = {
+    count: suggestion.count,
+    lastDate: suggestion.lastDate,
+    hiddenAt: new Date().toISOString(),
+  };
+  writeHiddenSuggestions(vaultPath, hiddenSuggestions);
+}
+
+export function promoteSuggestedMeeting(
+  vaultPath: string,
+  input: {
+    name: string;
+    type: SuggestedPersonType;
+    description?: string;
+  },
+): BridgePerson {
+  const name = input.name.trim();
+  if (!name) {
+    throw new Error("name is required");
+  }
+
+  const peopleDir = path.join(vaultPath, "people");
+  fs.mkdirSync(peopleDir, { recursive: true });
+
+  const slug = uniquePersonSlug(peopleDir, slugifyPersonName(name));
+  const today = new Date().toISOString().slice(0, 10);
+  const fileContent = `---
+type: ${input.type}
+created: ${today}
+aliases: ${JSON.stringify([name])}
+---
+
+# ${name}
+
+## Next
+
+## Notes
+`;
+
+  fs.writeFileSync(path.join(peopleDir, `${slug}.md`), fileContent, "utf-8");
+
+  const indexPath = path.join(peopleDir, "index.md");
+  const existingIndex = fs.existsSync(indexPath)
+    ? fs.readFileSync(indexPath, "utf-8")
+    : "# People\n";
+  const updatedIndex = insertPersonIndexEntry(
+    existingIndex,
+    slug,
+    input.type,
+    input.description || "",
+  );
+  fs.writeFileSync(indexPath, updatedIndex, "utf-8");
+
+  const hiddenSuggestions = readHiddenSuggestions(vaultPath);
+  delete hiddenSuggestions[name];
+  writeHiddenSuggestions(vaultPath, hiddenSuggestions);
+
+  return parsePersonFile(fileContent, slug, sanitizeIndexDescription(input.description || ""));
 }
 
 /**

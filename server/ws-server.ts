@@ -12,6 +12,7 @@ import type {
 const PREFERRED_PORT = parseInt(process.env.WS_PORT || "3001", 10);
 const PORT_FILE = path.join(process.env.HOME || "~", ".hilt-ws-port");
 const LOCK_FILE = path.join(process.env.HOME || "~", ".hilt-server.lock");
+const NAVIGATE_FILE = path.join(process.env.HOME || "~", ".hilt-pending-navigate.json");
 
 /**
  * Check if a process with the given PID is running
@@ -129,6 +130,18 @@ async function startServer() {
             return;
           }
           eventServer.broadcastAll("navigate", "goto", { view, path });
+          // Also write the intent to a file. Electron main watches this and
+          // forwards to the renderer via IPC — reliable path when the renderer's
+          // WS reconnect is throttled (e.g. backgrounded window).
+          try {
+            fs.writeFileSync(
+              NAVIGATE_FILE,
+              JSON.stringify({ view, path, ts: Date.now() }),
+              "utf-8"
+            );
+          } catch (err) {
+            console.error("Failed to write navigate file:", err);
+          }
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: true }));
         } catch {

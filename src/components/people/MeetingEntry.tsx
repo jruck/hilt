@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, type ReactNode } from "react";
 import {
   AlertTriangle,
   CalendarClock,
+  ChevronDown,
+  ChevronRight,
   CheckCircle2,
-  FileText,
   Loader2,
   Lock,
   MoreVertical,
@@ -52,7 +53,8 @@ function formatDate(isoDate: string, isoTime?: string): string {
   return datePart;
 }
 
-type Tab = "notes" | "summary" | "transcript";
+type Tab = "notes" | "transcript";
+type NotesSectionKey = "myNotes" | "aiNotes";
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 
 const SAVE_DEBOUNCE_MS = 700;
@@ -102,12 +104,99 @@ function splitSummarySections(summary: string): { privateNotes: string; enhanced
   return { privateNotes: privateContent, enhancedNotes: enhancedContent };
 }
 
+function SummaryContent({ summary, vaultPath }: { summary: string; vaultPath?: string }) {
+  const sections = splitSummarySections(summary);
+  if (sections) {
+    return (
+      <div className="space-y-5">
+        {sections.privateNotes && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Lock className="w-3 h-3 text-amber-500/60" />
+              <span className="text-[10px] font-medium uppercase tracking-wider text-amber-500/60">Private Notes</span>
+            </div>
+            <div className="prose-compact">
+              <BridgeTaskEditor
+                markdown={sections.privateNotes}
+                readOnly={true}
+                vaultPath={vaultPath}
+              />
+            </div>
+          </div>
+        )}
+        {sections.enhancedNotes && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Sparkles className="w-3 h-3 text-[var(--text-tertiary)]" />
+              <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">Enhanced Notes</span>
+            </div>
+            <div className="prose-compact">
+              <BridgeTaskEditor
+                markdown={sections.enhancedNotes}
+                readOnly={true}
+                vaultPath={vaultPath}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="prose-compact">
+      <BridgeTaskEditor
+        markdown={summary}
+        readOnly={true}
+        vaultPath={vaultPath}
+      />
+    </div>
+  );
+}
+
+function NotesAccordionSection({
+  title,
+  icon: Icon,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  const Chevron = open ? ChevronDown : ChevronRight;
+
+  return (
+    <section>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        className="flex h-9 w-full items-center gap-2 border-b border-[var(--border-default)] text-left text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+      >
+        <Chevron className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
+        <Icon className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
+        <span className="flex-1">{title}</span>
+      </button>
+      {open && (
+        <div className="pb-5 pt-3">
+          {children}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, onSaved }: MeetingEntryProps) {
   const haptics = useHaptics();
   const editorAreaRef = useRef<HTMLDivElement>(null);
   const isNext = meeting.source === "next";
   const hasNotes = !!meeting.notes;
   const hasSummary = !!meeting.summary;
+  const hasNotesTab = hasNotes || hasSummary;
   const hasTranscript = !!meeting.transcriptPath;
   const noteTitle =
     meeting.source === "granola" || (meeting.source === "inline" && meeting.title !== "Notes")
@@ -167,14 +256,17 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
   // Available tabs (not for "next" mode)
   const tabs: { key: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [];
   if (!isNext) {
-    if (hasNotes) tabs.push({ key: "notes", label: "Written Notes", icon: NotebookPen });
-    if (hasSummary) tabs.push({ key: "summary", label: "Summary", icon: FileText });
+    if (hasNotesTab) tabs.push({ key: "notes", label: "Notes", icon: NotebookPen });
     if (hasTranscript) tabs.push({ key: "transcript", label: "Transcript", icon: ScrollText });
   }
 
-  // Default: written notes if available, else summary
-  const defaultTab: Tab = hasNotes ? "notes" : hasSummary ? "summary" : "transcript";
+  // Default to the combined notes view whenever notes or a summary exists.
+  const defaultTab: Tab = hasNotesTab ? "notes" : "transcript";
   const [activeTab, setActiveTab] = useState<Tab>(defaultTab);
+  const [openNoteSections, setOpenNoteSections] = useState<Record<NotesSectionKey, boolean>>({
+    myNotes: true,
+    aiNotes: true,
+  });
 
   // Reset transcript state when meeting changes
   useEffect(() => {
@@ -183,16 +275,22 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
     setTranscriptLoading(false);
   }, [meeting.date, meeting.source, meeting.time, meeting.title, meeting.transcriptPath]);
 
-  // Only reset tab if current tab isn't available on the new meeting
+  // Every meeting opens to its best default instead of inheriting the prior tab.
   useEffect(() => {
-    const available = new Set<Tab>();
-    if (hasNotes) available.add("notes");
-    if (hasSummary) available.add("summary");
-    if (hasTranscript) available.add("transcript");
-    if (!available.has(activeTab)) {
-      setActiveTab(hasNotes ? "notes" : hasSummary ? "summary" : "transcript");
-    }
-  }, [meeting.date, meeting.source, meeting.time, meeting.title, hasNotes, hasSummary, hasTranscript]); // eslint-disable-line react-hooks/exhaustive-deps
+    setActiveTab(defaultTab);
+  }, [defaultTab, meeting.date, meeting.source, meeting.time, meeting.title]);
+
+  useEffect(() => {
+    setOpenNoteSections({ myNotes: true, aiNotes: true });
+  }, [meeting.date, meeting.source, meeting.time, meeting.title]);
+
+  const toggleNoteSection = useCallback((section: NotesSectionKey) => {
+    haptics.light();
+    setOpenNoteSections((current) => ({
+      ...current,
+      [section]: !current[section],
+    }));
+  }, [haptics]);
 
   // Auto-focus editor when this is the topmost editable entry
   useEffect(() => {
@@ -539,65 +637,41 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
 
       {/* Tab content */}
       <div ref={editorAreaRef} className="px-4 py-3">
-        {activeTab === "notes" && hasNotes && (
-          <div className="prose-compact">
-            <BridgeTaskEditor
-              markdown={meeting.notes!}
-              onChange={handleNotesChange}
-              readOnly={false}
-              vaultPath={vaultPath}
-            />
+        {activeTab === "notes" && hasNotesTab && (
+          <div>
+            {hasNotes && (
+              <NotesAccordionSection
+                title="My Notes"
+                icon={NotebookPen}
+                open={openNoteSections.myNotes}
+                onToggle={() => toggleNoteSection("myNotes")}
+              >
+                <div className="prose-compact">
+                  <BridgeTaskEditor
+                    markdown={meeting.notes!}
+                    onChange={handleNotesChange}
+                    readOnly={false}
+                    vaultPath={vaultPath}
+                  />
+                </div>
+              </NotesAccordionSection>
+            )}
+
+            {hasSummary && (
+              <NotesAccordionSection
+                title="AI Notes"
+                icon={Sparkles}
+                open={openNoteSections.aiNotes}
+                onToggle={() => toggleNoteSection("aiNotes")}
+              >
+                <SummaryContent
+                  summary={meeting.summary!}
+                  vaultPath={vaultPath}
+                />
+              </NotesAccordionSection>
+            )}
           </div>
         )}
-
-        {activeTab === "summary" && hasSummary && (() => {
-          const sections = splitSummarySections(meeting.summary!);
-          if (sections) {
-            return (
-              <div className="space-y-4">
-                {sections.privateNotes && (
-                  <div className="border-l-2 border-amber-500/40 pl-3">
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <Lock className="w-3 h-3 text-amber-500/60" />
-                      <span className="text-[10px] font-medium uppercase tracking-wider text-amber-500/60">Private Notes</span>
-                    </div>
-                    <div className="prose-compact">
-                      <BridgeTaskEditor
-                        markdown={sections.privateNotes}
-                        readOnly={true}
-                        vaultPath={vaultPath}
-                      />
-                    </div>
-                  </div>
-                )}
-                {sections.enhancedNotes && (
-                  <div className="border-l-2 border-[var(--border-default)] pl-3">
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <Sparkles className="w-3 h-3 text-[var(--text-tertiary)]" />
-                      <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">Enhanced Notes</span>
-                    </div>
-                    <div className="prose-compact">
-                      <BridgeTaskEditor
-                        markdown={sections.enhancedNotes}
-                        readOnly={true}
-                        vaultPath={vaultPath}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          }
-          return (
-            <div className="prose-compact">
-              <BridgeTaskEditor
-                markdown={meeting.summary!}
-                readOnly={true}
-                vaultPath={vaultPath}
-              />
-            </div>
-          );
-        })()}
 
         {activeTab === "transcript" && hasTranscript && (
           transcriptLoading ? (

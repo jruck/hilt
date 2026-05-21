@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
-import { Inbox, Loader2, Users } from "lucide-react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { ChevronDown, ChevronRight, Inbox, Loader2, Users } from "lucide-react";
 import { useBridgePeople } from "@/hooks/useBridgePeople";
 import { usePersonDetail } from "@/hooks/usePersonDetail";
 import { useInboxMeetings } from "@/hooks/useInboxMeetings";
@@ -15,13 +15,28 @@ import type { BridgePerson, PersonMeeting, SuggestedMeeting } from "@/lib/types"
 
 const INBOX_SLUG = "__inbox__";
 const SUGGESTED_PREFIX = "__suggested__/";
+const OLDER_PEOPLE_DAYS = 60;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function isOlderPerson(person: BridgePerson): boolean {
+  if (!person.lastMeetingDate) return false;
+  const lastMeetingTime = new Date(person.lastMeetingDate).getTime();
+  if (Number.isNaN(lastMeetingTime)) return false;
+  return Date.now() - lastMeetingTime > OLDER_PEOPLE_DAYS * MS_PER_DAY;
+}
+
+function getDefaultMeetingIndex(meetings: PersonMeeting[]): number | null {
+  if (meetings.length === 0) return null;
+  const firstSavedMeetingIndex = meetings.findIndex((meeting) => meeting.source !== "next");
+  return firstSavedMeetingIndex === -1 ? 0 : firstSavedMeetingIndex;
+}
 
 interface PeopleViewProps {
   searchQuery?: string;
 }
 
 export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
-  const { data, isLoading } = useBridgePeople();
+  const { data, isLoading, mutate: mutatePeople } = useBridgePeople();
   const isMobile = useIsMobile();
   const { scopePath, navigateTo } = useScope();
 
@@ -35,6 +50,23 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
   const isSuggestedMode = selectedSlug?.startsWith(SUGGESTED_PREFIX) ?? false;
   const suggestedName = isSuggestedMode ? decodeURIComponent(selectedSlug!.slice(SUGGESTED_PREFIX.length)) : null;
   const personSlug = isInboxMode || isSuggestedMode ? null : selectedSlug;
+  const supportsNext = !!personSlug && !isInboxMode && !isSuggestedMode;
+  const hasAppliedDefaultSelection = useRef(false);
+  const [olderPeopleExpanded, setOlderPeopleExpanded] = useState(false);
+
+  useEffect(() => {
+    if (hasAppliedDefaultSelection.current || !data) return;
+    hasAppliedDefaultSelection.current = true;
+
+    const hasKnownSelection =
+      selectedSlug === INBOX_SLUG ||
+      (selectedSlug?.startsWith(SUGGESTED_PREFIX) ?? false) ||
+      data.people.some((person) => person.slug === selectedSlug);
+
+    if (!selectedSlug || !hasKnownSelection) {
+      navigateTo("people", `/${INBOX_SLUG}`);
+    }
+  }, [data, selectedSlug, navigateTo]);
 
   const q = searchQuery.toLowerCase().trim();
 
@@ -48,11 +80,39 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
     );
   }, [data, q]);
 
+  const filteredSuggestedMeetings = useMemo(() => {
+    if (!data?.suggestedMeetings) return [];
+    if (!q) return data.suggestedMeetings;
+    return data.suggestedMeetings.filter((meeting) =>
+      meeting.name.toLowerCase().includes(q)
+    );
+  }, [data, q]);
+
+  const { recentPeople, olderPeople } = useMemo(() => {
+    const recent: BridgePerson[] = [];
+    const older: BridgePerson[] = [];
+
+    for (const person of filteredPeople) {
+      if (isOlderPerson(person)) {
+        older.push(person);
+      } else {
+        recent.push(person);
+      }
+    }
+
+    return { recentPeople: recent, olderPeople: older };
+  }, [filteredPeople]);
+
   // Person detail — fetched when a person (not inbox) is selected
   const { data: personDetail, mutate: mutatePersonDetail } = usePersonDetail(personSlug);
 
   // Inbox data — fetched when inbox or suggested is selected
   const { data: inboxData } = useInboxMeetings(isInboxMode || isSuggestedMode, suggestedName ?? undefined);
+
+  const selectedSuggestedMeeting = useMemo(() => {
+    if (!suggestedName || !data?.suggestedMeetings) return null;
+    return data.suggestedMeetings.find((meeting) => meeting.name === suggestedName) ?? null;
+  }, [data, suggestedName]);
 
   // Meeting filter
   const [filterState, setFilterState] = useState<{ slug: string | null; value: MeetingFilter }>({
@@ -62,7 +122,9 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
   const filter = filterState.slug === selectedSlug ? filterState.value : "all";
 
   const filteredMeetings = useMemo(() => {
-    if (isInboxMode || isSuggestedMode) return inboxData?.meetings ?? [];
+    if (isInboxMode || isSuggestedMode) {
+      return (inboxData?.meetings ?? []).filter((meeting) => meeting.source !== "next");
+    }
     if (!personDetail) return [];
     if (filter === "all") return personDetail.meetings;
     if (filter === "notes") return personDetail.meetings.filter((m) => !!m.notes);
@@ -73,7 +135,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
 
   // Build the synthetic "Next" entry (person mode only)
   const nextEntry = useMemo((): PersonMeeting | null => {
-    if (isInboxMode || isSuggestedMode || !personDetail) return null;
+    if (!supportsNext || !personDetail) return null;
 
     return {
       source: "next",
@@ -81,7 +143,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
       title: "Next",
       notes: personDetail.nextRaw,
     };
-  }, [isInboxMode, isSuggestedMode, personDetail]);
+  }, [supportsNext, personDetail]);
 
   // Display meetings: Next pinned at top + filtered historical meetings
   const displayMeetings = useMemo(() => {
@@ -97,17 +159,21 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
     index: null,
   });
 
+  const defaultMeetingIdx = useMemo(() => getDefaultMeetingIndex(displayMeetings), [displayMeetings]);
+
   const selectedMeetingIdx = useMemo(() => {
     if (displayMeetings.length === 0) return null;
-    const rawIndex = meetingSelection.slug === selectedSlug ? meetingSelection.index : 0;
-    if (rawIndex === null) return 0;
-    return rawIndex >= displayMeetings.length ? 0 : rawIndex;
-  }, [displayMeetings.length, meetingSelection, selectedSlug]);
+    const fallbackIndex = defaultMeetingIdx ?? 0;
+    const rawIndex = meetingSelection.slug === selectedSlug ? meetingSelection.index : fallbackIndex;
+    if (rawIndex === null) return fallbackIndex;
+    if (rawIndex < 0 || rawIndex >= displayMeetings.length) return fallbackIndex;
+    return rawIndex;
+  }, [defaultMeetingIdx, displayMeetings.length, meetingSelection, selectedSlug]);
 
   const handleFilterChange = useCallback(
     (nextFilter: MeetingFilter) => {
       setFilterState({ slug: selectedSlug, value: nextFilter });
-      setMeetingSelection({ slug: selectedSlug, index: 0 });
+      setMeetingSelection({ slug: selectedSlug, index: null });
     },
     [selectedSlug]
   );
@@ -117,8 +183,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
 
   // Auto-focus the editor when the topmost meeting is selected and is editable
   const shouldAutoFocus =
-    !isInboxMode &&
-    !isSuggestedMode &&
+    supportsNext &&
     selectedMeetingIdx === 0 &&
     selectedMeeting !== null &&
     (selectedMeeting.source === "next" || selectedMeeting.source === "inline");
@@ -131,14 +196,13 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
 
   const handleDeleteMeeting = useCallback(() => {
     mutatePersonDetail();
-    setMeetingSelection({ slug: selectedSlug, index: displayMeetings.length > 1 ? 0 : null });
-  }, [mutatePersonDetail, displayMeetings.length, selectedSlug]);
+    setMeetingSelection({ slug: selectedSlug, index: null });
+  }, [mutatePersonDetail, selectedSlug]);
 
   const handleSelect = useCallback(
     (person: BridgePerson) => {
-      if (selectedSlug === person.slug) {
-        navigateTo("people", "");
-      } else {
+      setMeetingSelection({ slug: person.slug, index: null });
+      if (selectedSlug !== person.slug) {
         navigateTo("people", `/${person.slug}`);
       }
     },
@@ -166,6 +230,50 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
     [selectedSlug, navigateTo]
   );
 
+  const handlePromoteSuggested = useCallback(
+    async (input: { name: string; type: "person" | "group"; description: string }) => {
+      const response = await fetch("/api/bridge/people/suggestions/promote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || "Failed to accept suggestion");
+      }
+
+      const body = await response.json();
+      await mutatePeople();
+      if (body.slug) {
+        setMeetingSelection({ slug: body.slug, index: null });
+        navigateTo("people", `/${body.slug}`);
+      }
+    },
+    [mutatePeople, navigateTo]
+  );
+
+  const handleHideSuggested = useCallback(
+    async (suggestion: SuggestedMeeting) => {
+      const response = await fetch("/api/bridge/people/suggestions/hide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(suggestion),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || "Failed to hide suggestion");
+      }
+
+      await mutatePeople();
+      if (suggestedName === suggestion.name) {
+        navigateTo("people", `/${INBOX_SLUG}`);
+      }
+    },
+    [mutatePeople, navigateTo, suggestedName]
+  );
+
   const handleClose = useCallback(() => {
     navigateTo("people", "");
   }, [navigateTo]);
@@ -174,11 +282,11 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
   const [mobileShowMeeting, setMobileShowMeeting] = useState(false);
 
   const handleCreateNext = useCallback(() => {
-    if (!personSlug) return;
+    if (!supportsNext) return;
     setFilterState({ slug: selectedSlug, value: "all" });
     setMeetingSelection({ slug: selectedSlug, index: 0 });
     if (isMobile) setMobileShowMeeting(true);
-  }, [isMobile, personSlug, selectedSlug]);
+  }, [isMobile, selectedSlug, supportsNext]);
 
   const handleMobileSelectMeeting = useCallback((idx: number) => {
     setMeetingSelection({ slug: selectedSlug, index: idx });
@@ -204,7 +312,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
   }
 
   // Empty state
-  if (!data || filteredPeople.length === 0) {
+  if (!data || (filteredPeople.length === 0 && filteredSuggestedMeetings.length === 0)) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 text-[var(--text-tertiary)]">
         <Users className="w-8 h-8" />
@@ -263,8 +371,11 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
               onClose={handleClose}
               inboxMode={isInboxMode}
               suggestedName={suggestedName}
+              suggestedMeeting={selectedSuggestedMeeting}
               totalCount={inboxData?.totalCount}
-              onCreateNext={isInboxMode || isSuggestedMode ? undefined : handleCreateNext}
+              onCreateNext={supportsNext ? handleCreateNext : undefined}
+              onPromoteSuggested={isSuggestedMode ? handlePromoteSuggested : undefined}
+              onHideSuggested={isSuggestedMode ? handleHideSuggested : undefined}
             />
           </div>
         </div>
@@ -275,45 +386,20 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
     return (
       <div className="flex-1 overflow-y-auto">
         <div className="px-4 py-4 space-y-4">
-          {/* Inbox card */}
-          <InboxCard selected={isInboxMode} onClick={handleInboxSelect} stats={data.inboxStats} />
-          {/* Saved divider */}
-          {filteredPeople.length > 0 && (
-            <div className="flex items-center gap-3 pt-2">
-              <div className="flex-1 border-t border-[var(--border-default)]" />
-              <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">
-                Saved
-              </span>
-              <div className="flex-1 border-t border-[var(--border-default)]" />
-            </div>
-          )}
-          {filteredPeople.map((person) => (
-            <PersonCard
-              key={person.slug}
-              person={person}
-              onClick={handleSelect}
-            />
-          ))}
-          {/* Suggested meetings */}
-          {data.suggestedMeetings && data.suggestedMeetings.length > 0 && (
-            <>
-              <div className="flex items-center gap-3 pt-2">
-                <div className="flex-1 border-t border-[var(--border-default)]" />
-                <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">
-                  Suggested
-                </span>
-                <div className="flex-1 border-t border-[var(--border-default)]" />
-              </div>
-              {data.suggestedMeetings.map((sm) => (
-                <SuggestedMeetingCard
-                  key={sm.name}
-                  meeting={sm}
-                  selected={selectedSlug === SUGGESTED_PREFIX + encodeURIComponent(sm.name)}
-                  onClick={() => handleSuggestedSelect(sm.name)}
-                />
-              ))}
-            </>
-          )}
+          <PeopleListSections
+            inboxStats={data.inboxStats}
+            isInboxMode={isInboxMode}
+            selectedSlug={selectedSlug}
+            suggestedMeetings={filteredSuggestedMeetings}
+            recentPeople={recentPeople}
+            olderPeople={olderPeople}
+            olderPeopleExpanded={olderPeopleExpanded}
+            forceShowOlderPeople={!!q}
+            onInboxSelect={handleInboxSelect}
+            onSuggestedSelect={handleSuggestedSelect}
+            onSelectPerson={handleSelect}
+            onToggleOlderPeople={() => setOlderPeopleExpanded((expanded) => !expanded)}
+          />
         </div>
       </div>
     );
@@ -325,48 +411,21 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
       {/* Left: People list */}
       <div className="w-56 flex-shrink-0 overflow-y-auto border-r border-[var(--border-default)]">
         <div className="px-2 py-2 space-y-2">
-          {/* Inbox card */}
-          <InboxCard compact selected={isInboxMode} onClick={handleInboxSelect} stats={data.inboxStats} />
-          {/* Saved divider */}
-          {filteredPeople.length > 0 && (
-            <div className="flex items-center gap-3 pt-1">
-              <div className="flex-1 border-t border-[var(--border-default)]" />
-              <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">
-                Saved
-              </span>
-              <div className="flex-1 border-t border-[var(--border-default)]" />
-            </div>
-          )}
-          {filteredPeople.map((person) => (
-            <PersonCard
-              key={person.slug}
-              person={person}
-              compact
-              selected={person.slug === selectedSlug}
-              onClick={handleSelect}
-            />
-          ))}
-          {/* Suggested meetings */}
-          {data.suggestedMeetings && data.suggestedMeetings.length > 0 && (
-            <>
-              <div className="flex items-center gap-3 pt-1">
-                <div className="flex-1 border-t border-[var(--border-default)]" />
-                <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">
-                  Suggested
-                </span>
-                <div className="flex-1 border-t border-[var(--border-default)]" />
-              </div>
-              {data.suggestedMeetings.map((sm) => (
-                <SuggestedMeetingCard
-                  key={sm.name}
-                  meeting={sm}
-                  compact
-                  selected={selectedSlug === SUGGESTED_PREFIX + encodeURIComponent(sm.name)}
-                  onClick={() => handleSuggestedSelect(sm.name)}
-                />
-              ))}
-            </>
-          )}
+          <PeopleListSections
+            compact
+            inboxStats={data.inboxStats}
+            isInboxMode={isInboxMode}
+            selectedSlug={selectedSlug}
+            suggestedMeetings={filteredSuggestedMeetings}
+            recentPeople={recentPeople}
+            olderPeople={olderPeople}
+            olderPeopleExpanded={olderPeopleExpanded}
+            forceShowOlderPeople={!!q}
+            onInboxSelect={handleInboxSelect}
+            onSuggestedSelect={handleSuggestedSelect}
+            onSelectPerson={handleSelect}
+            onToggleOlderPeople={() => setOlderPeopleExpanded((expanded) => !expanded)}
+          />
         </div>
       </div>
 
@@ -384,8 +443,11 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
             vaultPath={vaultPath}
             inboxMode={isInboxMode}
             suggestedName={suggestedName}
+            suggestedMeeting={selectedSuggestedMeeting}
             totalCount={inboxData?.totalCount}
-            onCreateNext={isInboxMode || isSuggestedMode ? undefined : handleCreateNext}
+            onCreateNext={supportsNext ? handleCreateNext : undefined}
+            onPromoteSuggested={isSuggestedMode ? handlePromoteSuggested : undefined}
+            onHideSuggested={isSuggestedMode ? handleHideSuggested : undefined}
           />
         </div>
       ) : (
@@ -418,6 +480,114 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
 }
 
 // ─── Inbox Card ───
+
+function PeopleListSections({
+  compact,
+  inboxStats,
+  isInboxMode,
+  selectedSlug,
+  suggestedMeetings,
+  recentPeople,
+  olderPeople,
+  olderPeopleExpanded,
+  forceShowOlderPeople,
+  onInboxSelect,
+  onSuggestedSelect,
+  onSelectPerson,
+  onToggleOlderPeople,
+}: {
+  compact?: boolean;
+  inboxStats?: { totalMeetings: number; lastMeetingTitle: string; lastMeetingDate: string } | null;
+  isInboxMode: boolean;
+  selectedSlug: string | null;
+  suggestedMeetings: SuggestedMeeting[];
+  recentPeople: BridgePerson[];
+  olderPeople: BridgePerson[];
+  olderPeopleExpanded: boolean;
+  forceShowOlderPeople: boolean;
+  onInboxSelect: () => void;
+  onSuggestedSelect: (name: string) => void;
+  onSelectPerson: (person: BridgePerson) => void;
+  onToggleOlderPeople: () => void;
+}) {
+  const showOlderPeople = forceShowOlderPeople || olderPeopleExpanded;
+
+  return (
+    <>
+      <InboxCard compact={compact} selected={isInboxMode} onClick={onInboxSelect} stats={inboxStats} />
+
+      {suggestedMeetings.length > 0 && (
+        <>
+          <ListSectionDivider compact={compact} label="Suggested" />
+          {suggestedMeetings.map((meeting) => (
+            <SuggestedMeetingCard
+              key={meeting.name}
+              meeting={meeting}
+              compact={compact}
+              selected={selectedSlug === SUGGESTED_PREFIX + encodeURIComponent(meeting.name)}
+              onClick={() => onSuggestedSelect(meeting.name)}
+            />
+          ))}
+        </>
+      )}
+
+      {recentPeople.length > 0 && (
+        <>
+          <ListSectionDivider compact={compact} label="Saved" />
+          {recentPeople.map((person) => (
+            <PersonCard
+              key={person.slug}
+              person={person}
+              compact={compact}
+              selected={person.slug === selectedSlug}
+              onClick={onSelectPerson}
+            />
+          ))}
+        </>
+      )}
+
+      {olderPeople.length > 0 && (
+        <>
+          <button
+            type="button"
+            className={`w-full flex items-center gap-1.5 text-left text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ${compact ? "pt-1 px-1" : "pt-2 px-1"}`}
+            aria-expanded={showOlderPeople}
+            onClick={onToggleOlderPeople}
+          >
+            {showOlderPeople ? (
+              <ChevronDown className="w-3 h-3 flex-shrink-0" />
+            ) : (
+              <ChevronRight className="w-3 h-3 flex-shrink-0" />
+            )}
+            <span className="flex-1 truncate">Older than {OLDER_PEOPLE_DAYS} days</span>
+            <span className="text-[var(--text-tertiary)]">{olderPeople.length}</span>
+          </button>
+          {showOlderPeople && olderPeople.map((person) => (
+            <PersonCard
+              key={person.slug}
+              person={person}
+              compact={compact}
+              selected={person.slug === selectedSlug}
+              onClick={onSelectPerson}
+            />
+          ))}
+        </>
+      )}
+    </>
+  );
+}
+
+function ListSectionDivider({ compact, label }: { compact?: boolean; label: string }) {
+  return (
+    <div className={`flex items-center gap-3 ${compact ? "pt-1" : "pt-2"}`}>
+      <div className="flex-1 border-t border-[var(--border-default)]" />
+      <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">
+        {label}
+      </span>
+      <div className="flex-1 border-t border-[var(--border-default)]" />
+    </div>
+  );
+}
 
 function formatRelativeDate(isoDate: string): string {
   const now = new Date();

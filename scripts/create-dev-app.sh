@@ -38,12 +38,29 @@ cat > "$APP_PATH/Contents/Info.plist" << 'EOF'
 </plist>
 EOF
 
-# Create launcher script
+# Create launcher script.
+# Resolves the project dir at runtime from the .app's own location
+# (dist/Hilt.app/Contents/MacOS/launcher -> 4 levels up), so moving the
+# project folder doesn't break the app. Falls back to the build-time path
+# if the .app was copied out of dist/.
 cat > "$APP_PATH/Contents/MacOS/launcher" << 'LAUNCHER_EOF'
 #!/bin/bash
 # Hilt Launcher - Electron handles all dev servers internally
 
-PROJECT_DIR="PLACEHOLDER_PROJECT_DIR"
+# Self-locate: launcher lives at dist/Hilt.app/Contents/MacOS/launcher
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SELF_DIR/../../../.." 2>/dev/null && pwd)"
+
+# Fall back to the build-time path if self-location didn't land on the project
+if [ ! -f "$PROJECT_DIR/electron/launcher.cjs" ]; then
+    PROJECT_DIR="PLACEHOLDER_PROJECT_DIR"
+fi
+
+if [ ! -f "$PROJECT_DIR/electron/launcher.cjs" ]; then
+    osascript -e 'display alert "Hilt" message "Could not find the Hilt project. Re-run: npm run app"'
+    exit 1
+fi
+
 cd "$PROJECT_DIR"
 
 # Ensure node is in PATH (Finder doesn't inherit shell PATH)
@@ -58,7 +75,7 @@ fi
 exec "$PROJECT_DIR/node_modules/.bin/electron" "$PROJECT_DIR/electron/launcher.cjs"
 LAUNCHER_EOF
 
-# Replace placeholder with actual project dir
+# Replace placeholder with actual project dir (build-time fallback)
 sed -i '' "s|PLACEHOLDER_PROJECT_DIR|$PROJECT_DIR|g" "$APP_PATH/Contents/MacOS/launcher"
 
 chmod +x "$APP_PATH/Contents/MacOS/launcher"

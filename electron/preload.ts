@@ -8,6 +8,12 @@ interface PlanEvent {
   content: string;
 }
 
+// Navigate event from main process (file-watcher path, bypasses renderer WS)
+interface NavigateEvent {
+  view: string;
+  path: string;
+}
+
 // Startup activity types
 interface StartupActivityEvent {
   id: string;
@@ -56,6 +62,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Window focus (for CLI navigation)
   focusWindow: () => ipcRenderer.send("window:focus"),
+
+  // Navigate event from main process (file-watcher path)
+  onNavigate: (callback: (event: NavigateEvent) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, data: NavigateEvent) => callback(data);
+    ipcRenderer.on("navigate:goto", handler);
+    return () => {
+      ipcRenderer.removeListener("navigate:goto", handler);
+    };
+  },
 });
 
 // Type declaration for the exposed API
@@ -68,4 +83,5 @@ const electronAPI = {
   onPlanUpdated: (_callback: (event: PlanEvent) => void) => () => {},
   onStartupActivity: (_callback: (event: StartupActivityEvent) => void) => () => {},
   focusWindow: () => {},
+  onNavigate: (_callback: (event: NavigateEvent) => void) => () => {},
 };

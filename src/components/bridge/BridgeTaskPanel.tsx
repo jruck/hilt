@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { X, Trash2, FolderOpen, MoreVertical, Copy, CalendarDays } from "lucide-react";
+import { X, Trash2, FolderOpen, MoreVertical, Copy, CalendarDays, Link2 } from "lucide-react";
 import type { BridgeTask } from "@/lib/types";
 import { parseLifecycle } from "@/lib/attribution";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
@@ -189,7 +189,67 @@ export function BridgeTaskPanel({
 
   const fullMarkdown = task.details.join("\n");
 
-  const [copyFeedback, setCopyFeedback] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState<"reference" | "markdown" | null>(null);
+  const copyFeedbackTimeout = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyFeedbackTimeout.current !== null) {
+        window.clearTimeout(copyFeedbackTimeout.current);
+      }
+    };
+  }, []);
+
+  function showCopyFeedback(action: "reference" | "markdown") {
+    if (copyFeedbackTimeout.current !== null) {
+      window.clearTimeout(copyFeedbackTimeout.current);
+    }
+    setCopyFeedback(action);
+    copyFeedbackTimeout.current = window.setTimeout(() => {
+      setCopyFeedback(null);
+      copyFeedbackTimeout.current = null;
+    }, 1500);
+  }
+
+  async function writeClipboardText(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.top = "-9999px";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      if (!copied) throw new Error("Clipboard copy failed");
+    }
+  }
+
+  function copyTaskReference() {
+    const lines: string[] = [];
+    const location = filePath
+      ? `${filePath}${task.startLine ? `:${task.startLine}` : ""}`
+      : task.title;
+
+    lines.push(location);
+    lines.push("");
+    lines.push(
+      task.startLine
+        ? "Use the current file contents as source of truth. The referenced item is the top-level markdown checkbox at that line; indented lines below it are child details until the next top-level checkbox or section heading."
+        : "Use the current file contents as source of truth. Find the top-level markdown checkbox matching this title; indented lines below it are child details until the next top-level checkbox or section heading."
+    );
+    lines.push("");
+    lines.push(`Title: ${task.title}${task.dueDate ? ` [due:: ${task.dueDate}]` : ""}`);
+
+    writeClipboardText(lines.join("\n"))
+      .then(() => showCopyFeedback("reference"))
+      .catch((err) => console.error("[bridge/task] Failed to copy reference:", err));
+    setShowMenu(false);
+  }
 
   function copyAsMarkdown() {
     const lines: string[] = [];
@@ -210,10 +270,9 @@ export function BridgeTaskPanel({
       lines.push("");
       lines.push(...task.details);
     }
-    navigator.clipboard.writeText(lines.join("\n")).then(() => {
-      setCopyFeedback(true);
-      setTimeout(() => setCopyFeedback(false), 1500);
-    });
+    writeClipboardText(lines.join("\n"))
+      .then(() => showCopyFeedback("markdown"))
+      .catch((err) => console.error("[bridge/task] Failed to copy markdown:", err));
     setShowMenu(false);
   }
 
@@ -283,11 +342,18 @@ export function BridgeTaskPanel({
                 )}
               </button>
               <button
+                onClick={copyTaskReference}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
+              >
+                <Link2 className="w-4 h-4 text-[var(--text-tertiary)]" />
+                {copyFeedback === "reference" ? "Copied!" : "Copy reference"}
+              </button>
+              <button
                 onClick={copyAsMarkdown}
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
               >
                 <Copy className="w-4 h-4 text-[var(--text-tertiary)]" />
-                {copyFeedback ? "Copied!" : "Copy as markdown"}
+                {copyFeedback === "markdown" ? "Copied!" : "Copy as markdown"}
               </button>
               <div className="my-1 border-t border-[var(--border-default)]" />
               <button

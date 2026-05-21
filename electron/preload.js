@@ -32,6 +32,14 @@ electron_1.contextBridge.exposeInMainWorld("electronAPI", {
     },
     // Window focus (for CLI navigation)
     focusWindow: () => electron_1.ipcRenderer.send("window:focus"),
+    // Navigate event from main process (file-watcher path)
+    onNavigate: (callback) => {
+        const handler = (_, data) => callback(data);
+        electron_1.ipcRenderer.on("navigate:goto", handler);
+        return () => {
+            electron_1.ipcRenderer.removeListener("navigate:goto", handler);
+        };
+    },
 });
 const electronAPI = {
     isElectron: true,
@@ -40,4 +48,5 @@ const electronAPI = {
     onPlanUpdated: (_callback) => () => { },
     onStartupActivity: (_callback) => () => { },
     focusWindow: () => { },
+    onNavigate: (_callback) => () => { },
 };

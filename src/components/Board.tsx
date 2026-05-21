@@ -112,17 +112,35 @@ export function Board() {
     return new Promise<void>(() => {});
   }, []);
 
-  // Listen for CLI navigation commands via WebSocket
+  // Listen for CLI navigation commands.
+  //
+  // Two paths cover this:
+  //  1. WebSocket — works in both browser and Electron, but the renderer's
+  //     reconnect timer pauses when an Electron window is hidden.
+  //  2. Electron IPC — main process watches ~/.hilt-pending-navigate.json and
+  //     forwards via webContents. Survives renderer throttling, so navigate
+  //     reliably wakes a backgrounded window.
   useEffect(() => {
-    const unsub = on("navigate", "goto", (data: unknown) => {
-      const { view, path } = data as { view: string; path?: string };
+    const handleNavigate = (view: string, path: string) => {
       navigateTo(view as ViewPrefix, path || "");
-      // Focus Electron window if available
       if (window.electronAPI?.focusWindow) {
         window.electronAPI.focusWindow();
       }
+    };
+
+    const unsubWs = on("navigate", "goto", (data: unknown) => {
+      const { view, path } = data as { view: string; path?: string };
+      handleNavigate(view, path || "");
     });
-    return unsub;
+
+    const unsubIpc = window.electronAPI?.onNavigate?.(({ view, path }) => {
+      handleNavigate(view, path);
+    });
+
+    return () => {
+      unsubWs();
+      unsubIpc?.();
+    };
   }, [navigateTo, on]);
 
   // Keyboard shortcuts

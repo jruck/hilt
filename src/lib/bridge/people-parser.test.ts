@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { getPersonDetail, updatePersonNext } from "./people-parser";
+import {
+  getAllPeople,
+  getPersonDetail,
+  hideSuggestedMeeting,
+  promoteSuggestedMeeting,
+  updatePersonNext,
+} from "./people-parser";
 
 const tempDirs: string[] = [];
 
@@ -13,6 +19,22 @@ function makeVault(): string {
   fs.mkdirSync(path.join(vaultPath, "meetings"), { recursive: true });
   fs.writeFileSync(path.join(vaultPath, "people", "index.md"), "# People\n", "utf-8");
   return vaultPath;
+}
+
+function writeMeeting(vaultPath: string, name: string, date: string, time = "10-00-00") {
+  fs.writeFileSync(
+    path.join(vaultPath, "meetings", `${name}-${date} @ ${time}.md`),
+    `---
+title: ${name}
+created: ${date}T10:00:00
+---
+
+# ${name}
+
+Recorded summary.
+`,
+    "utf-8"
+  );
 }
 
 afterEach(() => {
@@ -261,5 +283,72 @@ Recorded summary.
     expect(personFile).toContain("## 1. First ask");
     expect(personFile).toContain("## 2. Second ask");
     expect(personFile).toContain("### " + today + " - Weekly Sync");
+  });
+
+  it("hides a suggested meeting until new unmatched activity appears", async () => {
+    const vaultPath = makeVault();
+    writeMeeting(vaultPath, "Design review", "2026-05-01");
+    writeMeeting(vaultPath, "Design review", "2026-05-08");
+    writeMeeting(vaultPath, "Design review", "2026-05-15");
+
+    const beforeHide = await getAllPeople(vaultPath);
+    const suggestion = beforeHide.suggestedMeetings.find((item) => item.name === "Design review");
+    expect(suggestion).toEqual({ name: "Design review", count: 3, lastDate: "2026-05-15" });
+
+    hideSuggestedMeeting(vaultPath, suggestion!);
+
+    const afterHide = await getAllPeople(vaultPath);
+    expect(afterHide.suggestedMeetings.some((item) => item.name === "Design review")).toBe(false);
+
+    writeMeeting(vaultPath, "Design review", "2026-05-22");
+
+    const afterNewMeeting = await getAllPeople(vaultPath);
+    expect(afterNewMeeting.suggestedMeetings.find((item) => item.name === "Design review")).toEqual({
+      name: "Design review",
+      count: 4,
+      lastDate: "2026-05-22",
+    });
+  });
+
+  it("promotes a suggested meeting into a saved group and claims its history", async () => {
+    const vaultPath = makeVault();
+    writeMeeting(vaultPath, "Design review", "2026-05-01");
+    writeMeeting(vaultPath, "Design review", "2026-05-08");
+    writeMeeting(vaultPath, "Design review", "2026-05-15");
+
+    const promoted = promoteSuggestedMeeting(vaultPath, {
+      name: "Design review",
+      type: "group",
+      description: "Recurring design feedback",
+    });
+
+    expect(promoted.slug).toBe("design-review");
+    expect(fs.readFileSync(path.join(vaultPath, "people", "design-review.md"), "utf-8")).toContain("# Design review");
+    expect(fs.readFileSync(path.join(vaultPath, "people", "index.md"), "utf-8")).toContain(
+      "- [[design-review]] — Recurring design feedback"
+    );
+
+    const people = await getAllPeople(vaultPath);
+    expect(people.suggestedMeetings.some((item) => item.name === "Design review")).toBe(false);
+    expect(people.people.find((person) => person.slug === "design-review")?.meetingCount).toBe(3);
+  });
+
+  it("does not write a default description when accepting without one", async () => {
+    const vaultPath = makeVault();
+    writeMeeting(vaultPath, "Insights Architecture", "2026-05-01");
+    writeMeeting(vaultPath, "Insights Architecture", "2026-05-08");
+    writeMeeting(vaultPath, "Insights Architecture", "2026-05-15");
+
+    const accepted = promoteSuggestedMeeting(vaultPath, {
+      name: "Insights Architecture",
+      type: "group",
+    });
+    const indexContent = fs.readFileSync(path.join(vaultPath, "people", "index.md"), "utf-8");
+    const people = await getAllPeople(vaultPath);
+
+    expect(accepted.slug).toBe("insights-architecture");
+    expect(indexContent).toContain("- [[insights-architecture]]");
+    expect(indexContent).not.toContain("Promoted from suggested meetings");
+    expect(people.people.find((person) => person.slug === "insights-architecture")?.description).toBe("");
   });
 });

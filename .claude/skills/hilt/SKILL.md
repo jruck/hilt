@@ -43,14 +43,27 @@ Hilt exposes two interfaces:
 2. **HTTP API** — for data operations (tasks, briefings, etc.)
 
 ```bash
-# WS server port (navigation, events)
+# WS server port (navigation, events) — written by Hilt at startup
 WS_PORT=$(cat ~/.hilt-ws-port)
 
-# HTTP API (Next.js)
-API="http://localhost:3000"
+# HTTP API port — Hilt's Next.js server. Discover by probing common ports
+# for /api/ws-port (Hilt-specific route returning JSON). Other Next.js apps
+# (Loft, etc.) on the same machine return HTML 404 for that path, so this
+# distinguishes Hilt from neighbors. Cache once per session.
+hilt_api_port() {
+  for p in 3000 3001 3002 3003 3004 3005; do
+    body=$(curl -sf --max-time 1 -H "Accept: application/json" "http://localhost:$p/api/ws-port") || continue
+    case "$body" in
+      *'"port"'*) echo "$p"; return 0 ;;
+    esac
+  done
+  return 1
+}
+API_PORT=$(hilt_api_port) || { echo "Hilt is not running (no /api/ws-port responder found)"; return 1 2>/dev/null || exit 1; }
+API="http://localhost:$API_PORT"
 ```
 
-If `~/.hilt-ws-port` doesn't exist, Hilt isn't running. The HTTP API runs on port 3000 by default.
+If `~/.hilt-ws-port` doesn't exist or `hilt_api_port` finds nothing, Hilt isn't running.
 
 ## Vault location
 
@@ -229,5 +242,5 @@ curl -s "$API/api/bridge/briefings/2026-03-09" | jq
 ## Error handling
 
 - `~/.hilt-ws-port` missing → Hilt isn't running
-- HTTP API on wrong port → check if Hilt dev server is up (`lsof -i :3000`)
-- `curl` failures → WS server may need restart
+- HTTP API not found on any port → use `hilt_api_port` (above) to confirm; another Next.js app (e.g. Loft) on a low port can shift Hilt to 3001+
+- Navigate POST returns `{ok:true}` but nothing happens visibly → Hilt's renderer WS may be in a stale state. The `/navigate` endpoint also writes `~/.hilt-pending-navigate.json` for Electron main to pick up via IPC, which works even when the window is hidden. If that fails too, the renderer is wedged — ask the user to reload Hilt (`Cmd+R` in the window).

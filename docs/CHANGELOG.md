@@ -14,6 +14,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Local Apps tailnet aggregation** — `/api/local-apps` now keeps the local snapshot contract while adding a `machines` array for other online tailnet devices that are also running Hilt. Peer discovery is Hilt-to-Hilt only: it probes known Tailscale peers for `/api/local-apps?scope=local`, checks Tailscale Serve HTTPS plus common Hilt dev ports `3000`-`3004`, validates the Hilt API contract, and renders the Apps view grouped by machine.
 
+### Fixed
+
+- **`/navigate` silently failing when Hilt window is hidden** — `POST /navigate` only broadcast over the renderer's WebSocket. Backgrounded Electron windows have their `setTimeout` reconnect timers throttled, so a renderer whose WS dropped while hidden would never reconnect, and the broadcast hit zero clients. The skill's main use case ("open this file in Hilt") thus appeared dead any time the user wasn't already focused on Hilt. Added a second path: WS server now also writes `~/.hilt-pending-navigate.json`, the Electron main process watches it (chokidar) and forwards via `webContents.send("navigate:goto", …)`, then focuses the window. Main is never throttled, so this works regardless of renderer state.
+  - `server/ws-server.ts` — `POST /navigate` writes the intent file alongside the broadcast
+  - `electron/main.ts` — `setupNavigateWatcher()` watches the file and forwards via IPC + focus
+  - `electron/preload.ts` / `electron/types.d.ts` — exposes `electronAPI.onNavigate(callback)`
+  - `src/components/Board.tsx` — listens to both WS and IPC, with shared handler
+
+- **Hilt skill hardcoded API to `localhost:3000`** — When another Next.js app (Loft) was on 3000, Hilt fell back to 3001+ and every API call from the skill (`/api/bridge/weekly`, briefings, recycle) hit the wrong app. Skill now probes ports 3000–3005 for `/api/ws-port` (Hilt-specific JSON route) to discover Hilt's actual port. Updated `~/.claude/skills/hilt/SKILL.md`.
+
+- **Next.js / WS server port race on launch** — Both the Next.js dev server and the WS server preferred port 3001 when 3000 was occupied (e.g. Loft). Whichever bound first won; the other crashed. When the WS server won, Electron's `loadURL("http://localhost:3001")` hit the WS server's HTTP handler and rendered a 404, masquerading as a "Hilt is broken" state. Electron now passes `WS_PORT = nextPort + 100` when spawning the WS server, so the two never compete. The change is in `startWsServer()` (electron/main.ts).
+
+- **Hilt window showing BrowserSync / EADDRINUSE on relaunch** — `findAvailablePort` bound only the IPv6 wildcard, which silently sidesteps IPv4-only listeners (OrbStack forwarding `127.0.0.1:3000–3005` to Docker containers). Hilt would think a port was free, bind it on IPv6, then Electron's `loadURL("localhost:…")` would resolve to IPv4 first and land on OrbStack — Hilt window showed BrowserSync. Switching the probe to IPv4-only had the inverse problem: a port with another Next.js dual-stack listener (e.g. Loft on `*:3002` IPv6) read as free on IPv4, then Hilt's actual bind crashed with EADDRINUSE. The probe now mirrors what `next dev` actually does — a wildcard `listen(port)` — combined with an IPv4 loopback check, so Hilt walks past every shared port and lands somewhere truly unused. Fix in `findAvailablePort()` (electron/main.ts).
+
+- **Dev app broke when the project folder moved** — `scripts/create-dev-app.sh` baked an absolute `PROJECT_DIR` into `dist/Hilt.app`'s launcher, so moving the repo (e.g. `tools/hilt` → `me/hilt`) left the app `cd`-ing into a dead path. The launcher now self-locates the project from its own position inside the bundle (`dist/Hilt.app/Contents/MacOS/launcher` → 4 levels up), keeps the build-time path as a fallback for when the `.app` is copied out of `dist/`, and shows an alert instead of failing silently if neither resolves.
+
 ## [5.0.0] - 2026-05-21
 
 ### Added

@@ -2,14 +2,14 @@ import type { BridgeTask, BridgeWeekly } from "../types";
 
 /**
  * Parse frontmatter from markdown content.
- * Returns [frontmatter object, body string after frontmatter].
+ * Returns [frontmatter object, body string after frontmatter, body line offset].
  */
-function parseFrontmatter(content: string): [Record<string, string>, string] {
+function parseFrontmatter(content: string): [Record<string, string>, string, number] {
   const fm: Record<string, string> = {};
-  if (!content.startsWith("---")) return [fm, content];
+  if (!content.startsWith("---")) return [fm, content, 1];
 
   const endIdx = content.indexOf("\n---", 3);
-  if (endIdx === -1) return [fm, content];
+  if (endIdx === -1) return [fm, content, 1];
 
   const fmBlock = content.slice(4, endIdx);
   for (const line of fmBlock.split("\n")) {
@@ -21,8 +21,10 @@ function parseFrontmatter(content: string): [Record<string, string>, string] {
     }
   }
 
-  const body = content.slice(endIdx + 4); // skip \n---
-  return [fm, body];
+  const bodyStartIdx = endIdx + 4; // skip \n---
+  const body = content.slice(bodyStartIdx);
+  const bodyLineOffset = content.slice(0, bodyStartIdx).split("\n").length;
+  return [fm, body, bodyLineOffset];
 }
 
 /**
@@ -66,7 +68,7 @@ function addOneIndent(line: string): string {
  * the first level is preserved as-is.
  */
 export function parseWeeklyFile(content: string, filename: string): Omit<BridgeWeekly, 'vaultPath' | 'filePath' | 'availableWeeks' | 'latestWeek'> {
-  const [fm, body] = parseFrontmatter(content);
+  const [fm, body, bodyLineOffset] = parseFrontmatter(content);
   const week = fm.week || "";
   const lines = body.split("\n");
 
@@ -121,7 +123,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
   // Parse tasks
   const tasks: BridgeTask[] = [];
   if (tasksStart !== -1) {
-    let currentTask: { titleLine: string; done: boolean; rawLines: string[]; detailLines: string[]; projectPath: string | null; projectPaths: string[]; dueDate: string | null; group: string | null } | null = null;
+    let currentTask: { titleLine: string; done: boolean; rawLines: string[]; detailLines: string[]; startLine: number; projectPath: string | null; projectPaths: string[]; dueDate: string | null; group: string | null } | null = null;
     let currentGroup: string | null = null;
 
     for (let i = tasksStart; i < tasksEnd; i++) {
@@ -138,6 +140,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
             done: currentTask.done,
             details: currentTask.detailLines,
             rawLines: currentTask.rawLines,
+            startLine: currentTask.startLine,
             projectPath: currentTask.projectPath,
             projectPaths: currentTask.projectPaths,
             dueDate: currentTask.dueDate,
@@ -160,6 +163,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
             done: currentTask.done,
             details: currentTask.detailLines,
             rawLines: currentTask.rawLines,
+            startLine: currentTask.startLine,
             projectPath: currentTask.projectPath,
             projectPaths: currentTask.projectPaths,
             dueDate: currentTask.dueDate,
@@ -194,6 +198,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
           done: taskMatch[1] === "x",
           rawLines: [line],
           detailLines: [],
+          startLine: bodyLineOffset + i,
           projectPath: projectPaths[0] ?? null,
           projectPaths,
           dueDate,
@@ -221,6 +226,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
         done: currentTask.done,
         details: currentTask.detailLines,
         rawLines: currentTask.rawLines,
+        startLine: currentTask.startLine,
         projectPath: currentTask.projectPath,
         projectPaths: currentTask.projectPaths,
         dueDate: currentTask.dueDate,

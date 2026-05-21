@@ -15,6 +15,11 @@ interface StartupActivityEvent {
   error?: string;
 }
 
+interface NavigateEvent {
+  view: string;
+  path: string;
+}
+
 interface ElectronAPI {
   isElectron: true;
   selectFolder: () => Promise<{ path?: string; cancelled?: boolean }>;
@@ -22,6 +27,7 @@ interface ElectronAPI {
   onPlanUpdated: (callback: (event: PlanEvent) => void) => () => void;
   onStartupActivity: (callback: (event: StartupActivityEvent) => void) => () => void;
   focusWindow: () => void;
+  onNavigate: (callback: (event: NavigateEvent) => void) => () => void;
 }
 
 declare global {

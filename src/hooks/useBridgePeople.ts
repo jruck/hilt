@@ -48,5 +48,6 @@ export function useBridgePeople() {
     data,
     isLoading,
     isError: error,
+    mutate,
   };
 }

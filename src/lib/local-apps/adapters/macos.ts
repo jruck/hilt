@@ -146,9 +146,20 @@ export async function collectMacosServices(): Promise<ObservedService[]> {
   if (!raw) return [];
 
   const listeners = parseLsof(raw);
+  const fallbackCommands = new Map<number, string>();
+  for (const listener of listeners) {
+    if (!fallbackCommands.has(listener.pid)) fallbackCommands.set(listener.pid, listener.command);
+  }
+
+  const processes = new Map<number, ProcessInfo>();
+  await mapConcurrent([...fallbackCommands], 8, async ([pid, fallbackCommand]) => {
+    processes.set(pid, await readProcess(pid, fallbackCommand));
+  });
+
   const observed: ObservedService[] = [];
   for (const listener of listeners) {
-    const process = await readProcess(listener.pid, listener.command);
+    const process = processes.get(listener.pid);
+    if (!process) continue;
     observed.push({
       listener: {
         ...listener,
@@ -160,3 +171,20 @@ export async function collectMacosServices(): Promise<ObservedService[]> {
   return observed;
 }
 
+async function mapConcurrent<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let index = 0;
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (index < items.length) {
+        const item = items[index++];
+        await fn(item);
+      }
+    },
+  );
+  await Promise.all(workers);
+}

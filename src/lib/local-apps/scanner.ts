@@ -5,7 +5,7 @@ import { probeServices } from "./probe";
 import { buildMachineSnapshots, summarizeMachines } from "./remotes";
 import { redactSensitiveArgs } from "./redact";
 import { isLocalAppsEnabled, loadSettings } from "./settings";
-import { machineIdentity } from "./tailnet";
+import { machineIdentityAsync } from "./tailnet";
 import { attachCachedPreviews, capturePreviewsNow, startPreviewCapture } from "./preview";
 import type { LocalAppsDisabledResponse, LocalAppsEnabledResponse, ScanDiagnostics, ServiceGroup } from "./types";
 
@@ -136,7 +136,7 @@ export async function scanLocalApps(options: ScanOptions = {}): Promise<LocalApp
   return localAppsEnabledResponseSchema.parse({
     app: "hilt-local-apps",
     enabled: true,
-    machine: machineIdentity(),
+    machine: await machineIdentityAsync(),
     groups: groups.filter((group) => group.visible),
     diagnostics,
   });

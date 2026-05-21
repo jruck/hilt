@@ -1,8 +1,11 @@
-import { execFileSync } from "child_process";
+import { execFile, execFileSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { promisify } from "util";
 import type { MachineIdentity } from "./types";
+
+const execFileAsync = promisify(execFile);
 
 let cachedPreviewHost: string | null | undefined;
 let cachedTailscaleIp4: string | null | undefined;
@@ -32,8 +35,46 @@ function commandOutput(command: string, args: string[]): string | null {
       stdio: ["ignore", "pipe", "ignore"],
     }).trim() || null;
   } catch {
-    return null;
+    try {
+      return execFileSync("/bin/zsh", ["-lc", shellCommand(command, args)], {
+        encoding: "utf-8",
+        timeout: 3000,
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim() || null;
+    } catch {
+      return null;
+    }
   }
+}
+
+async function commandOutputAsync(command: string, args: string[]): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(commandPath(command), args, {
+      encoding: "utf-8",
+      timeout: 3000,
+      maxBuffer: 1024 * 1024,
+    });
+    return stdout.trim() || null;
+  } catch {
+    try {
+      const { stdout } = await execFileAsync("/bin/zsh", ["-lc", shellCommand(command, args)], {
+        encoding: "utf-8",
+        timeout: 5000,
+        maxBuffer: 1024 * 1024,
+      });
+      return stdout.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+function shellCommand(command: string, args: string[]): string {
+  return [command, ...args].map(shellQuote).join(" ");
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 function firstLine(value: string | null): string | null {
@@ -78,21 +119,33 @@ export function isLoopbackHost(host: string): boolean {
 }
 
 export function tailscaleIp4(): string | null {
-  if (cachedTailscaleIp4 === undefined) {
-    cachedTailscaleIp4 = firstLine(commandOutput("tailscale", ["ip", "-4"]));
-  }
-  return cachedTailscaleIp4;
+  if (cachedTailscaleIp4) return cachedTailscaleIp4;
+  const ip4 = firstLine(commandOutput("tailscale", ["ip", "-4"]));
+  if (ip4) cachedTailscaleIp4 = ip4;
+  return ip4;
+}
+
+export async function tailscaleIp4Async(): Promise<string | null> {
+  if (cachedTailscaleIp4) return cachedTailscaleIp4;
+  const ip4 = firstLine(await commandOutputAsync("tailscale", ["ip", "-4"]));
+  if (ip4) cachedTailscaleIp4 = ip4;
+  return ip4;
 }
 
 export function previewHostFromStatus(): string | null {
-  if (cachedTailscaleDns !== undefined) return cachedTailscaleDns;
+  if (cachedTailscaleDns) return cachedTailscaleDns;
   const status = tailnetStatus();
-  if (!status?.self) {
-    cachedTailscaleDns = null;
-    return null;
-  }
-  cachedTailscaleDns = status.self.dns_name;
-  return cachedTailscaleDns;
+  const dns = status?.self?.dns_name || null;
+  if (dns) cachedTailscaleDns = dns;
+  return dns;
+}
+
+export async function previewHostFromStatusAsync(): Promise<string | null> {
+  if (cachedTailscaleDns) return cachedTailscaleDns;
+  const status = await tailnetStatusAsync();
+  const dns = status?.self?.dns_name || null;
+  if (dns) cachedTailscaleDns = dns;
+  return dns;
 }
 
 export function previewHostFromHelper(): string | null {
@@ -103,14 +156,15 @@ export function previewHostFromHelper(): string | null {
 }
 
 export function previewHost(): string | null {
-  if (cachedPreviewHost !== undefined) return cachedPreviewHost;
-  cachedPreviewHost = (
+  if (cachedPreviewHost) return cachedPreviewHost;
+  const host = (
     process.env.HILT_LOCAL_APPS_PREVIEW_HOST?.trim().replace(/\.$/, "") ||
     process.env.PORT_AUTHORITY_PREVIEW_HOST?.trim().replace(/\.$/, "") ||
     previewHostFromHelper() ||
     previewHostFromStatus()
   );
-  return cachedPreviewHost;
+  if (host) cachedPreviewHost = host;
+  return host;
 }
 
 export function previewUrlForPort(port: number): string | null {
@@ -138,15 +192,45 @@ export function machineIdentity(): MachineIdentity {
   };
 }
 
+export async function machineIdentityAsync(): Promise<MachineIdentity> {
+  const [status, ip4] = await Promise.all([
+    tailnetStatusAsync(),
+    tailscaleIp4Async(),
+  ]);
+
+  const dns = status?.self?.dns_name || null;
+  if (dns) cachedTailscaleDns = dns;
+
+  return {
+    hostname: os.hostname(),
+    tailscale_dns: dns,
+    tailscale_ip4: ip4,
+    origin: "local",
+  };
+}
+
 export function tailnetStatus(): TailnetStatus | null {
-  if (cachedTailnetStatus !== undefined) return cachedTailnetStatus;
+  if (cachedTailnetStatus) return cachedTailnetStatus;
   const raw = commandOutput("tailscale", ["status", "--json"]);
-  cachedTailnetStatus = raw ? parseTailnetStatus(raw) : null;
-  return cachedTailnetStatus;
+  const status = raw ? parseTailnetStatus(raw) : null;
+  if (status) cachedTailnetStatus = status;
+  return status;
+}
+
+export async function tailnetStatusAsync(): Promise<TailnetStatus | null> {
+  if (cachedTailnetStatus) return cachedTailnetStatus;
+  const raw = await commandOutputAsync("tailscale", ["status", "--json"]);
+  const status = raw ? parseTailnetStatus(raw) : null;
+  if (status) cachedTailnetStatus = status;
+  return status;
 }
 
 export function tailnetPeers(): TailnetPeer[] {
   return tailnetStatus()?.peers || [];
+}
+
+export async function tailnetPeersAsync(): Promise<TailnetPeer[]> {
+  return (await tailnetStatusAsync())?.peers || [];
 }
 
 export function parseTailnetStatus(raw: string): TailnetStatus | null {

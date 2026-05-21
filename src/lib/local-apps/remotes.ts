@@ -1,6 +1,6 @@
 import { localAppsEnabledResponseSchema } from "./contracts";
 import { isPeerDiscoveryEnabled } from "./settings";
-import { tailnetPeers, type TailnetPeer } from "./tailnet";
+import { tailnetPeersAsync, type TailnetPeer } from "./tailnet";
 import type { LocalAppsEnabledResponse, LocalAppsMachineSnapshot, LocalAppsSummary, MachineIdentity } from "./types";
 
 const REMOTE_TIMEOUT_MS = 1_500;
@@ -15,8 +15,9 @@ export async function buildMachineSnapshots(local: LocalAppsEnabledResponse): Pr
 
   if (!isPeerDiscoveryEnabled()) return [localMachine];
 
+  const peers = await tailnetPeersAsync();
   const remoteSnapshots = await Promise.all(
-    tailnetPeers()
+    peers
       .filter((peer) => peer.online && peer.os !== "iOS")
       .filter((peer) => !isSelfPeer(peer, local.machine))
       .map((peer) => fetchPeerSnapshot(peer)),

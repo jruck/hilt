@@ -33,16 +33,6 @@ export function attachCachedPreviews(services: Service[]): void {
   }
 }
 
-export function startPreviewCapture(services: Service[]): void {
-  if (!isPreviewCaptureEnabled()) return;
-  const candidates = previewCandidates(services, false);
-  if (candidates.length === 0) return;
-
-  void capturePreviews(candidates).catch((error) => {
-    console.error("[local-apps/preview] capture failed:", error);
-  });
-}
-
 export async function capturePreviewsNow(
   services: Service[],
   options: { force?: boolean } = {},

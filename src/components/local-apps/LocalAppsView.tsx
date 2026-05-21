@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AlertCircle,
   Database,
@@ -18,11 +18,16 @@ interface LocalAppsViewProps {
   searchQuery?: string;
 }
 
+const METADATA_POLL_INTERVAL_MS = 5_000;
+const PREVIEW_REFRESH_INTERVAL_MS = 2 * 60_000;
+
 export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
   const [snapshot, setSnapshot] = useState<LocalAppsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const refreshInFlight = useRef(false);
+  const lastPreviewRefreshAt = useRef(0);
 
   const load = useCallback(async () => {
     try {
@@ -37,26 +42,53 @@ export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
     }
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options: { force?: boolean } = {}) => {
+    if (!options.force && Date.now() - lastPreviewRefreshAt.current < PREVIEW_REFRESH_INTERVAL_MS) return;
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
     try {
       setRefreshing(true);
       setError(null);
       const res = await fetch("/api/local-apps/refresh", { method: "POST", cache: "no-store" });
       const data = await res.json();
       setSnapshot(data);
+      lastPreviewRefreshAt.current = Date.now();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to refresh local apps");
     } finally {
       setLoading(false);
       setRefreshing(false);
+      refreshInFlight.current = false;
     }
   }, []);
 
   useEffect(() => {
-    void load();
-    const interval = window.setInterval(load, 5000);
-    return () => window.clearInterval(interval);
-  }, [load]);
+    const isVisible = () => document.visibilityState === "visible";
+    const loadIfVisible = () => {
+      if (isVisible()) void load();
+    };
+    const refreshIfVisible = () => {
+      if (isVisible()) void refresh();
+    };
+
+    if (isVisible()) {
+      void refresh();
+    } else {
+      void load();
+    }
+
+    const metadataInterval = window.setInterval(loadIfVisible, METADATA_POLL_INTERVAL_MS);
+    const previewInterval = window.setInterval(refreshIfVisible, PREVIEW_REFRESH_INTERVAL_MS);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    window.addEventListener("focus", refreshIfVisible);
+
+    return () => {
+      window.clearInterval(metadataInterval);
+      window.clearInterval(previewInterval);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+      window.removeEventListener("focus", refreshIfVisible);
+    };
+  }, [load, refresh]);
 
   const query = searchQuery.trim().toLowerCase();
   const machines = useMemo(() => {
@@ -125,7 +157,7 @@ export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
             </div>
           </div>
           <button
-            onClick={() => void refresh()}
+            onClick={() => void refresh({ force: true })}
             disabled={refreshing}
             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors"
             title="Refresh local apps and screenshots"

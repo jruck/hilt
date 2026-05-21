@@ -332,7 +332,7 @@ Use `?scope=local` when one Hilt instance is calling another Hilt instance. This
 
 ### POST /api/local-apps/refresh
 
-Forces a fresh Local Apps scan. By default this also waits for fresh local screenshot capture before returning, so the response can immediately include updated `service.preview` metadata for healthy HTTP services.
+Forces a fresh Local Apps scan. By default this also waits for fresh screenshot capture before returning, so the response can immediately include updated `service.preview` metadata for healthy HTTP services. When peer aggregation is enabled, Hilt asks discovered peer Hilt instances to refresh their local previews through `scope=local` calls; ordinary `GET /api/local-apps` requests never capture screenshots by themselves.
 
 Query params:
 

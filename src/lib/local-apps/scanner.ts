@@ -6,11 +6,12 @@ import { buildMachineSnapshots, summarizeMachines } from "./remotes";
 import { redactSensitiveArgs } from "./redact";
 import { isLocalAppsEnabled, loadSettings } from "./settings";
 import { machineIdentityAsync } from "./tailnet";
-import { attachCachedPreviews, capturePreviewsNow, startPreviewCapture } from "./preview";
+import { attachCachedPreviews, capturePreviewsNow } from "./preview";
 import type { LocalAppsDisabledResponse, LocalAppsEnabledResponse, ScanDiagnostics, ServiceGroup } from "./types";
 
 let latest: LocalAppsEnabledResponse | null = null;
 let inFlight: Promise<LocalAppsEnabledResponse> | null = null;
+let inFlightWaitsForPreviews = false;
 
 interface ScanOptions {
   forcePreviews?: boolean;
@@ -77,7 +78,9 @@ export async function refreshLocalApps(
   const includePeers = options.includePeers ?? true;
   const snapshot = await ensureScan(options);
   if (!includePeers) return withScanningFlag(snapshot);
-  const machines = await buildMachineSnapshots(snapshot);
+  const machines = await buildMachineSnapshots(snapshot, {
+    refreshPeers: !!options.waitForPreviews && !!options.forcePreviews,
+  });
   return {
     ...snapshot,
     machines,
@@ -86,7 +89,12 @@ export async function refreshLocalApps(
 }
 
 export async function ensureScan(options: ScanOptions = {}): Promise<LocalAppsEnabledResponse> {
+  if (inFlight && options.waitForPreviews && !inFlightWaitsForPreviews) {
+    await inFlight.catch(() => null);
+  }
+
   if (!inFlight) {
+    inFlightWaitsForPreviews = !!options.waitForPreviews;
     inFlight = scanLocalApps(options)
       .then((snapshot) => {
         latest = snapshot;
@@ -94,6 +102,7 @@ export async function ensureScan(options: ScanOptions = {}): Promise<LocalAppsEn
       })
       .finally(() => {
         inFlight = null;
+        inFlightWaitsForPreviews = false;
       });
   }
   return inFlight;
@@ -115,8 +124,6 @@ export async function scanLocalApps(options: ScanOptions = {}): Promise<LocalApp
     if (!options.forcePreviews) attachCachedPreviews(services);
     if (options.waitForPreviews) {
       await capturePreviewsNow(services, { force: options.forcePreviews });
-    } else {
-      startPreviewCapture(services);
     }
     groups = redactGroups(groupServices(services, settings));
   } catch (error) {

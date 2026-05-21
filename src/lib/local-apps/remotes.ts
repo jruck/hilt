@@ -4,9 +4,13 @@ import { tailnetPeersAsync, type TailnetPeer } from "./tailnet";
 import type { LocalAppsEnabledResponse, LocalAppsMachineSnapshot, LocalAppsSummary, MachineIdentity } from "./types";
 
 const REMOTE_TIMEOUT_MS = 1_500;
+const REMOTE_REFRESH_TIMEOUT_MS = 15_000;
 const HILT_DEV_PORTS = [3000, 3001, 3002, 3003, 3004];
 
-export async function buildMachineSnapshots(local: LocalAppsEnabledResponse): Promise<LocalAppsMachineSnapshot[]> {
+export async function buildMachineSnapshots(
+  local: LocalAppsEnabledResponse,
+  options: { refreshPeers?: boolean } = {},
+): Promise<LocalAppsMachineSnapshot[]> {
   const localMachine = machineSnapshot(local, {
     self: true,
     source_url: null,
@@ -20,7 +24,7 @@ export async function buildMachineSnapshots(local: LocalAppsEnabledResponse): Pr
     peers
       .filter((peer) => peer.online && peer.os !== "iOS")
       .filter((peer) => !isSelfPeer(peer, local.machine))
-      .map((peer) => fetchPeerSnapshot(peer)),
+      .map((peer) => fetchPeerSnapshot(peer, { refresh: !!options.refreshPeers })),
   );
 
   return [
@@ -65,10 +69,15 @@ export function machineSnapshot(
   };
 }
 
-async function fetchPeerSnapshot(peer: TailnetPeer): Promise<LocalAppsMachineSnapshot | null> {
+async function fetchPeerSnapshot(
+  peer: TailnetPeer,
+  options: { refresh: boolean },
+): Promise<LocalAppsMachineSnapshot | null> {
   for (const baseUrl of candidateBaseUrls(peer)) {
     try {
-      const response = await fetchWithTimeout(`${baseUrl}/api/local-apps?scope=local`, REMOTE_TIMEOUT_MS);
+      const response = options.refresh
+        ? await fetchWithTimeout(`${baseUrl}/api/local-apps/refresh?scope=local`, REMOTE_REFRESH_TIMEOUT_MS, "POST")
+        : await fetchWithTimeout(`${baseUrl}/api/local-apps?scope=local`, REMOTE_TIMEOUT_MS);
       if (!response.ok) continue;
       const parsed = localAppsEnabledResponseSchema.safeParse(await response.json());
       if (!parsed.success || !parsed.data.enabled) continue;
@@ -95,12 +104,13 @@ function candidateBaseUrls(peer: TailnetPeer): string[] {
   return [...new Set(candidates)];
 }
 
-async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+async function fetchWithTimeout(url: string, timeoutMs: number, method = "GET"): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, {
       cache: "no-store",
+      method,
       signal: controller.signal,
     });
   } finally {

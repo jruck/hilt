@@ -24,6 +24,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
+- **Local Apps screenshot capture running without active viewing intent** — Ordinary `/api/local-apps` metadata reads now attach cached screenshots only and never start Playwright capture. The Apps view requests fresh screenshots on visible page load, manual refresh, visible tab return when stale, and every two minutes while visible; refresh can fan out to peer Hilt machines so remote screenshots stay current only while the view is actually being watched.
+
 - **Local Apps scan too slow for remote peer discovery** — The macOS Local Apps adapter read process metadata sequentially for every listening socket, so `/api/local-apps?scope=local` could take ~15 seconds on a busy machine. Tailnet peer discovery only waits briefly per candidate, making healthy remotes look unavailable. The adapter now reads each unique PID once and does that work with bounded concurrency, keeping local snapshots responsive enough for remote aggregation.
 
 - **Local Apps remote discovery stuck after transient Tailscale CLI miss** — Tailnet identity helpers cached `null` forever when `tailscale status` or `tailscale ip` missed once, leaving the Apps view local-only until the dev server restarted. Hilt now caches successful Tailscale values but retries misses, so remote aggregation can recover without a restart.

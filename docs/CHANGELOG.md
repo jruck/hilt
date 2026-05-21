@@ -12,7 +12,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Local Apps scanner contracts and tests** — Added Local Apps Zod contracts, Hilt-owned settings import/defaults, Port Authority-compatible FNV stable ids, macOS `lsof`/`ps` parsing, service classification/grouping, tailnet helpers, optional preview scaffolding behind `HILT_LOCAL_APPS_PREVIEWS=true`, and `npm run test:local-apps` plus a Port Authority parity script.
 
-- **Local Apps tailnet aggregation** — `/api/local-apps` now keeps the local snapshot contract while adding a `machines` array for other online tailnet devices that are also running Hilt. Peer discovery is Hilt-to-Hilt only: it probes known Tailscale peers for `/api/local-apps?scope=local`, validates the Hilt API contract, and renders the Apps view grouped by machine.
+- **Local Apps tailnet aggregation** — `/api/local-apps` now keeps the local snapshot contract while adding a `machines` array for other online tailnet devices that are also running Hilt. Peer discovery is Hilt-to-Hilt only: it probes known Tailscale peers for `/api/local-apps?scope=local`, checks Tailscale Serve HTTPS plus common Hilt dev ports `3000`-`3004`, validates the Hilt API contract, and renders the Apps view grouped by machine.
 
 ## [5.0.0] - 2026-05-21
 

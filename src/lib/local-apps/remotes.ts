@@ -4,6 +4,7 @@ import { tailnetPeers, type TailnetPeer } from "./tailnet";
 import type { LocalAppsEnabledResponse, LocalAppsMachineSnapshot, LocalAppsSummary, MachineIdentity } from "./types";
 
 const REMOTE_TIMEOUT_MS = 1_500;
+const HILT_DEV_PORTS = [3000, 3001, 3002, 3003, 3004];
 
 export async function buildMachineSnapshots(local: LocalAppsEnabledResponse): Promise<LocalAppsMachineSnapshot[]> {
   const localMachine = machineSnapshot(local, {
@@ -87,9 +88,9 @@ function candidateBaseUrls(peer: TailnetPeer): string[] {
   const candidates: string[] = [];
   if (peer.dns_name) {
     candidates.push(`https://${peer.dns_name}`);
-    candidates.push(`http://${peer.dns_name}:3000`);
+    candidates.push(...HILT_DEV_PORTS.map((port) => `http://${peer.dns_name}:${port}`));
   }
-  if (peer.ip4) candidates.push(`http://${peer.ip4}:3000`);
+  if (peer.ip4) candidates.push(...HILT_DEV_PORTS.map((port) => `http://${peer.ip4}:${port}`));
   return [...new Set(candidates)];
 }
 

@@ -28,6 +28,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Local Apps softer camera tiles** — Rounded the Local Apps preview cards and overlay pills/buttons, increased the card radius and shadow, and removed the outer card stroke so the camera-wall layout feels more like lifted preview tiles while keeping compact operational density.
 
+- **Local Apps mobile camera grid** — The Apps camera wall now keeps two preview columns even on mobile-width viewports, with compact port-only chips plus hidden path/fallback text at the smallest sizes to preserve the monitor-wall feel without crowding the overlays.
+
 ### Fixed
 
 - **Local Apps screenshot capture running without active viewing intent** — Ordinary `/api/local-apps` metadata reads now attach cached screenshots only and never start Playwright capture. The Apps view requests fresh screenshots on visible page load, manual refresh, visible tab return when stale, and every two minutes while visible; refresh can fan out to peer Hilt machines so remote screenshots stay current only while the view is actually being watched.

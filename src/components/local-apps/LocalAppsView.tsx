@@ -186,7 +186,7 @@ export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
               No matching local apps
             </div>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-3 2xl:grid-cols-4">
               {apps.map((app) => (
                 <AppCard key={`${app.machine.id}:${app.group.id}`} app={app} />
               ))}
@@ -226,15 +226,15 @@ function AppCard({ app }: { app: AppTile }) {
         ) : (
           <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_center,rgba(63,63,70,0.35),rgba(9,9,11,0.98))] px-4 text-xs text-zinc-300">
             {fallback.icon}
-            <span className="ml-2">{fallback.label}</span>
+            <span className="ml-2 hidden sm:inline">{fallback.label}</span>
           </div>
         )}
 
-        <div className="absolute inset-x-0 top-0 bg-gradient-to-b from-black/80 via-black/45 to-transparent p-3">
+        <div className="absolute inset-x-0 top-0 bg-gradient-to-b from-black/80 via-black/45 to-transparent p-2 sm:p-3">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <h2 className="truncate text-sm font-semibold text-white drop-shadow">{group.title}</h2>
-              <p className="mt-0.5 truncate text-[11px] text-zinc-200/85 drop-shadow">{pathLabel}</p>
+              <h2 className="truncate text-xs font-semibold text-white drop-shadow sm:text-sm">{group.title}</h2>
+              <p className="mt-0.5 hidden truncate text-[11px] text-zinc-200/85 drop-shadow sm:block">{pathLabel}</p>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
               <span className="max-w-28 truncate rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-zinc-100 ring-1 ring-white/10">
@@ -249,7 +249,7 @@ function AppCard({ app }: { app: AppTile }) {
           </div>
         </div>
 
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/55 to-transparent p-3">
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/55 to-transparent p-2 sm:p-3">
           <div className="flex min-w-0 items-end justify-between gap-2">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap gap-1.5">
@@ -322,8 +322,8 @@ function ServiceChip({ service }: { service: Service }) {
       ? "border-red-300/25 bg-red-500/20 text-red-100"
       : "border-white/15 bg-black/35 text-zinc-200";
   return (
-    <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] shadow-sm backdrop-blur ${healthClass}`} title={service.health.label}>
-      :{service.listener.port} {serviceRole(service)}
+    <span className={`inline-flex items-center rounded-md border px-1 py-0.5 text-[10px] shadow-sm backdrop-blur sm:px-1.5 sm:text-[11px] ${healthClass}`} title={service.health.label}>
+      :{service.listener.port}<span className="hidden sm:inline"> {serviceRole(service)}</span>
     </span>
   );
 }

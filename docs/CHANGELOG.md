@@ -26,7 +26,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Local Apps camera-wall layout** — Flattened machine sections into one app grid where each card is a full-bleed screenshot/fallback tile. App title, path, source machine, service chips, freshness, and open affordance now live as overlays on the visual surface.
 
-- **Local Apps softer camera tiles** — Rounded the Local Apps preview cards and overlay pills/buttons, then increased the card radius and shadow so the camera-wall layout feels more like lifted preview tiles while keeping compact operational density.
+- **Local Apps softer camera tiles** — Rounded the Local Apps preview cards and overlay pills/buttons, increased the card radius and shadow, and removed the outer card stroke so the camera-wall layout feels more like lifted preview tiles while keeping compact operational density.
 
 ### Fixed
 

@@ -211,7 +211,7 @@ function AppCard({ app }: { app: AppTile }) {
     : null;
 
   return (
-    <article className="group overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-secondary)] shadow-[0_22px_55px_rgba(15,23,42,0.24)]">
+    <article className="group overflow-hidden rounded-2xl bg-[var(--bg-secondary)] shadow-[0_22px_55px_rgba(15,23,42,0.24)]">
       <button
         className="relative block aspect-[16/9] w-full overflow-hidden bg-zinc-950 text-left"
         onClick={() => group.primary_url && openExternal(group.primary_url)}

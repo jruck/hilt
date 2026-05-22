@@ -223,7 +223,7 @@ function AppCard({ app }: { app: AppTile }) {
             <img src={previewUrl} alt="" className="h-full w-full object-cover" />
           </div>
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_center,rgba(63,63,70,0.35),rgba(9,9,11,0.98))] px-4 text-xs text-zinc-300">
+          <div className="absolute inset-0 flex items-center justify-center bg-[var(--bg-secondary)] px-4 text-xs text-[var(--text-secondary)]">
             {fallback.icon}
             <span className="ml-2 hidden sm:inline">{fallback.label}</span>
           </div>

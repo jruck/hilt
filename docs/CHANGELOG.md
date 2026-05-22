@@ -32,6 +32,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Local Apps hover-only card chrome** — Removed the redundant open icon from Apps camera tiles, made port chips neutral instead of health-colored, and hid the bottom service/freshness row until hover or keyboard focus.
 
+- **Local Apps theme-aware fallback tiles** — Replaced the hardcoded dark fallback surface for `No web UI`, preview failures, and other non-preview states with theme variables so empty/error camera tiles respond to light and dark mode like the rest of Hilt.
+
 ### Fixed
 
 - **Local Apps screenshot capture running without active viewing intent** — Ordinary `/api/local-apps` metadata reads now attach cached screenshots only and never start Playwright capture. The Apps view requests fresh screenshots on visible page load, manual refresh, visible tab return when stale, and every two minutes while visible; refresh can fan out to peer Hilt machines so remote screenshots stay current only while the view is actually being watched.

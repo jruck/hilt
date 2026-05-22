@@ -211,7 +211,7 @@ function AppCard({ app }: { app: AppTile }) {
     : null;
 
   return (
-    <article className="group overflow-hidden rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)]">
+    <article className="group overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)]">
       <button
         className="relative block aspect-[16/9] w-full overflow-hidden bg-zinc-950 text-left"
         onClick={() => group.primary_url && openExternal(group.primary_url)}
@@ -237,11 +237,11 @@ function AppCard({ app }: { app: AppTile }) {
               <p className="mt-0.5 truncate text-[11px] text-zinc-200/85 drop-shadow">{pathLabel}</p>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
-              <span className="max-w-28 truncate rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-zinc-100 ring-1 ring-white/10">
+              <span className="max-w-28 truncate rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-zinc-100 ring-1 ring-white/10">
                 {machineShortLabel(machine)}
               </span>
               {group.primary_url ? (
-                <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-black/50 text-zinc-100 ring-1 ring-white/10 transition-colors group-hover:bg-black/70">
+                <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-black/50 text-zinc-100 ring-1 ring-white/10 transition-colors group-hover:bg-black/70">
                   <ExternalLink className="h-3.5 w-3.5" />
                 </span>
               ) : null}
@@ -322,7 +322,7 @@ function ServiceChip({ service }: { service: Service }) {
       ? "border-red-300/25 bg-red-500/20 text-red-100"
       : "border-white/15 bg-black/35 text-zinc-200";
   return (
-    <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] shadow-sm backdrop-blur ${healthClass}`} title={service.health.label}>
+    <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] shadow-sm backdrop-blur ${healthClass}`} title={service.health.label}>
       :{service.listener.port} {serviceRole(service)}
     </span>
   );

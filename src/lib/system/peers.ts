@@ -3,6 +3,7 @@ import { isLocalAppsEnabled } from "@/lib/local-apps/settings";
 import { machineIdentityAsync, tailnetPeersAsync, type TailnetPeer } from "@/lib/local-apps/tailnet";
 import { isLocalMapEnabled } from "@/lib/map/local-config";
 import type { MachineIdentity } from "@/lib/local-apps/types";
+import { isSystemSyncEnabled } from "./sync-settings";
 import type { SystemMachine, SystemMachineResponse } from "./types";
 
 const REMOTE_TIMEOUT_MS = 1_500;
@@ -32,6 +33,7 @@ export async function localSystemMachineResponse(): Promise<SystemMachineRespons
       map: isLocalMapEnabled(),
       apps: isLocalAppsEnabled(),
       stack: true,
+      sync: isSystemSyncEnabled(),
     },
   };
 }
@@ -107,7 +109,7 @@ async function fetchPeerSystemMachine(peer: TailnetPeer): Promise<SystemMachine 
         reachable: true,
         source_url: baseUrl,
         machine,
-        features: data.features,
+        features: normalizeFeatures(data.features),
         error: null,
       };
     } catch {
@@ -133,6 +135,7 @@ async function fetchPeerSystemMachine(peer: TailnetPeer): Promise<SystemMachine 
           map: true,
           apps: true,
           stack: true,
+          sync: false,
         },
         error: null,
       };
@@ -142,6 +145,15 @@ async function fetchPeerSystemMachine(peer: TailnetPeer): Promise<SystemMachine 
   }
 
   return null;
+}
+
+function normalizeFeatures(features: Partial<SystemMachineResponse["features"]> | undefined): SystemMachineResponse["features"] {
+  return {
+    map: features?.map === true,
+    apps: features?.apps === true,
+    stack: features?.stack === true,
+    sync: features?.sync === true,
+  };
 }
 
 function candidateBaseUrls(peer: TailnetPeer): string[] {

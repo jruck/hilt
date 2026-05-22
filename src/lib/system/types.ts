@@ -11,6 +11,7 @@ export interface SystemMachine {
     map: boolean;
     apps: boolean;
     stack: boolean;
+    sync: boolean;
   };
 }
 
@@ -22,6 +23,7 @@ export interface SystemMachineResponse {
     map: boolean;
     apps: boolean;
     stack: boolean;
+    sync: boolean;
   };
 }
 

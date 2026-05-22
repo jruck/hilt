@@ -14,6 +14,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **System Stack inspection** — Added `/api/system/stack` and `/api/system/stack/file` for machine-aware Claude/Codex configuration inspection. Local Stack editing remains available on the serving machine; remote peer stacks are read-only and file previews must resolve from that peer's discovered stack metadata rather than arbitrary browser-provided paths.
 
+- **System Sync inspection** — Added read-only `/api/system/sync` and `/api/system/sync/conflicts` routes plus a `System > Sync` mode for Syncthing health. Sync snapshots read only each machine's local loopback Syncthing API, cache expensive folder status calls, aggregate through Hilt peers, and surface folder state, needed files, pull errors, versioning, ignore parity, peer connection state, and conflict files without exposing the Syncthing API key.
+
 - **Local Apps monitor view** — Added a gated Apps inspection mode that inspects local TCP listeners on the Hilt-serving machine, groups them by app/worktree, probes health, builds tailnet-friendly open URLs, and shows app-first service cards. APIs live under `/api/local-apps`, use a cached single-flight scanner, redact process args before UI/API exposure, and are disabled unless `HILT_LOCAL_APPS_ENABLED=true`.
 
 - **Local Apps scanner contracts and tests** — Added Local Apps Zod contracts, Hilt-owned settings import/defaults, Port Authority-compatible FNV stable ids, macOS `lsof`/`ps` parsing, service classification/grouping, tailnet helpers, optional preview scaffolding behind `HILT_LOCAL_APPS_PREVIEWS=true`, and `npm run test:local-apps` plus a Port Authority parity script.

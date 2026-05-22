@@ -14,7 +14,7 @@ This document provides a comprehensive architectural overview of Hilt for AI age
 │  │  │  ├── ViewToggle (Briefing / Bridge / Docs / People / System) │  │  │
 │  │  │  ├── BridgeView (weekly tasks, projects, notes)              │  │  │
 │  │  │  ├── DocsView (markdown file browser + editor)               │  │  │
-│  │  │  ├── SystemView (Sessions / Apps / Stack inspection)         │  │  │
+│  │  │  ├── SystemView (Sessions / Apps / Stack / Sync inspection)  │  │  │
 │  │  │  ├── MapView (local/tailnet work/session map)                │  │  │
 │  │  │  ├── PeopleView (people, groups, meeting history)            │  │  │
 │  │  │  └── LocalAppsView (local/tailnet service monitor)           │  │  │
@@ -226,7 +226,7 @@ Conditionally renders:
   - "bridge" → BridgeView
   - "docs"   → DocsView (with scope + search)
   - "people" → PeopleView (scope = person slug for deep links)
-  - "system" → SystemView (Sessions / Apps / Stack modes)
+  - "system" → SystemView (Sessions / Apps / Stack / Sync modes)
 ```
 
 Legacy `/map`, `/local-apps`, and `/stack/...` URLs remain valid compatibility entrypoints, but Board treats them as the System top-level view and selects the matching internal mode.
@@ -285,7 +285,8 @@ SystemView
          │
          ├── Sessions → MapView using /api/system/sessions/*
          ├── Apps     → LocalAppsView using /api/local-apps*
-         └── Stack    → local StackView or remote read-only Stack inspector
+         ├── Stack    → local StackView or remote read-only Stack inspector
+         └── Sync     → read-only Syncthing health via /api/system/sync*
 ```
 
 System is the parent inspection area. It uses Hilt-to-Hilt peer discovery only: the serving machine asks Tailscale for online peers, probes those peers for `/api/system/machine?scope=local`, and only aggregates machines that identify as Hilt. `HILT_SYSTEM_NETWORK_ENABLED=false` disables peer aggregation while keeping local System inspection available.
@@ -296,7 +297,9 @@ Apps mode reuses the Local Apps monitor and its existing peer aggregation, scree
 
 Stack mode reads each machine's Claude/Codex configuration stack through `/api/system/stack`. Local Stack keeps the existing edit/toggle behavior. Remote Stack is read-only in v1: file previews go through `/api/system/stack/file`, and the remote server validates the requested path against its own discovered stack before reading content.
 
-System inspection views share one secondary chrome row. `SystemView` owns the mode switcher and passes it into the active mode, so Sessions can place Map filters/diagnostics/refresh beside it, Apps can place machine/app/service freshness beside it, and Stack can place machine selection/status beside it. System inspection views also use a client-side stale-while-refresh pattern. Sessions, Apps, and Stack keep their last successful client snapshot and selection in module memory, render it immediately when the user switches back, and refresh in the background. Refresh failures should not blank the view; they surface as status chrome while stale content remains visible.
+Sync mode reads local Syncthing through a Hilt-local adapter only. `/api/system/sync?scope=local` reads the serving machine's loopback Syncthing REST API using an API key file, while aggregate `/api/system/sync` asks peer Hilt instances for their own local snapshots. Hilt never exposes the Syncthing API key or proxies arbitrary Syncthing API calls over the tailnet. The adapter caches expensive folder status reads with a short TTL and single-flight refresh.
+
+System inspection views share one secondary chrome row. `SystemView` owns the mode switcher and passes it into the active mode, so Sessions can place Map filters/diagnostics/refresh beside it, Apps can place machine/app/service freshness beside it, Stack can place machine selection/status beside it, and Sync can place health summary/refresh beside it. System inspection views also use a client-side stale-while-refresh pattern. Sessions, Apps, Stack, and Sync keep their last successful client snapshot and selection in module memory, render it immediately when the user switches back, and refresh in the background. Refresh failures should not blank the view; they surface as status chrome while stale content remains visible.
 
 ### 5. Stack View Data Flow
 
@@ -485,6 +488,8 @@ Components receive events and trigger SWR revalidation
 | `/api/system/sessions/refresh` | POST | Refresh local/peer Map indexes | - |
 | `/api/system/stack` | GET | Local + peer Stack snapshots | `project`, `scope` |
 | `/api/system/stack/file` | GET | Stack file preview with discovered-path validation | `machine`, `path`, `project`, `scope` |
+| `/api/system/sync` | GET | Local + peer Syncthing sync snapshots | `scope`, `force` |
+| `/api/system/sync/conflicts` | GET | Local + peer sync conflict files | `folder`, `scope`, `force` |
 | `/api/local-apps` | GET | Cached local service monitor snapshot | - |
 | `/api/local-apps/refresh` | POST | Force local scan and optional screenshot recapture | `scope`, `previews` |
 | `/api/local-apps/settings` | GET | Local Apps settings metadata | - |

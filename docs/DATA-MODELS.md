@@ -223,7 +223,7 @@ interface LocalAppsMachineSnapshot {
 
 ### System machine snapshots
 
-System uses the same machine identity model across Sessions, Apps, and Stack. Only Hilt-running peers are included; arbitrary tailnet devices are not inspected.
+System uses the same machine identity model across Sessions, Apps, Stack, and Sync. Only Hilt-running peers are included; arbitrary tailnet devices are not inspected.
 
 ```typescript
 interface SystemMachine {
@@ -241,6 +241,7 @@ interface SystemMachine {
     map: boolean;
     apps: boolean;
     stack: boolean;
+    sync: boolean;
   };
   error?: string | null;
 }
@@ -255,6 +256,46 @@ interface SystemStackSnapshot {
 ```
 
 System Sessions wraps each machine's local Map graph with machine-level ids. Session ids use `{machineId}::{localSessionId}` and tree ids use either `machine:{machineId}` or `node:{machineId}::{localNodeId}`, so history reads can route back to the owning Hilt instance without storing raw transcripts centrally.
+
+### System Sync snapshots
+
+System Sync is read-only Hilt observability over a local Syncthing daemon. Aggregate responses include enabled and disabled machine entries so the UI can show missing env vars, peer version gaps, or daemon/API failures without hiding machines.
+
+```typescript
+interface SystemSyncMachineSnapshot {
+  machine: SystemMachine;
+  provider: "syncthing";
+  enabled: true;
+  readOnly: true;
+  daemon: {
+    reachable: boolean;
+    version: string | null;
+    deviceId: string | null;
+    startTime: string | null;
+    error: string | null;
+  };
+  folder: {
+    id: string;
+    path: string;
+    type: string;
+    state: string;
+    inSyncFiles: number;
+    inSyncBytes: number;
+    needFiles: number;
+    needBytes: number;
+    pullErrors: number;
+    versioning: { enabled: boolean; type: string | null; maxAgeDays: number | null };
+    maxConflicts: number | null;
+    ignore: { includePresent: boolean; localHash: string | null; sharedHash: string | null };
+    conflicts: { count: number; truncated: boolean; files: Array<{ path: string; modifiedAt: string | null; sizeBytes: number | null }> };
+  } | null;
+  peers: Array<{ deviceId: string; label: string; connected: boolean; address: string | null }>;
+  refreshedAt: string;
+  error: string | null;
+}
+```
+
+The Syncthing API key, raw Syncthing config, and arbitrary file contents are never included in System Sync responses.
 
 ## Persistence Formats
 

@@ -10,7 +10,7 @@ import { NavBar } from "./NavBar";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBriefingUnread } from "@/hooks/useBriefingUnread";
 import { PullToRefresh } from "./PullToRefresh";
-import type { SystemMode } from "./system";
+import { isSystemMode, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode, type SystemMode } from "@/lib/system/navigation";
 
 const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.DocsView })), { ssr: false });
 const BridgeView = dynamic(() => import("./bridge/BridgeView").then(m => ({ default: m.BridgeView })), { ssr: false });
@@ -25,33 +25,10 @@ function getStoredPeopleScope(): string {
   if (typeof window === "undefined") return "/__inbox__";
   const scope = localStorage.getItem(PEOPLE_SCOPE_STORAGE_KEY);
   if (!scope) return "/__inbox__";
-  if (scope === "/sessions" || scope === "/apps" || scope === "/stack" || scope.startsWith("/stack/")) {
+  if (scope === "/sessions" || scope === "/apps" || scope === "/stack" || scope === "/sync" || scope.startsWith("/stack/")) {
     return "/__inbox__";
   }
   return scope.startsWith("/") ? scope : `/${scope}`;
-}
-
-function systemScopeForMode(mode: SystemMode, stackScope = ""): string {
-  if (mode === "stack" && stackScope) return `/stack${stackScope}`;
-  return `/${mode}`;
-}
-
-function systemModeFromUrl(viewMode: ViewPrefix | null, scopePath: string): SystemMode {
-  if (viewMode === "map") return "sessions";
-  if (viewMode === "local-apps") return "apps";
-  if (viewMode === "stack") return "stack";
-  if (viewMode !== "system") return "sessions";
-  const first = scopePath.split("/").filter(Boolean)[0];
-  if (first === "apps" || first === "stack" || first === "sessions") return first;
-  return "sessions";
-}
-
-function stackScopeFromSystemUrl(viewMode: ViewPrefix | null, scopePath: string): string {
-  if (viewMode === "stack") return scopePath;
-  if (viewMode !== "system") return "";
-  const parts = scopePath.split("/").filter(Boolean);
-  if (parts[0] !== "stack") return "";
-  return parts.length > 1 ? `/${parts.slice(1).join("/")}` : "";
 }
 
 export function Board() {
@@ -91,7 +68,7 @@ export function Board() {
       const lastMode = typeof window !== "undefined"
         ? (localStorage.getItem(SYSTEM_MODE_STORAGE_KEY) as SystemMode | null)
         : null;
-      const nextMode: SystemMode = lastMode === "apps" || lastMode === "stack" || lastMode === "sessions"
+      const nextMode: SystemMode = isSystemMode(lastMode)
         ? lastMode
         : systemMode;
       navigateTo("system", systemScopeForMode(nextMode, stackScopePath));

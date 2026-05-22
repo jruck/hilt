@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { Bot, FileText, Layers, Loader2, Map as MapIcon, Server } from "lucide-react";
+import { Bot, FileText, Layers, Loader2, Map as MapIcon, RefreshCw, Server } from "lucide-react";
 import { MapView } from "@/components/map/MapView";
 import { LocalAppsView } from "@/components/local-apps";
+import { SystemSyncView } from "./SystemSyncView";
 import { StackFileTree, type StackFilterType } from "@/components/stack/StackFileTree";
 import { StackSummary } from "@/components/stack/StackSummary";
 import { MCPServerDetail } from "@/components/stack/MCPServerDetail";
@@ -12,10 +13,11 @@ import { PluginDetail } from "@/components/stack/PluginDetail";
 import { CodeViewer } from "@/components/docs/CodeViewer";
 import type { ClaudeStack, ConfigFile, ConfigFileContent, ConfigLayer, MCPServerConfig, PluginConfig } from "@/lib/claude-config/types";
 import type { SystemStackSnapshot } from "@/lib/system/stack";
+import type { SystemMode } from "@/lib/system/navigation";
 
 const StackView = dynamic(() => import("@/components/stack").then((m) => ({ default: m.StackView })), { ssr: false });
 
-export type SystemMode = "sessions" | "apps" | "stack";
+export type { SystemMode } from "@/lib/system/navigation";
 
 interface SystemViewProps {
   mode: SystemMode;
@@ -28,6 +30,7 @@ const MODES: Array<{ id: SystemMode; label: string; icon: typeof MapIcon; title:
   { id: "sessions", label: "Sessions", icon: MapIcon, title: "Agent and session work map" },
   { id: "apps", label: "Apps", icon: Server, title: "Running apps and local services" },
   { id: "stack", label: "Stack", icon: Layers, title: "Claude/Codex configuration stack" },
+  { id: "sync", label: "Sync", icon: RefreshCw, title: "Syncthing sync health" },
 ];
 
 let cachedSystemStackState: {
@@ -45,8 +48,10 @@ export function SystemView({ mode, onModeChange, searchQuery = "", workingFolder
           <MapView searchQuery={searchQuery} apiBase="/api/system/sessions" modeSwitcher={modeSwitcher} />
         ) : mode === "apps" ? (
           <LocalAppsView searchQuery={searchQuery} modeSwitcher={modeSwitcher} />
-        ) : (
+        ) : mode === "stack" ? (
           <SystemStackView workingFolder={workingFolder} searchQuery={searchQuery} modeSwitcher={modeSwitcher} />
+        ) : (
+          <SystemSyncView modeSwitcher={modeSwitcher} />
         )}
       </div>
     </div>

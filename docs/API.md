@@ -271,7 +271,7 @@ Returns the latest scan diagnostics and source status list.
 
 ## System Routes
 
-System is the top-level inspection surface for Sessions, Apps, and Stack. Peer aggregation is Hilt-to-Hilt only: the serving machine discovers online Tailscale peers, probes `/api/system/machine?scope=local`, and accepts only Hilt responses. Set `HILT_SYSTEM_NETWORK_ENABLED=false` to keep System local-only.
+System is the top-level inspection surface for Sessions, Apps, Stack, and Sync. Peer aggregation is Hilt-to-Hilt only: the serving machine discovers online Tailscale peers, probes `/api/system/machine?scope=local`, and accepts only Hilt responses. Set `HILT_SYSTEM_NETWORK_ENABLED=false` to keep System local-only.
 
 ### GET /api/system/machine
 
@@ -286,6 +286,7 @@ Returns the serving machine's System identity and feature availability. Peer dis
     map: boolean;
     apps: boolean;
     stack: boolean;
+    sync: boolean;
   };
 }
 ```
@@ -334,6 +335,32 @@ Read-only Stack file preview. Parameters:
 | `scope=local` | string | Used by peer-to-peer reads to force local validation |
 
 Remote Stack writes/toggles are intentionally not exposed in v1.
+
+### GET /api/system/sync
+
+Returns read-only Syncthing sync snapshots for local and peer Hilt machines. Use `?scope=local` for a single-machine response. `?scope=network` is accepted as the default aggregate behavior. `?force=true` bypasses Hilt's short server-side cache for a manual refresh.
+
+Local sync is gated by:
+
+```bash
+HILT_SYNC_ENABLED=true
+HILT_SYNC_PROVIDER=syncthing
+HILT_SYNC_FOLDER_ID=work-meta
+HILT_SYNC_SYNCTHING_URL=http://127.0.0.1:8384
+HILT_SYNC_SYNCTHING_API_KEY_FILE=/Users/jruck/.hilt/sync/syncthing-api-key
+```
+
+Hilt only calls the local loopback Syncthing REST API and never returns the API key or exposes arbitrary Syncthing API paths.
+
+### GET /api/system/sync/conflicts
+
+Returns conflict-copy files for the configured Syncthing folder. Parameters:
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `folder` | string | Folder id, defaults to `work-meta` |
+| `scope=local` | string | Return only the serving machine's conflicts |
+| `force=true` | string | Bypass cached sync snapshot |
 
 ---
 

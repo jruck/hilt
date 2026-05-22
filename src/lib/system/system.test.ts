@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import http from "node:http";
+import { isSystemMode, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode } from "./navigation";
 import { decodeSystemNodeId, decodeSystemSessionId, systemMachineNodeId, systemNodeId, systemSessionId } from "./map";
 import { machineId, machineLabel } from "./peers";
+import { __resetSystemSyncCacheForTests, collectConflictFiles, readLocalSystemSync } from "./sync";
+import type { SystemMachine } from "./types";
 
 describe("system machine ids", () => {
   it("prefers stable tailnet identity for machine ids and labels", () => {
@@ -55,5 +62,151 @@ describe("system Map id namespacing", () => {
   it("rejects unscoped local node/session ids", () => {
     assert.equal(decodeSystemNodeId("root"), null);
     assert.equal(decodeSystemSessionId("codex:019e41dd"), null);
+  });
+});
+
+describe("system navigation", () => {
+  it("routes sync as a first-class System mode", () => {
+    assert.equal(systemModeFromUrl("system", "/sync"), "sync");
+    assert.equal(systemScopeForMode("sync"), "/sync");
+    assert.equal(isSystemMode("sync"), true);
+  });
+
+  it("keeps Stack scope behavior separate from other System modes", () => {
+    assert.equal(systemScopeForMode("stack", "/Users/jruck/work/engineering/hilt"), "/stack/Users/jruck/work/engineering/hilt");
+    assert.equal(stackScopeFromSystemUrl("system", "/stack/Users/jruck/work/engineering/hilt"), "/Users/jruck/work/engineering/hilt");
+    assert.equal(stackScopeFromSystemUrl("system", "/sync"), "");
+  });
+});
+
+describe("system sync snapshots", () => {
+  it("finds conflict files without entering generated folders", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "hilt-sync-conflicts-"));
+    try {
+      await writeFile(join(dir, "note.sync-conflict-20260522.txt"), "conflict");
+      await writeFile(join(dir, ".stignore"), "#include .hilt-syncthing-ignore\n");
+      await writeFile(join(dir, ".hilt-syncthing-ignore"), "**/node_modules\n");
+      await writeFile(join(dir, "regular.txt"), "ok");
+      await writeFile(join(dir, "node_modules"), "");
+      const summary = await collectConflictFiles(dir);
+      assert.equal(summary.count, 1);
+      assert.equal(summary.files[0].path, "note.sync-conflict-20260522.txt");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reads Syncthing REST state and caches expensive status calls", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "hilt-sync-rest-"));
+    const apiKeyFile = join(dir, "api-key");
+    await writeFile(apiKeyFile, "secret\n");
+    await writeFile(join(dir, ".stignore"), "#include .hilt-syncthing-ignore\n");
+    await writeFile(join(dir, ".hilt-syncthing-ignore"), "(?d).DS_Store\n**/node_modules\n");
+    await writeFile(join(dir, "draft.sync-conflict-20260522.md"), "ours");
+
+    let statusCalls = 0;
+    const server = http.createServer((req, res) => {
+      if (req.headers["x-api-key"] !== "secret") {
+        res.writeHead(403, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "bad key" }));
+        return;
+      }
+
+      const url = new URL(req.url || "/", "http://127.0.0.1");
+      const send = (data: unknown) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(data));
+      };
+
+      if (url.pathname === "/rest/system/version") return send({ version: "v-test" });
+      if (url.pathname === "/rest/system/status") return send({ myID: "SELF", startTime: "2026-05-22T12:00:00Z" });
+      if (url.pathname === "/rest/system/connections") return send({
+        connections: {
+          PEER: { connected: true, address: "tcp://mercury-v.tailc0acaa.ts.net:22000", clientVersion: "v-test" },
+        },
+      });
+      if (url.pathname === "/rest/config/folders/work-meta") return send({
+        id: "work-meta",
+        label: "Work Meta",
+        path: dir,
+        type: "sendreceive",
+        devices: [{ deviceID: "SELF" }, { deviceID: "PEER" }],
+        versioning: { type: "staggered", params: { maxAge: "7776000" } },
+        maxConflicts: -1,
+      });
+      if (url.pathname === "/rest/db/status") {
+        statusCalls += 1;
+        return send({
+          state: "idle",
+          stateChanged: "2026-05-22T12:01:00Z",
+          inSyncFiles: 3,
+          inSyncBytes: 128,
+          needFiles: 0,
+          needBytes: 0,
+          pullErrors: 0,
+        });
+      }
+      if (url.pathname === "/rest/folder/errors") return send({ errors: [] });
+      if (url.pathname === "/rest/db/ignores") return send({
+        ignore: ["#include .hilt-syncthing-ignore"],
+        expanded: ["(?d).DS_Store", "**/node_modules"],
+      });
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.equal(typeof address, "object");
+    const port = address && typeof address === "object" ? address.port : 0;
+
+    const machine: SystemMachine = {
+      id: "xochipilli.tailc0acaa.ts.net",
+      self: true,
+      reachable: true,
+      source_url: null,
+      machine: {
+        hostname: "Xochipilli",
+        tailscale_dns: "xochipilli.tailc0acaa.ts.net",
+        tailscale_ip4: "100.104.52.2",
+        origin: "local",
+      },
+      features: { map: true, apps: true, stack: true, sync: true },
+      error: null,
+    };
+
+    try {
+      __resetSystemSyncCacheForTests();
+      const settings = {
+        enabled: true,
+        provider: "syncthing" as const,
+        folderId: "work-meta",
+        url: `http://127.0.0.1:${port}`,
+        apiKeyFile,
+        cacheMs: 60_000,
+      };
+
+      const first = await readLocalSystemSync({ machine, settings });
+      const second = await readLocalSystemSync({ machine, settings });
+
+      assert.equal(first.enabled, true);
+      assert.equal(second.enabled, true);
+      if (first.enabled && second.enabled) {
+        assert.equal(first.machine.daemon.version, "v-test");
+        assert.equal(first.machine.folder?.id, "work-meta");
+        assert.equal(first.machine.folder?.versioning.maxAgeDays, 90);
+        assert.equal(first.machine.folder?.maxConflicts, -1);
+        assert.equal(first.machine.folder?.ignore.includePresent, true);
+        assert.equal(first.machine.folder?.conflicts.count, 1);
+        assert.equal(first.machine.peers[0].connected, true);
+        assert.equal(second.machine.folder?.inSyncFiles, 3);
+      }
+      assert.equal(statusCalls, 1);
+    } finally {
+      __resetSystemSyncCacheForTests();
+      server.close();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

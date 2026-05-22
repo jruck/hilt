@@ -21,6 +21,11 @@ interface LocalAppsViewProps {
 const METADATA_POLL_INTERVAL_MS = 5_000;
 const PREVIEW_REFRESH_INTERVAL_MS = 2 * 60_000;
 
+interface AppTile {
+  machine: LocalAppsMachineSnapshot;
+  group: ServiceGroup;
+}
+
 export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
   const [snapshot, setSnapshot] = useState<LocalAppsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -99,6 +104,10 @@ export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
     })).filter((machine) => !query || machine.groups.length > 0);
   }, [snapshot, query]);
 
+  const apps = useMemo(() => {
+    return machines.flatMap((machine) => machine.groups.map((group) => ({ machine, group })));
+  }, [machines]);
+
   if (loading && !snapshot) {
     return (
       <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">
@@ -135,8 +144,7 @@ export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
   }
 
   const diagnostics = snapshot.diagnostics;
-  const appCount = machines.reduce((sum, machine) => sum + machine.groups.length, 0);
-  const serviceCount = machines.reduce((sum, machine) => sum + machineServiceCount(machine), 0);
+  const serviceCount = apps.reduce((sum, app) => sum + app.group.services.filter((service) => service.visible).length, 0);
 
   return (
     <div className="flex-1 overflow-hidden bg-[var(--bg-primary)]">
@@ -145,12 +153,12 @@ export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)]">
               <Server className="h-4 w-4 text-[var(--text-secondary)]" />
-              <span className="truncate">{snapshot.machine.tailscale_dns || snapshot.machine.hostname}</span>
+              <span className="truncate">Local Apps</span>
               {diagnostics.is_scanning ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--text-tertiary)]" /> : null}
             </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-tertiary)]">
               <span>{machines.length} {machines.length === 1 ? "machine" : "machines"}</span>
-              <span>{appCount} apps</span>
+              <span>{apps.length} apps</span>
               <span>{serviceCount} services</span>
               {diagnostics.scanned_at ? <span>{relativeTime(diagnostics.scanned_at)}</span> : null}
               {snapshot.machine.tailscale_ip4 ? <span>{snapshot.machine.tailscale_ip4}</span> : null}
@@ -173,30 +181,14 @@ export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
         ) : null}
 
         <div className="flex-1 overflow-auto p-4">
-          {machines.length === 0 ? (
+          {apps.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">
               No matching local apps
             </div>
           ) : (
-            <div className="space-y-5">
-              {machines.map((machine) => (
-                <section key={machine.id}>
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <h2 className="truncate text-sm font-semibold text-[var(--text-primary)]">{machineTitle(machine)}</h2>
-                      <p className="truncate text-xs text-[var(--text-tertiary)]">
-                        {machine.groups.length} apps · {machineServiceCount(machine)} services
-                        {machine.machine.tailscale_ip4 ? ` · ${machine.machine.tailscale_ip4}` : ""}
-                      </p>
-                    </div>
-                    {machine.diagnostics.is_scanning ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--text-tertiary)]" /> : null}
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                    {machine.groups.map((group) => (
-                      <AppCard key={`${machine.id}:${group.id}`} group={group} machine={machine} />
-                    ))}
-                  </div>
-                </section>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              {apps.map((app) => (
+                <AppCard key={`${app.machine.id}:${app.group.id}`} app={app} />
               ))}
             </div>
           )}
@@ -206,67 +198,72 @@ export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
   );
 }
 
-function AppCard({ group, machine }: { group: ServiceGroup; machine: LocalAppsMachineSnapshot }) {
+function AppCard({ app }: { app: AppTile }) {
+  const { group, machine } = app;
   const previewService = group.services.find((service) => service.preview?.path && !service.preview.error)
     || group.services.find((service) => service.visible && service.health.status === "up" && bestServiceUrl(service))
     || group.services[0];
   const previewUrl = previewService ? previewUrlForService(previewService, machine) : null;
-  const visibleServices = group.services.filter((service) => service.visible);
   const fallback = previewFallback(group);
+  const pathLabel = displayPath(group.path);
+  const freshness = previewService?.preview?.captured_at
+    ? relativeTime(previewService.preview.captured_at)
+    : null;
 
   return (
-    <article className="overflow-hidden rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)]">
+    <article className="group overflow-hidden rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)]">
       <button
-        className="relative block aspect-[16/9] w-full bg-[var(--bg-tertiary)] text-left"
+        className="relative block aspect-[16/9] w-full overflow-hidden bg-zinc-950 text-left"
         onClick={() => group.primary_url && openExternal(group.primary_url)}
         disabled={!group.primary_url}
         title={group.primary_url || "No URL available"}
       >
         {previewUrl ? (
-          <>
+          <div className="absolute inset-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={previewUrl} alt="" className="h-full w-full object-cover" />
-            {previewService?.preview?.captured_at ? (
-              <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                {relativeTime(previewService.preview.captured_at)}
-              </span>
-            ) : null}
-          </>
+          </div>
         ) : (
-          <div className="flex h-full items-center justify-center px-4 text-xs text-[var(--text-tertiary)]">
+          <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_center,rgba(63,63,70,0.35),rgba(9,9,11,0.98))] px-4 text-xs text-zinc-300">
             {fallback.icon}
             <span className="ml-2">{fallback.label}</span>
           </div>
         )}
-      </button>
 
-      <div className="p-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold text-[var(--text-primary)]">{group.title}</h2>
-            <p className="mt-0.5 truncate text-xs text-[var(--text-tertiary)]">{displayPath(group.path)}</p>
+        <div className="absolute inset-x-0 top-0 bg-gradient-to-b from-black/80 via-black/45 to-transparent p-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-semibold text-white drop-shadow">{group.title}</h2>
+              <p className="mt-0.5 truncate text-[11px] text-zinc-200/85 drop-shadow">{pathLabel}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <span className="max-w-28 truncate rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-zinc-100 ring-1 ring-white/10">
+                {machineShortLabel(machine)}
+              </span>
+              {group.primary_url ? (
+                <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-black/50 text-zinc-100 ring-1 ring-white/10 transition-colors group-hover:bg-black/70">
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </span>
+              ) : null}
+            </div>
           </div>
-          <button
-            onClick={() => group.primary_url && openExternal(group.primary_url)}
-            disabled={!group.primary_url}
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-40"
-            title={group.primary_url || "No URL available"}
-          >
-            <ExternalLink className="h-4 w-4" />
-          </button>
         </div>
 
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {group.services.map((service) => (
-            <ServiceChip key={service.id} service={service} />
-          ))}
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/55 to-transparent p-3">
+          <div className="flex min-w-0 items-end justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap gap-1.5">
+                {group.services.map((service) => (
+                  <ServiceChip key={service.id} service={service} />
+                ))}
+              </div>
+            </div>
+            <div className="shrink-0 text-right text-[10px] font-medium text-zinc-200/90">
+              {freshness || `${group.services.filter((service) => service.visible).length}/${group.services.length} visible`}
+            </div>
+          </div>
         </div>
-
-        <div className="mt-3 flex items-center justify-between border-t border-[var(--border-muted)] pt-2 text-xs text-[var(--text-tertiary)]">
-          <span>{visibleServices.length}/{group.services.length} visible</span>
-          <span>{group.branch && group.branch !== "HEAD" ? group.branch : group.ports.map((port) => `:${port}`).join(" ")}</span>
-        </div>
-      </div>
+      </button>
     </article>
   );
 }
@@ -309,15 +306,6 @@ function filterGroups(
   });
 }
 
-function machineServiceCount(machine: LocalAppsMachineSnapshot): number {
-  return machine.groups.reduce((sum, group) => sum + group.services.filter((service) => service.visible).length, 0);
-}
-
-function machineTitle(machine: LocalAppsMachineSnapshot): string {
-  const label = machine.machine.tailscale_dns || machine.machine.hostname;
-  return machine.self ? `${label} · this machine` : label;
-}
-
 function previewUrlForService(service: Service, machine: LocalAppsMachineSnapshot): string | null {
   if (!service.preview?.path || service.preview.error) return null;
   const filename = service.preview.path.split("/").pop() || "";
@@ -329,15 +317,20 @@ function previewUrlForService(service: Service, machine: LocalAppsMachineSnapsho
 
 function ServiceChip({ service }: { service: Service }) {
   const healthClass = service.health.status === "up"
-    ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-300"
+    ? "border-emerald-300/25 bg-emerald-500/20 text-emerald-100"
     : service.health.status === "down"
-      ? "border-red-500/20 bg-red-500/5 text-red-300"
-      : "border-[var(--border-default)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]";
+      ? "border-red-300/25 bg-red-500/20 text-red-100"
+      : "border-white/15 bg-black/35 text-zinc-200";
   return (
-    <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] ${healthClass}`} title={service.health.label}>
+    <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] shadow-sm backdrop-blur ${healthClass}`} title={service.health.label}>
       :{service.listener.port} {serviceRole(service)}
     </span>
   );
+}
+
+function machineShortLabel(machine: LocalAppsMachineSnapshot): string {
+  const label = machine.machine.tailscale_dns || machine.machine.hostname || machine.id;
+  return label.replace(/\.$/, "").split(".")[0].replace(/-v$/i, "");
 }
 
 function serviceRole(service: Service): string {

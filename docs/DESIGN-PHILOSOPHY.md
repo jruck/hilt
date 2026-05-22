@@ -182,8 +182,8 @@ This section tracks design decisions and refinements over time. Each entry shoul
 - Group services by app/worktree first, not by individual port.
 - Keep destructive process controls out of the first surface; opening a URL is the only primary action.
 - Show machine identity and scan freshness in the view chrome so remote/Tailscale use is always grounded.
-- When multiple Hilt machines are visible on the tailnet, group app cards by machine. Do not flatten everything into one undifferentiated port grid; machine context is part of the operational meaning.
-- Cards should be dense and operational: preview/fallback, app title, path, branch, and compact service chips.
+- When multiple Hilt machines are visible on the tailnet, machine context should stay visible but does not need to own the layout. A camera-wall grid can flatten apps across machines as long as each tile labels its source machine clearly.
+- Cards should be dense and operational: the screenshot or fallback should be the whole tile, with app title, path, machine label, freshness, and compact service chips overlaid on the visual surface.
 - Screenshot previews should show the app as the user would open it over the tailnet where possible. Keep fallback states honest: no web UI, HTTP status, or capture error is better than a stale decorative placeholder.
 - Manual refresh should mean "make this view current," including screenshot recapture when previews are enabled. Show screenshot freshness directly on the preview instead of making users infer whether an image is stale.
 - Screenshot recapture should be tied to visible viewing intent: first visible load, manual refresh, visible tab return when stale, and a visible two-minute cadence. Background metadata polling should not spend machine resources recapturing previews.

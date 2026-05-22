@@ -22,6 +22,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Repository agent instructions and historical Map plan** — Added repo-local `AGENTS.md`, Codex documentation reminder hooks, the Hilt control skill, and the superseded Convex Map plan so Xochipilli, Mercury, and origin share the same agent-facing project context.
 
+### Changed
+
+- **Local Apps camera-wall layout** — Flattened machine sections into one app grid where each card is a full-bleed screenshot/fallback tile. App title, path, source machine, service chips, freshness, and open affordance now live as overlays on the visual surface.
+
 ### Fixed
 
 - **Local Apps screenshot capture running without active viewing intent** — Ordinary `/api/local-apps` metadata reads now attach cached screenshots only and never start Playwright capture. The Apps view requests fresh screenshots on visible page load, manual refresh, visible tab return when stale, and every two minutes while visible; refresh can fan out to peer Hilt machines so remote screenshots stay current only while the view is actually being watched.

@@ -370,6 +370,8 @@ macOS TCP listeners
          ▼
 src/lib/local-apps scanner
          │ classifies services, groups by app/worktree, probes HTTP health
+         │ treats package-manager roots like /opt/homebrew as infrastructure
+         │ and groups those listeners by service command
          │ redacts process args before API/UI exposure
          │ maintains a cached single-flight snapshot
          ▼

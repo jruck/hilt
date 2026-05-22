@@ -113,6 +113,24 @@ describe("local apps identity and classification", () => {
     assert.equal(groups[0].services.length, 2);
     assert.equal(groups[0].title, "jruck / hilt / main");
   });
+
+  test("groups package-manager infrastructure by service command", () => {
+    const services = [
+      classify(observed("nginx", "nginx: worker process", "/opt/homebrew", 80), settings()),
+      classify(observed("mysqld", "/opt/homebrew/opt/mysql/bin/mysqld", "/opt/homebrew/var/mysql", 3306), settings()),
+      classify(observed("mysqld", "/opt/homebrew/opt/mysql/bin/mysqld", "/opt/homebrew/var/mysql", 33060), settings()),
+    ];
+    services.forEach((service) => {
+      service.project.git_root = "/opt/homebrew";
+      service.project.branch = "main";
+      service.project.package_name = "homebrew";
+      service.visible = true;
+    });
+
+    const groups = groupServices(services, settings());
+    assert.deepEqual(groups.map((group) => group.title).sort(), ["mysql", "nginx"]);
+    assert.deepEqual(groups.find((group) => group.title === "mysql")?.ports, [3306, 33060]);
+  });
 });
 
 describe("local apps settings, health, and safety", () => {

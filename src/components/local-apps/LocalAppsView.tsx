@@ -20,14 +20,16 @@ interface LocalAppsViewProps {
 const METADATA_POLL_INTERVAL_MS = 5_000;
 const PREVIEW_REFRESH_INTERVAL_MS = 2 * 60_000;
 
+let cachedLocalAppsSnapshot: LocalAppsResponse | null = null;
+
 interface AppTile {
   machine: LocalAppsMachineSnapshot;
   group: ServiceGroup;
 }
 
 export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
-  const [snapshot, setSnapshot] = useState<LocalAppsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [snapshot, setSnapshot] = useState<LocalAppsResponse | null>(() => cachedLocalAppsSnapshot);
+  const [loading, setLoading] = useState(() => !cachedLocalAppsSnapshot);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const refreshInFlight = useRef(false);
@@ -38,6 +40,7 @@ export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
       setError(null);
       const res = await fetch("/api/local-apps", { cache: "no-store" });
       const data = await res.json();
+      cachedLocalAppsSnapshot = data;
       setSnapshot(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load local apps");
@@ -55,6 +58,7 @@ export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
       setError(null);
       const res = await fetch("/api/local-apps/refresh", { method: "POST", cache: "no-store" });
       const data = await res.json();
+      cachedLocalAppsSnapshot = data;
       setSnapshot(data);
       lastPreviewRefreshAt.current = Date.now();
     } catch (err) {
@@ -116,7 +120,7 @@ export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
     );
   }
 
-  if (error) {
+  if (error && !snapshot) {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="rounded-md border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-300">
@@ -179,15 +183,37 @@ export function LocalAppsView({ searchQuery = "" }: LocalAppsViewProps) {
           </div>
         ) : null}
 
+        {error ? (
+          <div className="border-b border-red-500/20 bg-red-500/5 px-4 py-2 text-xs text-red-300">
+            {error}
+          </div>
+        ) : null}
+
         <div className="flex-1 overflow-auto p-4">
-          {apps.length === 0 ? (
+          {machines.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">
               No matching local apps
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3 xl:grid-cols-3 2xl:grid-cols-4">
-              {apps.map((app) => (
-                <AppCard key={`${app.machine.id}:${app.group.id}`} app={app} />
+            <div className="space-y-6">
+              {machines.map((machine) => (
+                <section key={machine.id}>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <h2 className="truncate text-sm font-semibold text-[var(--text-primary)]">{machineTitle(machine)}</h2>
+                      <p className="truncate text-xs text-[var(--text-tertiary)]">
+                        {machine.groups.length} apps · {machineServiceCount(machine)} services
+                        {machine.machine.tailscale_ip4 ? ` · ${machine.machine.tailscale_ip4}` : ""}
+                      </p>
+                    </div>
+                    {machine.diagnostics.is_scanning ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--text-tertiary)]" /> : null}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 xl:grid-cols-3 2xl:grid-cols-4">
+                    {machine.groups.map((group) => (
+                      <AppCard key={`${machine.id}:${group.id}`} app={{ machine, group }} />
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           )}
@@ -210,7 +236,7 @@ function AppCard({ app }: { app: AppTile }) {
     : null;
 
   return (
-    <article className="group overflow-hidden rounded-2xl bg-[var(--bg-secondary)] shadow-[0_22px_55px_rgba(15,23,42,0.24)]">
+    <article className="group overflow-hidden rounded-2xl bg-[var(--bg-secondary)] shadow-[0_12px_30px_rgba(15,23,42,0.14)]">
       <button
         className="relative block aspect-[16/9] w-full overflow-hidden bg-zinc-950 text-left"
         onClick={() => group.primary_url && openExternal(group.primary_url)}
@@ -234,11 +260,6 @@ function AppCard({ app }: { app: AppTile }) {
             <div className="min-w-0">
               <h2 className="truncate text-xs font-semibold text-white drop-shadow sm:text-sm">{group.title}</h2>
               <p className="mt-0.5 hidden truncate text-[11px] text-zinc-200/85 drop-shadow sm:block">{pathLabel}</p>
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              <span className="max-w-28 truncate rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-zinc-100 ring-1 ring-white/10">
-                {machineShortLabel(machine)}
-              </span>
             </div>
           </div>
         </div>
@@ -298,6 +319,14 @@ function filterGroups(
     ].filter(Boolean).join(" ").toLowerCase();
     return haystack.includes(query);
   });
+}
+
+function machineServiceCount(machine: LocalAppsMachineSnapshot): number {
+  return machine.groups.reduce((sum, group) => sum + group.services.filter((service) => service.visible).length, 0);
+}
+
+function machineTitle(machine: LocalAppsMachineSnapshot): string {
+  return machine.self ? `${machineShortLabel(machine)} · this machine` : machineShortLabel(machine);
 }
 
 function previewUrlForService(service: Service, machine: LocalAppsMachineSnapshot): string | null {

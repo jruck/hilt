@@ -34,6 +34,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Local Apps theme-aware fallback tiles** — Replaced the hardcoded dark fallback surface for `No web UI`, preview failures, and other non-preview states with theme variables so empty/error camera tiles respond to light and dark mode like the rest of Hilt.
 
+- **Local Apps machine grouping and softer cards** — Restored machine sections in the Apps camera wall, reduced the card drop shadow, and cached the last Local Apps snapshot in the client so switching away and back refreshes over existing data instead of flashing the `Scanning local apps` placeholder.
+
+- **Local Apps Homebrew grouping** — Homebrew-managed infrastructure now groups by service command instead of the `/opt/homebrew` git root, so services render as legible `ollama`, `nginx`, and `mysql` app cards rather than vague `homebrew` cards.
+
 ### Fixed
 
 - **Local Apps screenshot capture running without active viewing intent** — Ordinary `/api/local-apps` metadata reads now attach cached screenshots only and never start Playwright capture. The Apps view requests fresh screenshots on visible page load, manual refresh, visible tab return when stale, and every two minutes while visible; refresh can fan out to peer Hilt machines so remote screenshots stay current only while the view is actually being watched.

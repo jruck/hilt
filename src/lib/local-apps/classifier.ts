@@ -170,9 +170,10 @@ export function applyHttpSignal(service: Service): void {
 
 function buildGroup(services: Service[], settings: Settings): ServiceGroup {
   const first = services[0];
-  const gitRoot = first.project.git_root || null;
-  const branch = first.project.branch || null;
-  const packageName = first.project.package_name || null;
+  const packageManagerGroup = isPackageManagerService(first);
+  const gitRoot = packageManagerGroup ? null : first.project.git_root || null;
+  const branch = packageManagerGroup ? null : first.project.branch || null;
+  const packageName = packageManagerGroup ? null : first.project.package_name || null;
   const groupPath = gitRoot || (first.process.cwd && first.process.cwd !== "/" ? first.process.cwd : null);
   const id = stableId(`group:${groupPath || first.listener.command}:${branch || ""}:${first.listener.command}`);
   let forcedAction: UserRule["action"] | null = null;
@@ -196,7 +197,7 @@ function buildGroup(services: Service[], settings: Settings): ServiceGroup {
   }
 
   const signals = [...new Set(services.flatMap((service) => service.source_signals))].sort();
-  const titleBase = packageName || basename(groupPath || "") || first.listener.command;
+  const titleBase = packageManagerGroup ? packageManagerTitle(first.listener.command) : packageName || basename(groupPath || "") || first.listener.command;
   const branchSuffix = branch && branch !== "HEAD" ? ` / ${branch}` : "";
 
   return {
@@ -228,6 +229,7 @@ function groupDescription(services: Service[]): string {
 }
 
 function groupKey(service: Service): string {
+  if (isPackageManagerService(service)) return `package-manager:${service.listener.command}:${service.kind}`;
   if (service.project.git_root) return `git:${service.project.git_root}:${service.project.branch || ""}`;
   if (service.process.cwd && service.process.cwd !== "/") return `cwd:${service.process.cwd}`;
   if (service.listener.parent_pid) return `parent:${service.listener.parent_pid}:${service.listener.command}`;
@@ -361,6 +363,28 @@ function isNoiseCommand(port: number, commandLc: string, executable?: string | n
   if (port === 9222 && containsAny(commandLc, ["dia", "chrome", "browser helper"])) return true;
   if (executable?.startsWith("/System/Library/")) return true;
   return containsAny(commandLc, ["figma", "google drive", "onedrive", "adobe", "creative cloud", "raycast", "superhuman", "slack.app", "dia.app", "plex media server", "plex script host", "com.plexapp", "browser helper", "rapportd", "controlcenter", "1password", "com.apple", "webkit", "audiovisualthumbnail", "imagethumbnail", "webthumbnail"]);
+}
+
+function isPackageManagerService(service: Service): boolean {
+  return isPackageManagerPath(service.project.git_root) || isPackageManagerPath(service.process.cwd);
+}
+
+function isPackageManagerPath(candidate?: string | null): boolean {
+  if (!candidate) return false;
+  const normalized = normalizePath(candidate);
+  return normalized === "/opt/homebrew" ||
+    normalized.startsWith("/opt/homebrew/") ||
+    normalized === "/usr/local/Homebrew" ||
+    normalized.startsWith("/usr/local/Homebrew/") ||
+    normalized === "/usr/local/Cellar" ||
+    normalized.startsWith("/usr/local/Cellar/") ||
+    normalized === "/usr/local/var" ||
+    normalized.startsWith("/usr/local/var/");
+}
+
+function packageManagerTitle(command: string): string {
+  if (command === "mysqld") return "mysql";
+  return command;
 }
 
 function insideAnyRoot(candidate: string, roots: string[]): boolean {

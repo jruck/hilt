@@ -30,6 +30,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Local Apps mobile camera grid** — The Apps camera wall now keeps two preview columns even on mobile-width viewports, with compact port-only chips plus hidden path/fallback text at the smallest sizes to preserve the monitor-wall feel without crowding the overlays.
 
+- **Local Apps hover-only card chrome** — Removed the redundant open icon from Apps camera tiles, made port chips neutral instead of health-colored, and hid the bottom service/freshness row until hover or keyboard focus.
+
 ### Fixed
 
 - **Local Apps screenshot capture running without active viewing intent** — Ordinary `/api/local-apps` metadata reads now attach cached screenshots only and never start Playwright capture. The Apps view requests fresh screenshots on visible page load, manual refresh, visible tab return when stale, and every two minutes while visible; refresh can fan out to peer Hilt machines so remote screenshots stay current only while the view is actually being watched.

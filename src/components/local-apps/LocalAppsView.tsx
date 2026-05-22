@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   AlertCircle,
   Database,
-  ExternalLink,
   Loader2,
   Monitor,
   RefreshCw,
@@ -240,16 +239,11 @@ function AppCard({ app }: { app: AppTile }) {
               <span className="max-w-28 truncate rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-zinc-100 ring-1 ring-white/10">
                 {machineShortLabel(machine)}
               </span>
-              {group.primary_url ? (
-                <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-black/50 text-zinc-100 ring-1 ring-white/10 transition-colors group-hover:bg-black/70">
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </span>
-              ) : null}
             </div>
           </div>
         </div>
 
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/55 to-transparent p-2 sm:p-3">
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/55 to-transparent p-2 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 sm:p-3">
           <div className="flex min-w-0 items-end justify-between gap-2">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap gap-1.5">
@@ -316,14 +310,9 @@ function previewUrlForService(service: Service, machine: LocalAppsMachineSnapsho
 }
 
 function ServiceChip({ service }: { service: Service }) {
-  const healthClass = service.health.status === "up"
-    ? "border-emerald-300/25 bg-emerald-500/20 text-emerald-100"
-    : service.health.status === "down"
-      ? "border-red-300/25 bg-red-500/20 text-red-100"
-      : "border-white/15 bg-black/35 text-zinc-200";
   return (
-    <span className={`inline-flex items-center rounded-md border px-1 py-0.5 text-[10px] shadow-sm backdrop-blur sm:px-1.5 sm:text-[11px] ${healthClass}`} title={service.health.label}>
-      :{service.listener.port}<span className="hidden sm:inline"> {serviceRole(service)}</span>
+    <span className="inline-flex items-center rounded-md border border-white/15 bg-black/45 px-1 py-0.5 text-[10px] text-zinc-100 shadow-sm backdrop-blur sm:px-1.5 sm:text-[11px]" title={service.health.label}>
+      :{service.listener.port}<span className="ml-1 hidden sm:inline">{serviceRole(service)}</span>
     </span>
   );
 }

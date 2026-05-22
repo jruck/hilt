@@ -22,8 +22,11 @@ export function normalizeForParity(
       preview: includePreviews && service.preview
         ? {
             ...service.preview,
-            path: service.preview.path.replace(/.*\/([^/]+\.png)$/u, "<preview>/$1"),
+            path: service.preview.path
+              ? service.preview.path.replace(/.*\/([^/]+\.png)$/u, "<preview>/$1")
+              : service.preview.path,
             captured_at: "<timestamp>",
+            error_at: service.preview.error_at ? "<timestamp>" : service.preview.error_at,
           }
         : null,
     })),

@@ -7,20 +7,27 @@ import { classify, groupServices, inferKind } from "./classifier";
 import { localAppsDisabledResponseSchema } from "./contracts";
 import { parseEndpoint, parseLsof } from "./adapters/macos";
 import { probeServices } from "./probe";
-import { isPreviewableService, isSafePreviewFilename, previewCaptureUrls } from "./preview";
+import { PREVIEW_VIEWPORT_HEIGHT, PREVIEW_VIEWPORT_WIDTH, attachCachedPreviews, isPreviewableService, isSafePreviewFilename, previewCaptureUrls, previewPathForService, recordPreviewCaptureError } from "./preview";
+import { preserveLocalAppsPreviews } from "./preview-merge";
 import { redactSensitiveArgs } from "./redact";
 import { defaultSettings, loadSettings } from "./settings";
 import { stableId } from "./stable-id";
 import { parseTailnetStatus, previewUrlForHost } from "./tailnet";
-import type { ObservedService, Settings } from "./types";
+import type { LocalAppsEnabledResponse, ObservedService, ServiceGroup, Settings } from "./types";
 
 const originalDataDir = process.env.DATA_DIR;
+const originalPreviewCacheMs = process.env.HILT_LOCAL_APPS_PREVIEW_CACHE_MS;
 
 afterEach(() => {
   if (originalDataDir === undefined) {
     delete process.env.DATA_DIR;
   } else {
     process.env.DATA_DIR = originalDataDir;
+  }
+  if (originalPreviewCacheMs === undefined) {
+    delete process.env.HILT_LOCAL_APPS_PREVIEW_CACHE_MS;
+  } else {
+    process.env.HILT_LOCAL_APPS_PREVIEW_CACHE_MS = originalPreviewCacheMs;
   }
 });
 
@@ -57,6 +64,29 @@ function observed(command: string, args: string, cwd: string | null, port: numbe
       executable: `/usr/local/bin/${command}`,
       args,
       start_time: "2026-05-21T12:00:00.000Z",
+    },
+  };
+}
+
+function localAppsResponse(groups: ServiceGroup[]): LocalAppsEnabledResponse {
+  return {
+    app: "hilt-local-apps",
+    enabled: true,
+    machine: {
+      hostname: "test.local",
+      tailscale_dns: "test.tail.ts.net",
+      tailscale_ip4: "100.64.0.1",
+      origin: "local",
+    },
+    groups,
+    diagnostics: {
+      scanned_at: "2026-05-21T12:00:00.000Z",
+      is_scanning: false,
+      duration_ms: 1,
+      listener_count: 1,
+      group_count: groups.length,
+      visible_group_count: groups.length,
+      errors: [],
     },
   };
 }
@@ -226,6 +256,12 @@ describe("local apps settings, health, and safety", () => {
     ]);
   });
 
+  test("captures previews in the same 16:9 shape as app cards", () => {
+    assert.equal(PREVIEW_VIEWPORT_WIDTH, 1280);
+    assert.equal(PREVIEW_VIEWPORT_HEIGHT, 720);
+    assert.equal(PREVIEW_VIEWPORT_WIDTH / PREVIEW_VIEWPORT_HEIGHT, 16 / 9);
+  });
+
   test("only previews healthy HTTP services", () => {
     const notFound = classify(observed("node", "tsx server/ws-server.ts", "/Users/jane/work/hilt", 3001), settings());
     notFound.visible = true;
@@ -253,5 +289,53 @@ describe("local apps settings, health, and safety", () => {
 
     assert.equal(isPreviewableService(notFound), false);
     assert.equal(isPreviewableService(infra), false);
+  });
+
+  test("keeps the last good preview when a refresh capture fails", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-local-apps-preview-"));
+    process.env.DATA_DIR = dir;
+    process.env.HILT_LOCAL_APPS_PREVIEW_CACHE_MS = "0";
+
+    const service = classify(observed("next-server", "next dev", "/Users/jane/work/hilt", 3000), settings());
+    service.visible = true;
+    const previewPath = previewPathForService(service.id);
+    fs.mkdirSync(path.dirname(previewPath), { recursive: true });
+    fs.writeFileSync(previewPath, "png");
+    const old = new Date(Date.now() - 10 * 60 * 1000);
+    fs.utimesSync(previewPath, old, old);
+
+    attachCachedPreviews([service]);
+    assert.equal(service.preview?.path, previewPath);
+    assert.equal(service.preview?.stale, true);
+
+    recordPreviewCaptureError(service, "Preview capture failed");
+    assert.equal(service.preview?.path, previewPath);
+    assert.ok(Math.abs(Date.parse(service.preview?.captured_at || "") - old.getTime()) < 1000);
+    assert.equal(service.preview?.error, "Preview capture failed");
+    assert.ok(service.preview?.error_at);
+  });
+
+  test("preserves preview metadata when a newer snapshot omits the screenshot path", () => {
+    const previousService = classify(observed("next-server", "next dev", "/Users/jane/work/hilt", 3000), settings());
+    previousService.visible = true;
+    previousService.preview = {
+      path: "/tmp/hilt-preview.png",
+      captured_at: "2026-05-21T12:00:00.000Z",
+      error: null,
+    };
+    const [previousGroup] = groupServices([previousService], settings());
+
+    const incomingService = classify(observed("next-server", "next dev", "/Users/jane/work/hilt", 3000), settings());
+    incomingService.id = "new-process-id";
+    incomingService.visible = true;
+    incomingService.preview = null;
+    const [incomingGroup] = groupServices([incomingService], settings());
+
+    const merged = preserveLocalAppsPreviews(
+      localAppsResponse([incomingGroup]),
+      localAppsResponse([previousGroup]),
+    );
+
+    assert.equal(merged.groups[0].services[0].preview?.path, "/tmp/hilt-preview.png");
   });
 });

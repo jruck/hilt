@@ -3,7 +3,14 @@
 import useSWR from "swr";
 import type { PersonDetail } from "@/lib/types";
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+const fetcher = async (url: string) => {
+  const res = await fetch(url);
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(data?.error || `Failed to fetch person detail (${res.status})`);
+  }
+  return data;
+};
 
 export function usePersonDetail(slug: string | null) {
   const { data, error, isLoading, mutate } = useSWR<PersonDetail>(

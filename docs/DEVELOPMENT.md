@@ -92,7 +92,7 @@ hilt/
 │   │   ├── Board.tsx        # Main container, view routing
 │   │   ├── DocsView.tsx     # Docs view wrapper
 │   │   ├── PlanEditor.tsx   # MDX plan editor
-│   │   └── ViewToggle.tsx   # Bridge/Docs/Stack tab switcher
+│   │   └── ViewToggle.tsx   # Grouped global tab switcher
 │   ├── hooks/               # Custom hooks
 │   │   ├── useBridgeProjects.ts
 │   │   ├── useBridgeWeekly.ts

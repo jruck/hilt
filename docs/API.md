@@ -269,9 +269,77 @@ Returns the latest scan diagnostics and source status list.
 
 ---
 
+## System Routes
+
+System is the top-level inspection surface for Sessions, Apps, and Stack. Peer aggregation is Hilt-to-Hilt only: the serving machine discovers online Tailscale peers, probes `/api/system/machine?scope=local`, and accepts only Hilt responses. Set `HILT_SYSTEM_NETWORK_ENABLED=false` to keep System local-only.
+
+### GET /api/system/machine
+
+Returns the serving machine's System identity and feature availability. Peer discovery calls this with `?scope=local`.
+
+```typescript
+{
+  app: "hilt-system";
+  enabled: true;
+  machine: MachineIdentity;
+  features: {
+    map: boolean;
+    apps: boolean;
+    stack: boolean;
+  };
+}
+```
+
+### GET /api/system/machines
+
+Returns the local Hilt machine plus reachable Hilt peers. Use `?scope=local` to suppress peer discovery.
+
+```typescript
+{
+  app: "hilt-system";
+  enabled: true;
+  machines: SystemMachine[];
+}
+```
+
+### GET /api/system/sessions/graph
+
+Aggregates each machine's local Map graph into the same response shape as `/api/map/local/work-graph`. Top-level root children are machine nodes; nested tree node ids and session ids are namespaced with the owning machine id. Query parameters match `/api/map/local/work-graph`.
+
+### GET /api/system/sessions
+
+Aggregates paginated session summaries. Query parameters match `/api/map/local/sessions`. When `nodeId` is a machine or namespaced node id, the request is routed to that machine's local Map index.
+
+### GET /api/system/sessions/detail
+
+Reads one namespaced session history preview from the machine that owns it. Query parameters match `/api/map/local/session-detail`.
+
+### POST /api/system/sessions/refresh
+
+Forces Map index refreshes on reachable Hilt machines and returns per-machine results.
+
+### GET /api/system/stack
+
+Returns Claude/Codex Stack snapshots for local and peer Hilt machines. Use `?scope=local` for a single-machine response. Optional `project` sets the local project scope; remote peers default to their own active Hilt folder.
+
+### GET /api/system/stack/file
+
+Read-only Stack file preview. Parameters:
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `machine` | string | Machine id from `/api/system/machines`, required for aggregate reads |
+| `path` | string | Required. Must match a file discovered in that machine's stack |
+| `project` | string | Optional project scope |
+| `scope=local` | string | Used by peer-to-peer reads to force local validation |
+
+Remote Stack writes/toggles are intentionally not exposed in v1.
+
+---
+
 ## Local Apps Routes
 
-Monitor-only local/tailnet service inspection for the machine serving the active Hilt instance. Set `HILT_LOCAL_APPS_ENABLED=true` to enable. Optional screenshot previews require `HILT_LOCAL_APPS_PREVIEWS=true`; `HILT_LOCAL_APPS_PREVIEW_CACHE_MS` controls the screenshot cache duration and defaults to 120000 ms. By default, Hilt also discovers other online tailnet machines that are running Hilt and includes their local snapshots in `machines`; set `HILT_LOCAL_APPS_PEERS=false` to disable that aggregation.
+Monitor-only local/tailnet service inspection for the machine serving the active Hilt instance. Set `HILT_LOCAL_APPS_ENABLED=true` to enable. Optional screenshot previews require `HILT_LOCAL_APPS_PREVIEWS=true`; `HILT_LOCAL_APPS_PREVIEW_CACHE_MS` controls the screenshot recapture cadence and defaults to 120000 ms. Hilt keeps returning the last successful screenshot path after a failed recapture and records the latest failure in `service.preview.error`. By default, Hilt also discovers other online tailnet machines that are running Hilt and includes their local snapshots in `machines`; set `HILT_LOCAL_APPS_PEERS=false` to disable that aggregation.
 
 ### GET /api/local-apps
 
@@ -332,7 +400,7 @@ Use `?scope=local` when one Hilt instance is calling another Hilt instance. This
 
 ### POST /api/local-apps/refresh
 
-Forces a fresh Local Apps scan. By default this also waits for fresh screenshot capture before returning, so the response can immediately include updated `service.preview` metadata for healthy HTTP services. When peer aggregation is enabled, Hilt asks discovered peer Hilt instances to refresh their local previews through `scope=local` calls; ordinary `GET /api/local-apps` requests never capture screenshots by themselves.
+Forces a fresh Local Apps scan. By default this also waits for fresh screenshot capture before returning, so the response can immediately include updated `service.preview` metadata for healthy HTTP services. If screenshot capture fails but an older PNG exists, `service.preview.path` and `captured_at` continue pointing to the last good image while `error` and `error_at` describe the failed refresh. When peer aggregation is enabled, Hilt asks discovered peer Hilt instances to refresh their local previews through `scope=local` calls; ordinary `GET /api/local-apps` requests never capture screenshots by themselves.
 
 Query params:
 

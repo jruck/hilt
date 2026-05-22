@@ -3,6 +3,7 @@ import { classify, groupServices } from "./classifier";
 import { localAppsEnabledResponseSchema } from "./contracts";
 import { probeServices } from "./probe";
 import { buildMachineSnapshots, summarizeMachines } from "./remotes";
+import { preserveEnabledResponsePreviews } from "./preview-merge";
 import { redactSensitiveArgs } from "./redact";
 import { isLocalAppsEnabled, loadSettings } from "./settings";
 import { machineIdentityAsync } from "./tailnet";
@@ -97,8 +98,9 @@ export async function ensureScan(options: ScanOptions = {}): Promise<LocalAppsEn
     inFlightWaitsForPreviews = !!options.waitForPreviews;
     inFlight = scanLocalApps(options)
       .then((snapshot) => {
-        latest = snapshot;
-        return snapshot;
+        const merged = preserveEnabledResponsePreviews(snapshot, latest);
+        latest = merged;
+        return merged;
       })
       .finally(() => {
         inFlight = null;
@@ -121,7 +123,7 @@ export async function scanLocalApps(options: ScanOptions = {}): Promise<LocalApp
     listenerCount = observed.length;
     const services = observed.map((service) => classify(service, settings));
     await probeServices(services);
-    if (!options.forcePreviews) attachCachedPreviews(services);
+    attachCachedPreviews(services);
     if (options.waitForPreviews) {
       await capturePreviewsNow(services, { force: options.forcePreviews });
     }

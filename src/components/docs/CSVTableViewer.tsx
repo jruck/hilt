@@ -83,7 +83,7 @@ export function CSVTableViewer({ content }: CSVTableViewerProps) {
   }
 
   return (
-    <div className="flex-1 overflow-auto px-4 pb-4">
+    <div className="flex-1 overflow-auto bg-[var(--content-surface)] px-4 pb-4">
       {/* Stats centered at top */}
       <div className="text-center text-xs text-[var(--text-tertiary)] py-3">
         {rows.length} row{rows.length !== 1 ? "s" : ""} × {headers.length} column{headers.length !== 1 ? "s" : ""}
@@ -93,7 +93,7 @@ export function CSVTableViewer({ content }: CSVTableViewerProps) {
       <div className="relative">
         {/* Mask to hide content scrolling above sticky header */}
         <div className="sticky top-0 z-20 h-0">
-          <div className="absolute -top-4 left-0 right-0 h-4 bg-[var(--bg-primary)]" />
+          <div className="absolute -top-4 left-0 right-0 h-4 bg-[var(--content-surface)]" />
         </div>
 
         <table className="w-full border-collapse text-sm">

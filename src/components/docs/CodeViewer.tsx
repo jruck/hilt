@@ -90,7 +90,7 @@ function getLanguageExtension(extension: string) {
 // Dark theme matching the app
 const darkTheme = EditorView.theme({
   "&": {
-    backgroundColor: "var(--bg-primary)",
+    backgroundColor: "var(--content-surface)",
     color: "var(--text-primary)",
   },
   ".cm-content": {
@@ -125,7 +125,7 @@ const darkTheme = EditorView.theme({
 // Light theme
 const lightTheme = EditorView.theme({
   "&": {
-    backgroundColor: "var(--bg-primary)",
+    backgroundColor: "var(--content-surface)",
     color: "var(--text-primary)",
   },
   ".cm-content": {
@@ -177,7 +177,7 @@ export function CodeViewer({ filePath, content, readOnly = true, onChange }: Cod
   }, [extension, resolvedTheme]);
 
   return (
-    <div className="flex-1 flex flex-col overflow-auto px-4 pb-4">
+    <div className="flex-1 flex flex-col overflow-auto bg-[var(--content-surface)] px-4 pb-4">
       {/* Stats centered at top */}
       <div className="text-center text-xs text-[var(--text-tertiary)] py-3">
         {lineCount} line{lineCount !== 1 ? "s" : ""}

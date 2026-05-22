@@ -46,7 +46,7 @@ export function ThoughtCard({ thought, expanded, onClick, onStatusChange }: Thou
         e.dataTransfer.setData("application/x-thought-slug", thought.slug);
         e.dataTransfer.effectAllowed = "move";
       }}
-      className="group rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2.5 py-1.5 cursor-pointer hover:border-[var(--border-hover)] transition-colors"
+      className="group rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] px-2.5 py-1.5 cursor-pointer hover:border-[var(--border-hover)] transition-colors"
       onClick={() => { haptics.selection(); onClick?.(thought); }}
     >
       <div className="flex items-center gap-2">

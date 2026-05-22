@@ -67,7 +67,7 @@ function EditableFrontmatter({ fields, onChange }: { fields: Record<string, stri
 
 const cmDarkTheme = EditorView.theme({
   "&": {
-    backgroundColor: "var(--bg-primary)",
+    backgroundColor: "var(--content-surface)",
     color: "var(--text-primary)",
     height: "100%",
   },
@@ -96,7 +96,7 @@ const cmDarkTheme = EditorView.theme({
 
 const cmLightTheme = EditorView.theme({
   "&": {
-    backgroundColor: "var(--bg-primary)",
+    backgroundColor: "var(--content-surface)",
     color: "var(--text-primary)",
     height: "100%",
   },
@@ -442,7 +442,7 @@ export function DocsEditor({
   };
 
   return (
-    <div ref={containerRef} className={`flex flex-col ${wrapperClassName ? wrapperClassName : "h-full docs-editor-wrapper"} ${readOnly ? "docs-read-mode" : ""}`}>
+    <div ref={containerRef} className={`flex flex-col bg-[var(--content-surface)] ${wrapperClassName ? wrapperClassName : "h-full docs-editor-wrapper"} ${readOnly ? "docs-read-mode" : ""}`}>
       {readOnly && frontmatterFields && <FrontmatterDisplay fields={frontmatterFields} />}
       {!readOnly && frontmatterFields && (
         <EditableFrontmatter key={currentFilePath} fields={frontmatterFields} onChange={handleFrontmatterFieldChange} />

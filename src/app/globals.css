@@ -14,6 +14,105 @@ input, textarea, select, [contenteditable] {
   touch-action: manipulation;
 }
 
+.local-apps-overlay-material {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.local-apps-overlay-top,
+.local-apps-overlay-bottom {
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.local-apps-overlay-top {
+  min-height: 42%;
+}
+
+.local-apps-overlay-top > :not(.local-apps-overlay-material),
+.local-apps-overlay-bottom > :not(.local-apps-overlay-material) {
+  position: relative;
+  z-index: 1;
+}
+
+.local-apps-overlay-top .local-apps-overlay-material {
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.09) 46%, rgba(255, 255, 255, 0.02) 78%, transparent);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 72%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 72%, transparent 100%);
+  backdrop-filter: blur(18px) saturate(1.18) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.18) !important;
+}
+
+.local-apps-overlay-bottom .local-apps-overlay-material {
+  background-image: linear-gradient(to top, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.56), transparent);
+  mask-image: linear-gradient(to top, #000 0%, #000 62%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 62%, transparent 100%);
+  backdrop-filter: blur(13px) saturate(1.5);
+  -webkit-backdrop-filter: blur(13px) saturate(1.5);
+}
+
+.local-apps-overlay-title {
+  color: #09090b;
+  filter: drop-shadow(0 1px 1px rgba(255, 255, 255, 0.85));
+}
+
+.local-apps-overlay-path {
+  color: rgba(63, 63, 70, 0.9);
+  filter: drop-shadow(0 1px 1px rgba(255, 255, 255, 0.85));
+}
+
+.local-apps-overlay-status {
+  color: rgba(63, 63, 70, 0.9);
+}
+
+.local-apps-service-chip {
+  border-color: rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.75);
+  color: #18181b;
+}
+
+.local-apps-evidence-chip {
+  border-color: rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.7);
+  color: rgba(63, 63, 70, 0.9);
+}
+
+.dark .local-apps-overlay-top .local-apps-overlay-material {
+  background-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.32), rgba(0, 0, 0, 0.16) 48%, rgba(0, 0, 0, 0.05) 78%, transparent);
+}
+
+.dark .local-apps-overlay-bottom .local-apps-overlay-material {
+  background-image: linear-gradient(to top, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.48), transparent);
+}
+
+.dark .local-apps-overlay-title {
+  color: #ffffff;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.55));
+}
+
+.dark .local-apps-overlay-path {
+  color: rgba(228, 228, 231, 0.85);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.55));
+}
+
+.dark .local-apps-overlay-status {
+  color: rgba(228, 228, 231, 0.9);
+}
+
+.dark .local-apps-service-chip {
+  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.45);
+  color: #f4f4f5;
+}
+
+.dark .local-apps-evidence-chip {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.35);
+  color: rgba(228, 228, 231, 0.9);
+}
+
 /* ============================================
    THEME SYSTEM - Light theme (default)
    Elegant, warm, high-contrast light mode
@@ -70,6 +169,10 @@ input, textarea, select, [contenteditable] {
   --surface-card: #ffffff;
   --surface-card-hover: #f5f4f1;
   --surface-panel: #f5f4f1;
+  --content-surface: #ffffff;
+  --content-surface-hover: #ffffff;
+  --content-shadow: 0 10px 22px rgba(50, 43, 35, 0.14), 0 2px 8px rgba(50, 43, 35, 0.08);
+  --content-shadow-subtle: 0 6px 16px rgba(50, 43, 35, 0.09), 0 1px 5px rgba(50, 43, 35, 0.06);
 
   /* Card toolbars - theme-aware */
   --toolbar-bg: rgba(255, 255, 255, 0.95);
@@ -138,6 +241,10 @@ input, textarea, select, [contenteditable] {
   --surface-card: #1a1918;
   --surface-card-hover: #2a2927;
   --surface-panel: #1a1918;
+  --content-surface: #1a1918;
+  --content-surface-hover: #211f1e;
+  --content-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+  --content-shadow-subtle: 0 6px 18px rgba(0, 0, 0, 0.22);
 
   /* Card toolbars - dark theme */
   --toolbar-bg: rgba(26, 25, 24, 0.95);
@@ -153,6 +260,14 @@ input, textarea, select, [contenteditable] {
   /* Mobile nav */
   --nav-mobile-bg: rgba(26, 25, 24, 0.85);
 
+}
+
+.content-card-shadow {
+  box-shadow: var(--content-shadow);
+}
+
+.content-card-shadow-subtle {
+  box-shadow: var(--content-shadow-subtle);
 }
 
 @theme inline {

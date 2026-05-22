@@ -6,27 +6,25 @@ import { useHaptics } from "@/hooks/useHaptics";
 import { ViewToggle, ViewMode } from "./ViewToggle";
 import { ThemeToggle } from "./ThemeToggle";
 import { SourceToggle } from "./SourceToggle";
-import { Search, X, Layers } from "lucide-react";
+import { Search, X } from "lucide-react";
 
 const SHORTCUTS = [
   { keys: "⌘ K", description: "Search" },
   { keys: "⌘ J", description: "Add task" },
   { keys: "⌘ 1", description: "Briefing" },
   { keys: "⌘ 2", description: "Bridge" },
-  { keys: "⌘ 3", description: "Map" },
-  { keys: "⌘ 4", description: "Docs" },
-  { keys: "⌘ 5", description: "People" },
-  { keys: "⌘ 6", description: "Apps" },
+  { keys: "⌘ 3", description: "Docs" },
+  { keys: "⌘ 4", description: "People" },
+  { keys: "⌘ 5", description: "System" },
   { keys: "Esc", description: "Close search" },
 ];
 
 const VIEW_KEYS: Record<string, ViewMode> = {
   "1": "briefings",
   "2": "bridge",
-  "3": "map",
-  "4": "docs",
-  "5": "people",
-  "6": "local-apps",
+  "3": "docs",
+  "4": "people",
+  "5": "system",
 };
 
 function ShortcutsPopup({ visible, onFocus }: { visible: boolean; onClose: () => void; onFocus?: () => void }) {
@@ -186,7 +184,7 @@ export function NavBar({
         }
       }
 
-      // Cmd+1/2/3: switch tabs
+      // Cmd+1..5: switch tabs
       if ((e.metaKey || e.ctrlKey) && VIEW_KEYS[e.key]) {
         e.preventDefault();
         setViewMode(VIEW_KEYS[e.key]);
@@ -281,7 +279,7 @@ export function NavBar({
         </div>
       </div>
 
-      {/* Right: search, stack, theme, source — pushed to the right */}
+      {/* Right: search, theme, source — pushed to the right */}
       <div
         className="ml-auto flex items-center justify-end gap-2 min-w-0 pointer-events-none"
       >
@@ -365,18 +363,6 @@ export function NavBar({
           </div>
         </div>
 
-        <button
-          onClick={() => setViewMode("stack")}
-          className={`pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
-            viewMode === "stack"
-              ? "text-[var(--text-primary)] bg-[var(--bg-tertiary)]"
-              : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-          }`}
-          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-          title="Settings"
-        >
-          <Layers className="w-4 h-4" />
-        </button>
         <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><ThemeToggle /></div>
         <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><SourceToggle /></div>
       </div>

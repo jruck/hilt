@@ -54,9 +54,11 @@ export const healthSchema = z.object({
 });
 
 export const previewSchema = z.object({
-  path: z.string(),
+  path: z.string().nullable().optional(),
   captured_at: z.string(),
   error: z.string().nullable().optional(),
+  error_at: z.string().nullable().optional(),
+  stale: z.boolean().optional(),
 });
 
 export const projectInfoSchema = z.object({

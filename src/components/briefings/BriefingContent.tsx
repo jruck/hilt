@@ -187,7 +187,7 @@ export function BriefingContent({ content }: BriefingContentProps) {
   if (sections.length === 0) {
     const displayContent = content.replace(/^\s*#\s+.+\n*/, "");
     return (
-      <div className="briefing-content prose max-w-none
+      <div className="briefing-content prose max-w-none rounded-lg border border-[var(--border-default)] bg-[var(--content-surface)] px-4 py-3
         prose-headings:text-[var(--text-primary)] prose-headings:font-semibold
         prose-h2:text-lg prose-h2:mb-3 prose-h2:mt-6
         prose-p:text-[var(--text-secondary)] prose-p:leading-relaxed prose-p:mb-3
@@ -207,7 +207,7 @@ export function BriefingContent({ content }: BriefingContentProps) {
       {sections.map((section, si) => {
         const isSourcesSection = /sources/i.test(section.heading);
         return (
-          <div key={si} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
+          <div key={si} className="rounded-lg border border-[var(--border-default)] bg-[var(--content-surface)] overflow-hidden">
             <div className="px-4 py-3 border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">
               <h2 className="text-base font-semibold text-[var(--text-primary)] !m-0">
                 {section.heading}

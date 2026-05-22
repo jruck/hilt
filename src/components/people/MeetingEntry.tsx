@@ -562,7 +562,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
   // "Next" mode — editor only, no tabs
   if (isNext) {
     return (
-      <div className="bg-[var(--bg-primary)]">
+      <div className="bg-[var(--content-surface)]">
         <div className="h-16 px-4 border-b border-[var(--border-default)] flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-base font-medium text-[var(--text-primary)]">Next</span>
@@ -592,7 +592,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
   const title = meeting.source === "granola" && meeting.title ? meeting.title : null;
 
   return (
-    <div className="bg-[var(--bg-primary)]">
+    <div className="bg-[var(--content-surface)]">
       {/* Card header — date is primary, title is subtext */}
       <div className="h-16 px-4 border-b border-[var(--border-default)] flex items-center justify-between">
         <div>

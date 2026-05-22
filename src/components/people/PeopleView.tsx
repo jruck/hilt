@@ -15,6 +15,7 @@ import type { BridgePerson, PersonMeeting, SuggestedMeeting } from "@/lib/types"
 
 const INBOX_SLUG = "__inbox__";
 const SUGGESTED_PREFIX = "__suggested__/";
+const PEOPLE_SCOPE_STORAGE_KEY = "hilt-people-scope";
 const OLDER_PEOPLE_DAYS = 60;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -51,20 +52,32 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
   const suggestedName = isSuggestedMode ? decodeURIComponent(selectedSlug!.slice(SUGGESTED_PREFIX.length)) : null;
   const personSlug = isInboxMode || isSuggestedMode ? null : selectedSlug;
   const supportsNext = !!personSlug && !isInboxMode && !isSuggestedMode;
-  const hasAppliedDefaultSelection = useRef(false);
+  const hasAppliedInitialDefaultSelection = useRef(false);
   const [olderPeopleExpanded, setOlderPeopleExpanded] = useState(false);
 
   useEffect(() => {
-    if (hasAppliedDefaultSelection.current || !data) return;
-    hasAppliedDefaultSelection.current = true;
+    if (!data) return;
 
     const hasKnownSelection =
       selectedSlug === INBOX_SLUG ||
       (selectedSlug?.startsWith(SUGGESTED_PREFIX) ?? false) ||
       data.people.some((person) => person.slug === selectedSlug);
 
-    if (!selectedSlug || !hasKnownSelection) {
+    if (selectedSlug && !hasKnownSelection) {
       navigateTo("people", `/${INBOX_SLUG}`);
+      return;
+    }
+
+    if (!selectedSlug && !hasAppliedInitialDefaultSelection.current) {
+      hasAppliedInitialDefaultSelection.current = true;
+      navigateTo("people", `/${INBOX_SLUG}`);
+      return;
+    }
+
+    hasAppliedInitialDefaultSelection.current = true;
+
+    if (hasKnownSelection && typeof window !== "undefined") {
+      localStorage.setItem(PEOPLE_SCOPE_STORAGE_KEY, selectedSlug ? `/${selectedSlug}` : "");
     }
   }, [data, selectedSlug, navigateTo]);
 
@@ -105,6 +118,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
 
   // Person detail — fetched when a person (not inbox) is selected
   const { data: personDetail, mutate: mutatePersonDetail } = usePersonDetail(personSlug);
+  const activePersonDetail = personDetail?.slug === personSlug ? personDetail : null;
 
   // Inbox data — fetched when inbox or suggested is selected
   const { data: inboxData } = useInboxMeetings(isInboxMode || isSuggestedMode, suggestedName ?? undefined);
@@ -125,25 +139,25 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
     if (isInboxMode || isSuggestedMode) {
       return (inboxData?.meetings ?? []).filter((meeting) => meeting.source !== "next");
     }
-    if (!personDetail) return [];
-    if (filter === "all") return personDetail.meetings;
-    if (filter === "notes") return personDetail.meetings.filter((m) => !!m.notes);
-    return personDetail.meetings.filter(
+    if (!activePersonDetail) return [];
+    if (filter === "all") return activePersonDetail.meetings;
+    if (filter === "notes") return activePersonDetail.meetings.filter((m) => !!m.notes);
+    return activePersonDetail.meetings.filter(
       (m) => m.source === "granola"
     );
-  }, [isInboxMode, isSuggestedMode, inboxData, personDetail, filter]);
+  }, [isInboxMode, isSuggestedMode, inboxData, activePersonDetail, filter]);
 
   // Build the synthetic "Next" entry (person mode only)
   const nextEntry = useMemo((): PersonMeeting | null => {
-    if (!supportsNext || !personDetail) return null;
+    if (!supportsNext || !activePersonDetail) return null;
 
     return {
       source: "next",
       date: "",
       title: "Next",
-      notes: personDetail.nextRaw,
+      notes: activePersonDetail.nextRaw,
     };
-  }, [supportsNext, personDetail]);
+  }, [supportsNext, activePersonDetail]);
 
   // Display meetings: Next pinned at top + filtered historical meetings
   const displayMeetings = useMemo(() => {
@@ -190,8 +204,8 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
 
   const vaultPath = isInboxMode || isSuggestedMode
     ? inboxData?.vaultPath
-    : personDetail?.personFilePath
-      ? personDetail.personFilePath.replace(/\/people\/[^/]+$/, "")
+    : activePersonDetail?.personFilePath
+      ? activePersonDetail.personFilePath.replace(/\/people\/[^/]+$/, "")
       : undefined;
 
   const handleDeleteMeeting = useCallback(() => {
@@ -300,7 +314,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
   // Determine if middle column has data to show
   const hasMiddleContent = isInboxMode || isSuggestedMode
     ? !!inboxData
-    : !!(personSlug && personDetail);
+    : !!(personSlug && activePersonDetail);
 
   // Loading state
   if (isLoading && !data) {
@@ -361,7 +375,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
           <div className="flex-1 overflow-hidden">
             <PersonMeetingList
               slug={selectedSlug}
-              person={isInboxMode || isSuggestedMode ? null : personDetail!}
+              person={isInboxMode || isSuggestedMode ? null : activePersonDetail!}
               displayMeetings={displayMeetings}
               filter={filter}
               onFilterChange={handleFilterChange}
@@ -434,7 +448,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
         <div className="w-80 flex-shrink-0 border-r border-[var(--border-default)] overflow-hidden">
           <PersonMeetingList
             slug={selectedSlug!}
-            person={isInboxMode || isSuggestedMode ? null : personDetail!}
+            person={isInboxMode || isSuggestedMode ? null : activePersonDetail!}
             displayMeetings={displayMeetings}
             filter={filter}
             onFilterChange={handleFilterChange}
@@ -620,7 +634,7 @@ function InboxCard({
 }) {
   return (
     <div
-      className={`rounded-lg border bg-[var(--bg-secondary)] ${compact ? "px-2.5 pt-1.5 pb-2" : "px-3 pt-2 pb-2.5"} cursor-pointer transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
+      className={`rounded-lg border bg-[var(--content-surface)] ${compact ? "px-2.5 pt-1.5 pb-2" : "px-3 pt-2 pb-2.5"} cursor-pointer transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
         selected
           ? "border-[var(--interactive-default)]"
           : "border-[var(--border-default)]"
@@ -673,7 +687,7 @@ function SuggestedMeetingCard({
 }) {
   return (
     <div
-      className={`rounded-lg border border-dashed bg-[var(--bg-secondary)] ${compact ? "px-2.5 pt-1.5 pb-2" : "px-3 pt-2 pb-2.5"} cursor-pointer transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
+      className={`rounded-lg border border-dashed bg-[var(--content-surface)] ${compact ? "px-2.5 pt-1.5 pb-2" : "px-3 pt-2 pb-2.5"} cursor-pointer transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
         selected
           ? "border-[var(--interactive-default)]"
           : "border-[var(--border-default)]"

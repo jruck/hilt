@@ -17,7 +17,7 @@ export function ImageViewer({ filePath, scopePath }: ImageViewerProps) {
   const imageUrl = `/api/docs/raw?path=${encodeURIComponent(filePath)}&scope=${encodeURIComponent(scopePath)}`;
 
   return (
-    <div className="flex-1 overflow-auto flex items-center justify-center p-12 bg-[var(--bg-secondary)]">
+    <div className="flex-1 overflow-auto flex items-center justify-center p-12 bg-[var(--content-surface)]">
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-[var(--text-tertiary)]" />

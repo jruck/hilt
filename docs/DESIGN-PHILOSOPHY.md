@@ -32,7 +32,17 @@ Use restraint with visual effects. Prefer subtle borders, gentle color tints, an
 - Borders should be semi-transparent (e.g., `border-emerald-500/20`)
 - Avoid pure white or pure black in dark mode - use zinc tones
 
-### 3. Contextual Color Meaning
+### 3. Content Surfaces Over Warm Canvas
+
+In light mode, distinguish user/work content from app chrome by placing content on white elevated surfaces over Hilt's warm off-white canvas. The active toolbar selection, task rows, writing/project cards, people cards, document bodies, and Local Apps preview/fallback tiles should read as content. Use the warm canvas for surrounding page structure, sidebars, gutters, and inactive chrome.
+
+**Implementation pattern**:
+- Use `--content-surface` for content cards and readable document/app bodies.
+- Use `--bg-primary` for the broad app canvas and structural empty space.
+- Use `--bg-secondary`/`--bg-tertiary` for controls, hover states, gutters, and hierarchy inside chrome.
+- In light mode, content shadows should be compact but perceptible against the warm canvas; avoid shadows so pale they disappear around white cards. Keep dark-mode shadows subdued and neutral.
+
+### 4. Contextual Color Meaning
 
 Colors should communicate state, not decorate:
 - **Blue/indigo tints**: Items needing attention (To Do, inbox)
@@ -40,19 +50,20 @@ Colors should communicate state, not decorate:
 - **Amber tints**: Starred/pinned items
 - **Zinc tones**: Default/neutral states
 
-### 4. Progressive Disclosure
+### 5. Progressive Disclosure
 
 Don't show everything at once. Reveal complexity through interaction:
 - Action buttons appear on hover (floating toolbar pattern)
 - Collapsible sidebar for pinned folders
 - Expandable sections in columns (time-based grouping)
 
-### 5. Immediate Feedback
+### 6. Immediate Feedback
 
 Every action should have visible feedback:
 - Pulsing indicators for running sessions
 - Glow effects for newly appearing items
 - Loading states that don't cause layout shift
+- Prefer stale-while-refresh over blank reloads. Once a tab/view has loaded, switching away and back should render the last known content immediately, show refresh activity in existing chrome, and report refresh failures as non-blocking status instead of replacing the view with a full-screen error or spinner.
 
 ---
 
@@ -79,6 +90,16 @@ Every action should have visible feedback:
 - Dropdown for subfolders
 - Pin button to save frequently used paths
 - Recent scopes accessible via clock icon
+
+**Global tab IA**:
+- Treat Briefing as the synthesized output surface across work, knowledge, people, sessions, and systems.
+- Treat Bridge, Docs, and People as the user's workspace/knowledge cluster.
+- Treat System as the parent for inspection/observability views: Sessions/Map, Apps, Stack/configuration, and Sync.
+- Keep the top-level nav simple and legible: `[Briefing Bridge Docs People System]`. Put inspection sub-modes inside System instead of making every system lens a primary destination.
+- Use a compact secondary segmented control inside System for `Sessions`, `Apps`, `Stack`, and `Sync`; this is mode chrome, not explanatory copy.
+- Keep System mode chrome to one row where possible: mode switcher on the left, mode-specific filters/status/refresh controls right-aligned on the same line. Avoid stacking a System subnav above another full toolbar for each mode.
+- Match the System secondary toolbar height to the primary toolbar exactly. If a control wants more room, compact the control before increasing the chrome height.
+- Top-level shortcuts follow the top-level mental model: Briefing, Bridge, Docs, People, System.
 
 ### Drawers/Panels
 
@@ -186,14 +207,21 @@ This section tracks design decisions and refinements over time. Each entry shoul
 - Cards should be dense and operational: the screenshot or fallback should be the whole tile, with app title, path, machine label, freshness, and compact service chips overlaid on the visual surface.
 - Camera-wall tiles can use a larger `rounded-2xl` radius and pronounced shadow without an outer stroke, with matching rounded overlay chips/buttons, so preview cards read as lifted monitor tiles without becoming decorative.
 - Keep the Apps camera wall at two columns even on mobile-width viewports; use compact port-only chips and hide secondary path/fallback text at the smallest sizes so the view feels like a feed of monitors, not a single-card detail feed.
+- Keep three Apps camera columns through tablet and narrower desktop widths when there is enough horizontal room. Two columns should be the narrow/mobile fallback, not the default for ordinary resized desktop windows.
 - In the Apps camera wall, the whole tile is the open affordance. Avoid redundant corner open buttons; keep service ports neutral and reveal the bottom service/freshness strip only on hover or keyboard focus.
+- Apps preview overlays should follow the active Hilt theme. Use light-biased gradients, dark text, and light chips in light mode; keep dark glass overlays and light text in dark mode. Avoid always-on black overlays over light app screenshots.
+- Preview overlays should feel like material, not just tint. Use moderate backdrop blur plus a fading mask behind the overlay content so the screenshot underneath softens near labels but returns naturally to the raw preview. Let blur carry most of the readability weight, but avoid so much blur that the preview looks smeared; keep light/dark tint low enough that the overlay does not become an opaque shade. The top overlay should be tall enough that app title/path text does not collide visually with text inside the screenshot. Keep text and chips on a separate crisp layer.
 - Apps fallback/error camera tiles should use Hilt theme variables for their base surface and text. Do not hardcode dark-mode backgrounds for `No web UI`, capture failure, or similar states.
+- Preview-backed cards should also use theme-aware loading surfaces before the screenshot image paints. Avoid hardcoded black image backdrops in light mode; the loading state should feel like the rest of the current theme.
 - Machine sections are useful in the Apps camera wall when multiple Hilt peers are visible; they make the network view easier to scan than one unified cross-device grid.
 - Local Apps tab switches should reuse the last client snapshot while refreshing. Avoid blank `Scanning local apps` flashes when the user is returning to a view they already loaded.
 - Package-manager infrastructure should be named by the service command, not by the package manager root. `ollama`, `nginx`, and `mysql` are more useful cards than `homebrew`.
+- Infrastructure cards need enough evidence to answer "why is this here?" when they do not have a recognizable app screenshot. Surface compact clues such as package manager ownership, product role, loopback-only binding, and data directories on the card itself instead of forcing a separate process-detail flow.
 - Screenshot previews should show the app as the user would open it over the tailnet where possible. Keep fallback states honest: no web UI, HTTP status, or capture error is better than a stale decorative placeholder.
+- Apps screenshots should be captured and displayed in the same 16:9 shape as the card. If an older/taller screenshot has to be cropped, anchor the image at the top so browser/app headers remain visible and extra content falls off the bottom.
 - Manual refresh should mean "make this view current," including screenshot recapture when previews are enabled. Show screenshot freshness directly on the preview instead of making users infer whether an image is stale.
 - Screenshot recapture should be tied to visible viewing intent: first visible load, manual refresh, visible tab return when stale, and a visible two-minute cadence. Background metadata polling should not spend machine resources recapturing previews.
+- Preserve the last good screenshot when a later preview refresh fails. A capture error should become status metadata on hover, while the visual tile keeps showing the most recent known-good frame.
 - Use source signals, hidden reasons, and diagnostics for explainability, but keep them secondary to the app overview.
 
 **Rationale**: Local Apps is situational awareness for running dev surfaces. It should answer "what is live on this machine?" without becoming a process manager or generic cloud dashboard.

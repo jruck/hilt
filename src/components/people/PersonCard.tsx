@@ -33,7 +33,7 @@ export function PersonCard({ person, selected, compact, onClick }: PersonCardPro
   const haptics = useHaptics();
   return (
     <div
-      className={`rounded-lg border bg-[var(--bg-secondary)] ${compact ? "px-2.5 pt-1.5 pb-2" : "px-3 pt-2 pb-2.5"} cursor-pointer transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
+      className={`rounded-lg border bg-[var(--content-surface)] ${compact ? "px-2.5 pt-1.5 pb-2" : "px-3 pt-2 pb-2.5"} cursor-pointer transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
         selected
           ? "border-[var(--interactive-default)]"
           : "border-[var(--border-default)]"

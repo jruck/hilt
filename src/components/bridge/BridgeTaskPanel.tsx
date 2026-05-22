@@ -399,7 +399,7 @@ export function BridgeTaskPanel({
           {linkedItems.map((item) => (
             <div
               key={item.path}
-              className="flex items-center gap-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-2 group cursor-pointer hover:border-[var(--border-hover)] transition-colors"
+              className="flex items-center gap-3 rounded-lg border border-[var(--border-default)] bg-[var(--content-surface)] px-3 py-2 group cursor-pointer hover:border-[var(--border-hover)] transition-colors"
               onClick={() => {
                 if (vaultPath && onNavigateToProject) {
                   onNavigateToProject(item.path, vaultPath);

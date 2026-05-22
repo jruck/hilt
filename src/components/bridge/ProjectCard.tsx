@@ -64,7 +64,7 @@ export function ProjectCard({ project, onClick, onStatusChange }: ProjectCardPro
 
   return (
     <div
-      className="group rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 pt-2 pb-2.5 cursor-pointer hover:border-[var(--border-hover)] transition-colors"
+      className="group rounded-lg border border-[var(--border-default)] bg-[var(--content-surface)] px-3 pt-2 pb-2.5 cursor-pointer hover:border-[var(--border-hover)] transition-colors"
       onClick={() => { haptics.selection(); onClick?.(project); }}
       title={`${project.title}\n${project.relativePath}`}
     >

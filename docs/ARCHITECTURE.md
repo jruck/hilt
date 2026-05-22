@@ -11,11 +11,11 @@ This document provides a comprehensive architectural overview of Hilt for AI age
 │  │  Next.js 16 + React 19                                            │  │
 │  │  ┌─────────────────────────────────────────────────────────────┐  │  │
 │  │  │  Board.tsx (Main Container)                                  │  │  │
-│  │  │  ├── ViewToggle (Briefing / Bridge / Map / Docs / People / Apps)│ │  │
+│  │  │  ├── ViewToggle (Briefing / Bridge / Docs / People / System) │  │  │
 │  │  │  ├── BridgeView (weekly tasks, projects, notes)              │  │  │
 │  │  │  ├── DocsView (markdown file browser + editor)               │  │  │
-│  │  │  ├── StackView (Claude config inspector)                     │  │  │
-│  │  │  ├── MapView (local work/session map)                        │  │  │
+│  │  │  ├── SystemView (Sessions / Apps / Stack inspection)         │  │  │
+│  │  │  ├── MapView (local/tailnet work/session map)                │  │  │
 │  │  │  ├── PeopleView (people, groups, meeting history)            │  │  │
 │  │  │  └── LocalAppsView (local/tailnet service monitor)           │  │  │
 │  │  └─────────────────────────────────────────────────────────────┘  │  │
@@ -108,7 +108,7 @@ hilt/
 │   │       └── chat/config/    # Chat agent configuration
 │   ├── components/             # React components
 │   │   ├── Board.tsx           # Main container, view routing (274 lines)
-│   │   ├── ViewToggle.tsx      # Bridge/Docs/Stack toggle (52 lines)
+│   │   ├── ViewToggle.tsx      # Grouped global tab toggle
 │   │   ├── DocsView.tsx        # File browser + editor (296 lines)
 │   │   ├── PlanEditor.tsx      # MDXEditor wrapper (166 lines)
 │   │   ├── ThemeProvider.tsx    # Theme context
@@ -209,7 +209,7 @@ hilt/
 ### 1. View Routing Flow
 
 ```
-URL: /bridge, /map, /local-apps, /docs/Users/you/work/project, or /stack/Users/you/work/project
+URL: /bridge, /docs/Users/you/work/project, /people, or /system/sessions
          │
          ▼
 [[...path]]/page.tsx (catch-all route)
@@ -220,16 +220,16 @@ ScopeProvider (ScopeContext.tsx)
          │ Handles pushState / popstate for SPA navigation
          ▼
 Board.tsx receives context via useScope()
-         │ Derives ViewMode: "briefings" | "bridge" | "map" | "local-apps" | "docs" | "stack" | "people"
+         │ Derives ViewMode: "briefings" | "bridge" | "docs" | "people" | "system"
          ▼
 Conditionally renders:
   - "bridge" → BridgeView
-  - "map"    → MapView (with global search)
-  - "local-apps" → LocalAppsView (with global search)
   - "docs"   → DocsView (with scope + search)
-  - "stack"  → StackView (with scope + search)
   - "people" → PeopleView (scope = person slug for deep links)
+  - "system" → SystemView (Sessions / Apps / Stack modes)
 ```
+
+Legacy `/map`, `/local-apps`, and `/stack/...` URLs remain valid compatibility entrypoints, but Board treats them as the System top-level view and selects the matching internal mode.
 
 ### 2. Bridge View Data Flow
 
@@ -278,7 +278,27 @@ DocsView.tsx
       └── Other → DocsFallbackView
 ```
 
-### 4. Stack View Data Flow
+### 4. System View Data Flow
+
+```
+SystemView
+         │
+         ├── Sessions → MapView using /api/system/sessions/*
+         ├── Apps     → LocalAppsView using /api/local-apps*
+         └── Stack    → local StackView or remote read-only Stack inspector
+```
+
+System is the parent inspection area. It uses Hilt-to-Hilt peer discovery only: the serving machine asks Tailscale for online peers, probes those peers for `/api/system/machine?scope=local`, and only aggregates machines that identify as Hilt. `HILT_SYSTEM_NETWORK_ENABLED=false` disables peer aggregation while keeping local System inspection available.
+
+Sessions mode keeps a local SQLite Map index on each machine. `/api/system/sessions/graph` queries each peer's local Map graph, namespaces machine/tree/session ids, and returns a normal Map graph with top-level machine nodes. `/api/system/sessions` and `/api/system/sessions/detail` route pagination/history reads back to the machine that owns the selected tree node or session id. This avoids central transcript storage while letting the UI show Xochipilli, Mercury, and future Hilt machines in one session map.
+
+Apps mode reuses the Local Apps monitor and its existing peer aggregation, screenshot cache, and machine grouping.
+
+Stack mode reads each machine's Claude/Codex configuration stack through `/api/system/stack`. Local Stack keeps the existing edit/toggle behavior. Remote Stack is read-only in v1: file previews go through `/api/system/stack/file`, and the remote server validates the requested path against its own discovered stack before reading content.
+
+System inspection views share one secondary chrome row. `SystemView` owns the mode switcher and passes it into the active mode, so Sessions can place Map filters/diagnostics/refresh beside it, Apps can place machine/app/service freshness beside it, and Stack can place machine selection/status beside it. System inspection views also use a client-side stale-while-refresh pattern. Sessions, Apps, and Stack keep their last successful client snapshot and selection in module memory, render it immediately when the user switches back, and refresh in the background. Refresh failures should not blank the view; they surface as status chrome while stale content remains visible.
+
+### 5. Stack View Data Flow
 
 ```
 GET /api/claude-stack?scope={path}
@@ -297,7 +317,7 @@ StackView.tsx
       └── Raw JSON/JSONC config editor
 ```
 
-### 5. People View Data Flow
+### 6. People View Data Flow
 
 ```
 Bridge vault
@@ -328,7 +348,7 @@ URL deep links: /people → list, /people/{slug} → detail
 Scope context carries the slug (not a filesystem path)
 ```
 
-### 6. Map View Data Flow
+### 7. Map View Data Flow
 
 ```
 Codex state sqlite + Claude JSONL/JSON files
@@ -353,11 +373,11 @@ ${DATA_DIR}/map.sqlite
                reads provider history file on explicit click
 ```
 
-The Map feature is local-first and designed for Tailscale-served access to the development machine. Convex/cloud replication is intentionally deferred unless Hilt needs multi-machine collaboration, offline cloud availability, or cross-mothership replication. Browser requests never provide file paths for history reads; the server resolves `sourcePath` from indexed session metadata. Map visibility is classified as `foreground` or `background`: foreground is the default human-legible work view, while background keeps workers, sidechains, unmapped, stale, and automation-like sessions available without letting them dominate the default map.
+The Map feature is local-first per machine and designed for Tailscale-served access to Hilt-running development machines. Convex/cloud replication is intentionally deferred unless Hilt needs multi-machine collaboration, offline cloud availability, or cross-mothership replication. Browser requests never provide file paths for history reads; the server resolves `sourcePath` from indexed session metadata. Map visibility is classified as `foreground` or `background`: foreground is the default human-legible work view, while background keeps workers, sidechains, unmapped, stale, and automation-like sessions available without letting them dominate the default map.
 
 Map tree specificity comes from both launch workspace and work footprint metadata. Codex/Claude tool calls are scanned for file/folder path signals and summarized into small `workFootprint` entries in session metadata; the tree groups those under workspace-level `folder` nodes so a session launched from a parent repo can still show activity in `src/lib/map`, `apps/web`, or another nested area. Raw tool transcripts stay in provider files and are only read for explicit history previews.
 
-### 7. Local Apps Data Flow
+### 8. Local Apps Data Flow
 
 ```
 macOS TCP listeners
@@ -386,9 +406,9 @@ LocalAppsView
          └── machine sections with app-first monitor cards, service chips, and open links
 ```
 
-Local Apps is monitor-only in v1: no stop, kill, restart, or hide/show controls. It is gated by `HILT_LOCAL_APPS_ENABLED=true`. Optional screenshot capture is gated separately by `HILT_LOCAL_APPS_PREVIEWS=true`; preview files live under `${DATA_DIR}/local-apps/previews` and are served only by safe filename through `/api/local-apps/previews/[filename]`. Remote preview images are served through `/api/local-apps/remote-preview`, which proxies only safe filenames from already-discovered Hilt peer machines so an HTTPS Tailscale Serve page never has to embed insecure HTTP image URLs. Preview capture is limited to healthy HTTP services, prefers the public/tailnet URL that the UI opens, falls back to local probe URLs, and uses `HILT_LOCAL_APPS_PREVIEW_CACHE_MS` with a 2-minute default. Ordinary `GET /api/local-apps` requests attach cached previews only and never trigger capture. LocalAppsView calls `POST /api/local-apps/refresh` on visible first load, manual refresh, visible tab return when stale, and every two minutes while the page is visible; that refresh can fan out to peer Hilt instances through their own `scope=local` refresh endpoints. Tailnet peer aggregation is Hilt-to-Hilt only: the serving instance uses Tailscale status for machine discovery, then accepts only `/api/local-apps?scope=local` responses that match Hilt's API contract. Discovery tries the peer's Tailscale Serve HTTPS URL plus common Hilt dev ports `3000`-`3004`, because Electron may assign a non-3000 port when another local app is already using it. It does not remotely scrape processes or call Port Authority.
+Local Apps is monitor-only in v1: no stop, kill, restart, or hide/show controls. It is gated by `HILT_LOCAL_APPS_ENABLED=true`. Optional screenshot capture is gated separately by `HILT_LOCAL_APPS_PREVIEWS=true`; preview files live under `${DATA_DIR}/local-apps/previews` and are served only by safe filename through `/api/local-apps/previews/[filename]`. Remote preview images are served through `/api/local-apps/remote-preview`, which proxies only safe filenames from already-discovered Hilt peer machines so an HTTPS Tailscale Serve page never has to embed insecure HTTP image URLs. Preview capture is limited to healthy HTTP services, uses a `1280x720` viewport to match the Apps cards' 16:9 frame, prefers the public/tailnet URL that the UI opens, falls back to local probe URLs, and uses `HILT_LOCAL_APPS_PREVIEW_CACHE_MS` with a 2-minute default. Ordinary `GET /api/local-apps` requests attach cached previews only and never trigger capture. Cached previews are presentation state, not correctness gates: Hilt keeps the last successful PNG attached even when it is stale or a later recapture fails, and records the latest failure on `service.preview.error`/`error_at` instead of replacing the tile with an error fallback. LocalAppsView calls `POST /api/local-apps/refresh` on visible first load, manual refresh, visible tab return when stale, and every two minutes while the page is visible; that refresh can fan out to peer Hilt instances through their own `scope=local` refresh endpoints. Tailnet peer aggregation is Hilt-to-Hilt only: the serving instance uses Tailscale status for machine discovery, then accepts only `/api/local-apps?scope=local` responses that match Hilt's API contract. Discovery tries the peer's Tailscale Serve HTTPS URL plus common Hilt dev ports `3000`-`3004`, because Electron may assign a non-3000 port when another local app is already using it. It does not remotely scrape processes or call Port Authority.
 
-### 8. Real-Time Event Flow
+### 9. Real-Time Event Flow
 
 ```
 WebSocket connection: ws://localhost:3001/events
@@ -419,7 +439,7 @@ Components receive events and trigger SWR revalidation
 | State | Location | Persistence | Purpose |
 |-------|----------|-------------|---------|
 | Theme preference | `data/preferences.json` | Server JSON | Light/dark/system |
-| View mode | `data/preferences.json` + URL | Server JSON + URL | Briefing/Bridge/Map/Apps/Docs/Stack/People |
+| View mode | `data/preferences.json` + URL | Server JSON + URL | Briefing/Bridge/Docs/People/System |
 | Bridge vault path | `data/preferences.json` | Server JSON | Path to bridge vault |
 | Working folder | `data/preferences.json` | Server JSON | Default scope for all views |
 | Draft prompts | `Todo.md` / `data/inbox.json` | Local files | Queued prompts |
@@ -457,6 +477,14 @@ Components receive events and trigger SWR revalidation
 | `/api/map/local/session-detail` | GET | Explicit read-only history preview | `id`, `limit` |
 | `/api/map/local/refresh` | POST | Force Map index scan | - |
 | `/api/map/local/source-status` | GET | Latest Map scan diagnostics | - |
+| `/api/system/machine` | GET | Local System machine identity | `scope` |
+| `/api/system/machines` | GET | Local + Hilt peer machine list | `scope` |
+| `/api/system/sessions/graph` | GET | Cross-machine Map graph | `window`, `status`, `source`, `q` |
+| `/api/system/sessions` | GET | Cross-machine session summaries | `nodeId`, `cursor`, `limit` |
+| `/api/system/sessions/detail` | GET | Cross-machine session history preview | `id`, `limit` |
+| `/api/system/sessions/refresh` | POST | Refresh local/peer Map indexes | - |
+| `/api/system/stack` | GET | Local + peer Stack snapshots | `project`, `scope` |
+| `/api/system/stack/file` | GET | Stack file preview with discovered-path validation | `machine`, `path`, `project`, `scope` |
 | `/api/local-apps` | GET | Cached local service monitor snapshot | - |
 | `/api/local-apps/refresh` | POST | Force local scan and optional screenshot recapture | `scope`, `previews` |
 | `/api/local-apps/settings` | GET | Local Apps settings metadata | - |
@@ -531,7 +559,7 @@ Board.tsx (274 lines)
 ├── Top Toolbar
 │   ├── Search input
 │   ├── ThemeToggle
-│   └── ViewToggle (Briefing / Bridge / Map / Docs / People / Apps) — centered
+│   └── ViewToggle ([Briefing] [Bridge / Docs / People] [Map / Apps]) — centered
 │
 ├── Main Content (conditional on viewMode)
 │   ├── viewMode === "bridge"
@@ -777,7 +805,7 @@ interface UserPreferences {
 | `bridge/WeekHeader.tsx` | 143 | Week navigation |
 | `bridge/BridgeTaskList.tsx` | 129 | Sorted task list |
 | `bridge/ProjectCard.tsx` | 115 | Single project card |
-| `ViewToggle.tsx` | 52 | Bridge/Docs/Stack tabs |
+| `ViewToggle.tsx` | 135 | Grouped global tabs |
 
 ---
 

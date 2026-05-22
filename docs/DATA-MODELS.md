@@ -176,7 +176,13 @@ interface LocalAppService {
   page_title?: string | null;
   favicon_url?: string | null;
   framework_hints: string[];
-  preview?: { path: string; captured_at: string; error?: string | null } | null;
+  preview?: {
+    path?: string | null;        // last successful screenshot, if one exists
+    captured_at: string;         // screenshot mtime when path exists; error time otherwise
+    error?: string | null;       // latest capture error, if the last refresh failed
+    error_at?: string | null;    // when the latest capture error occurred
+    stale?: boolean;             // true when older than the recapture interval
+  } | null;
 }
 
 interface LocalAppGroup {
@@ -214,6 +220,41 @@ interface LocalAppsMachineSnapshot {
   error?: string | null;
 }
 ```
+
+### System machine snapshots
+
+System uses the same machine identity model across Sessions, Apps, and Stack. Only Hilt-running peers are included; arbitrary tailnet devices are not inspected.
+
+```typescript
+interface SystemMachine {
+  id: string;                    // tailscale DNS, IP, or hostname
+  self: boolean;
+  reachable: boolean;
+  source_url?: string | null;    // base URL for peer Hilt API calls
+  machine: {
+    hostname: string;
+    tailscale_dns?: string | null;
+    tailscale_ip4?: string | null;
+    origin: "local" | "remote";
+  };
+  features?: {
+    map: boolean;
+    apps: boolean;
+    stack: boolean;
+  };
+  error?: string | null;
+}
+
+interface SystemStackSnapshot {
+  machine: SystemMachine;
+  stack: ClaudeStack | null;
+  readOnly: boolean;             // true for remote peers in v1
+  projectPath: string | null;
+  error: string | null;
+}
+```
+
+System Sessions wraps each machine's local Map graph with machine-level ids. Session ids use `{machineId}::{localSessionId}` and tree ids use either `machine:{machineId}` or `node:{machineId}::{localNodeId}`, so history reads can route back to the owning Hilt instance without storing raw transcripts centrally.
 
 ## Persistence Formats
 
@@ -297,7 +338,7 @@ interface LocalAppsSettings {
 }
 ```
 
-Optional screenshots are cached under `${DATA_DIR}/local-apps/previews` and served only by filename through `/api/local-apps/previews/[filename]`. Screenshots from remote Hilt peers are proxied by machine id and safe filename through `/api/local-apps/remote-preview`; arbitrary remote preview URLs are not part of the public model.
+Optional screenshots are cached under `${DATA_DIR}/local-apps/previews` and served only by filename through `/api/local-apps/previews/[filename]`. Preview metadata keeps the last successful screenshot path even when a later capture fails; the failure is exposed as `preview.error`/`preview.error_at` so the UI can continue showing the last good frame while marking it stale or failed. Screenshots from remote Hilt peers are proxied by machine id and safe filename through `/api/local-apps/remote-preview`; arbitrary remote preview URLs are not part of the public model.
 
 ### preferences.json
 
@@ -317,8 +358,8 @@ interface UserPreferences {
   recentScopes: string[];
   // Last 10 visited folder paths (most recent first)
 
-  viewMode: "briefings" | "bridge" | "map" | "local-apps" | "docs" | "stack" | "people" | "chat";
-  // Current view mode
+  viewMode: "briefings" | "bridge" | "docs" | "people" | "system";
+  // Current top-level view mode. Legacy map/local-apps/stack URLs resolve into system modes.
 
   folderEmojis?: Record<string, string>;
   // Separate storage for folder emojis by path

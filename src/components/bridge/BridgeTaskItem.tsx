@@ -127,7 +127,7 @@ export function BridgeTaskItem({
       {/* Task card */}
       <div
         style={leftAccentStyle}
-        className={`flex-1 min-w-0 rounded-lg border bg-[var(--bg-secondary)] transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
+        className={`flex-1 min-w-0 rounded-lg border bg-[var(--content-surface)] transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
           isSelected
             ? "border-[var(--interactive-default)]"
             : "border-[var(--border-default)]"

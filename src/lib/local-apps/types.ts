@@ -57,9 +57,11 @@ export interface Health {
 }
 
 export interface Preview {
-  path: string;
+  path?: string | null;
   captured_at: string;
   error?: string | null;
+  error_at?: string | null;
+  stale?: boolean;
 }
 
 export interface ProjectInfo {

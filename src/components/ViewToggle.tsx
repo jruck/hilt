@@ -1,14 +1,14 @@
 "use client";
 
 import React from "react";
-import { FileText, Compass, CalendarDays, Users, Map as MapIcon, Server } from "lucide-react";
+import { FileText, Compass, CalendarDays, Users, Layers } from "lucide-react";
 import { useHaptics } from "@/hooks/useHaptics";
 
 // The underlying view mode stored in state/preferences
-export type ViewMode = "docs" | "stack" | "bridge" | "briefings" | "people" | "map" | "local-apps";
+export type ViewMode = "docs" | "bridge" | "briefings" | "people" | "system";
 
 // Primary view categories (same as ViewMode now)
-export type PrimaryView = "docs" | "stack" | "bridge" | "briefings" | "people" | "map" | "local-apps";
+export type PrimaryView = ViewMode;
 
 // Helper to derive primary view from viewMode
 export function getPrimaryView(viewMode: ViewMode): PrimaryView {
@@ -31,11 +31,16 @@ interface ViewToggleProps {
 const VIEW_CONFIG = [
   { id: "briefings" as const, label: "Briefing", icon: CalendarDays, title: "Daily briefing", shortcut: "1" },
   { id: "bridge" as const, label: "Bridge", icon: Compass, title: "Bridge weekly tasks & projects", shortcut: "2" },
-  { id: "map" as const, label: "Map", icon: MapIcon, title: "Work-state map", shortcut: "3" },
-  { id: "docs" as const, label: "Docs", icon: FileText, title: "Documentation", shortcut: "4" },
-  { id: "people" as const, label: "People", icon: Users, title: "People & meetings", shortcut: "5" },
-  { id: "local-apps" as const, label: "Apps", icon: Server, title: "Local apps", shortcut: "6" },
+  { id: "docs" as const, label: "Docs", icon: FileText, title: "Documentation", shortcut: "3" },
+  { id: "people" as const, label: "People", icon: Users, title: "People & meetings", shortcut: "4" },
+  { id: "system" as const, label: "System", icon: Layers, title: "System inspection", shortcut: "5" },
 ];
+
+const VIEW_CONFIG_BY_ID = Object.fromEntries(
+  VIEW_CONFIG.map((config) => [config.id, config]),
+) as Record<ViewMode, (typeof VIEW_CONFIG)[number]>;
+
+const VIEW_GROUPS: ViewMode[][] = [["briefings", "bridge", "docs", "people", "system"]];
 
 export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActive, unreadTabs }: ViewToggleProps) {
   const size = iconSize ?? (compact ? 24 : 16);
@@ -56,55 +61,69 @@ export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActiv
 
   if (compact) {
     return (
-      <div className="flex items-center gap-1">
-        {VIEW_CONFIG.map(({ id, icon: Icon, title }) => (
-          <button
-            key={id}
-            onClick={() => handleTap(id)}
-            className={`
-              relative flex items-center justify-center min-w-[48px] min-h-[48px] rounded-md
-              transition-colors
-              ${
-                view === id
-                  ? "text-[var(--text-primary)]"
-                  : "text-[var(--text-tertiary)]"
-              }
-            `}
-            title={title}
-          >
-            <Icon style={{ width: size, height: size }} />
-            {unreadTabs?.has(id) && view !== id && (
-              <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-blue-500" />
-            )}
-          </button>
+      <div className="flex items-center gap-2">
+        {VIEW_GROUPS.map((group) => (
+          <div key={group.join("-")} className="flex items-center gap-0.5 rounded-full bg-white/10 px-1">
+            {group.map((id) => {
+              const { icon: Icon, title } = VIEW_CONFIG_BY_ID[id];
+              return (
+                <button
+                  key={id}
+                  onClick={() => handleTap(id)}
+                  className={`
+                    relative flex min-h-[48px] min-w-[48px] items-center justify-center rounded-full
+                    transition-colors
+                    ${
+                      view === id
+                        ? "text-[var(--text-primary)]"
+                        : "text-[var(--text-tertiary)]"
+                    }
+                  `}
+                  title={title}
+                >
+                  <Icon style={{ width: size, height: size }} />
+                  {unreadTabs?.has(id) && view !== id && (
+                    <span className="absolute top-2.5 right-2.5 h-2 w-2 rounded-full bg-blue-500" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
         ))}
       </div>
     );
   }
 
   return (
-    <div className="flex items-center bg-[var(--bg-tertiary)] rounded-lg p-0.5">
-      {VIEW_CONFIG.map(({ id, label, icon: Icon, title }) => (
-        <button
-          key={id}
-          onClick={() => onChange(id)}
-          className={`
-            relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium
-            transition-colors
-            ${
-              view === id
-                ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm"
-                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            }
-          `}
-          title={title}
-        >
-          <Icon style={{ width: size, height: size }} />
-          <span className="hidden sm:inline">{label}</span>
-          {unreadTabs?.has(id) && view !== id && (
-            <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-blue-500" />
-          )}
-        </button>
+    <div className="flex items-center gap-2">
+      {VIEW_GROUPS.map((group) => (
+        <div key={group.join("-")} className="flex items-center gap-0.5 rounded-lg bg-[var(--bg-tertiary)] p-0.5">
+          {group.map((id) => {
+            const { label, icon: Icon, title } = VIEW_CONFIG_BY_ID[id];
+            return (
+              <button
+                key={id}
+                onClick={() => onChange(id)}
+                className={`
+                  relative flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium
+                  transition-colors
+                  ${
+                    view === id
+                      ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm"
+                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  }
+                `}
+                title={title}
+              >
+                <Icon style={{ width: size, height: size }} />
+                <span className="hidden sm:inline">{label}</span>
+                {unreadTabs?.has(id) && view !== id && (
+                  <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-blue-500" />
+                )}
+              </button>
+            );
+          })}
+        </div>
       ))}
     </div>
   );

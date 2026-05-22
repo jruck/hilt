@@ -10,14 +10,49 @@ import { NavBar } from "./NavBar";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBriefingUnread } from "@/hooks/useBriefingUnread";
 import { PullToRefresh } from "./PullToRefresh";
+import type { SystemMode } from "./system";
 
 const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.DocsView })), { ssr: false });
-const StackView = dynamic(() => import("./stack").then(m => ({ default: m.StackView })), { ssr: false });
 const BridgeView = dynamic(() => import("./bridge/BridgeView").then(m => ({ default: m.BridgeView })), { ssr: false });
 const BriefingsView = dynamic(() => import("./briefings/BriefingsView").then(m => ({ default: m.BriefingsView })), { ssr: false });
 const PeopleView = dynamic(() => import("./people/PeopleView").then(m => ({ default: m.PeopleView })), { ssr: false });
-const MapView = dynamic(() => import("./map/MapView").then(m => ({ default: m.MapView })), { ssr: false });
-const LocalAppsView = dynamic(() => import("./local-apps").then(m => ({ default: m.LocalAppsView })), { ssr: false });
+const SystemView = dynamic(() => import("./system").then(m => ({ default: m.SystemView })), { ssr: false });
+
+const SYSTEM_MODE_STORAGE_KEY = "hilt-system-mode";
+const PEOPLE_SCOPE_STORAGE_KEY = "hilt-people-scope";
+
+function getStoredPeopleScope(): string {
+  if (typeof window === "undefined") return "/__inbox__";
+  const scope = localStorage.getItem(PEOPLE_SCOPE_STORAGE_KEY);
+  if (!scope) return "/__inbox__";
+  if (scope === "/sessions" || scope === "/apps" || scope === "/stack" || scope.startsWith("/stack/")) {
+    return "/__inbox__";
+  }
+  return scope.startsWith("/") ? scope : `/${scope}`;
+}
+
+function systemScopeForMode(mode: SystemMode, stackScope = ""): string {
+  if (mode === "stack" && stackScope) return `/stack${stackScope}`;
+  return `/${mode}`;
+}
+
+function systemModeFromUrl(viewMode: ViewPrefix | null, scopePath: string): SystemMode {
+  if (viewMode === "map") return "sessions";
+  if (viewMode === "local-apps") return "apps";
+  if (viewMode === "stack") return "stack";
+  if (viewMode !== "system") return "sessions";
+  const first = scopePath.split("/").filter(Boolean)[0];
+  if (first === "apps" || first === "stack" || first === "sessions") return first;
+  return "sessions";
+}
+
+function stackScopeFromSystemUrl(viewMode: ViewPrefix | null, scopePath: string): string {
+  if (viewMode === "stack") return scopePath;
+  if (viewMode !== "system") return "";
+  const parts = scopePath.split("/").filter(Boolean);
+  if (parts[0] !== "stack") return "";
+  return parts.length > 1 ? `/${parts.slice(1).join("/")}` : "";
+}
 
 export function Board() {
   // Scope path and view mode from context — URL-based routing
@@ -32,34 +67,43 @@ export function Board() {
   // undefined = not yet loaded, string = resolved path (always has a value once loaded)
   const [workingFolder, setWorkingFolder] = useState<string | undefined>(undefined);
 
-  // Derive ViewMode from URL prefix
+  // Derive top-level ViewMode from URL prefix.
   const viewMode: ViewMode = urlViewMode === "bridge" ? "bridge"
-    : urlViewMode === "map" ? "map"
-    : urlViewMode === "local-apps" ? "local-apps"
     : urlViewMode === "docs" ? "docs"
-    : urlViewMode === "stack" ? "stack"
     : urlViewMode === "briefings" ? "briefings"
     : urlViewMode === "people" ? "people"
+    : urlViewMode === "system" || urlViewMode === "map" || urlViewMode === "local-apps" || urlViewMode === "stack" ? "system"
     : "bridge"; // fallback
+  const systemMode = systemModeFromUrl(urlViewMode, scopePath);
+  const stackScopePath = stackScopeFromSystemUrl(urlViewMode, scopePath);
 
   // Unified setter
   const setViewMode = useCallback((mode: ViewMode) => {
     if (mode === "bridge") {
       setUrlViewMode("bridge");
-    } else if (mode === "map") {
-      setUrlViewMode("map");
-    } else if (mode === "local-apps") {
-      setUrlViewMode("local-apps");
     } else if (mode === "docs") {
       setUrlViewMode("docs");
-    } else if (mode === "stack") {
-      setUrlViewMode("stack");
     } else if (mode === "briefings") {
       setUrlViewMode("briefings");
     } else if (mode === "people") {
-      setUrlViewMode("people");
+      navigateTo("people", getStoredPeopleScope());
+    } else if (mode === "system") {
+      const lastMode = typeof window !== "undefined"
+        ? (localStorage.getItem(SYSTEM_MODE_STORAGE_KEY) as SystemMode | null)
+        : null;
+      const nextMode: SystemMode = lastMode === "apps" || lastMode === "stack" || lastMode === "sessions"
+        ? lastMode
+        : systemMode;
+      navigateTo("system", systemScopeForMode(nextMode, stackScopePath));
     }
-  }, [setUrlViewMode]);
+  }, [navigateTo, setUrlViewMode, stackScopePath, systemMode]);
+
+  const setSystemMode = useCallback((mode: SystemMode) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(SYSTEM_MODE_STORAGE_KEY, mode);
+    }
+    navigateTo("system", systemScopeForMode(mode, mode === "stack" ? (stackScopePath || workingFolder || "") : ""));
+  }, [navigateTo, stackScopePath, workingFolder]);
 
   // Hydrate after mount
   useEffect(() => {
@@ -194,14 +238,13 @@ export function Board() {
             onPathChange={setScopePath}
             searchQuery={searchQuery}
           />
-        ) : viewMode === "map" ? (
-          <MapView searchQuery={searchQuery} />
-        ) : viewMode === "local-apps" ? (
-          <LocalAppsView searchQuery={searchQuery} />
-        ) : viewMode === "stack" ? (
-          <div className="flex-1 overflow-hidden">
-            <StackView scopePath={workingFolder || ""} searchQuery={searchQuery} />
-          </div>
+        ) : viewMode === "system" ? (
+          <SystemView
+            mode={systemMode}
+            onModeChange={setSystemMode}
+            searchQuery={searchQuery}
+            workingFolder={stackScopePath || workingFolder || ""}
+          />
         ) : viewMode === "briefings" ? (
           <BriefingsView />
         ) : viewMode === "people" ? (
@@ -227,14 +270,13 @@ export function Board() {
             onPathChange={setScopePath}
             searchQuery={searchQuery}
           />
-        ) : viewMode === "map" ? (
-          <MapView searchQuery={searchQuery} />
-        ) : viewMode === "local-apps" ? (
-          <LocalAppsView searchQuery={searchQuery} />
-        ) : viewMode === "stack" ? (
-          <div className="flex-1 overflow-hidden">
-            <StackView scopePath={workingFolder || ""} searchQuery={searchQuery} />
-          </div>
+        ) : viewMode === "system" ? (
+          <SystemView
+            mode={systemMode}
+            onModeChange={setSystemMode}
+            searchQuery={searchQuery}
+            workingFolder={stackScopePath || workingFolder || ""}
+          />
         ) : viewMode === "briefings" ? (
           <BriefingsView />
         ) : viewMode === "people" ? (

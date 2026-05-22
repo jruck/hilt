@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Check,
   CheckCircle2,
@@ -212,6 +212,20 @@ function compactSessionId(id: string): string {
   return `${prefix}${tail.slice(0, 8)}...${tail.slice(-6)}`;
 }
 
+interface CachedMapViewState {
+  window: ActivityWindow;
+  statusFilter: MapStatusFilter;
+  sourceFilter: MapSourceFilter;
+  graph: LocalWorkGraphResponse | null;
+  sessionPage: LocalSessionPage | null;
+  sessions: Array<Omit<LocalSession, "sourcePath">>;
+  selectedId: string;
+  selectedSessionId: string | null;
+  sessionDetail: LocalSessionDetail | null;
+}
+
+const mapViewStateCache = new Map<string, CachedMapViewState>();
+
 function SessionIdCopy({
   sessionId,
   copied,
@@ -310,8 +324,8 @@ function ActivityControl({
   const index = WINDOWS.indexOf(value);
   const positionForIndex = (itemIndex: number) => `${(itemIndex / (WINDOWS.length - 1)) * 100}%`;
   return (
-    <div className="w-full min-w-[210px] md:w-56">
-      <div className="relative h-4 overflow-visible text-xs text-[var(--text-tertiary)]">
+    <div className="w-full min-w-[200px] translate-y-0.5 md:w-52">
+      <div className="relative h-3 overflow-visible text-[10px] leading-3 text-[var(--text-tertiary)]">
         <div className="absolute inset-x-[7px] top-0 h-full">
           {WINDOWS.map((item, itemIndex) => (
             <button
@@ -327,13 +341,13 @@ function ActivityControl({
           ))}
         </div>
       </div>
-      <div className="relative mt-0.5 h-5">
-        <div className="pointer-events-none absolute inset-x-[7px] top-1 z-0 h-2">
+      <div className="relative h-4">
+        <div className="pointer-events-none absolute inset-x-[7px] top-1 z-0 h-1.5">
           {WINDOWS.map((item, itemIndex) => (
             <span
               key={item}
               style={{ left: positionForIndex(itemIndex) }}
-              className="absolute top-0 h-2 w-px -translate-x-1/2 bg-[var(--border-strong)]"
+              className="absolute top-0 h-1.5 w-px -translate-x-1/2 bg-[var(--border-strong)]"
             />
           ))}
         </div>
@@ -345,7 +359,7 @@ function ActivityControl({
           step={1}
           value={index}
           onChange={(event) => onChange(WINDOWS[Number(event.target.value)])}
-          className="map-activity-range absolute inset-x-0 top-0 z-10 h-5 w-full"
+          className="map-activity-range absolute inset-x-0 top-0 z-10 h-4 w-full"
         />
       </div>
     </div>
@@ -370,14 +384,14 @@ function FilterControls({
   onSourceChange: (value: MapSourceFilter) => void;
 }) {
   return (
-    <div className="flex flex-col gap-3 md:flex-row md:items-center">
+    <div className="flex flex-col gap-2 md:flex-row md:items-center">
       <ActivityControl value={window} onChange={onWindowChange} />
       <label className="flex items-center gap-2 text-xs text-[var(--text-tertiary)]">
         Status
         <select
           value={status}
           onChange={(event) => onStatusChange(event.target.value as MapStatusFilter)}
-          className="h-8 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2 text-sm text-[var(--text-primary)]"
+          className="h-7 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2 text-sm text-[var(--text-primary)]"
           title={STATUS_OPTIONS.find((item) => item.id === status)?.title}
         >
           {STATUS_OPTIONS.map((item) => (
@@ -392,7 +406,7 @@ function FilterControls({
         <select
           value={source}
           onChange={(event) => onSourceChange(event.target.value as MapSourceFilter)}
-          className="h-8 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2 text-sm text-[var(--text-primary)]"
+          className="h-7 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2 text-sm text-[var(--text-primary)]"
         >
           {SOURCE_OPTIONS.map((item) => (
             <option key={item.id} value={item.id}>
@@ -405,20 +419,30 @@ function FilterControls({
   );
 }
 
-export function MapView({ searchQuery }: { searchQuery?: string }) {
+export function MapView({
+  searchQuery,
+  apiBase,
+  modeSwitcher,
+}: {
+  searchQuery?: string;
+  apiBase?: string;
+  modeSwitcher?: ReactNode;
+}) {
   const treemapRef = useRef<HTMLDivElement | null>(null);
-  const [window, setWindow] = useState<ActivityWindow>("7d");
-  const [statusFilter, setStatusFilter] = useState<MapStatusFilter>("foreground");
-  const [sourceFilter, setSourceFilter] = useState<MapSourceFilter>("all");
+  const cacheKey = apiBase || "local";
+  const cachedState = mapViewStateCache.get(cacheKey);
+  const [window, setWindow] = useState<ActivityWindow>(() => cachedState?.window ?? "7d");
+  const [statusFilter, setStatusFilter] = useState<MapStatusFilter>(() => cachedState?.statusFilter ?? "foreground");
+  const [sourceFilter, setSourceFilter] = useState<MapSourceFilter>(() => cachedState?.sourceFilter ?? "all");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
-  const [graph, setGraph] = useState<LocalWorkGraphResponse | null>(null);
-  const [sessionPage, setSessionPage] = useState<LocalSessionPage | null>(null);
-  const [sessions, setSessions] = useState<Array<Omit<LocalSession, "sourcePath">>>([]);
-  const [selectedId, setSelectedId] = useState("root");
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
-  const [sessionDetail, setSessionDetail] = useState<LocalSessionDetail | null>(null);
-  const [isGraphLoading, setIsGraphLoading] = useState(true);
+  const [graph, setGraph] = useState<LocalWorkGraphResponse | null>(() => cachedState?.graph ?? null);
+  const [sessionPage, setSessionPage] = useState<LocalSessionPage | null>(() => cachedState?.sessionPage ?? null);
+  const [sessions, setSessions] = useState<Array<Omit<LocalSession, "sourcePath">>>(() => cachedState?.sessions ?? []);
+  const [selectedId, setSelectedId] = useState(() => cachedState?.selectedId ?? "root");
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(() => cachedState?.selectedSessionId ?? null);
+  const [sessionDetail, setSessionDetail] = useState<LocalSessionDetail | null>(() => cachedState?.sessionDetail ?? null);
+  const [isGraphLoading, setIsGraphLoading] = useState(() => !cachedState?.graph);
   const [isSessionsLoading, setIsSessionsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
@@ -433,17 +457,22 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
     source: sourceFilter,
     searchQuery,
   }), [searchQuery, sourceFilter, statusFilter, window]);
+  const graphEndpoint = apiBase ? `${apiBase}/graph` : "/api/map/local/work-graph";
+  const sessionsEndpoint = apiBase || "/api/map/local/sessions";
+  const detailEndpoint = apiBase ? `${apiBase}/detail` : "/api/map/local/session-detail";
+  const refreshEndpoint = apiBase ? `${apiBase}/refresh` : "/api/map/local/refresh";
+  const didApplyFilterReset = useRef(false);
+  const lastSessionQueryKey = useRef<string | null>(null);
 
   const loadGraph = async () => {
     setIsGraphLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/map/local/work-graph?${filterParams.toString()}`);
+      const response = await fetch(`${graphEndpoint}?${filterParams.toString()}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || `Request failed: ${response.status}`);
       setGraph(data as LocalWorkGraphResponse);
     } catch (err) {
-      setGraph(null);
       setError(err instanceof Error ? err.message : "Failed to load local map");
     } finally {
       setIsGraphLoading(false);
@@ -457,7 +486,7 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
 
     setIsSessionsLoading(true);
     try {
-      const response = await fetch(`/api/map/local/sessions?${paramsFor({
+      const response = await fetch(`${sessionsEndpoint}?${paramsFor({
         window,
         status: statusFilter,
         source: sourceFilter,
@@ -479,6 +508,24 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
   };
 
   useEffect(() => {
+    mapViewStateCache.set(cacheKey, {
+      window,
+      statusFilter,
+      sourceFilter,
+      graph,
+      sessionPage,
+      sessions,
+      selectedId,
+      selectedSessionId,
+      sessionDetail,
+    });
+  }, [cacheKey, graph, sessionDetail, sessionPage, selectedId, selectedSessionId, sessions, sourceFilter, statusFilter, window]);
+
+  useEffect(() => {
+    if (!didApplyFilterReset.current) {
+      didApplyFilterReset.current = true;
+      return;
+    }
     setSelectedId("root");
     setSelectedSessionId(null);
     setSessionDetail(null);
@@ -523,10 +570,13 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
   }, [graph, nodeById, selectedId]);
 
   useEffect(() => {
-    setSessions([]);
-    setSessionPage(null);
-    setSelectedSessionId(null);
-    setSessionDetail(null);
+    const sessionQueryKey = `${selectedId}::${filterParams.toString()}`;
+    const queryChanged = lastSessionQueryKey.current !== null && lastSessionQueryKey.current !== sessionQueryKey;
+    lastSessionQueryKey.current = sessionQueryKey;
+    if (queryChanged) {
+      setSelectedSessionId(null);
+      setSessionDetail(null);
+    }
     void loadSessions(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph?.generatedAt, selectedId, filterParams]);
@@ -542,7 +592,7 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
     const controller = new AbortController();
     setIsDetailLoading(true);
     setDetailError(null);
-    fetch(`/api/map/local/session-detail?id=${encodeURIComponent(selectedSessionId)}&limit=120`, {
+    fetch(`${detailEndpoint}?id=${encodeURIComponent(selectedSessionId)}&limit=120`, {
       signal: controller.signal,
     })
       .then(async (response) => {
@@ -561,7 +611,7 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
       });
 
     return () => controller.abort();
-  }, [selectedSessionId]);
+  }, [detailEndpoint, selectedSessionId]);
 
   const selectedNode = nodeById.get(selectedId) ?? graph?.root;
   const selectedPath = useMemo(() => nodePath(selectedNode, nodeById), [nodeById, selectedNode]);
@@ -591,7 +641,7 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
     setIsRefreshing(true);
     setError(null);
     try {
-      const response = await fetch("/api/map/local/refresh", { method: "POST" });
+      const response = await fetch(refreshEndpoint, { method: "POST" });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || `Request failed: ${response.status}`);
       await loadGraph();
@@ -616,29 +666,55 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[var(--bg-primary)] text-[var(--text-primary)]">
-      <div className="border-b border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-2">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            <button
-              onClick={() => setFiltersOpen((open) => !open)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2.5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] lg:hidden"
-            >
-              {filtersOpen ? <X className="h-4 w-4" /> : <SlidersHorizontal className="h-4 w-4" />}
-              Filters
-            </button>
-            <div className="hidden lg:block">
-              <FilterControls
-                graph={graph}
-                source={sourceFilter}
-                status={statusFilter}
-                window={window}
-                onSourceChange={setSourceFilter}
-                onStatusChange={setStatusFilter}
-                onWindowChange={setWindow}
-              />
+      <div className="bg-[var(--bg-secondary)]">
+        <div className="flex h-11 items-center justify-between gap-3 border-b border-[var(--border-default)] px-3">
+          {modeSwitcher ? (
+            modeSwitcher
+          ) : (
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <button
+                onClick={() => setFiltersOpen((open) => !open)}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2.5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] lg:hidden"
+              >
+                {filtersOpen ? <X className="h-4 w-4" /> : <SlidersHorizontal className="h-4 w-4" />}
+                Filters
+              </button>
+              <div className="hidden lg:block">
+                <FilterControls
+                  graph={graph}
+                  source={sourceFilter}
+                  status={statusFilter}
+                  window={window}
+                  onSourceChange={setSourceFilter}
+                  onStatusChange={setStatusFilter}
+                  onWindowChange={setWindow}
+                />
+              </div>
             </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
+          )}
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+            {modeSwitcher ? (
+              <>
+                <button
+                  onClick={() => setFiltersOpen((open) => !open)}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2.5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] xl:hidden"
+                >
+                  {filtersOpen ? <X className="h-4 w-4" /> : <SlidersHorizontal className="h-4 w-4" />}
+                  Filters
+                </button>
+                <div className="hidden xl:block">
+                  <FilterControls
+                    graph={graph}
+                    source={sourceFilter}
+                    status={statusFilter}
+                    window={window}
+                    onSourceChange={setSourceFilter}
+                    onStatusChange={setStatusFilter}
+                    onWindowChange={setWindow}
+                  />
+                </div>
+              </>
+            ) : null}
             <div className="hidden min-w-0 max-w-[340px] items-center justify-end gap-2 text-right text-xs text-[var(--text-tertiary)] min-[1120px]:flex">
               <span className="truncate font-medium text-[var(--text-secondary)]">{selectedTitle}</span>
               <span>{selectedSessionCount} sessions</span>
@@ -667,7 +743,7 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
         </div>
 
         {filtersOpen && (
-          <div className="mt-3 lg:hidden">
+          <div className="border-b border-[var(--border-default)] px-3 py-2 lg:hidden">
             <FilterControls
               graph={graph}
               source={sourceFilter}
@@ -690,7 +766,7 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
         )}
 
         {diagnosticsOpen && graph?.diagnostics && (
-          <div className="mt-2 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] p-2 text-xs text-[var(--text-secondary)]">
+          <div className="border-b border-[var(--border-default)] bg-[var(--bg-primary)] p-2 text-xs text-[var(--text-secondary)]">
             <div className="flex flex-wrap gap-x-4 gap-y-1">
               <span>{graph.diagnostics.indexedSessionCount} indexed</span>
               <span>{graph.diagnostics.filesScanned} files scanned</span>
@@ -721,9 +797,12 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
       </div>
 
       {error ? (
-        <div className="m-3 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-600">{error}</div>
-      ) : (
-        <div className={`grid min-h-0 flex-1 ${layoutColumns}`}>
+        <div className="border-b border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-600">
+          {graph ? "Could not refresh map: " : ""}{error}
+        </div>
+      ) : null}
+
+      <div className={`grid min-h-0 flex-1 ${layoutColumns}`}>
           <main className="flex min-h-0 flex-col overflow-hidden border-r border-[var(--border-default)] max-md:border-r-0">
             <div className="flex min-h-[420px] flex-1 flex-col overflow-hidden p-3">
               {selectedId !== "root" && selectedPath.length > 0 && (
@@ -812,7 +891,12 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
                     No sessions match the current filters.
                   </div>
                 )}
-                {isGraphLoading && (
+                {!isGraphLoading && !graph && (
+                  <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-[var(--text-secondary)]">
+                    No map data available.
+                  </div>
+                )}
+                {isGraphLoading && !graph && (
                   <div className="absolute inset-0 grid place-items-center bg-[var(--bg-secondary)]/70 text-sm text-[var(--text-secondary)]">
                     Loading map...
                   </div>
@@ -946,8 +1030,7 @@ export function MapView({ searchQuery }: { searchQuery?: string }) {
               </div>
             </aside>
           )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }

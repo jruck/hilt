@@ -8,7 +8,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
-- **Local Apps monitor view** — Added a gated `/local-apps` Apps tab (`Cmd+6`) that inspects local TCP listeners on the Hilt-serving machine, groups them by app/worktree, probes health, builds tailnet-friendly open URLs, and shows app-first service cards. APIs live under `/api/local-apps`, use a cached single-flight scanner, redact process args before UI/API exposure, and are disabled unless `HILT_LOCAL_APPS_ENABLED=true`.
+- **System inspection parent view** — Added `/system` as the top-level home for Hilt's machine/system views. System has internal `Sessions`, `Apps`, and `Stack` modes, with legacy `/map`, `/local-apps`, and `/stack` URLs still resolving into the matching System mode. Top-level navigation is now simplified to Briefing, Bridge, Docs, People, and System.
+
+- **System tailnet session aggregation** — Added `/api/system/machine`, `/api/system/machines`, and `/api/system/sessions/*` routes. The Sessions mode now queries local Map indexes from each Hilt-running tailnet peer, namespaces machine/session/tree ids, and presents an all-machines session map while still resolving history previews through the machine that owns the session.
+
+- **System Stack inspection** — Added `/api/system/stack` and `/api/system/stack/file` for machine-aware Claude/Codex configuration inspection. Local Stack editing remains available on the serving machine; remote peer stacks are read-only and file previews must resolve from that peer's discovered stack metadata rather than arbitrary browser-provided paths.
+
+- **Local Apps monitor view** — Added a gated Apps inspection mode that inspects local TCP listeners on the Hilt-serving machine, groups them by app/worktree, probes health, builds tailnet-friendly open URLs, and shows app-first service cards. APIs live under `/api/local-apps`, use a cached single-flight scanner, redact process args before UI/API exposure, and are disabled unless `HILT_LOCAL_APPS_ENABLED=true`.
 
 - **Local Apps scanner contracts and tests** — Added Local Apps Zod contracts, Hilt-owned settings import/defaults, Port Authority-compatible FNV stable ids, macOS `lsof`/`ps` parsing, service classification/grouping, tailnet helpers, optional preview scaffolding behind `HILT_LOCAL_APPS_PREVIEWS=true`, and `npm run test:local-apps` plus a Port Authority parity script.
 
@@ -24,6 +30,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
+- **System-first navigation IA** — Replaced the separate system-inspection pill cluster with a single top-level System tab. The System view owns its secondary mode switcher, so Map/Sessions, Apps, and Stack read as related inspection lenses instead of unrelated primary destinations.
+
+- **Sync control plane plan tightened** — Updated the Syncthing pilot plan with explicit `/system/sync` routing, Sync feature flags, tailnet-only Syncthing addresses, conflict retention via `maxConflicts = -1`, shared ignore include naming, conservative REST polling/caching, and versioning test caveats.
+
+- **System stale-while-refresh views** — Sessions and Stack now follow the Apps view's return-to-tab behavior: the last client snapshot, selection, and visible content render immediately when switching back, then refresh in the background. Refresh errors are shown as non-blocking status banners over stale data instead of replacing the view with a blank loader.
+
+- **System single-row mode chrome** — Consolidated the System mode switcher with each mode's own controls. Sessions, Apps, and Stack now use one secondary row with mode tabs on the left and filters/status/refresh or machine selection on the right, avoiding the stacked sub-navigation/toolbars that made System feel heavier than the other tabs.
+
+- **System toolbar height parity** — Tightened the Sessions activity slider and fixed System secondary rows to the same 44px height as the primary Hilt toolbar.
+
 - **Local Apps camera-wall layout** — Flattened machine sections into one app grid where each card is a full-bleed screenshot/fallback tile. App title, path, source machine, service chips, freshness, and open affordance now live as overlays on the visual surface.
 
 - **Local Apps softer camera tiles** — Rounded the Local Apps preview cards and overlay pills/buttons, increased the card radius and shadow, and removed the outer card stroke so the camera-wall layout feels more like lifted preview tiles while keeping compact operational density.
@@ -38,7 +54,39 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Local Apps Homebrew grouping** — Homebrew-managed infrastructure now groups by service command instead of the `/opt/homebrew` git root, so services render as legible `ollama`, `nginx`, and `mysql` app cards rather than vague `homebrew` cards.
 
+- **Local Apps infrastructure evidence** — Non-preview infrastructure cards now surface concise evidence such as Homebrew ownership, service role, loopback-only binding, and data directory hints. This makes cards like `ollama`, `mysql`, and `nginx` explain why they are present without requiring a separate process inspector.
+
+- **Local Apps adaptive preview overlays** — Camera-wall card overlays now use a light-biased treatment in light mode and keep the dark glass treatment in dark mode. Titles, paths, service chips, evidence chips, and hover status text all switch contrast with the active Hilt theme instead of always rendering white text on black gradients.
+
+- **Local Apps material preview overlays** — Preview card overlays now use faded backdrop blur layers behind the tint, so titles and hover metadata sit on a softer glass-like material instead of a flat translucent shadow. The blur fades out with the overlay in both light and dark mode, while text and chips remain crisp.
+
+- **Local Apps tablet-density grid** — Apps machine sections now keep three camera columns from tablet-sized widths upward, reserving the two-column layout for narrower/mobile widths instead of collapsing from three columns too early on desktop resize.
+
+- **Content surface design pass** — Added shared `--content-surface` and content shadow theme tokens, then applied them to the places that represent user/work content rather than app chrome: Briefing bodies, Bridge task rows, writing cards, project cards, Bridge note bodies, Docs document/code/image/PDF bodies, People list/meeting cards, and Local Apps preview/fallback tiles. Light mode now uses white content surfaces over the warm canvas; dark mode keeps the existing subdued dark content surfaces.
+
+- **Local Apps card shadow tuning** — Tightened the elevated content-card shadow so Apps preview tiles have a smaller but more visible shadow against white light-mode cards.
+
+- **Local Apps taller top preview material** — Extended the top preview overlay's blurred material band so app titles and paths stay legible when screenshots have their own headings near the top.
+
+- **Local Apps reduced overlay tint** — Reduced the top preview overlay's light/dark shade opacity and strengthened backdrop blur so card labels read as glass over the screenshot instead of an opaque gradient wash.
+
+- **Local Apps softer preview blur** — Reduced the Apps card material blur slightly while keeping the low tint unchanged, so overlay labels still read clearly without making the screenshot underneath feel overly smeared.
+
+- **Local Apps top-aligned 16:9 previews** — Screenshot capture now uses the same `1280x720` 16:9 frame as the Apps cards, and preview images anchor to the top of the card so older taller screenshots crop from the bottom instead of losing both header and footer context.
+
+- **Grouped global navigation** — Reordered the main tabs into three unlabeled visual clusters: Briefing as the synthesis surface, Bridge/Docs/People as workspace views, and Map/Apps as system inspection views. Keyboard shortcuts and view routing stay unchanged.
+
+- **Grouped navigation pill blocks** — Replaced the initial grouped-tab hairline dividers with separate pill blocks and real gaps, so the global nav reads as three chunks instead of one long noisy segmented control.
+
 ### Fixed
+
+- **People tab invalid System scope carryover** — Switching from System directly to People no longer carries scopes like `/stack`, `/apps`, or `/sessions` into People as if they were person slugs. People now remembers its own last valid scope, sanitizes known System scopes back to the inbox, and redirects invalid slugs every time they appear instead of only once per mount.
+
+- **Local Apps preview downgrade flicker** — Metadata polls and preview refreshes now merge with the last known screenshot metadata instead of replacing it wholesale. A newer scan that omits a preview path for the same app/service no longer makes a card fall back from a good screenshot to `Preview disabled`.
+
+- **Local Apps light-mode preview loading surface** — Preview-backed cards now use Hilt's theme-aware content surface while screenshot images are loading instead of a hardcoded black surface. Light mode no longer flashes dark rectangles under still-loading screenshots; dark mode still inherits the dark theme surface.
+
+- **Local Apps preview flicker after capture errors** — Forced screenshot refresh now attaches the last good cached preview before capture and preserves that PNG when a later Playwright capture fails. Failed refreshes are exposed as `service.preview.error`/`error_at` and shown as hover status metadata, so camera tiles no longer collapse from a screenshot into an error fallback just because the newest recapture missed.
 
 - **Local Apps screenshot capture running without active viewing intent** — Ordinary `/api/local-apps` metadata reads now attach cached screenshots only and never start Playwright capture. The Apps view requests fresh screenshots on visible page load, manual refresh, visible tab return when stale, and every two minutes while visible; refresh can fan out to peer Hilt machines so remote screenshots stay current only while the view is actually being watched.
 

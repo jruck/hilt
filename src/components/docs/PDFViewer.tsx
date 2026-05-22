@@ -19,7 +19,7 @@ export function PDFViewer({ filePath, scopePath }: PDFViewerProps) {
   return (
     <div className="flex-1 relative p-12">
       {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[var(--bg-secondary)]">
+        <div className="absolute inset-0 flex items-center justify-center bg-[var(--content-surface)]">
           <Loader2 className="w-8 h-8 animate-spin text-[var(--text-tertiary)]" />
         </div>
       )}

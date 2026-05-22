@@ -5,6 +5,8 @@ import type { Preview, Service } from "./types";
 
 const AUTO_PREVIEW_LIMIT = 12;
 const DEFAULT_CACHE_MS = 2 * 60 * 1000;
+export const PREVIEW_VIEWPORT_WIDTH = 1280;
+export const PREVIEW_VIEWPORT_HEIGHT = 720;
 
 type PlaywrightChromium = {
   launch: (options: { headless: boolean }) => Promise<{
@@ -45,7 +47,11 @@ export async function capturePreviewsNow(
 
 function previewCandidates(services: Service[], force: boolean): Service[] {
   const candidates = services
-    .filter((service) => service.visible && isPreviewableService(service) && (force || !service.preview))
+    .filter((service) => (
+      service.visible &&
+      isPreviewableService(service) &&
+      (force || !service.preview?.path || !!service.preview.stale || !!service.preview.error)
+    ))
     .slice(0, AUTO_PREVIEW_LIMIT);
   return candidates;
 }
@@ -54,7 +60,7 @@ async function capturePreviews(services: Service[]): Promise<void> {
   const chromium = await loadChromium();
   if (!chromium) {
     for (const service of services) {
-      writePreviewError(service, "Playwright is not installed");
+      recordPreviewCaptureError(service, "Playwright is not installed");
     }
     return;
   }
@@ -67,7 +73,7 @@ async function capturePreviews(services: Service[]): Promise<void> {
       const outPath = previewPathForService(service.id);
       fs.mkdirSync(path.dirname(outPath), { recursive: true });
       const page = await browser.newPage({
-        viewport: { width: 1280, height: 800 },
+        viewport: { width: PREVIEW_VIEWPORT_WIDTH, height: PREVIEW_VIEWPORT_HEIGHT },
         deviceScaleFactor: 1,
       });
       let lastError: unknown = null;
@@ -93,7 +99,7 @@ async function capturePreviews(services: Service[]): Promise<void> {
       } finally {
         await page.close();
       }
-      if (lastError) writePreviewError(service, previewErrorMessage(lastError));
+      if (lastError) recordPreviewCaptureError(service, previewErrorMessage(lastError));
     }
   } finally {
     await browser.close();
@@ -103,22 +109,36 @@ async function capturePreviews(services: Service[]): Promise<void> {
 function cachedPreview(filePath: string): Preview | null {
   try {
     const stat = fs.statSync(filePath);
-    if (Date.now() - stat.mtimeMs > previewCacheMs()) return null;
     return {
       path: filePath,
       captured_at: stat.mtime.toISOString(),
       error: null,
+      error_at: null,
+      stale: Date.now() - stat.mtimeMs > previewCacheMs(),
     };
   } catch {
     return null;
   }
 }
 
-function writePreviewError(service: Service, error: string): void {
+export function recordPreviewCaptureError(service: Service, error: string): void {
+  const existing = service.preview?.path ? service.preview : cachedPreview(previewPathForService(service.id));
+  if (existing?.path) {
+    service.preview = {
+      ...existing,
+      error,
+      error_at: new Date().toISOString(),
+      stale: existing.stale ?? true,
+    };
+    return;
+  }
+
   service.preview = {
-    path: previewPathForService(service.id),
+    path: null,
     captured_at: new Date().toISOString(),
     error,
+    error_at: new Date().toISOString(),
+    stale: false,
   };
 }
 

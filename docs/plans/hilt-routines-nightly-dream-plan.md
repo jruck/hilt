@@ -260,7 +260,7 @@ There is no `runMissedOnWake` field — `StartCalendarInterval` coalesces missed
 
 Routines read inputs via shared `lib/` modules:
 
-- `src/lib/claude-sessions.ts` — canonical session signal (already shared).
+- `src/lib/map/local-session-detail.ts` — canonical session signal. (Original plan referenced `src/lib/claude-sessions.ts`; in the current code session parsing lives under `src/lib/map/`.)
 - `src/lib/bridge/*` — tasks, projects, weekly, briefings, notes parsers.
 
 Refactor rule: where today an API route handler contains parsing logic, that logic must be extracted into a `lib/` module the route handler and the routine runner both import. API routes become thin wrappers around the shared parsers; parsers are the source of truth.
@@ -270,11 +270,15 @@ Default input windows for `NightlyDreamRoutine`:
 | Input | Source | Window |
 |---|---|---|
 | Weekly tasks | `bridge/weekly-parser.ts` | This week + last week |
+| Task transitions | runner diff over weekly files | Last 7 days |
 | Projects | `bridge/project-parser.ts` | All |
 | Recent briefings | `bridge/briefings/*.md` | Last 7 days |
 | Vault changes | `bridge/**/*.md` mtime | Last 24h, excluding `briefings/` |
-| Session signals | `claude-sessions.ts` | Sessions touched in last 24h |
+| Session signals | `src/lib/map/local-session-detail.ts` | Sessions touched in last 24h |
+| Session errors | filtered from session signals (error/stuck) | Last 24h |
 | Routine health | `runs.jsonl` | Last 24h, all routines |
+| Prior dream outcomes | `deltas.jsonl` filtered to `routineId: "nightly-dream"` | Last 7 days, all `status` |
+| Current memory surface | `## Memory / Dream Learnings` sections extracted from recent briefings | Last 30 days |
 
 ### Scheduling — launchd `StartCalendarInterval`
 
@@ -413,6 +417,16 @@ export type DreamDelta = {
     | "health_finding"
     | "task_suggestion"
     | "index_update";
+  // What the dream wants to do with this entry. Default "add" for net-new
+  // proposals; "update" / "demote" / "remove" target an existing memory entry
+  // and require proposedChange.targetPath. Maps directly to Anthropic's
+  // "condense what is stale, promote what is load-bearing" framing — without
+  // this field, memory grows monotonically.
+  operation: "add" | "update" | "demote" | "remove";
+  // Why the dream surfaced this. Mirrors Anthropic's three explicit pattern
+  // categories plus a catch-all. Used for observation/measurement so we can
+  // later tune which categories produce the most user-applied deltas.
+  patternKind: "recurring_quirk" | "convergent_workflow" | "evolving_preference" | "ad_hoc";
   title: string;
   summary: string;
   risk: "low" | "medium" | "high";
@@ -429,6 +443,10 @@ V1 behavior:
 
 - Every delta lands as `status: "proposed"`. `autoApplyRisk: []` blocks the auto-apply path entirely.
 - All proposed deltas are appended to `~/.hilt/data/routines/deltas.jsonl` and summarized in the day's briefing.
+- `operation ∈ {update, demote, remove}` is always forced to `applyMode: "review"` by the runner regardless of `risk` classification. Destructive or revising operations on memory are never auto-applyable, even at low risk.
+- For types `briefing_item`, `health_finding`, `task_suggestion`, the runner forces `operation = "add"` regardless of what the model returns — these types are inherently new, not revisions to existing memory.
+- The runner cross-references each new delta against deltas of `status: "rejected"` from the last 7 days. Close title+targetPath collisions downgrade `confidence` and append a note. This is a backstop for the model's own "don't re-propose rejected" instruction.
+- `patternKind` is observational: it records *why* the dream surfaced something so we can later measure which pattern categories produce the most user-applied deltas.
 - The auto-apply pathway — write-target allowlists, undo journaling, reversibility guarantees — will be specified when the delta-review UI is built. Until then, no routine ever writes outside `~/.hilt/data/routines/` and `bridge/briefings/YYYY-MM-DD.md`.
 
 ### Delta → briefing-section mapping

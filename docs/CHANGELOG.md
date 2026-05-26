@@ -82,6 +82,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
+- **People tab transcript-only recordings missing** — People matching now includes Granola recordings that only have a transcript file under `meetings/transcripts/YYYY-MM-DD/` and no companion meeting note under `meetings/YYYY-MM-DD/`. These transcript-only records are deduped when the note exists, keep their transcript path, and show in saved-person timelines/counts instead of disappearing.
+
 - **People tab invalid System scope carryover** — Switching from System directly to People no longer carries scopes like `/stack`, `/apps`, or `/sessions` into People as if they were person slugs. People now remembers its own last valid scope, sanitizes known System scopes back to the inbox, and redirects invalid slugs every time they appear instead of only once per mount.
 
 - **Local Apps preview downgrade flicker** — Metadata polls and preview refreshes now merge with the last known screenshot metadata instead of replacing it wholesale. A newer scan that omits a preview path for the same app/service no longer makes a card fall back from a good screenshot to `Preview disabled`.

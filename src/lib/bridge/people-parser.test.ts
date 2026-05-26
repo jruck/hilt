@@ -44,6 +44,116 @@ afterEach(() => {
 });
 
 describe("people parser meeting notes", () => {
+  it("matches transcript-only recordings to saved people", async () => {
+    const vaultPath = makeVault();
+    fs.writeFileSync(
+      path.join(vaultPath, "people", "alex.md"),
+      `---
+type: person
+---
+
+# Alex
+
+## Next
+
+## Notes
+`,
+      "utf-8"
+    );
+
+    const transcriptDir = path.join(vaultPath, "meetings", "transcripts", "2026-05-26");
+    fs.mkdirSync(transcriptDir, { recursive: true });
+    const transcriptPath = path.join(transcriptDir, "Alex Weekly-2026-05-26 @ 11-32-08 (transcript).md");
+    fs.writeFileSync(
+      transcriptPath,
+      `---
+title: Alex Weekly - Transcript
+type: transcript
+created: 2026-05-26T15:32:08.316Z
+---
+
+# Transcript for: Alex Weekly
+
+### Guest
+
+Discussed launch coverage.
+`,
+      "utf-8"
+    );
+
+    const people = await getAllPeople(vaultPath);
+    const detail = await getPersonDetail(vaultPath, "alex");
+
+    expect(people.people.find((person) => person.slug === "alex")?.meetingCount).toBe(1);
+    expect(people.people.find((person) => person.slug === "alex")?.lastMeetingDate).toBe("2026-05-26T15:32:08.316Z");
+    expect(detail?.meetings).toHaveLength(1);
+    expect(detail?.meetings[0]).toMatchObject({
+      source: "granola",
+      date: "2026-05-26",
+      time: "2026-05-26T15:32:08.316Z",
+      title: "Alex Weekly",
+      transcriptPath,
+      summary: undefined,
+    });
+  });
+
+  it("does not double count transcripts when the meeting note exists", async () => {
+    const vaultPath = makeVault();
+    fs.writeFileSync(
+      path.join(vaultPath, "people", "alex.md"),
+      `---
+type: person
+---
+
+# Alex
+
+## Next
+
+## Notes
+`,
+      "utf-8"
+    );
+
+    const dateDir = path.join(vaultPath, "meetings", "2026-05-26");
+    fs.mkdirSync(dateDir, { recursive: true });
+    const filename = "Alex Weekly-2026-05-26 @ 11-32-08.md";
+    fs.writeFileSync(
+      path.join(dateDir, filename),
+      `---
+title: Alex Weekly
+created: 2026-05-26T15:32:08.316Z
+---
+
+# Alex Weekly
+
+Recorded summary.
+`,
+      "utf-8"
+    );
+
+    const transcriptDir = path.join(vaultPath, "meetings", "transcripts", "2026-05-26");
+    fs.mkdirSync(transcriptDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(transcriptDir, "Alex Weekly-2026-05-26 @ 11-32-08 (transcript).md"),
+      `---
+title: Alex Weekly - Transcript
+type: transcript
+created: 2026-05-26T15:32:08.316Z
+note: "[[meetings/2026-05-26/${filename}]]"
+---
+
+# Transcript for: Alex Weekly
+`,
+      "utf-8"
+    );
+
+    const detail = await getPersonDetail(vaultPath, "alex");
+
+    expect(detail?.meetings).toHaveLength(1);
+    expect(detail?.meetings[0].summary).toContain("Recorded summary");
+    expect(detail?.meetings[0].transcriptPath).toContain("meetings/transcripts/2026-05-26");
+  });
+
   it("shows same-date written notes as a tab on the recorded meeting", async () => {
     const vaultPath = makeVault();
     fs.writeFileSync(

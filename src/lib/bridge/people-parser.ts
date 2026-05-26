@@ -13,6 +13,12 @@ interface InlineNoteMeeting extends PersonMeeting {
   noteTitle?: string;
 }
 
+interface MeetingFileEntry {
+  filename: string;
+  fullPath: string;
+  transcriptOnly?: boolean;
+}
+
 const NEXT_SAVED_AT_FIELD = "next_saved_at";
 const BRIDGE_PREFS_FILE = ".hilt-preferences.json";
 const HIDDEN_SUGGESTIONS_KEY = "people.hiddenSuggestions";
@@ -331,14 +337,61 @@ export function parseMeetingFrontmatter(content: string, filename?: string): {
   };
 }
 
+function stripTranscriptSuffix(filename: string): string {
+  return filename.replace(/\s*\(transcript\)(?=\.md$)/i, "");
+}
+
+function normalizeTranscriptTitle(title: string): string {
+  return title
+    .replace(/\s+-\s*Transcript$/i, "")
+    .replace(/\s*\(transcript\)$/i, "")
+    .trim();
+}
+
+function getMeetingTitle(meta: ReturnType<typeof parseMeetingFrontmatter>, entry: MeetingFileEntry): string {
+  const title = meta.title || entry.filename.replace(/\.md$/, "");
+  return entry.transcriptOnly ? normalizeTranscriptTitle(title) || title : title;
+}
+
+function resolveTranscriptPath(
+  vaultPath: string,
+  entry: MeetingFileEntry,
+  transcript: string,
+): string | undefined {
+  if (entry.transcriptOnly) return entry.fullPath;
+  return transcript ? path.join(vaultPath, transcript) : undefined;
+}
+
+function normalizeTranscriptNotePath(notePath: string, meetingsDir: string): string | null {
+  const normalized = notePath
+    .replace(/^\[\[|\]\]$/g, "")
+    .split("|")[0]
+    .trim();
+  if (!normalized) return null;
+
+  if (path.isAbsolute(normalized)) {
+    const rel = path.relative(meetingsDir, normalized);
+    return rel.startsWith("..") || path.isAbsolute(rel) ? null : rel;
+  }
+
+  return normalized.replace(/^meetings[\\/]/, "");
+}
+
 /**
  * Collect all meeting .md files from the meetings directory.
  * Supports both flat files (legacy) and date-subfolder structure (Granola resync).
  * Returns objects with `filename` (for matching) and `fullPath` (for reading).
  */
-function collectMeetingFiles(meetingsDir: string): { filename: string; fullPath: string }[] {
+function collectMeetingFiles(meetingsDir: string): MeetingFileEntry[] {
   if (!fs.existsSync(meetingsDir)) return [];
-  const results: { filename: string; fullPath: string }[] = [];
+  const results: MeetingFileEntry[] = [];
+  const noteRelativePaths = new Set<string>();
+
+  const addMeetingNote = (filename: string, fullPath: string) => {
+    results.push({ filename, fullPath });
+    noteRelativePaths.add(path.relative(meetingsDir, fullPath));
+  };
+
   try {
     for (const entry of fs.readdirSync(meetingsDir)) {
       if (entry.startsWith(".") || entry === "transcripts") continue;
@@ -346,17 +399,59 @@ function collectMeetingFiles(meetingsDir: string): { filename: string; fullPath:
       const stat = fs.statSync(entryPath);
       if (stat.isFile() && entry.endsWith(".md")) {
         // Legacy flat file
-        results.push({ filename: entry, fullPath: entryPath });
+        addMeetingNote(entry, entryPath);
       } else if (stat.isDirectory()) {
         // Date subfolder — collect .md files inside
         try {
           for (const sub of fs.readdirSync(entryPath)) {
             if (sub.endsWith(".md") && !sub.startsWith(".")) {
-              results.push({ filename: sub, fullPath: path.join(entryPath, sub) });
+              addMeetingNote(sub, path.join(entryPath, sub));
             }
           }
         } catch {
           // Skip unreadable subfolder
+        }
+      }
+    }
+
+    // Some Granola syncs produce only a transcript file. Treat those as
+    // recorded meetings too, but skip the transcript when the note exists.
+    const transcriptsDir = path.join(meetingsDir, "transcripts");
+    if (fs.existsSync(transcriptsDir)) {
+      for (const entry of fs.readdirSync(transcriptsDir)) {
+        if (entry.startsWith(".")) continue;
+        const entryPath = path.join(transcriptsDir, entry);
+        const stat = fs.statSync(entryPath);
+        if (!stat.isDirectory()) continue;
+
+        try {
+          for (const sub of fs.readdirSync(entryPath)) {
+            if (!sub.endsWith(".md") || sub.startsWith(".")) continue;
+
+            const fullPath = path.join(entryPath, sub);
+            let noteRelativePath: string | null = null;
+            try {
+              const { fm } = parseFrontmatter(fs.readFileSync(fullPath, "utf-8"));
+              if (fm.note) {
+                noteRelativePath = normalizeTranscriptNotePath(fm.note, meetingsDir);
+              }
+            } catch {
+              // Fall back to filename convention below.
+            }
+
+            const filename = stripTranscriptSuffix(sub);
+            const conventionalNotePath = path.join(entry, filename);
+            if (
+              (noteRelativePath && noteRelativePaths.has(noteRelativePath)) ||
+              noteRelativePaths.has(conventionalNotePath)
+            ) {
+              continue;
+            }
+
+            results.push({ filename, fullPath, transcriptOnly: true });
+          }
+        } catch {
+          // Skip unreadable transcript subfolder
         }
       }
     }
@@ -397,7 +492,7 @@ export async function getAllPeople(
     try {
       const content = fs.readFileSync(entry.fullPath, "utf-8");
       const meta = parseMeetingFrontmatter(content, entry.filename);
-      meetingMetaCache.set(entry.filename, { title: meta.title, created: meta.created });
+      meetingMetaCache.set(entry.filename, { title: getMeetingTitle(meta, entry), created: meta.created });
     } catch {
       // Skip unreadable
     }
@@ -642,12 +737,10 @@ export async function getAllMeetings(vaultPath: string, filterName?: string): Pr
         source: "granola",
         date,
         time: meta.created || undefined,
-        title: meta.title || entry.filename.replace(/\.md$/, ""),
+        title: getMeetingTitle(meta, entry),
         filePath: entry.fullPath,
-        transcriptPath: meta.transcript
-          ? path.join(vaultPath, meta.transcript)
-          : undefined,
-        summary: meta.body,
+        transcriptPath: resolveTranscriptPath(vaultPath, entry, meta.transcript),
+        summary: entry.transcriptOnly ? undefined : meta.body,
         matchedPeople: filterName ? [] : (personMatches.get(entry.filename) || []),
       });
     } catch { /* skip */ }
@@ -1036,15 +1129,15 @@ export async function getPersonDetail(
   // Match Granola meetings (supports nested date folders)
   const meetingFileEntries = collectMeetingFiles(meetingsDir);
   const meetingFilenames = meetingFileEntries.map((e) => e.filename);
-  const meetingFileMap = new Map(meetingFileEntries.map((e) => [e.filename, e.fullPath]));
+  const meetingFileMap = new Map(meetingFileEntries.map((e) => [e.filename, e]));
 
   const granolaMeetings: PersonMeeting[] = [];
   const matchedMeetings = matchMeetingsToSlug(slug, person.name, meetingFilenames, person.aliases);
   for (const mf of matchedMeetings) {
-    const mfPath = meetingFileMap.get(mf);
-    if (!mfPath) continue;
+    const mfEntry = meetingFileMap.get(mf);
+    if (!mfEntry) continue;
     try {
-      const mfContent = fs.readFileSync(mfPath, "utf-8");
+      const mfContent = fs.readFileSync(mfEntry.fullPath, "utf-8");
       const mfMeta = parseMeetingFrontmatter(mfContent, mf);
       const date = mfMeta.created ? mfMeta.created.slice(0, 10) : "";
       const { body: mfBody } = parseFrontmatter(mfContent);
@@ -1054,12 +1147,10 @@ export async function getPersonDetail(
         source: "granola",
         date,
         time: mfMeta.created || undefined,
-        title: mfMeta.title || mf.replace(/\.md$/, ""),
-        filePath: mfPath,
-        transcriptPath: mfMeta.transcript
-          ? path.join(vaultPath, mfMeta.transcript)
-          : undefined,
-        summary,
+        title: getMeetingTitle(mfMeta, mfEntry),
+        filePath: mfEntry.fullPath,
+        transcriptPath: resolveTranscriptPath(vaultPath, mfEntry, mfMeta.transcript),
+        summary: mfEntry.transcriptOnly ? undefined : summary,
       });
     } catch {
       // Skip unreadable meeting

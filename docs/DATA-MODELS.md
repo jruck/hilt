@@ -471,6 +471,73 @@ interface InboxDB {
 }
 ```
 
+## Reference Library Models
+
+The Reference Library is file-native first. Durable references live under `references/` in the bridge vault, while discovery candidates live under `references/.cache/library-candidates/`. Source definitions live in bridge-owned YAML files under `meta/sources/`.
+
+### LibrarySourceConfig
+
+```typescript
+interface LibrarySourceConfig {
+  id: string;
+  name: string;
+  channel: "manual" | "youtube" | "twitter" | "raindrop" | "rss" | "email" | "arena" | "fixture";
+  adapter: string;
+  enabled: boolean;
+  intent: "explicit_save" | "discovery";
+  cadence: "manual" | "hourly" | "daily" | "weekly";
+  tags: string[];
+  retention: {
+    mode: "durable" | "candidate";
+    ttl_days?: number;
+    candidate_ttl_days: number;
+    auto_promote_threshold: number;
+  };
+  auth: {
+    required: boolean;
+    env?: string | string[];
+    scopes?: string[];
+    stop_on_missing_credential: boolean;
+  };
+  backfill: {
+    enabled: boolean;
+    cursor?: string;
+    limit?: number;
+    mode: "none" | "checkpointed" | "full";
+  };
+  backfill: {
+    enabled: boolean;
+    cursor?: string;
+    limit?: number;
+    mode: "none" | "checkpointed" | "full";
+  };
+  metadata: Record<string, unknown>;
+}
+```
+
+### LibraryArtifact
+
+```typescript
+interface LibraryArtifact {
+  id: string;
+  title: string;
+  description: string;
+  url: string;
+  path: string;
+  source_type: "reference" | "reference-candidate";
+  lifecycle_status: "saved" | "candidate" | "promoted" | "skipped" | "expired" | "dead_letter";
+  channel: LibrarySourceConfig["channel"] | null;
+  source_id: string | null;
+  source_name: string | null;
+  captured_at: string;
+  tags: string[];
+  score: number;
+  save_recommendation: "file" | "review" | "skip";
+  destination?: string;
+  connections: string[];
+}
+```
+
 ## API Response Types
 
 ### DocsTreeResponse
@@ -531,4 +598,4 @@ Browser-side persistence (limited -- most preferences now server-side).
 
 ---
 
-*Last updated: 2026-05-19*
+*Last updated: 2026-05-27*

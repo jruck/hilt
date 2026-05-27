@@ -10,7 +10,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **System inspection parent view** — Added `/system` as the top-level home for Hilt's machine/system views. System has internal `Sessions`, `Apps`, and `Stack` modes, with legacy `/map`, `/local-apps`, and `/stack` URLs still resolving into the matching System mode. Top-level navigation is now simplified to Bridge, People, Briefing, Library, Docs, and System.
 
-- **Library placeholder tab** — Added `/library` as a top-level route with a centered Bookmark icon and "Coming Soon" placeholder while the Library surface is being designed.
+- **Reference Library v0** — Replaced the `/library` placeholder with a file-native Library surface: Feed and Browse views, candidate Save/Skip, source filters, detail panes, For You recommendations, keyword search, and APIs for library items, candidates, sources, ingestion, recommendations, and search. Added source YAML loading, fixture-first ingestion adapters, candidate cache handling, durable reference writing, promotion, retry/dead-letter state, and CLI entrypoints for ingestion, hourly runs, newsletter runs, candidate cleanup, retry replay, and recommendation refresh.
 
 - **System tailnet session aggregation** — Added `/api/system/machine`, `/api/system/machines`, and `/api/system/sessions/*` routes. The Sessions mode now queries local Map indexes from each Hilt-running tailnet peer, namespaces machine/session/tree ids, and presents an all-machines session map while still resolving history previews through the machine that owns the session.
 
@@ -179,6 +179,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - **Docs editor: replaced MDXEditor with CodeMirror + ReactMarkdown** — Edit mode now uses a plain markdown source editor (`@codemirror/lang-markdown`) so files round-trip byte-exact: no more escaped `[[wikilinks]]`, no normalized bullet markers, no reformatted line breaks. Read mode unifies on `ReactMarkdown + remarkGfm + rehypeRaw` (previously only used for files containing `<details>` blocks); wikilink + image rewriting and Mermaid block rendering are preserved. Frontmatter editing UI is unchanged. **Tradeoffs:** no WYSIWYG toolbar, no rich image-insert dialog, no syntax-colored code blocks in read mode (added `rehype-highlight` as a dep for a follow-up). `DocsEditor`'s imperative ref API (`getMarkdown`/`setMarkdown`) is dropped — no consumers used it. Deleted orphan `src/components/PlanEditor.tsx`. Removed `@mdxeditor/editor` from dependencies. Simplified the "baseline content" workaround in `useDocs.ts` and `StackContentPane.tsx` since byte-exact edits make the comparison `editedContent !== loadedContent`.
 
 ### Fixed
+
+- **Electron chrome and app-wide scrollbars** — Adjusted macOS traffic-light controls to align with Hilt's floating top nav and added a global scrollbar visibility controller so scrollbars stay hidden until active scrolling, then appear as minimal transparent-track thumbs instead of thick persistent rails.
 
 - **Map nested treemap positioning** — Fixed adaptive inline child nodes using their own local origin instead of the parent tile's offset, which caused nested folders/workspaces to pile up in the top-left of the treemap and ghost through unrelated parent tiles.
 

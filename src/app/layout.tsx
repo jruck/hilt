@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { ScrollbarVisibilityController } from "@/components/ScrollbarVisibilityController";
 import { EventSocketProvider } from "@/contexts/EventSocketContext";
 import "./globals.css";
 
@@ -47,6 +48,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[var(--bg-primary)] text-[var(--text-primary)]`}
       >
+        <ScrollbarVisibilityController />
         <EventSocketProvider>{children}</EventSocketProvider>
       </body>
     </html>

@@ -107,7 +107,7 @@ const viewMode: ViewMode = urlViewMode === "bridge" ? "bridge"
 
 - Defaults to Bridge view when no URL prefix is present (e.g., Electron app startup)
 - Keeps Map, Apps, Stack, and Sync under the System tab
-- Includes a Library placeholder route while the Library surface is being designed
+- Includes the Library route for file-native references, hidden candidates, source filtering, and promotion
 - Supports cross-view navigation (e.g., Bridge project click navigates to Docs view)
 
 ---
@@ -129,7 +129,7 @@ type ViewMode = "briefings" | "bridge" | "docs" | "library" | "people" | "system
 | Bridge | Compass | Weekly tasks and projects |
 | People | Users | People and meeting history |
 | Briefing | CalendarDays | Daily briefing |
-| Library | Bookmark | Placeholder for the coming Library surface |
+| Library | Bookmark | Reference feed, candidates, source browse, and search |
 | Docs | FileText | Documentation browser/editor |
 | System | Layers | System inspection modes |
 
@@ -148,6 +148,21 @@ Local work-state map backed by `/api/map/local/*`.
 - Fetches `/api/map/local/session-detail` only after the user selects a session.
 - Shows copyable Map session ids in session rows and history preview so a session can be referenced from chat or searched later.
 - Desktop presents tree, sessions, and history as separate panes. Mobile keeps a staged flow: tree first, sessions after a non-root tree selection, history after session selection.
+
+---
+
+### LibraryView.tsx
+
+**File**: `src/components/library/LibraryView.tsx`
+
+Reference Library workspace backed by markdown reference files and hidden candidate files in the bridge vault.
+
+**Key behaviors**
+
+- Defaults to Feed, with a compact For You / Recent switch and candidate Save / Skip actions.
+- Browse mode uses a source column, dense reference/candidate list, and detail pane.
+- Uses `/api/library`, `/api/library/candidates/*`, `/api/library/sources`, `/api/library/recommendations`, and `/api/search`.
+- Manual, explicit-save, and discovery records share the same artifact shape, so UI actions do not need source-specific handling.
 
 ---
 
@@ -523,4 +538,4 @@ Not heavily used -- designed for desktop/laptop screens. The `sm:` breakpoint is
 
 ---
 
-*Last updated: 2026-02-05*
+*Last updated: 2026-05-27*

@@ -13,7 +13,7 @@ This document provides a comprehensive architectural overview of Hilt for AI age
 │  │  │  Board.tsx (Main Container)                                  │  │  │
 │  │  │  ├── ViewToggle (Bridge / People / Briefing / Library / Docs / System) │  │  │
 │  │  │  ├── BridgeView (weekly tasks, projects, notes)              │  │  │
-│  │  │  ├── Library placeholder view                                 │  │  │
+│  │  │  ├── LibraryView (feed, candidates, browse, search)           │  │  │
 │  │  │  ├── DocsView (markdown file browser + editor)               │  │  │
 │  │  │  ├── SystemView (Sessions / Apps / Stack / Sync inspection)  │  │  │
 │  │  │  ├── MapView (local/tailnet work/session map)                │  │  │
@@ -226,7 +226,7 @@ Board.tsx receives context via useScope()
 Conditionally renders:
   - "bridge" → BridgeView
   - "briefings" → BriefingsView
-  - "library" → Library placeholder
+  - "library" → LibraryView
   - "docs"   → DocsView (with scope + search)
   - "people" → PeopleView (scope = person slug for deep links)
   - "system" → SystemView (Sessions / Apps / Stack / Sync modes)
@@ -615,7 +615,10 @@ Board.tsx (274 lines)
 │               └── MeetingEntry × N (inline notes + Granola meetings)
 │
 │   ├── viewMode === "library"
-│   │   └── Library placeholder (URL: /library)
+│   │   └── LibraryView (URL: /library)
+│   │       ├── FeedView (For You / Recent, Save / Skip)
+│   │       ├── BrowseView (sources, dense list, detail pane)
+│   │       └── Library APIs (/api/library/*, /api/search)
 │
 │   └── viewMode === "local-apps"
 │       └── LocalAppsView
@@ -823,4 +826,4 @@ interface UserPreferences {
 
 ---
 
-*Last updated: 2026-02-17*
+*Last updated: 2026-05-27*

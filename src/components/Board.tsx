@@ -11,29 +11,16 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBriefingUnread } from "@/hooks/useBriefingUnread";
 import { PullToRefresh } from "./PullToRefresh";
 import { isSystemMode, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode, type SystemMode } from "@/lib/system/navigation";
-import { Bookmark } from "lucide-react";
 
 const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.DocsView })), { ssr: false });
 const BridgeView = dynamic(() => import("./bridge/BridgeView").then(m => ({ default: m.BridgeView })), { ssr: false });
 const BriefingsView = dynamic(() => import("./briefings/BriefingsView").then(m => ({ default: m.BriefingsView })), { ssr: false });
+const LibraryView = dynamic(() => import("./library/LibraryView").then(m => ({ default: m.LibraryView })), { ssr: false });
 const PeopleView = dynamic(() => import("./people/PeopleView").then(m => ({ default: m.PeopleView })), { ssr: false });
 const SystemView = dynamic(() => import("./system").then(m => ({ default: m.SystemView })), { ssr: false });
 
 const SYSTEM_MODE_STORAGE_KEY = "hilt-system-mode";
 const PEOPLE_SCOPE_STORAGE_KEY = "hilt-people-scope";
-
-function LibraryComingSoon() {
-  return (
-    <div className="flex flex-1 items-center justify-center bg-[var(--bg-primary)] px-6">
-      <div className="flex flex-col items-center gap-4 text-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-lg border border-[var(--border-default)] bg-[var(--content-surface)] text-[var(--text-secondary)] content-card-shadow">
-          <Bookmark className="h-7 w-7" />
-        </div>
-        <p className="text-sm font-medium text-[var(--text-secondary)]">Coming Soon</p>
-      </div>
-    </div>
-  );
-}
 
 function getStoredPeopleScope(): string {
   if (typeof window === "undefined") return "/__inbox__";
@@ -138,7 +125,7 @@ export function Board() {
   }, [isHydrated, workingFolder]);
   const isMobile = useIsMobile();
   const { hasUnread: hasBriefingUnread } = useBriefingUnread();
-  const usesWorkspaceGutter = !isMobile && (viewMode === "docs" || viewMode === "people" || viewMode === "system");
+  const usesWorkspaceGutter = !isMobile && (viewMode === "docs" || viewMode === "people" || viewMode === "system" || viewMode === "library");
   const usesWorkspaceTopBorder = !isMobile && (viewMode === "docs" || viewMode === "people");
 
   // Search state
@@ -244,7 +231,7 @@ export function Board() {
         ) : viewMode === "briefings" ? (
           <BriefingsView />
         ) : viewMode === "library" ? (
-          <LibraryComingSoon />
+          <LibraryView searchQuery={searchQuery} />
         ) : viewMode === "people" ? (
           <PeopleView searchQuery={searchQuery} />
         ) : null}
@@ -279,7 +266,7 @@ export function Board() {
         ) : viewMode === "briefings" ? (
           <BriefingsView />
         ) : viewMode === "library" ? (
-          <LibraryComingSoon />
+          <LibraryView searchQuery={searchQuery} />
         ) : viewMode === "people" ? (
           <PeopleView searchQuery={searchQuery} />
         ) : null}

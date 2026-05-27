@@ -1148,6 +1148,77 @@ Fetch transcript for a YouTube video.
 
 ---
 
+## Reference Library APIs
+
+The Library APIs expose the file-native reference system in the bridge vault. Durable references are markdown files under `references/`; discovery candidates are hidden markdown files under `references/.cache/library-candidates/`. All routes use the shared artifact contract from `src/lib/library/types.ts`.
+
+### GET /api/library
+
+Lists saved references and, by default, unexpired candidates.
+
+**Query Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `q` | string | Keyword search over title, description, summary, tags, URL, and connections |
+| `status` | string | `saved`, `candidate`, `promoted`, `skipped`, or `expired` |
+| `sourceId` | string | Source config id |
+| `channel` | string | Source channel such as `youtube`, `raindrop`, `twitter`, `rss`, or `manual` |
+| `tag` | string | Tag filter |
+| `includeCandidates` | boolean | Defaults to `true` |
+| `limit` | number | Maximum rows |
+
+### GET /api/library/:id
+
+Returns a single saved reference or candidate with full summary, key points, assessment, metadata, and body content.
+
+### GET /api/library/candidates
+
+Lists hidden candidate records from `references/.cache/library-candidates/`.
+
+### PATCH /api/library/candidates/:id
+
+Updates candidate review status. Supported status values are `candidate` and `skipped`.
+
+### POST /api/library/candidates/:id/promote
+
+Promotes a candidate to a durable reference and marks the candidate as promoted.
+
+```typescript
+{
+  reason?: "explicit_signal" | "manual_promotion" | "auto_threshold" | "for_you_selected" | "briefing_selected";
+}
+```
+
+### GET /api/library/sources
+
+Returns loaded `meta/sources/*.yaml` source configs plus source-state status.
+
+### POST /api/sources/ingest
+
+Runs the shared source runner for selected sources or every enabled source. Credential-gated sources return `424` with blocked source details instead of pretending live access succeeded.
+
+```typescript
+{
+  sourceIds?: string[];
+  useSummarize?: boolean;
+}
+```
+
+### GET /api/sources/status
+
+Returns current source configs and checkpoint state without running ingestion.
+
+### GET /api/library/recommendations
+
+Returns the file-native For You ranking over recent saved references and unexpired candidates.
+
+### GET /api/search
+
+Stable v0 keyword search contract over saved references and candidates. This route is intentionally swappable for the later Memory & Search implementation.
+
+---
+
 ## WebSocket Protocol (EventServer)
 
 **Server**: `ws://localhost:{port}/events` (port discovered via `GET /api/ws-port`)
@@ -1266,4 +1337,4 @@ Common HTTP status codes:
 
 ---
 
-*Last updated: 2025-02-05*
+*Last updated: 2026-05-27*

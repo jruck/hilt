@@ -301,12 +301,49 @@ body {
   color: var(--text-primary);
 }
 
+/* Global scrollbars stay quiet until the user is actively scrolling. */
+:root {
+  --hilt-scrollbar-size: 8px;
+  --hilt-scrollbar-thumb: color-mix(in oklab, var(--text-tertiary) 48%, transparent);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+*::-webkit-scrollbar {
+  width: var(--hilt-scrollbar-size);
+  height: var(--hilt-scrollbar-size);
+  background: transparent;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: transparent;
+  background-clip: content-box;
+}
+
+.hilt-scrollbar-active {
+  scrollbar-color: var(--hilt-scrollbar-thumb) transparent;
+}
+
+.hilt-scrollbar-active::-webkit-scrollbar-thumb {
+  background-color: var(--hilt-scrollbar-thumb);
+}
+
 /* Hide scrollbar utility — still scrollable, just no visible bar */
 .scrollbar-none {
-  scrollbar-width: none;
+  scrollbar-width: none !important;
 }
 .scrollbar-none::-webkit-scrollbar {
-  display: none;
+  display: none !important;
 }
 
 /* Line clamp utility */

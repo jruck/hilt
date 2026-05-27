@@ -14,7 +14,7 @@ import { RecycleModal } from "./RecycleModal";
 import { BridgeTaskPanel } from "./BridgeTaskPanel";
 import { parseLifecycle } from "@/lib/attribution";
 import { Loader2 } from "lucide-react";
-import type { BridgeTask, BridgeProject } from "@/lib/types";
+import type { BridgeTask, BridgeProject, BridgeWeeklySection } from "@/lib/types";
 
 interface BridgeViewProps {
   addTaskTrigger?: number;
@@ -172,6 +172,9 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
   }, [displayTasks, q]);
 
   const showNotes = !q || (weekly?.notes ?? "").toLowerCase().includes(q);
+  const showAccomplishments = Boolean(weekly?.accomplishments) && (
+    !q || (weekly?.accomplishments ?? "").toLowerCase().includes(q)
+  );
 
   const filteredColumns = useMemo(() => {
     if (!projects || !q) return projects?.columns ?? null;
@@ -208,9 +211,9 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
   const hasFilteredThoughts = filteredThoughtColumns
     ? Object.values(filteredThoughtColumns).some(col => col.length > 0)
     : false;
-  const hasAnyResults = hasFilteredTasks || showNotes || hasFilteredProjects || hasFilteredThoughts;
+  const hasAnyResults = hasFilteredTasks || showNotes || showAccomplishments || hasFilteredProjects || hasFilteredThoughts;
 
-  function handleSelectTask(task: BridgeTask) {
+  const handleSelectTask = useCallback((task: BridgeTask) => {
     // Mark outgoing task as read before switching
     if (selectedTask && selectedTask.id !== task.id) {
       markTaskRead(selectedTask);
@@ -223,7 +226,91 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
       setSelectedTask(task);
     }
     setAutoFocusPanel(false);
-  }
+  }, [selectedTask, markTaskRead]);
+
+  const weeklySectionOrder = useMemo(() => {
+    if (!weekly) return [];
+    const order: BridgeWeeklySection[] = [...(weekly.sectionOrder ?? [])];
+    if (weekly.accomplishments && !order.includes("accomplishments")) {
+      order.unshift("accomplishments");
+    }
+    if (!order.includes("notes")) {
+      const taskIndex = order.indexOf("tasks");
+      const notesIndex = taskIndex === -1 ? order.length : taskIndex + 1;
+      order.splice(notesIndex, 0, "notes");
+    }
+    if (!order.includes("tasks")) {
+      const notesIndex = order.indexOf("notes");
+      const taskIndex = notesIndex === -1 ? order.length : notesIndex + 1;
+      order.splice(taskIndex, 0, "tasks");
+    }
+    return order;
+  }, [weekly]);
+
+  const renderWeeklySection = useCallback((section: BridgeWeeklySection) => {
+    if (!weekly) return null;
+
+    if (section === "accomplishments") {
+      if (!showAccomplishments) return null;
+      return (
+        <BridgeNotes
+          key="accomplishments"
+          title="Accomplishments"
+          notes={weekly.accomplishments}
+          vaultPath={weekly.vaultPath}
+          filePath={weekly.filePath}
+          onSave={updateAccomplishments}
+        />
+      );
+    }
+
+    if (section === "notes") {
+      if (!showNotes) return null;
+      return (
+        <BridgeNotes
+          key="notes"
+          notes={weekly.notes}
+          vaultPath={weekly.vaultPath}
+          filePath={weekly.filePath}
+          onSave={updateNotes}
+        />
+      );
+    }
+
+    if (!hasFilteredTasks) return null;
+    return (
+      <BridgeTaskList
+        key="tasks"
+        tasks={filteredTasks}
+        selectedTaskId={resolvedTask?.id ?? null}
+        onToggle={toggleTask}
+        onReorder={reorderTasks}
+        onUpdateTitle={updateTaskTitle}
+        onDeleteTask={(id) => {
+          deleteTask(id);
+          if (selectedTask?.id === id) setSelectedTask(null);
+        }}
+        onSelectTask={handleSelectTask}
+        onAddTask={() => handleAddTask(NEW_TASK_TITLE)}
+      />
+    );
+  }, [
+    weekly,
+    showAccomplishments,
+    showNotes,
+    hasFilteredTasks,
+    filteredTasks,
+    resolvedTask?.id,
+    toggleTask,
+    reorderTasks,
+    updateTaskTitle,
+    deleteTask,
+    selectedTask?.id,
+    handleSelectTask,
+    handleAddTask,
+    updateNotes,
+    updateAccomplishments,
+  ]);
 
   if (weeklyLoading && !weekly) {
     return (
@@ -255,44 +342,7 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
             onWeekChange={setPreviewWeek}
           />
 
-          {weekly.accomplishments && (
-            <div>
-              <h2 className="text-sm font-medium text-[var(--text-tertiary)] uppercase tracking-wide mb-3">
-                Accomplishments
-              </h2>
-              <BridgeNotes
-                notes={weekly.accomplishments}
-                vaultPath={weekly.vaultPath}
-                filePath={weekly.filePath}
-                onSave={updateAccomplishments}
-              />
-            </div>
-          )}
-
-          {hasFilteredTasks && (
-            <BridgeTaskList
-              tasks={filteredTasks}
-              selectedTaskId={resolvedTask?.id ?? null}
-              onToggle={toggleTask}
-              onReorder={reorderTasks}
-              onUpdateTitle={updateTaskTitle}
-              onDeleteTask={(id) => {
-                deleteTask(id);
-                if (selectedTask?.id === id) setSelectedTask(null);
-              }}
-              onSelectTask={handleSelectTask}
-              onAddTask={() => handleAddTask(NEW_TASK_TITLE)}
-            />
-          )}
-
-          {showNotes && (
-            <BridgeNotes
-              notes={weekly.notes}
-              vaultPath={weekly.vaultPath}
-              filePath={weekly.filePath}
-              onSave={updateNotes}
-            />
-          )}
+          {weeklySectionOrder.map(renderWeeklySection)}
 
           {filteredThoughtColumns && hasFilteredThoughts && (
             <ThoughtBoard

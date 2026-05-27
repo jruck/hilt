@@ -9,13 +9,14 @@ const BridgeTaskEditor = dynamic(
 );
 
 interface BridgeNotesProps {
+  title?: string;
   notes: string;
   vaultPath?: string;
   filePath?: string;
   onSave: (notes: string) => void;
 }
 
-export function BridgeNotes({ notes, vaultPath, filePath, onSave }: BridgeNotesProps) {
+export function BridgeNotes({ title = "Notes", notes, vaultPath, filePath, onSave }: BridgeNotesProps) {
   const lastSaved = useRef(notes);
 
   const handleChange = useCallback(
@@ -32,12 +33,13 @@ export function BridgeNotes({ notes, vaultPath, filePath, onSave }: BridgeNotesP
   return (
     <div>
       <h2 className="text-sm font-medium text-[var(--text-tertiary)] uppercase tracking-wide mb-3">
-        Notes
+        {title}
       </h2>
       <div className="rounded-lg border border-[var(--border-default)] bg-[var(--content-surface)] px-3 py-2">
         <BridgeTaskEditor
           markdown={notes}
           onChange={handleChange}
+          trailingNode={false}
           vaultPath={vaultPath}
           filePath={filePath}
         />

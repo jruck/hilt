@@ -302,6 +302,7 @@ interface BridgeTaskEditorProps {
   onChange?: (markdown: string) => void;
   readOnly?: boolean;
   className?: string;
+  trailingNode?: boolean;
   vaultPath?: string;
   filePath?: string;
 }
@@ -317,6 +318,7 @@ export function BridgeTaskEditor({
   onChange,
   readOnly = false,
   className,
+  trailingNode = true,
   vaultPath,
   filePath,
 }: BridgeTaskEditorProps) {
@@ -339,7 +341,10 @@ export function BridgeTaskEditor({
 
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }),
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3, 4] },
+        trailingNode: trailingNode ? undefined : false,
+      }),
       Link.configure({
         openOnClick: false, // We handle clicks manually for wikilinks + external
         HTMLAttributes: {

@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
       template = await readVaultFile("meta/templates/weekly-list.md");
     } catch {
       // Fallback template
-      template = `---\ntype: weekly-list\nweek: {{date:YYYY-MM-DD}}\n---\n\n# Week of {{date:YYYY-MM-DD}}\n\n## Tasks\n\n## Notes\n`;
+      template = `---\ntype: weekly-list\nweek: {{date:YYYY-MM-DD}}\n---\n\n# Week of {{date:YYYY-MM-DD}}\n\n## Notes\n\n## Tasks\n`;
     }
 
     // Interpolate date

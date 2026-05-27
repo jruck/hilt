@@ -11,19 +11,19 @@ import { Search, X } from "lucide-react";
 const SHORTCUTS = [
   { keys: "⌘ K", description: "Search" },
   { keys: "⌘ J", description: "Add task" },
-  { keys: "⌘ 1", description: "Briefing" },
-  { keys: "⌘ 2", description: "Bridge" },
+  { keys: "⌘ 1", description: "Bridge" },
+  { keys: "⌘ 2", description: "People" },
   { keys: "⌘ 3", description: "Docs" },
-  { keys: "⌘ 4", description: "People" },
+  { keys: "⌘ 4", description: "Briefing" },
   { keys: "⌘ 5", description: "System" },
   { keys: "Esc", description: "Close search" },
 ];
 
 const VIEW_KEYS: Record<string, ViewMode> = {
-  "1": "briefings",
-  "2": "bridge",
+  "1": "bridge",
+  "2": "people",
   "3": "docs",
-  "4": "people",
+  "4": "briefings",
   "5": "system",
 };
 

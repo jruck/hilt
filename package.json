@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:map": "tsx --test src/lib/map/**/*.test.ts",
+    "test:bridge": "tsx --test src/lib/bridge/weekly-parser.test.ts",
     "test:map:perf": "tsx --test src/lib/map/**/*.perf.ts",
     "test:system": "tsx --test src/lib/system/**/*.test.ts",
     "test:local-apps": "tsx --test src/lib/local-apps/**/*.test.ts",

@@ -93,13 +93,13 @@ Every action should have visible feedback:
 
 **Global tab IA**:
 - Treat Briefing as the synthesized output surface across work, knowledge, people, sessions, and systems.
-- Treat Bridge, Docs, and People as the user's workspace/knowledge cluster.
+- Treat Bridge, People, and Docs as the user's workspace/knowledge cluster.
 - Treat System as the parent for inspection/observability views: Sessions/Map, Apps, Stack/configuration, and Sync.
-- Keep the top-level nav simple and legible: `[Briefing Bridge Docs People System]`. Put inspection sub-modes inside System instead of making every system lens a primary destination.
+- Keep the top-level nav simple and legible: `[Bridge People Docs Briefing System]`. Put inspection sub-modes inside System instead of making every system lens a primary destination.
 - Use a compact secondary segmented control inside System for `Sessions`, `Apps`, `Stack`, and `Sync`; this is mode chrome, not explanatory copy.
 - Keep System mode chrome to one row where possible: mode switcher on the left, mode-specific filters/status/refresh controls right-aligned on the same line. Avoid stacking a System subnav above another full toolbar for each mode.
 - Match the System secondary toolbar height to the primary toolbar exactly. If a control wants more room, compact the control before increasing the chrome height.
-- Top-level shortcuts follow the top-level mental model: Briefing, Bridge, Docs, People, System.
+- Top-level shortcuts follow the top-level mental model: Bridge, People, Docs, Briefing, System.
 
 ### Drawers/Panels
 

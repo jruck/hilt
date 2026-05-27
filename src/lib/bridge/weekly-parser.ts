@@ -1,4 +1,4 @@
-import type { BridgeTask, BridgeWeekly } from "../types";
+import type { BridgeTask, BridgeWeekly, BridgeWeeklySection } from "../types";
 
 /**
  * Parse frontmatter from markdown content.
@@ -72,37 +72,44 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
   const week = fm.week || "";
   const lines = body.split("\n");
 
-  // Find section boundaries
+  // Find section boundaries. Weekly files can put Notes before or after Tasks,
+  // so each section needs its own end boundary instead of assuming Notes is last.
   let accomplishmentsStart = -1;
-  let accomplishmentsEnd = -1;
+  let accomplishmentsEnd = lines.length;
   let tasksStart = -1;
   let tasksEnd = lines.length;
   let notesStart = -1;
+  let notesEnd = lines.length;
+  const sectionPositions: Partial<Record<BridgeWeeklySection, number>> = {};
+
+  function closeOpenSections(index: number) {
+    if (accomplishmentsStart !== -1 && accomplishmentsEnd === lines.length) {
+      accomplishmentsEnd = index;
+    }
+    if (tasksStart !== -1 && tasksEnd === lines.length) {
+      tasksEnd = index;
+    }
+    if (notesStart !== -1 && notesEnd === lines.length) {
+      notesEnd = index;
+    }
+  }
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (line === "## Accomplishments") {
+      closeOpenSections(i);
       accomplishmentsStart = i + 1;
+      sectionPositions.accomplishments = i;
     } else if (line === "## Tasks") {
-      if (accomplishmentsStart !== -1 && accomplishmentsEnd === -1) {
-        accomplishmentsEnd = i;
-      }
+      closeOpenSections(i);
       tasksStart = i + 1;
+      sectionPositions.tasks = i;
     } else if (line === "## Notes") {
-      if (accomplishmentsStart !== -1 && accomplishmentsEnd === -1) {
-        accomplishmentsEnd = i;
-      }
-      if (tasksStart !== -1 && tasksEnd === lines.length) {
-        tasksEnd = i;
-      }
+      closeOpenSections(i);
       notesStart = i + 1;
+      sectionPositions.notes = i;
     } else if (line.startsWith("## ")) {
-      if (accomplishmentsStart !== -1 && accomplishmentsEnd === -1) {
-        accomplishmentsEnd = i;
-      }
-      if (tasksStart !== -1 && tasksEnd === lines.length) {
-        tasksEnd = i;
-      }
+      closeOpenSections(i);
     }
   }
 
@@ -115,10 +122,17 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
         break;
       }
     }
-    if (tasksStart !== -1 && notesStart !== -1) {
+    if (tasksStart !== -1 && notesStart !== -1 && notesStart > tasksStart) {
       tasksEnd = notesStart - 1;
     }
+    if (tasksStart !== -1) {
+      sectionPositions.tasks = tasksStart;
+    }
   }
+
+  const sectionOrder = (["accomplishments", "notes", "tasks"] as BridgeWeeklySection[])
+    .filter((section) => sectionPositions[section] !== undefined)
+    .sort((a, b) => sectionPositions[a]! - sectionPositions[b]!);
 
   // Parse tasks
   const tasks: BridgeTask[] = [];
@@ -238,14 +252,13 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
   // Parse accomplishments
   let accomplishments = "";
   if (accomplishmentsStart !== -1) {
-    const end = accomplishmentsEnd !== -1 ? accomplishmentsEnd : lines.length;
-    accomplishments = lines.slice(accomplishmentsStart, end).join("\n").trim();
+    accomplishments = lines.slice(accomplishmentsStart, accomplishmentsEnd).join("\n").trim();
   }
 
   // Parse notes
   let notes = "";
   if (notesStart !== -1) {
-    notes = lines.slice(notesStart).join("\n").trim();
+    notes = lines.slice(notesStart, notesEnd).join("\n").trim();
   }
 
   // Compute needsRecycle — triggers Friday 3 PM+ of the current week,
@@ -271,6 +284,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
     filename,
     week,
     needsRecycle,
+    sectionOrder,
     tasks,
     accomplishments,
     notes,
@@ -457,23 +471,42 @@ function rebuildContent(
   // Notes
   const notesContent = newNotes !== null ? newNotes.trim() : parsed.notes;
 
-  const parts: string[] = [preamble];
-
-  if (accomplishments) {
-    parts.push("\n## Accomplishments\n" + accomplishments);
-  }
-
   // Preserve file style: legacy has ## Tasks wrapper, new format does not
   const hasTasksHeading = originalContent.split("\n").some(l => l.trim() === "## Tasks");
-  if (hasTasksHeading) {
-    parts.push("\n## Tasks");
-    if (tasksSection) parts.push(tasksSection);
-  } else if (tasksSection) {
-    parts.push("\n" + tasksSection);
+
+  const sectionOrder = [...parsed.sectionOrder];
+  if (accomplishments && !sectionOrder.includes("accomplishments")) {
+    sectionOrder.unshift("accomplishments");
+  }
+  if (!sectionOrder.includes("notes")) {
+    const taskIndex = sectionOrder.indexOf("tasks");
+    const notesIndex = taskIndex === -1 ? sectionOrder.length : taskIndex + 1;
+    sectionOrder.splice(notesIndex, 0, "notes");
+  }
+  if ((hasTasksHeading || tasksSection) && !sectionOrder.includes("tasks")) {
+    const notesIndex = sectionOrder.indexOf("notes");
+    const taskIndex = notesIndex === -1 ? sectionOrder.length : notesIndex + 1;
+    sectionOrder.splice(taskIndex, 0, "tasks");
   }
 
-  parts.push("\n## Notes");
-  if (notesContent) parts.push(notesContent);
+  const parts: string[] = [preamble];
+  for (const section of sectionOrder) {
+    if (section === "accomplishments") {
+      if (accomplishments) {
+        parts.push("\n## Accomplishments\n" + accomplishments);
+      }
+    } else if (section === "notes") {
+      parts.push("\n## Notes");
+      if (notesContent) parts.push(notesContent);
+    } else if (section === "tasks") {
+      if (hasTasksHeading) {
+        parts.push("\n## Tasks");
+        if (tasksSection) parts.push(tasksSection);
+      } else if (tasksSection) {
+        parts.push("\n" + tasksSection);
+      }
+    }
+  }
 
   return parts.join("\n") + "\n";
 }

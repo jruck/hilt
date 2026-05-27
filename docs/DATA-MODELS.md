@@ -32,7 +32,11 @@ interface BridgeTask {
   done: boolean;           // [x] vs [ ]
   details: string[];       // Indented sub-bullet lines (raw markdown)
   rawLines: string[];      // All lines in this task block
-  projectPath: string | null;  // Relative path from vault root, or null
+  startLine?: number;      // 1-based source line of the top-level checkbox
+  projectPath: string | null;  // First relative project path, or null
+  projectPaths: string[];  // All linked project/thought paths
+  dueDate: string | null;  // YYYY-MM-DD from [due:: ...]
+  group: string | null;    // ### group heading inside ## Tasks
 }
 ```
 
@@ -41,11 +45,15 @@ interface BridgeTask {
 Parsed representation of a weekly markdown file from the Bridge vault.
 
 ```typescript
+type BridgeWeeklySection = "accomplishments" | "notes" | "tasks";
+
 interface BridgeWeekly {
   filename: string;        // "2026-01-27.md"
   week: string;            // "2026-01-27" from frontmatter
   needsRecycle: boolean;   // Current date in newer ISO week
+  sectionOrder: BridgeWeeklySection[]; // Source order of weekly sections
   tasks: BridgeTask[];
+  accomplishments: string; // Raw markdown of ## Accomplishments section
   notes: string;           // Raw markdown of ## Notes section
   vaultPath: string;       // Absolute path to vault root
   filePath: string;        // Absolute path to the weekly .md file

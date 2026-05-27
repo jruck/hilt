@@ -32,6 +32,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
+- **Primary navigation order** — Reordered the top-level tabs to Bridge, People, Docs, Briefing, and System. Keyboard shortcuts follow the visual order: `⌘1` Bridge, `⌘2` People, `⌘3` Docs, `⌘4` Briefing, and `⌘5` System.
+
+- **Bridge weekly notes-first section order** — Weekly parsing now tracks `## Notes`, `## Tasks`, and `## Accomplishments` as ordered sections instead of assuming notes are last. Bridge renders weekly notes/tasks in source-file order, rebuilds weekly files without flipping that order, and the weekly template now creates notes before tasks for new weeks. The current week file was moved to the notes-first convention; older weekly files were left untouched.
+
+- **Bridge notes editor trailing space** — Weekly notes/accomplishments now disable TipTap's trailing-node extension, removing the phantom empty cursor line at the bottom of compact notes blocks while leaving task detail editors unchanged.
+
 - **System-first navigation IA** — Replaced the separate system-inspection pill cluster with a single top-level System tab. The System view owns its secondary mode switcher, so Map/Sessions, Apps, and Stack read as related inspection lenses instead of unrelated primary destinations.
 
 - **Sync control plane plan tightened** — Updated the Syncthing pilot plan with explicit `/system/sync` routing, Sync feature flags, tailnet-only Syncthing addresses, conflict retention via `maxConflicts = -1`, shared ignore include naming, conservative REST polling/caching, and versioning test caveats.

@@ -477,6 +477,7 @@ Routes for the Bridge view, which manages weekly task lists and projects from an
 **File**: `src/app/api/bridge/weekly/route.ts`
 
 Get the current (or specified) weekly list with tasks, notes, and metadata.
+The response includes the weekly file's section order so the Bridge view can render current/future notes-first files without rewriting older weeks.
 
 **Query Parameters**
 
@@ -488,9 +489,13 @@ Get the current (or specified) weekly list with tasks, notes, and metadata.
 
 ```typescript
 {
+  filename: string;
+  week: string;
+  needsRecycle: boolean;
+  sectionOrder: ("accomplishments" | "notes" | "tasks")[];
   tasks: BridgeTask[];
+  accomplishments: string;
   notes: string;
-  weekOf: string;
   vaultPath: string;
   filePath: string;
   availableWeeks: string[];

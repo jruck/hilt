@@ -54,10 +54,13 @@ export interface BridgeTask {
   group: string | null;        // ### subheading label within ## Tasks section
 }
 
+export type BridgeWeeklySection = "accomplishments" | "notes" | "tasks";
+
 export interface BridgeWeekly {
   filename: string;        // "2026-01-27.md"
   week: string;            // "2026-01-27" from frontmatter
   needsRecycle: boolean;   // Current date in newer ISO week
+  sectionOrder: BridgeWeeklySection[]; // Source file order for weekly sections
   tasks: BridgeTask[];
   accomplishments: string; // Raw markdown of ## Accomplishments section
   notes: string;           // Raw markdown of ## Notes section

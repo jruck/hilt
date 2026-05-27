@@ -243,10 +243,11 @@ Bridge vault (e.g., ~/work/bridge/)
          ▼
 GET /api/bridge/weekly
          │ weekly-parser.ts reads current week file
-         │ Extracts: tasks, notes, frontmatter, available weeks
+         │ Extracts: tasks, notes, accomplishments, section order, frontmatter, available weeks
          ▼
 BridgeView.tsx
   ├── WeekHeader (week navigation, recycle button)
+  ├── Weekly sections rendered in source-file order
   ├── BridgeTaskPanel
   │   ├── BridgeTaskList (sortable via dnd-kit)
   │   │   └── BridgeTaskItem × N
@@ -653,7 +654,9 @@ interface BridgeWeekly {
   filename: string;        // "2026-01-27.md"
   week: string;            // "2026-01-27" from frontmatter
   needsRecycle: boolean;   // Current date in newer ISO week
+  sectionOrder: ("accomplishments" | "notes" | "tasks")[];
   tasks: BridgeTask[];
+  accomplishments: string;
   notes: string;           // Raw markdown of ## Notes section
   vaultPath: string;       // Absolute path to vault root
   filePath: string;        // Absolute path to the weekly .md file

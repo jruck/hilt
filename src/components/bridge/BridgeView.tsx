@@ -332,7 +332,7 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
     <div className="flex-1 flex overflow-hidden">
       {/* Main content */}
       <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-        <div className={`max-w-3xl mx-auto px-6 py-8 space-y-8 ${isMobile ? "pb-[100px]" : ""}`}>
+        <div className={`max-w-3xl mx-auto px-6 py-8 ${isMobile ? "pb-[100px]" : ""}`}>
           <WeekHeader
             week={weekly.week}
             needsRecycle={weekly.needsRecycle}
@@ -342,37 +342,39 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
             onWeekChange={setPreviewWeek}
           />
 
-          {weeklySectionOrder.map(renderWeeklySection)}
+          <div className="mt-8 space-y-8">
+            {weeklySectionOrder.map(renderWeeklySection)}
 
-          {filteredThoughtColumns && hasFilteredThoughts && (
-            <ThoughtBoard
-              columns={filteredThoughtColumns}
-              onThoughtClick={(thought) => {
-                onNavigateToProject?.({ path: thought.path, relativePath: thought.relativePath } as BridgeProject);
-              }}
-              onStatusChange={(thought, status) => updateThoughtStatus(thought.path, status)}
-            />
-          )}
+            {filteredThoughtColumns && hasFilteredThoughts && (
+              <ThoughtBoard
+                columns={filteredThoughtColumns}
+                onThoughtClick={(thought) => {
+                  onNavigateToProject?.({ path: thought.path, relativePath: thought.relativePath } as BridgeProject);
+                }}
+                onStatusChange={(thought, status) => updateThoughtStatus(thought.path, status)}
+              />
+            )}
 
-          {filteredColumns && hasFilteredProjects && (
-            <ProjectBoard
-              columns={filteredColumns}
-              onProjectClick={(project) => onNavigateToProject?.(project)}
-              onStatusChange={(project, status) => updateProjectStatus(project.path, status)}
-            />
-          )}
+            {filteredColumns && hasFilteredProjects && (
+              <ProjectBoard
+                columns={filteredColumns}
+                onProjectClick={(project) => onNavigateToProject?.(project)}
+                onStatusChange={(project, status) => updateProjectStatus(project.path, status)}
+              />
+            )}
 
-          {(projectsLoading || thoughtsLoading) && !projects && !thoughts && (
-            <div className="text-center text-[var(--text-tertiary)] py-4">
-              <Loader2 className="w-4 h-4 animate-spin inline-block" />
-            </div>
-          )}
+            {(projectsLoading || thoughtsLoading) && !projects && !thoughts && (
+              <div className="text-center text-[var(--text-tertiary)] py-4">
+                <Loader2 className="w-4 h-4 animate-spin inline-block" />
+              </div>
+            )}
 
-          {q && !hasAnyResults && (
-            <div className="text-center text-[var(--text-tertiary)] py-12">
-              No matching items
-            </div>
-          )}
+            {q && !hasAnyResults && (
+              <div className="text-center text-[var(--text-tertiary)] py-12">
+                No matching items
+              </div>
+            )}
+          </div>
         </div>
 
         {showRecycleModal && (

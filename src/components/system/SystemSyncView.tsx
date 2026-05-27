@@ -98,7 +98,7 @@ export function SystemSyncView({ modeSwitcher }: SystemSyncViewProps) {
           {error}
         </div>
       ) : null}
-      <div className="flex-1 overflow-auto p-4">
+      <div className="flex-1 overflow-auto px-4 pb-4 pt-[13px]">
         {machines.length === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">
             No sync machines
@@ -129,7 +129,7 @@ function SyncToolbar({
   onRefresh: () => void;
 }) {
   return (
-    <div className="flex h-11 items-center justify-between gap-3 border-b border-[var(--border-default)] bg-[var(--bg-secondary)] px-3">
+    <div className="flex h-9 items-center justify-between gap-3 px-3">
       {modeSwitcher}
       <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
         {summary}

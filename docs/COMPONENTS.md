@@ -8,10 +8,10 @@ React component architecture and key implementation details.
 App (layout.tsx)
 └── Board.tsx (~275 lines) ──────────────────────────────────────────────
     │
-    ├── Top Toolbar
+    ├── Floating Navigation Chrome
     │   ├── Search input (expandable)
     │   ├── ThemeToggle
-    │   └── ViewToggle (Briefing/Bridge/Map/Docs/People) — centered
+    │   └── ViewToggle (Bridge/People/Briefing/Library/Docs/System) — centered
     │
     ├── Main Content (conditional on viewMode)
     │   │
@@ -89,9 +89,11 @@ Derives `viewMode` from the URL and renders the appropriate view:
 
 ```typescript
 const viewMode: ViewMode = urlViewMode === "bridge" ? "bridge"
-  : urlViewMode === "map" ? "map"
   : urlViewMode === "docs" ? "docs"
-  : urlViewMode === "stack" ? "stack"
+  : urlViewMode === "briefings" ? "briefings"
+  : urlViewMode === "library" ? "library"
+  : urlViewMode === "people" ? "people"
+  : urlViewMode === "system" || urlViewMode === "map" || urlViewMode === "local-apps" || urlViewMode === "stack" ? "system"
   : "bridge"; // fallback
 ```
 
@@ -104,7 +106,8 @@ const viewMode: ViewMode = urlViewMode === "bridge" ? "bridge"
 **Key Behaviors**
 
 - Defaults to Bridge view when no URL prefix is present (e.g., Electron app startup)
-- Hides the bottom scope toolbar when in Bridge view
+- Keeps Map, Apps, Stack, and Sync under the System tab
+- Includes a Library placeholder route while the Library surface is being designed
 - Supports cross-view navigation (e.g., Bridge project click navigates to Docs view)
 
 ---
@@ -116,7 +119,7 @@ const viewMode: ViewMode = urlViewMode === "bridge" ? "bridge"
 Primary toggle for view modes.
 
 ```typescript
-type ViewMode = "briefings" | "bridge" | "map" | "docs" | "stack" | "people";
+type ViewMode = "briefings" | "bridge" | "docs" | "library" | "people" | "system";
 ```
 
 **View Configuration**
@@ -124,9 +127,11 @@ type ViewMode = "briefings" | "bridge" | "map" | "docs" | "stack" | "people";
 | View | Icon | Description |
 |------|------|-------------|
 | Bridge | Compass | Weekly tasks and projects |
-| Map | Map | Local work-state map |
+| People | Users | People and meeting history |
+| Briefing | CalendarDays | Daily briefing |
+| Library | Bookmark | Placeholder for the coming Library surface |
 | Docs | FileText | Documentation browser/editor |
-| Stack | Layers | Claude configuration stack |
+| System | Layers | System inspection modes |
 
 ---
 

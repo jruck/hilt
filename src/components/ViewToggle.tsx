@@ -1,11 +1,11 @@
 "use client";
 
 import React from "react";
-import { FileText, Compass, CalendarDays, Users, Layers } from "lucide-react";
+import { FileText, Compass, CalendarDays, Users, Layers, Bookmark } from "lucide-react";
 import { useHaptics } from "@/hooks/useHaptics";
 
 // The underlying view mode stored in state/preferences
-export type ViewMode = "docs" | "bridge" | "briefings" | "people" | "system";
+export type ViewMode = "docs" | "bridge" | "briefings" | "library" | "people" | "system";
 
 // Primary view categories (same as ViewMode now)
 export type PrimaryView = ViewMode;
@@ -31,16 +31,17 @@ interface ViewToggleProps {
 const VIEW_CONFIG = [
   { id: "bridge" as const, label: "Bridge", icon: Compass, title: "Bridge weekly tasks & projects", shortcut: "1" },
   { id: "people" as const, label: "People", icon: Users, title: "People & meetings", shortcut: "2" },
-  { id: "docs" as const, label: "Docs", icon: FileText, title: "Documentation", shortcut: "3" },
-  { id: "briefings" as const, label: "Briefing", icon: CalendarDays, title: "Daily briefing", shortcut: "4" },
-  { id: "system" as const, label: "System", icon: Layers, title: "System inspection", shortcut: "5" },
+  { id: "briefings" as const, label: "Briefing", icon: CalendarDays, title: "Daily briefing", shortcut: "3" },
+  { id: "library" as const, label: "Library", icon: Bookmark, title: "Library", shortcut: "4" },
+  { id: "docs" as const, label: "Docs", icon: FileText, title: "Documentation", shortcut: "5" },
+  { id: "system" as const, label: "System", icon: Layers, title: "System inspection", shortcut: "6" },
 ];
 
 const VIEW_CONFIG_BY_ID = Object.fromEntries(
   VIEW_CONFIG.map((config) => [config.id, config]),
 ) as Record<ViewMode, (typeof VIEW_CONFIG)[number]>;
 
-const VIEW_GROUPS: ViewMode[][] = [["bridge", "people", "docs", "briefings", "system"]];
+const VIEW_GROUPS: ViewMode[][] = [["bridge", "people", "briefings", "library", "docs", "system"]];
 
 export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActive, unreadTabs }: ViewToggleProps) {
   const size = iconSize ?? (compact ? 24 : 16);
@@ -63,7 +64,7 @@ export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActiv
     return (
       <div className="flex items-center gap-2">
         {VIEW_GROUPS.map((group) => (
-          <div key={group.join("-")} className="flex items-center gap-0.5 rounded-full bg-white/10 px-1">
+          <div key={group.join("-")} className="flex items-center gap-0.5">
             {group.map((id) => {
               const { icon: Icon, title } = VIEW_CONFIG_BY_ID[id];
               return (

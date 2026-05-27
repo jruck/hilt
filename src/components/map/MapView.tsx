@@ -666,8 +666,8 @@ export function MapView({
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[var(--bg-primary)] text-[var(--text-primary)]">
-      <div className="bg-[var(--bg-secondary)]">
-        <div className="flex h-11 items-center justify-between gap-3 border-b border-[var(--border-default)] px-3">
+      <div>
+        <div className="flex h-9 items-center justify-between gap-3 px-3">
           {modeSwitcher ? (
             modeSwitcher
           ) : (
@@ -803,8 +803,8 @@ export function MapView({
       ) : null}
 
       <div className={`grid min-h-0 flex-1 ${layoutColumns}`}>
-          <main className="flex min-h-0 flex-col overflow-hidden border-r border-[var(--border-default)] max-md:border-r-0">
-            <div className="flex min-h-[420px] flex-1 flex-col overflow-hidden p-3">
+          <main className="flex min-h-0 flex-col overflow-hidden">
+            <div className="flex min-h-[420px] flex-1 flex-col overflow-hidden px-3 pb-3 pt-[13px]">
               {selectedId !== "root" && selectedPath.length > 0 && (
                 <div className="mb-2 flex min-h-7 min-w-0 items-center gap-1 text-xs text-[var(--text-tertiary)]">
                   <button
@@ -838,7 +838,7 @@ export function MapView({
                   </div>
                 </div>
               )}
-              <div ref={treemapRef} className="relative min-h-[360px] flex-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)]">
+              <div ref={treemapRef} className="relative min-h-[360px] flex-1">
                 {treemapRects.map((rect) => {
                   const selected = rect.node.id === selectedId;
                   const isNested = rect.depth > 0;
@@ -905,7 +905,7 @@ export function MapView({
             </div>
           </main>
 
-          <aside className={`${selectedId === "root" ? "max-md:hidden" : ""} min-h-0 overflow-auto border-r border-[var(--border-default)] bg-[var(--bg-primary)] p-3 max-md:border-r-0 max-md:border-t`}>
+          <aside className={`${selectedId === "root" ? "max-md:hidden" : ""} min-h-0 overflow-auto bg-[var(--bg-primary)] px-3 pb-3 pt-[13px]`}>
             <button
               onClick={() => {
                 setSelectedId("root");
@@ -960,8 +960,8 @@ export function MapView({
           </aside>
 
           {selectedSessionId && (
-            <aside className="min-h-0 overflow-auto bg-[var(--bg-primary)] p-3 max-md:border-t">
-              <div className="rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] p-3">
+            <aside className="min-h-0 overflow-auto bg-[var(--bg-primary)] px-3 pb-3 pt-[13px]">
+              <div>
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex min-w-0 flex-col gap-2">
                     <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">

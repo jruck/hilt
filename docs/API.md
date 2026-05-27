@@ -997,7 +997,7 @@ Get all or specific preferences.
   sidebarCollapsed: boolean;
   theme: "light" | "dark" | "system";
   recentScopes: string[];
-  viewMode: "docs" | "stack" | "bridge";
+  viewMode: "briefings" | "bridge" | "docs" | "library" | "people" | "system";
 }
 ```
 

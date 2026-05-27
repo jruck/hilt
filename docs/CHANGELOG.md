@@ -8,7 +8,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
-- **System inspection parent view** — Added `/system` as the top-level home for Hilt's machine/system views. System has internal `Sessions`, `Apps`, and `Stack` modes, with legacy `/map`, `/local-apps`, and `/stack` URLs still resolving into the matching System mode. Top-level navigation is now simplified to Briefing, Bridge, Docs, People, and System.
+- **System inspection parent view** — Added `/system` as the top-level home for Hilt's machine/system views. System has internal `Sessions`, `Apps`, and `Stack` modes, with legacy `/map`, `/local-apps`, and `/stack` URLs still resolving into the matching System mode. Top-level navigation is now simplified to Bridge, People, Briefing, Library, Docs, and System.
+
+- **Library placeholder tab** — Added `/library` as a top-level route with a centered Bookmark icon and "Coming Soon" placeholder while the Library surface is being designed.
 
 - **System tailnet session aggregation** — Added `/api/system/machine`, `/api/system/machines`, and `/api/system/sessions/*` routes. The Sessions mode now queries local Map indexes from each Hilt-running tailnet peer, namespaces machine/session/tree ids, and presents an all-machines session map while still resolving history previews through the machine that owns the session.
 
@@ -32,7 +34,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
-- **Primary navigation order** — Reordered the top-level tabs to Bridge, People, Docs, Briefing, and System. Keyboard shortcuts follow the visual order: `⌘1` Bridge, `⌘2` People, `⌘3` Docs, `⌘4` Briefing, and `⌘5` System.
+- **Primary navigation order** — Reordered the top-level tabs to Bridge, People, Briefing, Library, Docs, and System. Keyboard shortcuts follow the visual order: `⌘1` Bridge, `⌘2` People, `⌘3` Briefing, `⌘4` Library, `⌘5` Docs, and `⌘6` System.
+
+- **Floating primary navigation chrome** — Removed the full-width desktop toolbar strip while preserving its top layout reservation, so primary tabs, search, theme, and source controls float over the canvas without pulling page content upward. Mobile now shows only the section icons in one floating pill, with the mobile search entry point paused for now.
+
+- **Desktop nav centering** — Centered the primary tab group against the viewport instead of the padded statusbar content box, so Electron's macOS traffic-light padding no longer nudges the middle nav to the right.
+
+- **Bridge weekly header spacing** — Matched the Week header-to-first-section spacing to the Briefing tab's header-to-first-card rhythm while preserving the existing spacing between Notes, To Do, and following sections.
+
+- **Bridge notes canvas editing** — Removed the card border, content surface, and internal padding around weekly Notes/Accomplishments editors so they read as editable text directly on the canvas again.
+
+- **Full-bleed workspace top gutter** — Added a desktop-only gutter and body-attached top border below the floating primary nav for Docs, People, and System, with the below-nav space optically balanced against the space above the tab pill and the right/native window controls centered in the same top chrome.
+
+- **System canvas chrome** — Flattened the System mode toolbar rows so the mode switcher and controls sit directly on the canvas, removed the pre-toolbar System border, and moved optional body outlines below the secondary toolbar. Sessions, Apps, Sync, and Stack's all-machines view stay borderless; selected Stack inspectors keep a body-attached top border after the standard toolbar gap.
 
 - **Bridge weekly notes-first section order** — Weekly parsing now tracks `## Notes`, `## Tasks`, and `## Accomplishments` as ordered sections instead of assuming notes are last. Bridge renders weekly notes/tasks in source-file order, rebuilds weekly files without flipping that order, and the weekly template now creates notes before tasks for new weeks. The current week file was moved to the notes-first convention; older weekly files were left untouched.
 

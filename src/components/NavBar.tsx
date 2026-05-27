@@ -13,18 +13,20 @@ const SHORTCUTS = [
   { keys: "⌘ J", description: "Add task" },
   { keys: "⌘ 1", description: "Bridge" },
   { keys: "⌘ 2", description: "People" },
-  { keys: "⌘ 3", description: "Docs" },
-  { keys: "⌘ 4", description: "Briefing" },
-  { keys: "⌘ 5", description: "System" },
+  { keys: "⌘ 3", description: "Briefing" },
+  { keys: "⌘ 4", description: "Library" },
+  { keys: "⌘ 5", description: "Docs" },
+  { keys: "⌘ 6", description: "System" },
   { keys: "Esc", description: "Close search" },
 ];
 
 const VIEW_KEYS: Record<string, ViewMode> = {
   "1": "bridge",
   "2": "people",
-  "3": "docs",
-  "4": "briefings",
-  "5": "system",
+  "3": "briefings",
+  "4": "library",
+  "5": "docs",
+  "6": "system",
 };
 
 function ShortcutsPopup({ visible, onFocus }: { visible: boolean; onClose: () => void; onFocus?: () => void }) {
@@ -162,7 +164,7 @@ export function NavBar({
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         if (isMobile) {
-          setMobileSearchOpen((prev) => !prev);
+          return;
         } else if (searchQuery) {
           setSearchQuery("");
           searchInputRef.current?.blur();
@@ -184,7 +186,7 @@ export function NavBar({
         }
       }
 
-      // Cmd+1..5: switch tabs
+      // Cmd+1..6: switch tabs
       if ((e.metaKey || e.ctrlKey) && VIEW_KEYS[e.key]) {
         e.preventDefault();
         setViewMode(VIEW_KEYS[e.key]);
@@ -246,14 +248,17 @@ export function NavBar({
           ) : (
             /* Normal mode: compact floating pill */
             <div className="flex items-center gap-1 h-14 px-2">
-              {/* Search */}
+              {/*
+              Mobile search entry point paused for now. Keep the search mode
+              markup above so we can restore it without rebuilding the pill.
               <button
                 onClick={() => { haptics.light(); setMobileSearchOpen(true); }}
-                className="flex items-center justify-center w-12 h-12 rounded-full text-[var(--text-tertiary)] active:bg-white/10 transition-colors"
+                className="flex h-11 w-11 items-center justify-center rounded-full text-[var(--text-tertiary)] active:bg-white/10 transition-colors"
                 title="Search"
               >
-                <Search className="w-6 h-6" />
+                <Search className="h-5 w-5" />
               </button>
+              */}
 
               {/* View toggle (compact mode) */}
               <ViewToggle view={viewMode} onChange={setViewMode} compact onDoubleTapActive={() => window.location.reload()} unreadTabs={unreadTabs} />
@@ -265,32 +270,29 @@ export function NavBar({
     );
   }
 
-  // Desktop: render the existing top bar
+  // Desktop: transparent spacer preserving the old toolbar height, with floating controls.
   return (
     <div
       data-statusbar
-      className="relative h-11 bg-[var(--bg-secondary)] border-b border-[var(--border-default)] px-4 flex items-center"
+      className="pointer-events-none relative z-50 flex h-11 shrink-0 items-start justify-center px-4 pt-3"
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
-      {/* Center: View toggle — absolutely centered in the bar */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
-          <ViewToggle view={viewMode} onChange={setViewMode} unreadTabs={unreadTabs} />
-        </div>
+      {/* Center: View toggle */}
+      <div className="pointer-events-auto fixed left-1/2 top-3 -translate-x-1/2" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <ViewToggle view={viewMode} onChange={setViewMode} unreadTabs={unreadTabs} />
       </div>
 
-      {/* Right: search, theme, source — pushed to the right */}
+      {/* Right: search, theme, source */}
       <div
-        className="ml-auto flex items-center justify-end gap-2 min-w-0 pointer-events-none"
+        className="pointer-events-none absolute right-4 top-3.5 flex min-w-0 items-center justify-end gap-2"
       >
         {/* Search — expands to the left */}
         <div
           className="relative flex items-center justify-end pointer-events-auto"
           style={{
             WebkitAppRegion: "no-drag",
-            flex: searchQuery ? "1 1 auto" : "0 0 auto",
-            minWidth: searchQuery ? 0 : "auto",
-            transition: "flex 250ms cubic-bezier(0.4, 0, 0.2, 1)",
+            width: searchQuery ? "min(280px, calc(100vw - 32px))" : "28px",
+            transition: "width 250ms cubic-bezier(0.4, 0, 0.2, 1)",
           } as React.CSSProperties}
         >
           {/* Expanded: pill search bar */}

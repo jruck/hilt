@@ -35,15 +35,14 @@ export function BridgeNotes({ title = "Notes", notes, vaultPath, filePath, onSav
       <h2 className="text-sm font-medium text-[var(--text-tertiary)] uppercase tracking-wide mb-3">
         {title}
       </h2>
-      <div className="rounded-lg border border-[var(--border-default)] bg-[var(--content-surface)] px-3 py-2">
-        <BridgeTaskEditor
-          markdown={notes}
-          onChange={handleChange}
-          trailingNode={false}
-          vaultPath={vaultPath}
-          filePath={filePath}
-        />
-      </div>
+      <BridgeTaskEditor
+        markdown={notes}
+        onChange={handleChange}
+        className="bridge-notes-editor"
+        trailingNode={false}
+        vaultPath={vaultPath}
+        filePath={filePath}
+      />
     </div>
   );
 }

@@ -165,7 +165,7 @@ async function createWindow() {
     width: 1400,
     height: 900,
     titleBarStyle: "hiddenInset",           // macOS frameless with traffic lights
-    trafficLightPosition: { x: 16, y: 14 }, // Fine-tune traffic light placement
+    trafficLightPosition: { x: 16, y: 24 }, // Centers traffic lights with the top nav
     backgroundColor: "#0a0a0a",              // Prevent white flash on load
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

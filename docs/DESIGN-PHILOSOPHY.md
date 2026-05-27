@@ -93,13 +93,14 @@ Every action should have visible feedback:
 
 **Global tab IA**:
 - Treat Briefing as the synthesized output surface across work, knowledge, people, sessions, and systems.
-- Treat Bridge, People, and Docs as the user's workspace/knowledge cluster.
+- Treat Bridge, People, Library, and Docs as the user's workspace/knowledge cluster.
 - Treat System as the parent for inspection/observability views: Sessions/Map, Apps, Stack/configuration, and Sync.
-- Keep the top-level nav simple and legible: `[Bridge People Docs Briefing System]`. Put inspection sub-modes inside System instead of making every system lens a primary destination.
+- Keep the top-level nav simple and legible: `[Bridge People Briefing Library Docs System]`. Put inspection sub-modes inside System instead of making every system lens a primary destination.
+- Let primary navigation chrome float over the canvas instead of painting a full-width desktop toolbar strip, but keep the top row's layout reservation so content does not jump upward. Mobile should use one floating pill for section icons; avoid nested inset pills inside the pill.
+- Full-bleed workspace views with sidebars or secondary toolbars should leave an optically balanced gutter below the floating primary nav, then begin the body with a top border attached to the body rather than to the nav. Keep right-side controls and native window controls vertically centered within that top chrome.
 - Use a compact secondary segmented control inside System for `Sessions`, `Apps`, `Stack`, and `Sync`; this is mode chrome, not explanatory copy.
-- Keep System mode chrome to one row where possible: mode switcher on the left, mode-specific filters/status/refresh controls right-aligned on the same line. Avoid stacking a System subnav above another full toolbar for each mode.
-- Match the System secondary toolbar height to the primary toolbar exactly. If a control wants more room, compact the control before increasing the chrome height.
-- Top-level shortcuts follow the top-level mental model: Bridge, People, Docs, Briefing, System.
+- Keep System mode chrome to one row where possible: mode switcher on the left, mode-specific filters/status/refresh controls right-aligned on the same line. Let this row sit directly on the canvas without a strip background, enclosing border, or extra vertical padding. When a full-width body needs structure, place its top border below the secondary toolbar after the standard optical gutter, not above the toolbar.
+- Top-level shortcuts follow the top-level mental model: Bridge, People, Briefing, Library, Docs, System.
 
 ### Drawers/Panels
 

@@ -11,6 +11,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBriefingUnread } from "@/hooks/useBriefingUnread";
 import { PullToRefresh } from "./PullToRefresh";
 import { isSystemMode, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode, type SystemMode } from "@/lib/system/navigation";
+import { Bookmark } from "lucide-react";
 
 const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.DocsView })), { ssr: false });
 const BridgeView = dynamic(() => import("./bridge/BridgeView").then(m => ({ default: m.BridgeView })), { ssr: false });
@@ -20,6 +21,19 @@ const SystemView = dynamic(() => import("./system").then(m => ({ default: m.Syst
 
 const SYSTEM_MODE_STORAGE_KEY = "hilt-system-mode";
 const PEOPLE_SCOPE_STORAGE_KEY = "hilt-people-scope";
+
+function LibraryComingSoon() {
+  return (
+    <div className="flex flex-1 items-center justify-center bg-[var(--bg-primary)] px-6">
+      <div className="flex flex-col items-center gap-4 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-lg border border-[var(--border-default)] bg-[var(--content-surface)] text-[var(--text-secondary)] content-card-shadow">
+          <Bookmark className="h-7 w-7" />
+        </div>
+        <p className="text-sm font-medium text-[var(--text-secondary)]">Coming Soon</p>
+      </div>
+    </div>
+  );
+}
 
 function getStoredPeopleScope(): string {
   if (typeof window === "undefined") return "/__inbox__";
@@ -48,6 +62,7 @@ export function Board() {
   const viewMode: ViewMode = urlViewMode === "bridge" ? "bridge"
     : urlViewMode === "docs" ? "docs"
     : urlViewMode === "briefings" ? "briefings"
+    : urlViewMode === "library" ? "library"
     : urlViewMode === "people" ? "people"
     : urlViewMode === "system" || urlViewMode === "map" || urlViewMode === "local-apps" || urlViewMode === "stack" ? "system"
     : "bridge"; // fallback
@@ -62,6 +77,8 @@ export function Board() {
       setUrlViewMode("docs");
     } else if (mode === "briefings") {
       setUrlViewMode("briefings");
+    } else if (mode === "library") {
+      navigateTo("library", "");
     } else if (mode === "people") {
       navigateTo("people", getStoredPeopleScope());
     } else if (mode === "system") {
@@ -121,6 +138,8 @@ export function Board() {
   }, [isHydrated, workingFolder]);
   const isMobile = useIsMobile();
   const { hasUnread: hasBriefingUnread } = useBriefingUnread();
+  const usesWorkspaceGutter = !isMobile && (viewMode === "docs" || viewMode === "people" || viewMode === "system");
+  const usesWorkspaceTopBorder = !isMobile && (viewMode === "docs" || viewMode === "people");
 
   // Search state
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -224,13 +243,16 @@ export function Board() {
           />
         ) : viewMode === "briefings" ? (
           <BriefingsView />
+        ) : viewMode === "library" ? (
+          <LibraryComingSoon />
         ) : viewMode === "people" ? (
           <PeopleView searchQuery={searchQuery} />
         ) : null}
         </div>
         </PullToRefresh>}
 
-        {!isMobile && <div className="flex-1 flex flex-col overflow-hidden">
+        {!isMobile && <div className={`flex-1 flex flex-col overflow-hidden ${usesWorkspaceGutter ? "pt-[15px]" : ""}`}>
+        <div className={`flex min-h-0 flex-1 flex-col overflow-hidden ${usesWorkspaceTopBorder ? "border-t border-[var(--border-default)]" : ""}`}>
         {/* Conditional View */}
         {viewMode === "bridge" ? (
           <BridgeView
@@ -256,9 +278,12 @@ export function Board() {
           />
         ) : viewMode === "briefings" ? (
           <BriefingsView />
+        ) : viewMode === "library" ? (
+          <LibraryComingSoon />
         ) : viewMode === "people" ? (
           <PeopleView searchQuery={searchQuery} />
         ) : null}
+        </div>
         </div>}
       </div>
     </div>

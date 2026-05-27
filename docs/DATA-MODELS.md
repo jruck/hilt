@@ -407,7 +407,7 @@ interface UserPreferences {
   recentScopes: string[];
   // Last 10 visited folder paths (most recent first)
 
-  viewMode: "briefings" | "bridge" | "docs" | "people" | "system";
+  viewMode: "briefings" | "bridge" | "docs" | "library" | "people" | "system";
   // Current top-level view mode. Legacy map/local-apps/stack URLs resolve into system modes.
 
   folderEmojis?: Record<string, string>;

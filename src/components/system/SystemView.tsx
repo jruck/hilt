@@ -174,8 +174,10 @@ function SystemStackView({
           loading={loading}
           error={error}
         />
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <StackView scopePath={workingFolder} searchQuery={searchQuery} />
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden pt-[13px]">
+          <div className="min-h-0 flex-1 overflow-hidden border-t border-[var(--border-default)]">
+            <StackView scopePath={workingFolder} searchQuery={searchQuery} />
+          </div>
         </div>
       </div>
     );
@@ -207,7 +209,7 @@ function SystemStackView({
         loading={loading}
         error={error}
       />
-      <div className="flex-1 overflow-auto p-4">
+      <div className="flex-1 overflow-auto px-4 pb-4 pt-[13px]">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {snapshots.map((snapshot) => (
             <button
@@ -258,7 +260,7 @@ function StackMachineBar({
   error: string | null;
 }) {
   return (
-    <div className="flex h-11 items-center justify-between gap-3 border-b border-[var(--border-default)] bg-[var(--bg-secondary)] px-3">
+    <div className="flex h-9 items-center justify-between gap-3 px-3">
       {modeSwitcher}
       <div className="flex min-w-0 flex-1 items-center justify-end gap-2 overflow-x-auto">
         <button
@@ -311,61 +313,63 @@ function RemoteStackInspector({ snapshot, searchQuery }: { snapshot: SystemStack
   }
 
   return (
-    <div className="flex min-h-0 flex-1">
-      <div className="flex w-[360px] shrink-0 flex-col border-r border-[var(--border-default)]">
-        <div className="border-b border-[var(--border-default)] px-3 py-2">
-          <div className="text-xs font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Remote stack</div>
-          <div className="mt-1 truncate text-sm text-[var(--text-primary)]">{displayPath(snapshot.projectPath || stack.projectPath)}</div>
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden pt-[13px]">
+      <div className="flex min-h-0 flex-1 border-t border-[var(--border-default)]">
+        <div className="flex w-[360px] shrink-0 flex-col border-r border-[var(--border-default)]">
+          <div className="border-b border-[var(--border-default)] px-3 py-2">
+            <div className="text-xs font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Remote stack</div>
+            <div className="mt-1 truncate text-sm text-[var(--text-primary)]">{displayPath(snapshot.projectPath || stack.projectPath)}</div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto">
+            <StackFileTree
+              layers={stack.layers}
+              mcpServers={stack.mcpServers}
+              plugins={stack.plugins}
+              selectedFile={selectedFile?.file || null}
+              selectedMCPServer={selectedMCPServer}
+              selectedPlugin={selectedPlugin}
+              onSelectFile={(file, layer) => {
+                setSelectedFile({ file, layer });
+                setSelectedMCPServer(null);
+                setSelectedPlugin(null);
+              }}
+              onSelectMCPServer={(server) => {
+                setSelectedMCPServer(server);
+                setSelectedFile(null);
+                setSelectedPlugin(null);
+              }}
+              onSelectPlugin={(plugin) => {
+                setSelectedPlugin(plugin);
+                setSelectedFile(null);
+                setSelectedMCPServer(null);
+              }}
+              typeFilter={typeFilter}
+              searchQuery={searchQuery}
+            />
+          </div>
+          <div className="border-t border-[var(--border-default)]">
+            <StackSummary summary={stack.summary} activeFilter={typeFilter} onFilterChange={setTypeFilter} />
+          </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto">
-          <StackFileTree
-            layers={stack.layers}
-            mcpServers={stack.mcpServers}
-            plugins={stack.plugins}
-            selectedFile={selectedFile?.file || null}
-            selectedMCPServer={selectedMCPServer}
-            selectedPlugin={selectedPlugin}
-            onSelectFile={(file, layer) => {
-              setSelectedFile({ file, layer });
-              setSelectedMCPServer(null);
-              setSelectedPlugin(null);
-            }}
-            onSelectMCPServer={(server) => {
-              setSelectedMCPServer(server);
-              setSelectedFile(null);
-              setSelectedPlugin(null);
-            }}
-            onSelectPlugin={(plugin) => {
-              setSelectedPlugin(plugin);
-              setSelectedFile(null);
-              setSelectedMCPServer(null);
-            }}
-            typeFilter={typeFilter}
-            searchQuery={searchQuery}
-          />
+        <div className="min-w-0 flex-1 overflow-hidden">
+          {selectedPlugin ? (
+            <PluginDetail plugin={selectedPlugin} onMCPServerClick={(serverName) => {
+              const server = stack.mcpServers.find((item) => item.name === serverName);
+              if (server) {
+                setSelectedMCPServer(server);
+                setSelectedPlugin(null);
+              }
+            }} />
+          ) : selectedMCPServer ? (
+            <MCPServerDetail server={selectedMCPServer} />
+          ) : (
+            <ReadOnlyStackFilePane
+              machineId={snapshot.machine.id}
+              projectPath={snapshot.projectPath || stack.projectPath}
+              selected={selectedFile}
+            />
+          )}
         </div>
-        <div className="border-t border-[var(--border-default)]">
-          <StackSummary summary={stack.summary} activeFilter={typeFilter} onFilterChange={setTypeFilter} />
-        </div>
-      </div>
-      <div className="min-w-0 flex-1 overflow-hidden">
-        {selectedPlugin ? (
-          <PluginDetail plugin={selectedPlugin} onMCPServerClick={(serverName) => {
-            const server = stack.mcpServers.find((item) => item.name === serverName);
-            if (server) {
-              setSelectedMCPServer(server);
-              setSelectedPlugin(null);
-            }
-          }} />
-        ) : selectedMCPServer ? (
-          <MCPServerDetail server={selectedMCPServer} />
-        ) : (
-          <ReadOnlyStackFilePane
-            machineId={snapshot.machine.id}
-            projectPath={snapshot.projectPath || stack.projectPath}
-            selected={selectedFile}
-          />
-        )}
       </div>
     </div>
   );

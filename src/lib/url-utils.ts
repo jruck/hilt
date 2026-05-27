@@ -4,11 +4,12 @@
  * URL structure: /<viewPrefix>/<scopePath>
  * e.g. /docs/Users/me/work/projects
  *      /bridge
+ *      /library
  *      /stack/Users/me/work/projects
  *      /system/sessions
  */
 
-export const VIEW_PREFIXES = ["bridge", "system", "map", "local-apps", "docs", "stack", "briefings", "people"] as const;
+export const VIEW_PREFIXES = ["bridge", "system", "map", "local-apps", "docs", "stack", "briefings", "people", "library"] as const;
 export type ViewPrefix = (typeof VIEW_PREFIXES)[number];
 
 export function isViewPrefix(s: string): s is ViewPrefix {

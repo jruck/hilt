@@ -11,8 +11,9 @@ This document provides a comprehensive architectural overview of Hilt for AI age
 │  │  Next.js 16 + React 19                                            │  │
 │  │  ┌─────────────────────────────────────────────────────────────┐  │  │
 │  │  │  Board.tsx (Main Container)                                  │  │  │
-│  │  │  ├── ViewToggle (Briefing / Bridge / Docs / People / System) │  │  │
+│  │  │  ├── ViewToggle (Bridge / People / Briefing / Library / Docs / System) │  │  │
 │  │  │  ├── BridgeView (weekly tasks, projects, notes)              │  │  │
+│  │  │  ├── Library placeholder view                                 │  │  │
 │  │  │  ├── DocsView (markdown file browser + editor)               │  │  │
 │  │  │  ├── SystemView (Sessions / Apps / Stack / Sync inspection)  │  │  │
 │  │  │  ├── MapView (local/tailnet work/session map)                │  │  │
@@ -209,7 +210,7 @@ hilt/
 ### 1. View Routing Flow
 
 ```
-URL: /bridge, /docs/Users/you/work/project, /people, or /system/sessions
+URL: /bridge, /people, /briefings, /library, /docs/Users/you/work/project, or /system/sessions
          │
          ▼
 [[...path]]/page.tsx (catch-all route)
@@ -220,10 +221,12 @@ ScopeProvider (ScopeContext.tsx)
          │ Handles pushState / popstate for SPA navigation
          ▼
 Board.tsx receives context via useScope()
-         │ Derives ViewMode: "briefings" | "bridge" | "docs" | "people" | "system"
+         │ Derives ViewMode: "briefings" | "bridge" | "docs" | "library" | "people" | "system"
          ▼
 Conditionally renders:
   - "bridge" → BridgeView
+  - "briefings" → BriefingsView
+  - "library" → Library placeholder
   - "docs"   → DocsView (with scope + search)
   - "people" → PeopleView (scope = person slug for deep links)
   - "system" → SystemView (Sessions / Apps / Stack / Sync modes)
@@ -443,7 +446,7 @@ Components receive events and trigger SWR revalidation
 | State | Location | Persistence | Purpose |
 |-------|----------|-------------|---------|
 | Theme preference | `data/preferences.json` | Server JSON | Light/dark/system |
-| View mode | `data/preferences.json` + URL | Server JSON + URL | Briefing/Bridge/Docs/People/System |
+| View mode | `data/preferences.json` + URL | Server JSON + URL | Bridge/People/Briefing/Library/Docs/System |
 | Bridge vault path | `data/preferences.json` | Server JSON | Path to bridge vault |
 | Working folder | `data/preferences.json` | Server JSON | Default scope for all views |
 | Draft prompts | `Todo.md` / `data/inbox.json` | Local files | Queued prompts |
@@ -562,10 +565,10 @@ Board.tsx (274 lines)
 ├── State: scopePath, viewMode, workingFolder, searchQuery
 ├── Contexts: useScope (ScopeContext)
 │
-├── Top Toolbar
+├── Floating Navigation Chrome
 │   ├── Search input
 │   ├── ThemeToggle
-│   └── ViewToggle ([Briefing] [Bridge / Docs / People] [Map / Apps]) — centered
+│   └── ViewToggle ([Bridge / People / Briefing / Library / Docs / System]) — centered
 │
 ├── Main Content (conditional on viewMode)
 │   ├── viewMode === "bridge"
@@ -610,6 +613,9 @@ Board.tsx (274 lines)
 │           ├── PersonCard × N (list, searchable)
 │           └── PersonDetailPanel (selected person)
 │               └── MeetingEntry × N (inline notes + Granola meetings)
+│
+│   ├── viewMode === "library"
+│   │   └── Library placeholder (URL: /library)
 │
 │   └── viewMode === "local-apps"
 │       └── LocalAppsView
@@ -687,7 +693,7 @@ interface BridgeProject {
 ```typescript
 interface UserPreferences {
   theme: "light" | "dark" | "system";
-  viewMode: "briefings" | "bridge" | "map" | "docs" | "stack" | "people";
+  viewMode: "briefings" | "bridge" | "docs" | "library" | "map" | "people" | "stack" | "system";
   inboxPath?: string;
   bridgeVaultPath?: string;
   workingFolder?: string;
@@ -713,13 +719,13 @@ interface UserPreferences {
 
 ### 3. Scope Context and URL Routing
 - Scope (tree root) always equals the working folder — no scope switching
-- URLs encode view mode and selection: `/bridge`, `/docs/path/to/selected/file`, `/stack/...`
+- URLs encode view mode and selection: `/bridge`, `/people`, `/briefings`, `/library`, `/docs/path/to/selected/file`, `/system/...`, `/stack/...`
 - The URL path after `/docs/` represents the *selected file* for deep linking, not the tree root
 - `ScopeContext` manages scope + view state, syncs with browser history
 - `replaceViewMode` used for initial redirect (no history entry)
 - `navigateTo` for atomic view + scope changes (single history entry)
 - People view reuses scope for deep links: `/people/amrit` → scope is `/amrit` (slug, not filesystem path)
-- Board skips filesystem validation for views that don't use file scopes (bridge, briefings, people)
+- Board skips filesystem validation for views that don't use file scopes (bridge, briefings, library, people)
 
 ### 4. dnd-kit Usage
 - Bridge: task reordering within the weekly task list

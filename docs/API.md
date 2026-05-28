@@ -273,6 +273,8 @@ Returns the latest scan diagnostics and source status list.
 
 System is the top-level inspection surface for Sessions, Apps, Stack, and Sync. Peer aggregation is Hilt-to-Hilt only: the serving machine discovers online Tailscale peers, probes `/api/system/machine?scope=local`, and accepts only Hilt responses. Set `HILT_SYSTEM_NETWORK_ENABLED=false` to keep System local-only.
 
+For demo and screenshot runs, `HILT_SYSTEM_MACHINE_HOSTNAME`, `HILT_SYSTEM_MACHINE_DNS`, and `HILT_SYSTEM_MACHINE_IP4` can override the displayed local machine identity without changing the API response shape.
+
 ### GET /api/system/machine
 
 Returns the serving machine's System identity and feature availability. Peer discovery calls this with `?scope=local`.

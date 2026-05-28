@@ -47,6 +47,7 @@ next-env.d.ts
 
 # User data
 /data/
+docs/demo/.hilt-data/
 
 # Claude Code local settings (keep project settings tracked)
 .claude/settings.local.json

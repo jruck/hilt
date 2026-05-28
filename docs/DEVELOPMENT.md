@@ -28,6 +28,8 @@ open http://localhost:3000
 | Script | Command | Description |
 |--------|---------|-------------|
 | `dev:all` | `npm run dev:all` | **Start development** (Next.js + WebSocket + Event servers) |
+| `dev:demo` | `npm run dev:demo` | Start Next.js against the checked-in demo vault with synthetic System session-map data |
+| `demo:seed-map` | `npm run demo:seed-map` | Seed the demo Map SQLite database used by the System Sessions screenshot |
 | `app` | `npm run app` | Build the dev-mode macOS app at `dist/Hilt.app` |
 | `build` | `npm run build` | Production build |
 | `start` | `npm run start` | Start production server |

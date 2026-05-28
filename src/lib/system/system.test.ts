@@ -6,6 +6,7 @@ import { join } from "node:path";
 import http from "node:http";
 import { isSystemMode, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode } from "./navigation";
 import { decodeSystemNodeId, decodeSystemSessionId, systemMachineNodeId, systemNodeId, systemSessionId } from "./map";
+import { machineIdentity } from "../local-apps/tailnet";
 import { machineId, machineLabel } from "./peers";
 import { __resetSystemSyncCacheForTests, collectConflictFiles, readLocalSystemSync } from "./sync";
 import type { SystemMachine } from "./types";
@@ -33,6 +34,30 @@ describe("system machine ids", () => {
 
     assert.equal(machineId(machine), "xochipilli");
     assert.equal(machineLabel(machine), "xochipilli");
+  });
+
+  it("supports an explicit demo/screenshot machine identity override", () => {
+    const previousHostname = process.env.HILT_SYSTEM_MACHINE_HOSTNAME;
+    const previousDns = process.env.HILT_SYSTEM_MACHINE_DNS;
+    const previousIp4 = process.env.HILT_SYSTEM_MACHINE_IP4;
+    try {
+      process.env.HILT_SYSTEM_MACHINE_HOSTNAME = "demo-workstation";
+      process.env.HILT_SYSTEM_MACHINE_DNS = "demo-workstation.tailnet.example";
+      process.env.HILT_SYSTEM_MACHINE_IP4 = "100.64.0.10";
+
+      const machine = machineIdentity();
+      assert.equal(machine.hostname, "demo-workstation");
+      assert.equal(machine.tailscale_dns, "demo-workstation.tailnet.example");
+      assert.equal(machine.tailscale_ip4, "100.64.0.10");
+      assert.equal(machineLabel(machine), "demo-workstation");
+    } finally {
+      if (previousHostname === undefined) delete process.env.HILT_SYSTEM_MACHINE_HOSTNAME;
+      else process.env.HILT_SYSTEM_MACHINE_HOSTNAME = previousHostname;
+      if (previousDns === undefined) delete process.env.HILT_SYSTEM_MACHINE_DNS;
+      else process.env.HILT_SYSTEM_MACHINE_DNS = previousDns;
+      if (previousIp4 === undefined) delete process.env.HILT_SYSTEM_MACHINE_IP4;
+      else process.env.HILT_SYSTEM_MACHINE_IP4 = previousIp4;
+    }
   });
 });
 

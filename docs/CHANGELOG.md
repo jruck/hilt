@@ -6,6 +6,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+### Changed
+
+- **README demo screenshot privacy pass** — Reduced the Library README section to one Browse screenshot and replaced the System screenshot with a fake demo Sessions treemap instead of a live Stack view that exposed real machine names. Added `npm run demo:seed-map` and `npm run dev:demo` so the demo System view can be populated with synthetic map data.
+
 ## [6.0.0] - 2026-05-28
 
 ### Added
@@ -46,7 +50,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Repository agent instructions and historical Map plan** — Added repo-local `AGENTS.md`, Codex documentation reminder hooks, the Hilt control skill, and the superseded Convex Map plan so Xochipilli, Mercury, and origin share the same agent-facing project context.
 
-- **v6 release documentation and demo vault** — Refreshed the README for the current Bridge, People, Briefing, Library, Docs, and System navigation model; added demo Library saved references, candidates, source configs, and rich media assets; and recaptured README screenshots for all top-level views including Library Feed, Library Browse, and System.
+- **v6 release documentation and demo vault** — Refreshed the README for the current Bridge, People, Briefing, Library, Docs, and System navigation model; added demo Library saved references, candidates, source configs, and rich media assets; and recaptured README screenshots for all top-level views including Library Browse and System.
 
 ### Changed
 

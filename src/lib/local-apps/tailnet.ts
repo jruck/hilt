@@ -184,6 +184,9 @@ export function publicHostForListener(host: string): string {
 }
 
 export function machineIdentity(): MachineIdentity {
+  const override = machineIdentityOverride();
+  if (override) return override;
+
   return {
     hostname: os.hostname(),
     tailscale_dns: previewHostFromStatus(),
@@ -193,6 +196,9 @@ export function machineIdentity(): MachineIdentity {
 }
 
 export async function machineIdentityAsync(): Promise<MachineIdentity> {
+  const override = machineIdentityOverride();
+  if (override) return override;
+
   const [status, ip4] = await Promise.all([
     tailnetStatusAsync(),
     tailscaleIp4Async(),
@@ -205,6 +211,20 @@ export async function machineIdentityAsync(): Promise<MachineIdentity> {
     hostname: os.hostname(),
     tailscale_dns: dns,
     tailscale_ip4: ip4,
+    origin: "local",
+  };
+}
+
+function machineIdentityOverride(): MachineIdentity | null {
+  const hostname = process.env.HILT_SYSTEM_MACHINE_HOSTNAME?.trim();
+  const dns = process.env.HILT_SYSTEM_MACHINE_DNS?.trim().replace(/\.$/, "");
+  const ip4 = process.env.HILT_SYSTEM_MACHINE_IP4?.trim();
+  if (!hostname && !dns && !ip4) return null;
+
+  return {
+    hostname: hostname || dns?.split(".")[0] || ip4 || "hilt-demo",
+    tailscale_dns: dns || null,
+    tailscale_ip4: ip4 || null,
     origin: "local",
   };
 }

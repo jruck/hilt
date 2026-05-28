@@ -16,6 +16,8 @@
     "test:local-apps": "tsx --test src/lib/local-apps/**/*.test.ts",
     "test:library": "tsx --test src/lib/library/**/*.test.ts",
     "test:local-apps:parity": "tsx scripts/local-apps-parity.ts",
+    "demo:seed-map": "DATA_DIR=${DATA_DIR:-./docs/demo/.hilt-data} tsx scripts/seed-demo-map.ts",
+    "dev:demo": "npm run demo:seed-map && DATA_DIR=./docs/demo/.hilt-data HILT_WORKING_FOLDER=./docs/demo BRIDGE_VAULT_PATH=./docs/demo HILT_SYSTEM_NETWORK_ENABLED=false HILT_SYSTEM_MACHINE_HOSTNAME=demo-workstation HILT_SYSTEM_MACHINE_DNS=demo-workstation.tailnet.example HILT_SYSTEM_MACHINE_IP4=100.64.0.10 npm run dev",
     "library:ingest": "tsx scripts/library-ingest.ts",
     "library:backfill": "tsx scripts/library-ingest.ts backfill",
     "library:audit-quality": "tsx scripts/library-quality-audit.ts",

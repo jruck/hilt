@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import type { LibraryArtifact, LibraryArtifactDetail, ProcessedArtifact, PromotionReason } from "./types";
-import { atomicWriteFile, canonicalUrl, dateOnly, ensureDir, hashId, slugify, toArray, walkMarkdown } from "./utils";
+import { atomicWriteFile, canonicalUrl, compareDatesDesc, dateOnly, ensureDir, hashId, slugify, toArray, walkMarkdown } from "./utils";
 import { extractBullets, extractConnections, extractHeading, extractSection, frontmatterTags, parseMarkdownFile, relativeVaultPath, stringifyMarkdown } from "./markdown";
 import { buildMediaMarkdown, cachedSourceContent, stripDetailsWrapper } from "./media";
 
@@ -9,6 +9,12 @@ const REFERENCES_DIR = "references";
 
 export function referencesDir(vaultPath: string): string {
   return path.join(vaultPath, REFERENCES_DIR);
+}
+
+function frontmatterDate(value: unknown): string | null {
+  if (!(value instanceof Date) && typeof value !== "string") return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isFinite(date.getTime()) ? dateOnly(date) : null;
 }
 
 export function parseReferenceFile(vaultPath: string, filePath: string): LibraryArtifactDetail | null {
@@ -34,7 +40,7 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
       : null;
   const channel = typeof data.channel === "string" ? data.channel : null;
   const sourceId = typeof data.source_id === "string" ? data.source_id : null;
-  const created = String(data.captured || data.published || dateOnly(stat.birthtime));
+  const created = frontmatterDate(data.published) || frontmatterDate(data.captured) || dateOnly(stat.birthtime);
   const updated = stat.mtime.toISOString();
   const keyPoints = extractBullets(extractSection(body, "Key Points"));
 
@@ -66,7 +72,7 @@ export function listSavedReferences(vaultPath: string): LibraryArtifactDetail[] 
     .filter((filePath) => !filePath.includes(`${path.sep}.cache${path.sep}`))
     .map((filePath) => parseReferenceFile(vaultPath, filePath))
     .filter((artifact): artifact is LibraryArtifactDetail => Boolean(artifact))
-    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    .sort((a, b) => compareDatesDesc(a.created_at, b.created_at));
 }
 
 export function findSavedReferenceByUrl(vaultPath: string, url: string): LibraryArtifact | null {

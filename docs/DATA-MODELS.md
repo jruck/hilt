@@ -512,7 +512,23 @@ interface LibrarySourceConfig {
 
 Source auth checks report env key presence only. Real credential values live in `.env.local`, which is gitignored and loaded by the Library CLI before ingestion/auth verification.
 
-Checkpointed historical backfills store their current resume token in `meta/sources/.source-state.json` rather than mutating source YAML. A completed cursor-based run records `cursor` when another page exists, or `backfill_complete_at` when an adapter explicitly reports no next cursor.
+Checkpointed historical backfills store their current resume token in `meta/sources/.source-state.json` rather than mutating source YAML. A completed cursor-based run records `cursor` when another page exists, or `backfill_complete_at` when an adapter explicitly reports no next cursor. Raindrop cursors are page-based, so cursor checks should use the same batch size as the live run to avoid overlap from changing `perpage`.
+
+### LibrarySourceSummary
+
+```typescript
+interface LibrarySourceSummary {
+  id: string;
+  name: string;
+  channel: LibrarySourceConfig["channel"];
+  enabled: boolean;
+  intent: LibrarySourceConfig["intent"];
+  artifact_count: number;  // Saved refs after any active source-list filters
+  candidate_count: number; // Candidates after any active source-list filters
+  last_fetched: string | null;
+  blocked: string | null;
+}
+```
 
 ### IngestionReport
 
@@ -606,6 +622,11 @@ interface LibraryOperationalHealth {
       installed: boolean;
       last_exit_code: number | null;
       stderr_bytes: number;
+      stdout_updated_at: string | null;
+      stderr_updated_at: string | null;
+      stdout_excerpt: string | null;
+      stderr_excerpt: string | null;
+      message: string | null;
       status: "ok" | "warning" | "blocked";
     }>;
   };

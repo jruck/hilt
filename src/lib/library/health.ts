@@ -3,14 +3,18 @@ import fs from "fs";
 import path from "path";
 import { readDeadLetters } from "./dead-letter";
 import { listLibrarySources } from "./library";
-import { libraryLaunchAgentsDir, librarySchedulerJobs, schedulerJobScheduleLabel } from "./scheduler-jobs";
+import { libraryLaunchAgentsDir, librarySchedulerJobs, schedulerJobScheduleLabel, type LibrarySchedulerJobDefinition } from "./scheduler-jobs";
 import { readSourceState } from "./source-config";
 import type { LibraryDeadLetterSummary, LibraryOperationalHealth, LibrarySchedulerJobSummary, LibrarySourceHealthSummary } from "./types";
 import { isoNow } from "./utils";
 
 interface HealthOptions {
   launchctl?: (label: string) => string;
+  schedulerJobs?: LibrarySchedulerJobDefinition[];
 }
+
+const EXCERPT_MAX_CHARS = 1800;
+const CLASSIFY_MAX_CHARS = 64_000;
 
 function defaultLaunchctl(label: string): string {
   const uid = process.getuid?.();
@@ -34,9 +38,56 @@ function fileSize(filePath: string): number {
   }
 }
 
+function readLogText(filePath: string, maxChars: number): string | null {
+  try {
+    const content = fs.readFileSync(filePath, "utf-8");
+    const trimmed = content.trim();
+    if (!trimmed) return null;
+    if (trimmed.length <= maxChars) return trimmed;
+    const excerpt = trimmed.slice(-maxChars);
+    const firstLineBreak = excerpt.indexOf("\n");
+    return (firstLineBreak >= 0 ? excerpt.slice(firstLineBreak + 1) : excerpt).trim();
+  } catch {
+    return null;
+  }
+}
+
+function fileTail(filePath: string): string | null {
+  return readLogText(filePath, EXCERPT_MAX_CHARS);
+}
+
+function cleanSchedulerStderrExcerpt(stderr: string | null): string | null {
+  if (!stderr) return null;
+  const lines = stderr.split(/\r?\n/);
+  if (lines.length > 1 && /^\(Use `node --trace-deprecation/.test(lines[0].trim())) {
+    return lines.slice(1).join("\n").trim() || null;
+  }
+  return stderr;
+}
+
 function parseLastExitCode(output: string): number | null {
   const match = output.match(/last exit code\s*=\s*(-?\d+)/i) || output.match(/LastExitStatus\s*=\s*(-?\d+)/i);
   return match ? Number(match[1]) : null;
+}
+
+function isBenignSchedulerStderr(stderr: string | null): boolean {
+  if (!stderr) return true;
+  const normalized = stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^\(Use `node --trace-deprecation/.test(line));
+  return normalized.length > 0 && normalized.every((line) => /\[DEP0205\] DeprecationWarning: `module\.register\(\)` is deprecated/.test(line));
+}
+
+function firstActionableStderrLine(stderr: string | null): string | null {
+  if (!stderr) return null;
+  return stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^\(Use `node --trace-deprecation/.test(line))
+    .find((line) => !/\[DEP0205\] DeprecationWarning: `module\.register\(\)` is deprecated/.test(line)) || null;
 }
 
 function schedulerStatus(job: ReturnType<typeof librarySchedulerJobs>[number], options: HealthOptions): LibrarySchedulerJobSummary {
@@ -52,13 +103,27 @@ function schedulerStatus(job: ReturnType<typeof librarySchedulerJobs>[number], o
   }
 
   const stderrBytes = fileSize(job.stderr);
+  const stdoutExcerpt = fileTail(job.stdout);
+  const stderrExcerpt = cleanSchedulerStderrExcerpt(fileTail(job.stderr));
+  const stderrForClassification = readLogText(job.stderr, CLASSIFY_MAX_CHARS);
+  const stderrIsBenign = stderrBytes > 0 && isBenignSchedulerStderr(stderrForClassification);
+  const actionableStderr = firstActionableStderrLine(stderrForClassification);
   const status: LibrarySchedulerJobSummary["status"] = !loaded
     ? "blocked"
     : lastExitCode !== null && lastExitCode !== 0
       ? "warning"
-      : stderrBytes > 0
+      : stderrBytes > 0 && !stderrIsBenign
         ? "warning"
         : "ok";
+  const message = !loaded
+    ? "LaunchAgent is not loaded."
+    : lastExitCode !== null && lastExitCode !== 0
+      ? `Last run exited with code ${lastExitCode}.`
+      : stderrBytes > 0 && stderrIsBenign
+        ? "Completed successfully; stderr only contains known Node/tsx deprecation noise."
+      : stderrBytes > 0
+          ? `Completed with stderr: ${actionableStderr || "expand for details."}`
+          : "Loaded and clean.";
 
   return {
     id: job.id,
@@ -73,6 +138,9 @@ function schedulerStatus(job: ReturnType<typeof librarySchedulerJobs>[number], o
     stdout_updated_at: fileUpdatedAt(job.stdout),
     stderr_updated_at: fileUpdatedAt(job.stderr),
     stderr_bytes: stderrBytes,
+    stdout_excerpt: stdoutExcerpt,
+    stderr_excerpt: stderrExcerpt,
+    message,
     status,
   };
 }
@@ -118,7 +186,7 @@ function deadLetterSummary(vaultPath: string): LibraryDeadLetterSummary {
 }
 
 export function getLibraryOperationalHealth(vaultPath: string, options: HealthOptions = {}): LibraryOperationalHealth {
-  const jobs = librarySchedulerJobs().map((job) => schedulerStatus(job, options));
+  const jobs = (options.schedulerJobs || librarySchedulerJobs()).map((job) => schedulerStatus(job, options));
   const sources = sourceHealth(vaultPath);
   const deadLetters = deadLetterSummary(vaultPath);
   const ok = jobs.every((job) => job.status !== "blocked")

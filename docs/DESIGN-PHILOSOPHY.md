@@ -98,6 +98,7 @@ Every action should have visible feedback:
 - Keep the top-level nav simple and legible: `[Bridge People Briefing Library Docs System]`. Put inspection sub-modes inside System instead of making every system lens a primary destination.
 - Let primary navigation chrome float over the canvas instead of painting a full-width desktop toolbar strip, but keep the top row's layout reservation so content does not jump upward. Mobile should use one floating pill for section icons; avoid nested inset pills inside the pill.
 - Full-bleed workspace views with sidebars or secondary toolbars should leave an optically balanced gutter below the floating primary nav, then begin the body with a top border attached to the body rather than to the nav. Keep right-side controls and native window controls vertically centered within that top chrome.
+- The Electron shell should allow the app to reach phone-width responsive layouts. Keep the minimum native window size no wider than the small iPhone/SE viewport class (`375px` wide) unless a specific feature has a documented hard constraint.
 - Scrollbars are interaction chrome, not persistent layout chrome. Across the app they should remain invisible until the user is actively scrolling, then appear as thin, transparent-track thumbs only long enough to orient the user.
 - Use a compact secondary segmented control inside System for `Sessions`, `Apps`, `Stack`, and `Sync`; this is mode chrome, not explanatory copy.
 - Keep System mode chrome to one row where possible: mode switcher on the left, mode-specific filters/status/refresh controls right-aligned on the same line. Let this row sit directly on the canvas without a strip background, enclosing border, or extra vertical padding. When a full-width body needs structure, place its top border below the secondary toolbar after the standard optical gutter, not above the toolbar.
@@ -172,6 +173,19 @@ This section tracks design decisions and refinements over time. Each entry shoul
 - Keep source-specific complexity out of the UI where possible; manual links, explicit-save sources, and discovery candidates should share the same artifact contract.
 - Candidate material can be useful without being durable. The interface should make that distinction visible without making the cache feel like a second-class trash pile.
 - Operational health belongs in compact chrome, not in the content feed. Scheduler/source/dead-letter state should be one click away from the Library header so failures are visible without making normal reading feel like a monitoring dashboard.
+
+### 2026-05-28: Library — One Toolbar, Reading Pane First
+
+**Change**: Library subnavigation was consolidated into a single System-style toolbar. Feed/Browse stays left; mode-specific controls, counts, and the compact health popover live right-aligned in the same row.
+
+**Pattern established**:
+- Avoid stacked Library subnav rows. Feed/For You/Recent and Browse/Saved/Candidate state should feel like one coherent control surface.
+- Use the same compact segmented-control styling as System for Library modes. Library should not invent a new toggle language for the same interaction.
+- Treat health as operational chrome: an icon with a popover, expandable details, and log excerpts. Warnings must explain themselves where they appear.
+- Browse defaults should privilege the reading pane. Source lists should be only as wide as their labels require, artifact lists should stay scannable, and detail panes should get the remaining space.
+- Resizable panes should follow the Docs convention: stable defaults, a slim hover handle, and localStorage persistence.
+- Saved-reference archive is destructive enough to hide behind an overflow menu and confirmation. Candidate Skip is a normal review action and can stay direct.
+- Lifecycle filters must update both the visible item list and source-list counts, so the numbers describe the current slice rather than the whole library.
 
 ### 2026-05-19: Map View — Controls as Operational Chrome
 

@@ -12,6 +12,18 @@ export function dateOnly(input: string | Date = new Date()): string {
   return date.toISOString().slice(0, 10);
 }
 
+export function dateTimestamp(input: string | null | undefined): number {
+  if (!input) return 0;
+  const timestamp = Date.parse(input);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+export function compareDatesDesc(a: string | null | undefined, b: string | null | undefined): number {
+  const byTimestamp = dateTimestamp(b) - dateTimestamp(a);
+  if (byTimestamp !== 0) return byTimestamp;
+  return String(b || "").localeCompare(String(a || ""));
+}
+
 export function isoNow(): string {
   return new Date().toISOString();
 }
@@ -84,4 +96,3 @@ export function toArray(value: unknown): string[] {
 export function scoreClamp(value: number): number {
   return Math.max(0, Math.min(1, Number(value.toFixed(3))));
 }
-

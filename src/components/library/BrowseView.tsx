@@ -1,29 +1,61 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { LibraryArtifact } from "@/lib/library/types";
 import { archiveArtifact, promoteCandidate, skipCandidate, useLibrary, useLibraryArtifact, useLibrarySources } from "@/hooks/useLibrary";
-import { Archive, ArrowLeft, Bookmark, ExternalLink, FileText } from "lucide-react";
+import { Archive, ArrowLeft, Bookmark, FileText, MoreHorizontal } from "lucide-react";
 import { getYouTubeVideoId } from "@/lib/library/media";
 import { LibraryMarkdown } from "./LibraryMarkdown";
 
+const SOURCE_WIDTH_KEY = "hilt-library-source-width";
+const LIST_WIDTH_KEY = "hilt-library-list-width";
+const DEFAULT_SOURCE_WIDTH = 220;
+const MIN_SOURCE_WIDTH = 180;
+const MAX_SOURCE_WIDTH = 320;
+const DEFAULT_LIST_WIDTH = 360;
+const MIN_LIST_WIDTH = 300;
+const MAX_LIST_WIDTH = 540;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function storedWidth(key: string, fallback: number, min: number, max: number): number {
+  if (typeof window === "undefined") return fallback;
+  const stored = localStorage.getItem(key);
+  if (!stored) return fallback;
+  const parsed = Number(stored);
+  return Number.isFinite(parsed) ? clamp(parsed, min, max) : fallback;
+}
+
 function SourceNav({
   selectedSource,
+  statusFilter,
+  searchQuery,
   onSelect,
   className = "",
+  style,
 }: {
   selectedSource: string | null;
+  statusFilter: "all" | "saved" | "candidate";
+  searchQuery: string;
   onSelect: (source: string | null) => void;
   className?: string;
+  style?: CSSProperties;
 }) {
-  const { sources } = useLibrarySources();
+  const { sources } = useLibrarySources({
+    status: statusFilter === "all" ? null : statusFilter,
+    q: searchQuery || null,
+  });
+  const totalCount = sources.reduce((sum, source) => sum + source.artifact_count + source.candidate_count, 0);
   return (
-    <aside data-testid="library-source-nav" className={`overflow-y-auto bg-[var(--bg-primary)] p-3 ${className}`}>
+    <aside data-testid="library-source-nav" className={`overflow-y-auto bg-[var(--bg-primary)] p-3 ${className}`} style={style}>
       <button
         onClick={() => onSelect(null)}
         className={`mb-2 flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm ${selectedSource === null ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`}
       >
         <span>All sources</span>
+        <span className="shrink-0 text-xs text-[var(--text-tertiary)]">{totalCount}</span>
       </button>
       <div className="space-y-1">
         {sources.map((source) => (
@@ -46,14 +78,16 @@ function ArtifactList({
   selected,
   onSelect,
   className = "",
+  style,
 }: {
   artifacts: LibraryArtifact[];
   selected: string | null;
   onSelect: (artifact: LibraryArtifact) => void;
   className?: string;
+  style?: CSSProperties;
 }) {
   return (
-    <div data-testid="library-artifact-list" className={`overflow-y-auto bg-[var(--bg-primary)] ${className}`}>
+    <div data-testid="library-artifact-list" className={`overflow-y-auto bg-[var(--bg-primary)] ${className}`} style={style}>
       {artifacts.map((artifact) => (
         <button
           key={artifact.id}
@@ -179,10 +213,12 @@ function ArtifactDetail({
   onChanged?: () => void;
 }) {
   const { artifact, isLoading, mutate } = useLibraryArtifact(id);
-  const [mode, setMode] = useState<"summary" | "source">("summary");
+  const [mode, setMode] = useState<"summary" | "cache">("summary");
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   useEffect(() => {
     setMode("summary");
+    setActionsOpen(false);
   }, [id]);
 
   if (!id) {
@@ -219,20 +255,32 @@ function ArtifactDetail({
         <h1 className="text-xl font-semibold leading-tight text-[var(--text-primary)] sm:text-2xl">{artifact.title}</h1>
 
         <div className="mt-5 flex flex-col gap-3 border-y border-[var(--border-default)] py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-          <div className="grid grid-cols-2 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] p-0.5 sm:inline-flex">
+          <div className="grid grid-cols-3 rounded-lg bg-[var(--bg-tertiary)] p-0.5 sm:inline-flex">
             <button
               onClick={() => setMode("summary")}
-              className={`min-h-9 rounded px-3 py-1.5 text-xs font-medium ${mode === "summary" ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"}`}
+              className={`h-8 rounded-md px-3 text-xs font-medium transition-colors ${mode === "summary" ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}`}
             >
               Summary
             </button>
             <button
-              onClick={() => setMode("source")}
+              onClick={() => setMode("cache")}
               disabled={!hasCachedSource}
-              className={`min-h-9 rounded px-3 py-1.5 text-xs font-medium ${mode === "source" ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"}`}
+              className={`h-8 rounded-md px-3 text-xs font-medium transition-colors ${mode === "cache" ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"}`}
             >
-              Cached Source
+              Cache
             </button>
+            {artifact.url ? (
+              <a
+                href={artifact.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-8 items-center justify-center rounded-md px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+              >
+                Source
+              </a>
+            ) : (
+              <span className="inline-flex h-8 cursor-not-allowed items-center justify-center rounded-md px-3 text-xs font-medium text-[var(--text-tertiary)] opacity-40">Source</span>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {isCandidate ? (
@@ -251,20 +299,31 @@ function ArtifactDetail({
                 </button>
               </>
             ) : (
-              <button
-                onClick={async () => { await archiveArtifact(artifact.id); await handleChanged(); }}
-                className="inline-flex min-h-9 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)]"
-                title="Archive saved reference"
-              >
-                <Archive className="h-3.5 w-3.5" />
-                Archive
-              </button>
-            )}
-            {artifact.url && (
-              <a href={artifact.url} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]">
-                <ExternalLink className="h-3.5 w-3.5" />
-                Open source
-              </a>
+              <div className="relative">
+                <button
+                  onClick={() => setActionsOpen((value) => !value)}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                  title="More saved-reference actions"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+                {actionsOpen && (
+                  <div className="absolute right-0 z-10 mt-1 w-44 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] p-1 content-card-shadow">
+                    <button
+                      onClick={async () => {
+                        if (!window.confirm("Archive this saved reference? It will move out of the active Library.")) return;
+                        await archiveArtifact(artifact.id);
+                        setActionsOpen(false);
+                        onChanged?.();
+                      }}
+                      className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                    >
+                      <Archive className="h-3.5 w-3.5" />
+                      Archive reference
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -284,10 +343,19 @@ function ArtifactDetail({
   );
 }
 
-export function BrowseView({ searchQuery, onOpen }: { searchQuery: string; onOpen?: (artifact: LibraryArtifact) => void }) {
+export function BrowseView({
+  searchQuery,
+  statusFilter,
+  onCountChange,
+  onOpen,
+}: {
+  searchQuery: string;
+  statusFilter: "all" | "saved" | "candidate";
+  onCountChange?: (count: number) => void;
+  onOpen?: (artifact: LibraryArtifact) => void;
+}) {
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"all" | "saved" | "candidate">("all");
-  const { artifacts, mutate } = useLibrary({
+  const { artifacts, total, mutate } = useLibrary({
     source: selectedSource,
     status: statusFilter === "all" ? null : statusFilter,
     q: searchQuery || null,
@@ -295,6 +363,11 @@ export function BrowseView({ searchQuery, onOpen }: { searchQuery: string; onOpe
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<"sources" | "list" | "detail">("list");
+  const [sourceWidth, setSourceWidth] = useState(() => storedWidth(SOURCE_WIDTH_KEY, DEFAULT_SOURCE_WIDTH, MIN_SOURCE_WIDTH, MAX_SOURCE_WIDTH));
+  const [listWidth, setListWidth] = useState(() => storedWidth(LIST_WIDTH_KEY, DEFAULT_LIST_WIDTH, MIN_LIST_WIDTH, MAX_LIST_WIDTH));
+  const [resizing, setResizing] = useState<"source" | "list" | null>(null);
+  const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const previousStatusRef = useRef(statusFilter);
   const firstId = useMemo(() => artifacts[0]?.id || null, [artifacts]);
 
   useEffect(() => {
@@ -302,6 +375,51 @@ export function BrowseView({ searchQuery, onOpen }: { searchQuery: string; onOpe
       setSelectedId(firstId);
     }
   }, [artifacts, firstId, selectedId]);
+
+  useEffect(() => {
+    onCountChange?.(total);
+  }, [onCountChange, total]);
+
+  useEffect(() => {
+    if (previousStatusRef.current !== statusFilter) {
+      previousStatusRef.current = statusFilter;
+      setMobilePane("list");
+    }
+  }, [statusFilter]);
+
+  useEffect(() => {
+    localStorage.setItem(SOURCE_WIDTH_KEY, String(sourceWidth));
+  }, [sourceWidth]);
+
+  useEffect(() => {
+    localStorage.setItem(LIST_WIDTH_KEY, String(listWidth));
+  }, [listWidth]);
+
+  useEffect(() => {
+    if (!resizing) return;
+
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!resizeRef.current) return;
+      const delta = event.clientX - resizeRef.current.startX;
+      if (resizing === "source") {
+        setSourceWidth(clamp(resizeRef.current.startWidth + delta, MIN_SOURCE_WIDTH, MAX_SOURCE_WIDTH));
+      } else {
+        setListWidth(clamp(resizeRef.current.startWidth + delta, MIN_LIST_WIDTH, MAX_LIST_WIDTH));
+      }
+    };
+
+    const handleMouseUp = () => {
+      setResizing(null);
+      resizeRef.current = null;
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [resizing]);
 
   const selectSource = (source: string | null) => {
     setSelectedSource(source);
@@ -314,8 +432,14 @@ export function BrowseView({ searchQuery, onOpen }: { searchQuery: string; onOpe
     onOpen?.(artifact);
   };
 
+  const startResize = useCallback((kind: "source" | "list", width: number) => (event: React.MouseEvent) => {
+    event.preventDefault();
+    setResizing(kind);
+    resizeRef.current = { startX: event.clientX, startWidth: width };
+  }, []);
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-[var(--border-default)]">
+    <div className={`flex min-h-0 flex-1 flex-col overflow-hidden border-t border-[var(--border-default)] ${resizing ? "select-none" : ""}`}>
       <div data-testid="library-mobile-pane-nav" className="flex shrink-0 items-center gap-2 border-b border-[var(--border-default)] bg-[var(--bg-primary)] px-3 py-2 lg:hidden">
         <button
           onClick={() => setMobilePane("sources")}
@@ -339,35 +463,31 @@ export function BrowseView({ searchQuery, onOpen }: { searchQuery: string; onOpe
         <span className="ml-auto min-w-0 truncate text-xs text-[var(--text-tertiary)]">{artifacts.length} items</span>
       </div>
 
-      <div data-testid="library-status-filter" className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--border-default)] bg-[var(--bg-primary)] px-3 py-2">
-        <div className="grid grid-cols-3 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] p-0.5">
-          {(["all", "saved", "candidate"] as const).map((status) => (
-            <button
-              key={status}
-              onClick={() => {
-                setStatusFilter(status);
-                setMobilePane("list");
-              }}
-              className={`min-h-9 rounded px-3 py-1.5 text-xs font-medium ${statusFilter === status ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"}`}
-            >
-              {status === "candidate" ? "Candidates" : status[0].toUpperCase() + status.slice(1)}
-            </button>
-          ))}
-        </div>
-        <span className="text-xs text-[var(--text-tertiary)]">{artifacts.length} shown</span>
-      </div>
-
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <SourceNav
           selectedSource={selectedSource}
+          statusFilter={statusFilter}
+          searchQuery={searchQuery}
           onSelect={selectSource}
-          className={`${mobilePane === "sources" ? "block" : "hidden"} min-h-0 flex-1 lg:block lg:w-64 lg:shrink-0 lg:border-r lg:border-[var(--border-default)]`}
+          className={`${mobilePane === "sources" ? "block" : "hidden"} relative min-h-0 w-full flex-1 lg:block lg:w-[var(--library-source-width)] lg:flex-none lg:shrink-0 lg:border-r lg:border-[var(--border-default)]`}
+          style={{ "--library-source-width": `${sourceWidth}px` } as CSSProperties}
+        />
+        <div
+          data-testid="library-source-resizer"
+          className={`hidden lg:block w-1 cursor-col-resize transition-colors hover:bg-[var(--accent-primary)] ${resizing === "source" ? "bg-[var(--accent-primary)]" : "bg-transparent"}`}
+          onMouseDown={startResize("source", sourceWidth)}
         />
         <ArtifactList
           artifacts={artifacts}
           selected={selectedId}
           onSelect={selectArtifact}
-          className={`${mobilePane === "list" ? "block" : "hidden"} min-h-0 flex-1 lg:block lg:w-[min(420px,42vw)] lg:shrink-0 lg:border-r lg:border-[var(--border-default)]`}
+          className={`${mobilePane === "list" ? "block" : "hidden"} min-h-0 w-full flex-1 lg:block lg:w-[var(--library-list-width)] lg:flex-none lg:shrink-0 lg:border-r lg:border-[var(--border-default)]`}
+          style={{ "--library-list-width": `${listWidth}px` } as CSSProperties}
+        />
+        <div
+          data-testid="library-list-resizer"
+          className={`hidden lg:block w-1 cursor-col-resize transition-colors hover:bg-[var(--accent-primary)] ${resizing === "list" ? "bg-[var(--accent-primary)]" : "bg-transparent"}`}
+          onMouseDown={startResize("list", listWidth)}
         />
         <div className={`${mobilePane === "detail" ? "flex" : "hidden"} min-h-0 flex-1 lg:flex`}>
           <ArtifactDetail

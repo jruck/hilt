@@ -208,6 +208,9 @@ export interface LibrarySchedulerJobSummary {
   stdout_updated_at: string | null;
   stderr_updated_at: string | null;
   stderr_bytes: number;
+  stdout_excerpt: string | null;
+  stderr_excerpt: string | null;
+  message: string | null;
   status: "ok" | "warning" | "blocked";
 }
 

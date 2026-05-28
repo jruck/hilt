@@ -1,8 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import type { LibraryArtifact, RecommendedArtifact } from "@/lib/library/types";
 import type { PromotionReason } from "@/lib/library/types";
-import { Archive, Bookmark, ExternalLink, FileText, Mail, Play, Rss, Sparkles, X } from "lucide-react";
+import { Archive, Bookmark, ExternalLink, FileText, Mail, MoreHorizontal, Play, Rss, Sparkles, X } from "lucide-react";
 import { archiveArtifact, promoteCandidate, skipCandidate } from "@/hooks/useLibrary";
 
 function ChannelIcon({ channel }: { channel: LibraryArtifact["channel"] }) {
@@ -31,6 +32,7 @@ export function FeedCard({
   onOpen?: (artifact: LibraryArtifact) => void;
 }) {
   const isCandidate = artifact.lifecycle_status === "candidate";
+  const [actionsOpen, setActionsOpen] = useState(false);
   const priorityLabel = priority === "must_read" ? "Must Read" : priority === "recommended" ? "Recommended" : priority === "interesting" ? "Interesting" : null;
 
   return (
@@ -89,14 +91,30 @@ export function FeedCard({
               </>
             )}
             {!isCandidate && (
-              <button
-                onClick={async () => { await archiveArtifact(artifact.id); onChanged?.(); }}
-                className="inline-flex min-h-9 items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)]"
-                title="Archive saved reference"
-              >
-                <Archive className="h-3.5 w-3.5" />
-                Archive
-              </button>
+              <div className="relative">
+                <button
+                  onClick={() => setActionsOpen((value) => !value)}
+                  className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                  title="More saved-reference actions"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+                {actionsOpen && (
+                  <div className="absolute right-0 z-10 mt-1 w-44 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] p-1 content-card-shadow">
+                    <button
+                      onClick={async () => {
+                        if (!window.confirm("Archive this saved reference? It will move out of the active Library.")) return;
+                        await archiveArtifact(artifact.id);
+                        onChanged?.();
+                      }}
+                      className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                    >
+                      <Archive className="h-3.5 w-3.5" />
+                      Archive reference
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
             {artifact.url && (
               <a href={artifact.url} target="_blank" rel="noreferrer" className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]" title="Open source">

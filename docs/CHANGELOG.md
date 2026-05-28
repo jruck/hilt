@@ -8,7 +8,23 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
+- **Reference Library health warning clarity** — Scheduler rows now classify repeated Node/tsx `DEP0205` stderr as successful log notices instead of warnings, keep log excerpts line-aligned, and surface the first actionable stderr line when a job really does need attention.
+
+- **Reference Library health refresh feedback** — The health popover Refresh action now forces a no-cache health fetch, shows an in-flight spinner/label, and displays the exact checked time so manual refreshes have visible confirmation.
+
+- **Reference Library health severity icon** — The Library health control now stays as the neutral pulse icon when sources/schedulers are healthy, even if benign log notices exist. It only turns amber for real warnings and red for blocked/bad states.
+
+- **Reference Library Recent date ordering** — Recent now sorts saved references and candidates by parsed timestamps instead of string comparison, and saved-reference YAML dates normalize to ISO date-only strings. This keeps May 28 candidates above May 27 saved refs and prevents UTC-midnight frontmatter dates from displaying as the prior local evening.
+
+- **Electron mobile-width resizing** — Lowered the Hilt Electron minimum window size from `800x600` to the small iPhone/SE viewport class, `375x667`, so the native app can actually reach the responsive mobile layouts.
+
 - **README demo screenshot privacy pass** — Reduced the Library README section to one Browse screenshot and replaced the System screenshot with a fake demo Sessions treemap instead of a live Stack view that exposed real machine names. Added `npm run demo:seed-map` and `npm run dev:demo` so the demo System view can be populated with synthetic map data.
+
+- **Reference Library chrome polish** — Consolidated Library Feed/Browse, Recent/For You, Saved/Candidate filtering, item counts, and health into one System-style secondary row. The health control is now a compact icon popover with expandable scheduler rows and log excerpts instead of a static panel.
+
+- **Reference Library Browse ergonomics** — Added persisted desktop pane resizing for source/list/detail columns, narrowed the source column default, widened the reading pane, made source counts respect the active lifecycle/search filters, unified detail actions as Summary / Cache / Source, and moved saved-reference Archive behind a confirmed overflow menu.
+
+- **Reference Library source date and depth repair** — Library list dates now prefer source publication time over file creation time, fixing historical Raindrop/X saves that appeared newly captured. A bounded source-depth pass added older Raindrop and X bookmark pages and left clean cursors for later historical maintenance.
 
 ## [6.0.0] - 2026-05-28
 

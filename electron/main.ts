@@ -57,6 +57,10 @@ let nextServer: ChildProcess | null = null;
 let wsServer: ChildProcess | null = null;
 let serverPort: number | null = null;
 const servers = new Map<string, ServerInstance>();
+const IPHONE_SE_VIEWPORT = {
+  width: 375,
+  height: 667,
+};
 
 // Startup activity tracking for loading screen
 interface StartupActivity {
@@ -849,8 +853,8 @@ async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
-    minWidth: 800,
-    minHeight: 600,
+    minWidth: IPHONE_SE_VIEWPORT.width,
+    minHeight: IPHONE_SE_VIEWPORT.height,
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 22 },
     backgroundColor: "#0a0a0a",

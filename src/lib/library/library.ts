@@ -4,7 +4,7 @@ import type { LibraryArtifact, LibraryArtifactDetail, LibraryLifecycleStatus, Li
 import { listCandidates } from "./candidate-cache";
 import { listSavedReferences } from "./references";
 import { loadSources, readSourceState } from "./source-config";
-import { ensureDir, hashId } from "./utils";
+import { compareDatesDesc, dateTimestamp, ensureDir, hashId } from "./utils";
 import { relativeVaultPath } from "./markdown";
 
 export interface LibraryListOptions {
@@ -34,7 +34,7 @@ function candidateToArtifact(candidate: ReferenceCandidate): LibraryArtifactDeta
     thumbnail: candidate.thumbnail,
     author: candidate.author,
     url: candidate.url,
-    created_at: candidate.digested,
+    created_at: candidate.published || candidate.digested,
     updated_at: candidate.digested,
     relevance_score: candidate.score.total,
     lifecycle_status: candidate.status,
@@ -61,13 +61,15 @@ function matchesText(artifact: LibraryArtifactDetail, q: string): boolean {
 }
 
 function filterArtifacts(artifacts: LibraryArtifactDetail[], options: LibraryListOptions): LibraryArtifactDetail[] {
+  const after = dateTimestamp(options.after);
+  const before = dateTimestamp(options.before);
   return artifacts.filter((artifact) => {
     if (options.source && artifact.source_id !== options.source) return false;
     if (options.channel && artifact.channel !== options.channel) return false;
     if (options.tag && !artifact.tags.includes(options.tag)) return false;
     if (options.status && options.status !== "all" && artifact.lifecycle_status !== options.status) return false;
-    if (options.after && artifact.created_at < options.after) return false;
-    if (options.before && artifact.created_at > options.before) return false;
+    if (after && dateTimestamp(artifact.created_at) < after) return false;
+    if (before && dateTimestamp(artifact.created_at) > before) return false;
     if (options.q && !matchesText(artifact, options.q)) return false;
     return true;
   });
@@ -78,7 +80,7 @@ export function listLibraryArtifactDetails(vaultPath: string, options: LibraryLi
   const candidates = options.includeCandidates === false
     ? []
     : listCandidates(vaultPath).map(candidateToArtifact);
-  const all = [...saved, ...candidates].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const all = [...saved, ...candidates].sort((a, b) => compareDatesDesc(a.created_at, b.created_at));
   const filtered = filterArtifacts(all, options);
   const offset = options.offset || 0;
   const limit = options.limit || 50;
@@ -98,10 +100,14 @@ export function summarizeArtifact(artifact: LibraryArtifactDetail): LibraryArtif
   return summary;
 }
 
-export function listLibrarySources(vaultPath: string): LibrarySourceSummary[] {
+export function listLibrarySources(vaultPath: string, options: Omit<LibraryListOptions, "source" | "offset" | "limit" | "includeCandidates"> = {}): LibrarySourceSummary[] {
   const sources = loadSources(vaultPath);
   const state = readSourceState(vaultPath);
-  const all = listLibraryArtifactDetails(vaultPath, { limit: 10000, includeCandidates: true }).artifacts;
+  const all = listLibraryArtifactDetails(vaultPath, {
+    ...options,
+    limit: 10000,
+    includeCandidates: true,
+  }).artifacts;
   return sources.map((source) => ({
     id: source.id,
     name: source.name,

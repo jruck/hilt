@@ -72,6 +72,10 @@ let nextServer = null;
 let wsServer = null;
 let serverPort = null;
 const servers = new Map();
+const IPHONE_SE_VIEWPORT = {
+    width: 375,
+    height: 667,
+};
 // Queue startup activities until window is ready
 const pendingStartupActivities = [];
 let windowReady = false;
@@ -786,8 +790,8 @@ async function createWindow() {
     mainWindow = new electron_1.BrowserWindow({
         width: 1400,
         height: 900,
-        minWidth: 800,
-        minHeight: 600,
+        minWidth: IPHONE_SE_VIEWPORT.width,
+        minHeight: IPHONE_SE_VIEWPORT.height,
         titleBarStyle: "hiddenInset",
         trafficLightPosition: { x: 16, y: 22 },
         backgroundColor: "#0a0a0a",

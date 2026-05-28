@@ -3,7 +3,7 @@
 import useSWR from "swr";
 import type { LibraryArtifact, LibraryArtifactDetail, LibraryOperationalHealth, LibrarySourceSummary, PromotionReason, RecommendedArtifact } from "@/lib/library/types";
 
-const fetcher = (url: string) => fetch(url).then((res) => {
+const fetcher = (url: string) => fetch(url, { cache: "no-store" }).then((res) => {
   if (!res.ok) throw new Error(`Request failed: ${res.status}`);
   return res.json();
 });
@@ -27,8 +27,13 @@ export function useLibrary(options: UseLibraryOptions = {}) {
   return { artifacts: data?.artifacts || [], total: data?.total || 0, error, isLoading, mutate };
 }
 
-export function useLibrarySources() {
-  const { data, error, isLoading, mutate } = useSWR<{ sources: LibrarySourceSummary[] }>("/api/library/sources", fetcher);
+export function useLibrarySources(options: Pick<UseLibraryOptions, "channel" | "status" | "q"> = {}) {
+  const params = new URLSearchParams();
+  if (options.channel) params.set("channel", options.channel);
+  if (options.status) params.set("status", options.status);
+  if (options.q) params.set("q", options.q);
+  const key = `/api/library/sources${params.toString() ? `?${params.toString()}` : ""}`;
+  const { data, error, isLoading, mutate } = useSWR<{ sources: LibrarySourceSummary[] }>(key, fetcher);
   return { sources: data?.sources || [], error, isLoading, mutate };
 }
 
@@ -43,10 +48,12 @@ export function useRecommendations(limit = 10) {
 }
 
 export function useLibraryHealth() {
-  const { data, error, isLoading, mutate } = useSWR<LibraryOperationalHealth>("/api/library/health", fetcher, {
+  const key = "/api/library/health";
+  const { data, error, isLoading, isValidating, mutate } = useSWR<LibraryOperationalHealth>(key, fetcher, {
     refreshInterval: 60_000,
   });
-  return { health: data || null, error, isLoading, mutate };
+  const refresh = () => mutate(fetcher(`${key}?refresh=${Date.now()}`), { revalidate: false });
+  return { health: data || null, error, isLoading, isValidating, mutate, refresh };
 }
 
 export async function promoteCandidate(id: string, reason: PromotionReason = "manual_save") {

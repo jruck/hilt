@@ -1200,6 +1200,15 @@ Promotes a candidate to a durable reference and marks the candidate as promoted.
 
 Returns loaded `meta/sources/*.yaml` source configs plus source-state status.
 
+**Query Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `q` | string | Keyword filter applied before source counts are calculated |
+| `status` | string | `saved`, `candidate`, or `all`; counts reflect the active lifecycle slice |
+| `channel` | string | Source channel such as `youtube`, `raindrop`, `twitter`, `rss`, or `manual` |
+| `tag` | string | Tag filter applied before source counts are calculated |
+
 ### POST /api/sources/ingest
 
 Runs the shared source runner for selected sources or every enabled source. Credential-gated sources return `424` with blocked source details instead of pretending live access succeeded.
@@ -1240,6 +1249,11 @@ Returns the operational Reference Library dashboard contract: launchd scheduler 
       installed: boolean;
       last_exit_code: number | null;
       stderr_bytes: number;
+      stdout_updated_at: string | null;
+      stderr_updated_at: string | null;
+      stdout_excerpt: string | null;
+      stderr_excerpt: string | null;
+      message: string | null;
       status: "ok" | "warning" | "blocked";
     }>;
   };

@@ -12,7 +12,7 @@ import { fetchYouTubeArtifacts } from "./adapters/youtube";
 import { buildCandidateMarkdown, listCandidates } from "./candidate-cache";
 import { digestArtifact } from "./digestion";
 import { getLibraryOperationalHealth } from "./health";
-import { archiveLibraryArtifact, listLibraryArtifactDetails } from "./library";
+import { archiveLibraryArtifact, listLibraryArtifactDetails, listLibrarySources } from "./library";
 import { getRecommendations } from "./recommendations";
 import { buildDurableReferenceMarkdown, listSavedReferences } from "./references";
 import { runIngestion } from "./runner";
@@ -498,6 +498,30 @@ test("durable reference markdown includes bounded source images for articles", (
   assert.doesNotMatch(markdown, /not-image\.mp4/);
 });
 
+test("recent library list sorts mixed frontmatter date formats by timestamp", () => {
+  const vault = tempVault();
+  fs.writeFileSync(path.join(vault, "references", "saved.md"), `---
+type: reference
+description: Saved reference.
+url: https://example.com/saved
+published: 2026-05-27
+captured: 2026-05-28
+---
+# Saved Reference
+`, "utf-8");
+
+  const processed = processedYouTubeArtifact();
+  processed.raw.date = "2026-05-28";
+  const cacheDir = path.join(vault, "references", ".cache", "library-candidates");
+  fs.mkdirSync(cacheDir, { recursive: true });
+  fs.writeFileSync(path.join(cacheDir, "candidate.md"), buildCandidateMarkdown(processed), "utf-8");
+
+  const listed = listLibraryArtifactDetails(vault, { includeCandidates: true });
+  assert.equal(listed.artifacts[0].lifecycle_status, "candidate");
+  assert.equal(listed.artifacts[0].created_at, "2026-05-28");
+  assert.equal(listed.artifacts[1].created_at, "2026-05-27");
+});
+
 test("parses Superhuman News threads into candidate-ready email artifacts", () => {
   const source: LibrarySourceConfig = {
     id: "superhuman-news",
@@ -600,6 +624,57 @@ fixtures:
   const listed = listLibraryArtifactDetails(vault, { includeCandidates: true });
   assert.equal(listed.artifacts.length, 1);
   assert.equal(listed.artifacts[0].lifecycle_status, "saved");
+  assert.equal(listed.artifacts[0].created_at, "2026-05-26");
+});
+
+test("library source counts respect lifecycle filters", async () => {
+  process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  const vault = tempVault();
+  writeSource(vault, "mixed.yaml", `
+id: mixed-source
+name: Mixed Source
+channel: fixture
+url: fixture://mixed
+enabled: true
+intent: discovery
+retention:
+  candidate_ttl_days: 30
+  auto_promote_threshold: 0.99
+fixtures:
+  - url: https://example.com/review
+    title: Review Artifact
+    date: 2026-05-25
+    content: This discovery item should remain a review candidate for source count filtering.
+    metadata: {}
+`);
+  writeSource(vault, "explicit.yaml", `
+id: explicit-source
+name: Explicit Source
+channel: fixture
+url: fixture://explicit
+enabled: true
+intent: explicit_save
+signal: test_bookmark
+fixtures:
+  - url: https://example.com/saved
+    title: Saved Artifact
+    date: 2026-05-26
+    content: This explicit item should become a saved reference for source count filtering.
+    metadata: {}
+`);
+  await runIngestion(vault, { useSummarize: false });
+
+  const all = listLibrarySources(vault);
+  assert.equal(all.find((source) => source.id === "mixed-source")?.candidate_count, 1);
+  assert.equal(all.find((source) => source.id === "explicit-source")?.artifact_count, 1);
+
+  const saved = listLibrarySources(vault, { status: "saved" });
+  assert.equal(saved.find((source) => source.id === "mixed-source")?.candidate_count, 0);
+  assert.equal(saved.find((source) => source.id === "explicit-source")?.artifact_count, 1);
+
+  const candidates = listLibrarySources(vault, { status: "candidate" });
+  assert.equal(candidates.find((source) => source.id === "mixed-source")?.candidate_count, 1);
+  assert.equal(candidates.find((source) => source.id === "explicit-source")?.artifact_count, 0);
 });
 
 test("archives saved references into a local archive folder", async () => {
@@ -764,6 +839,74 @@ fixtures: []
   assert.equal(health.sources[0].status, "ok");
   assert.equal(health.dead_letters.total, 0);
   assert.equal(health.ok, true);
+});
+
+test("library health treats known scheduler deprecation stderr as a notice, not a failure", () => {
+  const vault = tempVault();
+  writeSource(vault, "health.yaml", `
+id: health-source
+name: Health Source
+channel: fixture
+url: fixture://health
+enabled: true
+intent: discovery
+fixtures: []
+`);
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-library-logs-"));
+  const stderr = path.join(logDir, "job.err.log");
+  const stdout = path.join(logDir, "job.out.log");
+  const deprecationBlock = "(node:123) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n";
+  fs.writeFileSync(stderr, deprecationBlock.repeat(20), "utf-8");
+  fs.writeFileSync(stdout, "ok\n", "utf-8");
+
+  const health = getLibraryOperationalHealth(vault, {
+    launchctl: () => "last exit code = 0",
+    schedulerJobs: [{
+      id: "fixture-job",
+      label: "com.hilt.library.fixture",
+      script: "library:fixture",
+      schedule: { intervalSeconds: 3600 },
+      stdout,
+      stderr,
+    }],
+  });
+  assert.equal(health.scheduler.jobs[0].status, "ok");
+  assert.match(health.scheduler.jobs[0].message || "", /Node\/tsx deprecation noise/);
+  assert.match(health.scheduler.jobs[0].stderr_excerpt || "", /DEP0205/);
+  assert.doesNotMatch(health.scheduler.jobs[0].stderr_excerpt || "", /^nstead/);
+  assert.doesNotMatch(health.scheduler.jobs[0].stderr_excerpt || "", /^\(Use `node --trace-deprecation/);
+});
+
+test("library health surfaces actionable scheduler stderr in warning message", () => {
+  const vault = tempVault();
+  writeSource(vault, "health.yaml", `
+id: health-source
+name: Health Source
+channel: fixture
+url: fixture://health
+enabled: true
+intent: discovery
+fixtures: []
+`);
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-library-logs-"));
+  const stderr = path.join(logDir, "job.err.log");
+  const stdout = path.join(logDir, "job.out.log");
+  fs.writeFileSync(stderr, "Error: source auth expired\nstack line\n", "utf-8");
+  fs.writeFileSync(stdout, "ok\n", "utf-8");
+
+  const health = getLibraryOperationalHealth(vault, {
+    launchctl: () => "last exit code = 0",
+    schedulerJobs: [{
+      id: "fixture-job",
+      label: "com.hilt.library.fixture",
+      script: "library:fixture",
+      schedule: { intervalSeconds: 3600 },
+      stdout,
+      stderr,
+    }],
+  });
+  assert.equal(health.scheduler.jobs[0].status, "warning");
+  assert.match(health.scheduler.jobs[0].message || "", /Error: source auth expired/);
 });
 
 test("auth verifier reports missing source credentials without exposing values", async () => {

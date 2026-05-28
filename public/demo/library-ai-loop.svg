@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675" role="img" aria-label="AI operating loop">
+  <defs>
+    <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#0f766e"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="675" fill="#f8fafc"/>
+  <rect x="72" y="72" width="1056" height="531" rx="28" fill="url(#g)"/>
+  <circle cx="314" cy="338" r="112" fill="#ecfeff" opacity=".95"/>
+  <circle cx="600" cy="338" r="112" fill="#f0fdf4" opacity=".95"/>
+  <circle cx="886" cy="338" r="112" fill="#eff6ff" opacity=".95"/>
+  <path d="M429 338h56m230 0h56" stroke="#fff" stroke-width="18" stroke-linecap="round"/>
+  <path d="m481 305 38 33-38 33m286-66 38 33-38 33" fill="none" stroke="#fff" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="314" y="326" text-anchor="middle" font-family="Inter, ui-sans-serif, system-ui" font-size="35" font-weight="700" fill="#134e4a">Capture</text>
+  <text x="314" y="370" text-anchor="middle" font-family="Inter, ui-sans-serif, system-ui" font-size="24" fill="#134e4a">signals</text>
+  <text x="600" y="326" text-anchor="middle" font-family="Inter, ui-sans-serif, system-ui" font-size="35" font-weight="700" fill="#14532d">Digest</text>
+  <text x="600" y="370" text-anchor="middle" font-family="Inter, ui-sans-serif, system-ui" font-size="24" fill="#14532d">context</text>
+  <text x="886" y="326" text-anchor="middle" font-family="Inter, ui-sans-serif, system-ui" font-size="35" font-weight="700" fill="#1e3a8a">Surface</text>
+  <text x="886" y="370" text-anchor="middle" font-family="Inter, ui-sans-serif, system-ui" font-size="24" fill="#1e3a8a">what matters</text>
+</svg>

@@ -1,10 +1,10 @@
 import { appendDeadLetter } from "./dead-letter";
 import { isLibrarySourceBlockedError } from "./errors";
-import { fetchArtifactsForSource } from "./adapters";
+import { fetchArtifactBatchForSource } from "./adapters";
 import { loadSources, readSourceState, writeSourceState } from "./source-config";
 import { processArtifact } from "./processor";
 import { isoNow } from "./utils";
-import type { IngestionReport, IngestionSourceResult, LibrarySourceConfig, RawArtifact } from "./types";
+import type { ArtifactFetchBatch, IngestionReport, IngestionSourceResult, LibrarySourceConfig, RawArtifact } from "./types";
 
 function afterSince(artifact: RawArtifact, since?: string): boolean {
   if (!since) return true;
@@ -27,15 +27,31 @@ function sourceResult(source: LibrarySourceConfig): IngestionSourceResult {
     skipped: 0,
     duplicates: 0,
     errors: [],
+    artifacts: [],
   };
+}
+
+export interface RunIngestionOptions {
+  sourceIds?: string[];
+  useSummarize?: boolean;
+  dryRun?: boolean;
+  limit?: number;
+  ignoreState?: boolean;
+  useCursor?: boolean;
+}
+
+function hasNextCursor(batch: ArtifactFetchBatch): boolean {
+  return Object.prototype.hasOwnProperty.call(batch, "next_cursor");
 }
 
 export async function runIngestion(
   vaultPath: string,
-  options: { sourceIds?: string[]; useSummarize?: boolean } = {},
+  options: RunIngestionOptions = {},
 ): Promise<IngestionReport> {
   const started = isoNow();
   const state = readSourceState(vaultPath);
+  const limit = Number.isFinite(options.limit) && Number(options.limit) > 0 ? Number(options.limit) : null;
+  const useCursor = Boolean(options.useCursor);
   const sources = loadSources(vaultPath)
     .filter((source) => source.enabled)
     .filter((source) => !options.sourceIds?.length || options.sourceIds.includes(source.id));
@@ -43,6 +59,9 @@ export async function runIngestion(
   const report: IngestionReport = {
     started_at: started,
     finished_at: started,
+    dry_run: Boolean(options.dryRun),
+    use_cursor: useCursor,
+    limit,
     checked: 0,
     candidates: 0,
     promoted: 0,
@@ -58,15 +77,23 @@ export async function runIngestion(
     const result = sourceResult(source);
     report.sources.push(result);
     try {
-      const artifacts = (await fetchArtifactsForSource(source))
-        .filter((artifact) => afterSince(artifact, state[source.id]?.last_checked_at));
+      const sourceCursor = useCursor ? (state[source.id]?.cursor ?? source.backfill.cursor ?? null) : null;
+      result.cursor = sourceCursor;
+      const batch = await fetchArtifactBatchForSource(source, { cursor: sourceCursor, limit });
+      result.next_cursor = batch.next_cursor ?? null;
+      const artifacts = batch.artifacts
+        .filter((artifact) => options.ignoreState || options.dryRun || useCursor || afterSince(artifact, state[source.id]?.last_checked_at))
+        .slice(0, limit ?? undefined);
       result.checked = true;
       result.fetched = artifacts.length;
       report.checked += 1;
 
       for (const artifact of artifacts) {
         try {
-          const processed = await processArtifact(vaultPath, artifact, source, { useSummarize: options.useSummarize });
+          const processed = await processArtifact(vaultPath, artifact, source, {
+            useSummarize: options.useSummarize,
+            dryRun: options.dryRun,
+          });
           if (processed.status === "candidate") {
             result.candidates += 1;
             report.candidates += 1;
@@ -83,39 +110,76 @@ export async function runIngestion(
             result.duplicates += 1;
             report.duplicates += 1;
           }
+          result.artifacts.push({
+            url: artifact.url,
+            title: artifact.title,
+            status: processed.status,
+            path: processed.path,
+            reason: processed.reason,
+          });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           result.errors.push(message);
           report.errors.push(`${source.id}: ${message}`);
-          appendDeadLetter(vaultPath, { source_id: source.id, artifact_url: artifact.url, error: message });
+          result.artifacts.push({
+            url: artifact.url,
+            title: artifact.title,
+            status: "error",
+            reason: message,
+          });
+          if (!options.dryRun) {
+            appendDeadLetter(vaultPath, { source_id: source.id, artifact_url: artifact.url, error: message });
+          }
         }
       }
 
-      state[source.id] = {
-        ...state[source.id],
-        last_checked_at: isoNow(),
-        last_success_at: isoNow(),
-        last_error: undefined,
-        blocked_reason: undefined,
-      };
+      if (!options.dryRun) {
+        const checkedAt = isoNow();
+        const nextState = {
+          ...state[source.id],
+          last_checked_at: checkedAt,
+          last_success_at: checkedAt,
+          last_error: undefined,
+          blocked_reason: undefined,
+        };
+        if (useCursor && hasNextCursor(batch)) {
+          if (batch.next_cursor) {
+            nextState.cursor = batch.next_cursor;
+            nextState.backfill_complete_at = undefined;
+          } else {
+            nextState.cursor = undefined;
+            nextState.backfill_complete_at = checkedAt;
+          }
+        }
+        state[source.id] = {
+          ...nextState,
+        };
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (isLibrarySourceBlockedError(error)) {
         result.blocked = true;
         result.blocked_reason = message;
         report.blocked.push({ source_id: source.id, reason: message });
-        state[source.id] = { ...state[source.id], blocked_reason: message, last_error: message };
+        if (!options.dryRun) {
+          state[source.id] = { ...state[source.id], blocked_reason: message, last_error: message };
+        }
       } else {
         result.errors.push(message);
         report.errors.push(`${source.id}: ${message}`);
-        state[source.id] = { ...state[source.id], last_error: message };
+        if (!options.dryRun) {
+          state[source.id] = { ...state[source.id], last_error: message };
+        }
       }
-      appendDeadLetter(vaultPath, { source_id: source.id, error: message });
+      if (!options.dryRun) {
+        appendDeadLetter(vaultPath, { source_id: source.id, error: message });
+      }
     }
   }
 
   report.finished_at = isoNow();
-  writeSourceState(vaultPath, state);
+  if (!options.dryRun) {
+    writeSourceState(vaultPath, state);
+  }
   return report;
 }
-

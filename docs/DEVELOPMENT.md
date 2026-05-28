@@ -10,7 +10,7 @@
 
 ```bash
 # Clone the repo
-git clone https://github.com/yourusername/hilt.git
+git clone https://github.com/jruck/hilt.git
 cd hilt
 
 # Install dependencies
@@ -28,9 +28,13 @@ open http://localhost:3000
 | Script | Command | Description |
 |--------|---------|-------------|
 | `dev:all` | `npm run dev:all` | **Start development** (Next.js + WebSocket + Event servers) |
+| `app` | `npm run app` | Build the dev-mode macOS app at `dist/Hilt.app` |
 | `build` | `npm run build` | Production build |
 | `start` | `npm run start` | Start production server |
 | `lint` | `npm run lint` | Run ESLint |
+| `test:bridge` | `npm run test:bridge` | Bridge parser tests |
+| `test:library` | `npm run test:library` | Reference Library ingestion and contract tests |
+| `test:system` | `npm run test:system` | System inspector tests |
 
 > **Note**: Always use `dev:all` for development. Running servers individually is only for debugging.
 
@@ -73,25 +77,27 @@ hilt/
 │   │   ├── [[...path]]/     # Catch-all route for scopes
 │   │   ├── api/             # API routes
 │   │   │   ├── bridge/      # Bridge task/project endpoints
-│   │   │   ├── claude-stack/ # Claude config stack API
 │   │   │   ├── docs/        # Documentation viewer API
 │   │   │   ├── folders/     # Folder discovery
 │   │   │   ├── inbox/       # Inbox drafts
+│   │   │   ├── library/     # Reference Library endpoints
+│   │   │   ├── local-apps/  # Local/tailnet app monitor
 │   │   │   ├── plans/       # Plan management
 │   │   │   ├── preferences/ # User preferences
+│   │   │   ├── system/      # Sessions, Stack, Sync inspection
 │   │   │   └── ...          # Other endpoints
 │   │   ├── layout.tsx       # Root layout
 │   │   └── globals.css      # Global styles
 │   ├── components/          # React components
 │   │   ├── bridge/          # Bridge view (notes, tasks, projects)
+│   │   ├── briefings/       # Briefing view
 │   │   ├── docs/            # Docs viewer (file tree, content pane)
-│   │   ├── stack/           # Stack view (Claude config explorer)
-│   │   ├── scope/           # Scope navigation (breadcrumbs, browse)
-│   │   ├── sidebar/         # Sidebar (pinned folders)
+│   │   ├── library/         # Reference Library Feed/Browse/Health
+│   │   ├── people/          # People and meeting timelines
+│   │   ├── system/          # Sessions/Apps/Stack/Sync modes
 │   │   ├── ui/              # Shared UI components
 │   │   ├── Board.tsx        # Main container, view routing
 │   │   ├── DocsView.tsx     # Docs view wrapper
-│   │   ├── PlanEditor.tsx   # MDX plan editor
 │   │   └── ViewToggle.tsx   # Grouped global tab switcher
 │   ├── hooks/               # Custom hooks
 │   │   ├── useBridgeProjects.ts
@@ -105,6 +111,8 @@ hilt/
 │       ├── bridge/          # Project parser, vault, weekly parser
 │       ├── claude-config/   # Config discovery, MCP, plugins
 │       ├── docs/            # Wikilink resolver
+│       ├── library/         # Sources, ingestion, candidates, refs
+│       ├── system/          # System identity and inspectors
 │       ├── db.ts            # Persistence layer
 │       ├── types.ts         # TypeScript types and Zod schemas
 │       └── ...              # Other utilities
@@ -128,10 +136,14 @@ hilt/
 |------|---------|
 | `src/components/Board.tsx` | Main container, view routing and state management |
 | `src/components/bridge/BridgeView.tsx` | Bridge view: notes, tasks, projects |
+| `src/components/library/LibraryView.tsx` | Library Feed/Browse wrapper |
+| `src/components/library/LibraryHealthPanel.tsx` | Scheduler/source/dead-letter health panel |
+| `src/components/system/SystemView.tsx` | System inspection modes |
 | `src/components/docs/DocsContentPane.tsx` | Docs viewer content rendering |
-| `src/components/stack/StackView.tsx` | Claude config stack explorer |
 | `src/lib/types.ts` | TypeScript types and Zod schemas |
 | `src/lib/bridge/project-parser.ts` | Parses project markdown frontmatter |
+| `src/lib/library/runner.ts` | Shared source ingestion runner |
+| `src/lib/library/recommendations.ts` | File-native For You ranker |
 | `src/lib/claude-config/discovery.ts` | Claude config file discovery |
 | `server/ws-server.ts` | WebSocket server for real-time file change events |
 | `server/watchers/` | File system watchers (scope, inbox, bridge) |
@@ -180,11 +192,11 @@ curl "http://localhost:3000/api/folders"
 # Test inbox endpoint
 curl "http://localhost:3000/api/inbox?scope=/Users/you/project"
 
-# Test bridge endpoint
-curl "http://localhost:3000/api/bridge?scope=/Users/you/project"
+# Test Library health
+curl "http://localhost:3000/api/library/health"
 
-# Test docs endpoint
-curl "http://localhost:3000/api/docs?scope=/Users/you/project"
+# Test For You recommendations
+curl "http://localhost:3000/api/library/recommendations?limit=8"
 ```
 
 ### WebSocket Event Issues
@@ -224,7 +236,16 @@ The WebSocket server broadcasts real-time file change events to connected client
 
 ## Testing
 
-**Currently no automated tests.** Manual testing checklist:
+Run the smallest targeted suite that covers your change, then `npx tsc --noEmit` before shipping.
+
+```bash
+npm run test:bridge
+npm run test:library
+npm run test:system
+npx tsc --noEmit
+```
+
+Manual UI checklist:
 
 ### Bridge View
 - [ ] Notes load for current scope
@@ -241,11 +262,17 @@ The WebSocket server broadcasts real-time file change events to connected client
 - [ ] PDF and CSV viewers work
 - [ ] Wikilinks resolve correctly
 
-### Stack View
-- [ ] Claude config files discovered
-- [ ] MCP servers listed
-- [ ] Plugin details render
-- [ ] File tree navigation works
+### Library View
+- [ ] Feed loads Recent and For You
+- [ ] Browse shows sources, saved refs, candidates, and detail
+- [ ] Save/Skip/Archive actions work
+- [ ] Detail renders markdown, media, and cached source without raw markup
+- [ ] Health panel shows scheduler/source/dead-letter state
+
+### System View
+- [ ] Sessions, Apps, Stack, and Sync modes render when enabled
+- [ ] Stack config files and MCP/plugin details render
+- [ ] Health/status errors are visible without blanking the view
 
 ### Scope Navigation
 - [ ] Breadcrumbs show correct path
@@ -264,8 +291,8 @@ The WebSocket server broadcasts real-time file change events to connected client
 
 ### Bundle Size
 
-- MDXEditor is large (~500KB)
-- Consider lazy loading for plan editor
+- Keep optional inspection surfaces lazy where practical.
+- Avoid adding heavyweight editors to read-mode paths; Docs uses CodeMirror plus rendered markdown instead of a WYSIWYG markdown bundle.
 
 ## Common Patterns
 

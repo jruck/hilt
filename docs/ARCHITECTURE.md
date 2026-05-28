@@ -54,7 +54,7 @@ This document provides a comprehensive architectural overview of Hilt for AI age
 
 | Layer | Technology | Version | Purpose |
 |-------|------------|---------|---------|
-| Framework | Next.js | 16.1.0 | React framework with API routes |
+| Framework | Next.js | 16.2.5 | React framework with API routes |
 | UI | React | 19.2.3 | Component library |
 | Language | TypeScript | 5 | Type safety |
 | Styling | Tailwind CSS | 4 | Utility-first CSS |
@@ -618,7 +618,9 @@ Board.tsx (274 lines)
 │   │   └── LibraryView (URL: /library)
 │   │       ├── FeedView (For You / Recent, Save / Skip)
 │   │       ├── BrowseView (sources, dense list, detail pane)
-│   │       └── Library APIs (/api/library/*, /api/search)
+│   │       ├── LibraryHealthPanel (/api/library/health scheduler/source/dead-letter state)
+│   │       ├── Library APIs (/api/library/*, /api/search)
+│   │       └── Source runner CLI (auth verification, dry-run canaries, scheduled ingestion)
 │
 │   └── viewMode === "local-apps"
 │       └── LocalAppsView

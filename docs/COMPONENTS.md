@@ -161,7 +161,8 @@ Reference Library workspace backed by markdown reference files and hidden candid
 
 - Defaults to Feed, with a compact For You / Recent switch and candidate Save / Skip actions.
 - Browse mode uses a source column, dense reference/candidate list, and detail pane.
-- Uses `/api/library`, `/api/library/candidates/*`, `/api/library/sources`, `/api/library/recommendations`, and `/api/search`.
+- Header includes a compact health panel backed by `/api/library/health` for scheduler, source, and dead-letter visibility.
+- Uses `/api/library`, `/api/library/candidates/*`, `/api/library/sources`, `/api/library/recommendations`, `/api/library/health`, and `/api/search`.
 - Manual, explicit-save, and discovery records share the same artifact shape, so UI actions do not need source-specific handling.
 
 ---

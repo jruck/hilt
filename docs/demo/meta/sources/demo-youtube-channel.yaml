@@ -1,0 +1,23 @@
+id: demo-youtube-channel
+name: Demo YouTube Discovery
+channel: youtube
+url: youtube://channel/demo-product-channel
+enabled: true
+cadence: hourly
+intent: discovery
+retention:
+  mode: candidate
+  candidate_ttl_days: 45
+  auto_promote_threshold: 0.85
+auth:
+  required: false
+  stop_on_missing_credential: false
+backfill:
+  enabled: false
+  mode: none
+tags: [demo, video, product]
+filters:
+  include_topics: [product, agent, workflow]
+  exclude_topics: []
+metadata:
+  demo: true

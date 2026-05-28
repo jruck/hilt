@@ -61,6 +61,25 @@ export interface RawArtifact {
   metadata: Record<string, unknown>;
 }
 
+export interface SourceCache {
+  kind: "article" | "transcript" | "source";
+  extractor: "summarize-cli" | "source-metadata" | "raindrop-cache";
+  captured_at: string;
+  content: string;
+  chars: number;
+}
+
+export interface FetchArtifactsOptions {
+  cursor?: string | null;
+  limit?: number | null;
+}
+
+export interface ArtifactFetchBatch {
+  artifacts: RawArtifact[];
+  cursor?: string | null;
+  next_cursor?: string | null;
+}
+
 export interface ArtifactScore {
   relevance: number;
   novelty: number;
@@ -86,6 +105,15 @@ export interface ProcessedArtifact {
   connected_projects: string[];
   reasoning: string;
   extraction_notes: string[];
+  digestion?: {
+    status: "hot" | "warm";
+    extractor: "summarize-cli" | "source-metadata";
+    digested_at: string;
+    extracted_chars: number;
+    cached_source_chars?: number;
+    cached_source_extractor?: SourceCache["extractor"];
+  };
+  source_cache?: SourceCache;
 }
 
 export interface ReferenceCandidate {
@@ -100,6 +128,7 @@ export interface ReferenceCandidate {
   channel: LibraryChannel;
   source_id: string;
   source_name: string;
+  thumbnail: string | null;
   intent: SourceIntent;
   status: CandidateStatus;
   expires: string;
@@ -114,6 +143,7 @@ export interface ReferenceCandidate {
   };
   summary: string;
   key_points: string[];
+  cached_source: string | null;
   content: string;
   raw_frontmatter: Record<string, unknown>;
 }
@@ -165,9 +195,52 @@ export interface LibrarySourceSummary {
   blocked?: string | null;
 }
 
+export interface LibrarySchedulerJobSummary {
+  id: string;
+  label: string;
+  schedule: string;
+  loaded: boolean;
+  installed: boolean;
+  last_exit_code: number | null;
+  plist_path: string;
+  stdout_path: string;
+  stderr_path: string;
+  stdout_updated_at: string | null;
+  stderr_updated_at: string | null;
+  stderr_bytes: number;
+  status: "ok" | "warning" | "blocked";
+}
+
+export interface LibrarySourceHealthSummary extends LibrarySourceSummary {
+  status: "ok" | "warning" | "blocked" | "disabled";
+  last_checked: string | null;
+  last_error: string | null;
+}
+
+export interface LibraryDeadLetterSummary {
+  total: number;
+  recent_24h: number;
+  last_at: string | null;
+  by_source: Array<{ source_id: string; count: number }>;
+}
+
+export interface LibraryOperationalHealth {
+  checked_at: string;
+  ok: boolean;
+  scheduler: {
+    loaded: number;
+    expected: number;
+    jobs: LibrarySchedulerJobSummary[];
+  };
+  sources: LibrarySourceHealthSummary[];
+  dead_letters: LibraryDeadLetterSummary;
+}
+
 export interface IngestionSourceResult {
   source_id: string;
   source_name: string;
+  cursor?: string | null;
+  next_cursor?: string | null;
   checked: boolean;
   blocked: boolean;
   blocked_reason?: string;
@@ -178,11 +251,23 @@ export interface IngestionSourceResult {
   skipped: number;
   duplicates: number;
   errors: string[];
+  artifacts: IngestionArtifactResult[];
+}
+
+export interface IngestionArtifactResult {
+  url: string;
+  title: string;
+  status: "candidate" | "saved" | "promoted" | "duplicate" | "skipped" | "error";
+  path?: string;
+  reason?: string;
 }
 
 export interface IngestionReport {
   started_at: string;
   finished_at: string;
+  dry_run: boolean;
+  use_cursor: boolean;
+  limit: number | null;
   checked: number;
   candidates: number;
   promoted: number;
@@ -194,7 +279,32 @@ export interface IngestionReport {
   sources: IngestionSourceResult[];
 }
 
+export interface LibraryAuthEnvCheck {
+  name: string;
+  present: boolean;
+}
+
+export interface LibraryAuthVerificationResult {
+  source_id: string;
+  source_name: string;
+  channel: LibraryChannel;
+  status: "ok" | "missing" | "blocked" | "failed" | "skipped";
+  required_env: LibraryAuthEnvCheck[];
+  scopes: string[];
+  live_checked: boolean;
+  sample_count: number;
+  message: string;
+}
+
+export interface LibraryAuthVerificationReport {
+  checked_at: string;
+  live: boolean;
+  ok: boolean;
+  sources: LibraryAuthVerificationResult[];
+}
+
 export interface RecommendedArtifact extends LibraryArtifact {
   why: string;
   priority: "must_read" | "recommended" | "interesting";
+  matched_terms: string[];
 }

@@ -31,7 +31,8 @@ export async function promoteCandidate(vaultPath: string, candidate: ReferenceCa
     title: candidate.title,
     author: candidate.author || undefined,
     date: candidate.published || candidate.digested,
-    content: candidate.content,
+    thumbnail: candidate.thumbnail || undefined,
+    content: candidate.cached_source || candidate.content,
     metadata: {
       format: candidate.format,
       proposed_destination: candidate.proposed_destination || "references",

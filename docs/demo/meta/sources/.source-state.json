@@ -1,0 +1,14 @@
+{
+  "demo-raindrop": {
+    "last_checked_at": "2026-02-17T14:00:00.000Z",
+    "last_success_at": "2026-02-17T14:00:00.000Z"
+  },
+  "demo-youtube-channel": {
+    "last_checked_at": "2026-02-17T13:30:00.000Z",
+    "last_success_at": "2026-02-17T13:30:00.000Z"
+  },
+  "demo-newsletter": {
+    "last_checked_at": "2026-02-17T12:15:00.000Z",
+    "last_success_at": "2026-02-17T12:15:00.000Z"
+  }
+}

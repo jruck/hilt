@@ -1,8 +1,9 @@
 "use client";
 
 import type { LibraryArtifact, RecommendedArtifact } from "@/lib/library/types";
-import { Bookmark, ExternalLink, FileText, Mail, Play, Rss, Sparkles, X } from "lucide-react";
-import { promoteCandidate, skipCandidate } from "@/hooks/useLibrary";
+import type { PromotionReason } from "@/lib/library/types";
+import { Archive, Bookmark, ExternalLink, FileText, Mail, Play, Rss, Sparkles, X } from "lucide-react";
+import { archiveArtifact, promoteCandidate, skipCandidate } from "@/hooks/useLibrary";
 
 function ChannelIcon({ channel }: { channel: LibraryArtifact["channel"] }) {
   const cls = "h-4 w-4";
@@ -18,12 +19,14 @@ export function FeedCard({
   artifact,
   why,
   priority,
+  promoteReason = "manual_save",
   onChanged,
   onOpen,
 }: {
   artifact: LibraryArtifact | RecommendedArtifact;
   why?: string;
   priority?: RecommendedArtifact["priority"];
+  promoteReason?: PromotionReason;
   onChanged?: () => void;
   onOpen?: (artifact: LibraryArtifact) => void;
 }) {
@@ -39,13 +42,13 @@ export function FeedCard({
         </button>
       )}
       <div className="space-y-3 p-4">
-        <div className="flex items-center justify-between gap-3 text-xs text-[var(--text-tertiary)]">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-tertiary)]">
           <div className="flex min-w-0 items-center gap-2">
             <ChannelIcon channel={artifact.channel} />
             <span className="truncate">{artifact.source_name || artifact.channel || "Reference"}</span>
             <span className="shrink-0">{artifact.created_at?.slice(0, 10)}</span>
           </div>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
             {priorityLabel && <span className="rounded-full bg-[var(--bg-secondary)] px-2 py-0.5 text-[var(--text-secondary)]">{priorityLabel}</span>}
             {isCandidate && <span className="rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-amber-700 dark:text-amber-300">Candidate</span>}
           </div>
@@ -66,27 +69,37 @@ export function FeedCard({
             <span key={tag} className="rounded-full bg-[var(--bg-secondary)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">{tag}</span>
           ))}
         </div>
-        <div className="flex items-center justify-between gap-3 border-t border-[var(--border-default)] pt-3">
-          <button onClick={() => onOpen?.(artifact)} className="text-sm font-medium text-[var(--text-primary)] hover:text-[var(--accent-primary)]">Read more</button>
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-3 border-t border-[var(--border-default)] pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <button onClick={() => onOpen?.(artifact)} className="min-h-9 text-left text-sm font-medium text-[var(--text-primary)] hover:text-[var(--accent-primary)]">Read more</button>
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
             {isCandidate && (
               <>
                 <button
-                  onClick={async () => { await promoteCandidate(artifact.id); onChanged?.(); }}
-                  className="rounded-md border border-[var(--border-default)] px-2.5 py-1 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
+                  onClick={async () => { await promoteCandidate(artifact.id, promoteReason); onChanged?.(); }}
+                  className="min-h-9 rounded-md border border-[var(--border-default)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
                 >
                   Save
                 </button>
                 <button
                   onClick={async () => { await skipCandidate(artifact.id); onChanged?.(); }}
-                  className="rounded-md px-2.5 py-1 text-xs font-medium text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)]"
+                  className="min-h-9 rounded-md px-3 py-1.5 text-xs font-medium text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)]"
                 >
                   Skip
                 </button>
               </>
             )}
+            {!isCandidate && (
+              <button
+                onClick={async () => { await archiveArtifact(artifact.id); onChanged?.(); }}
+                className="inline-flex min-h-9 items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)]"
+                title="Archive saved reference"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                Archive
+              </button>
+            )}
             {artifact.url && (
-              <a href={artifact.url} target="_blank" rel="noreferrer" className="rounded-md p-1.5 text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]" title="Open source">
+              <a href={artifact.url} target="_blank" rel="noreferrer" className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]" title="Open source">
                 <ExternalLink className="h-4 w-4" />
               </a>
             )}
@@ -96,4 +109,3 @@ export function FeedCard({
     </article>
   );
 }
-

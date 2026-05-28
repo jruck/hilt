@@ -3,6 +3,7 @@ import path from "path";
 import type { LibraryArtifact, LibraryArtifactDetail, ProcessedArtifact, PromotionReason } from "./types";
 import { atomicWriteFile, canonicalUrl, dateOnly, ensureDir, hashId, slugify, toArray, walkMarkdown } from "./utils";
 import { extractBullets, extractConnections, extractHeading, extractSection, frontmatterTags, parseMarkdownFile, relativeVaultPath, stringifyMarkdown } from "./markdown";
+import { buildMediaMarkdown, cachedSourceContent, stripDetailsWrapper } from "./media";
 
 const REFERENCES_DIR = "references";
 
@@ -107,6 +108,12 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
     channel: source.channel,
     source_id: source.id,
     source_name: source.name,
+    digestion_status: processed.digestion?.status,
+    digested_with: processed.digestion?.extractor,
+    digested_at: processed.digestion?.digested_at,
+    extracted_chars: processed.digestion?.extracted_chars,
+    cached_source_chars: processed.digestion?.cached_source_chars,
+    cached_source_extractor: processed.digestion?.cached_source_extractor,
     thumbnail: raw.thumbnail || undefined,
     tags: processed.tags,
     relevance_signals: source.intent === "explicit_save" ? [{
@@ -130,14 +137,15 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
   const connections = processed.connected_projects.length
     ? processed.connected_projects.map((item) => `- [[${item}]]`).join("\n")
     : "- ";
-  const rawContent = raw.content?.trim() || "";
+  const media = buildMediaMarkdown(raw);
+  const rawContent = stripDetailsWrapper(cachedSourceContent(processed));
   const notes = processed.extraction_notes.length
     ? `\n\n## Source Notes\n\n${processed.extraction_notes.map((note) => `- ${note}`).join("\n")}`
     : "";
 
   const body = `# ${raw.title}
 
-## Summary
+${media ? `${media}\n` : ""}## Summary
 
 ${processed.summary}
 
@@ -152,9 +160,9 @@ ${connections}
 ## Raw Content
 
 <details>
-<summary>Full text (click to expand)</summary>
+<summary>Full source cache</summary>
 
-${rawContent}
+${rawContent || "No cached source content available."}
 
 </details>${notes}
 `;

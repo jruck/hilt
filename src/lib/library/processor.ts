@@ -14,7 +14,7 @@ export async function processArtifact(
   vaultPath: string,
   raw: RawArtifact,
   source: LibrarySourceConfig,
-  options: { useSummarize?: boolean } = {},
+  options: { useSummarize?: boolean; dryRun?: boolean } = {},
 ): Promise<ProcessArtifactResult> {
   const existingRef = findSavedReferenceByUrl(vaultPath, raw.url);
   if (existingRef) {
@@ -26,6 +26,22 @@ export async function processArtifact(
   }
 
   const processed = await digestArtifact(raw, source, options);
+  if (options.dryRun) {
+    if (processed.assessment.save_recommendation === "skip" && source.intent !== "explicit_save") {
+      return { status: "skipped", reason: "dry_run_low_score_candidate" };
+    }
+    if (source.intent === "explicit_save") {
+      return { status: "saved", reason: "dry_run_explicit_save" };
+    }
+    if (
+      processed.assessment.save_recommendation === "file" &&
+      processed.score.total >= source.retention.auto_promote_threshold
+    ) {
+      return { status: "promoted", reason: "dry_run_auto_threshold" };
+    }
+    return { status: "candidate", reason: "dry_run_discovery" };
+  }
+
   if (processed.assessment.save_recommendation === "skip" && source.intent !== "explicit_save") {
     const candidatePath = writeCandidate(vaultPath, processed);
     const candidate = findCandidateByUrl(vaultPath, raw.url);

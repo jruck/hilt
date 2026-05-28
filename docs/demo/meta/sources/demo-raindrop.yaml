@@ -1,0 +1,23 @@
+id: demo-raindrop
+name: Demo Raindrop Bookmarks
+channel: raindrop
+url: fixture://demo-raindrop
+enabled: true
+cadence: hourly
+intent: explicit_save
+retention:
+  mode: durable
+  candidate_ttl_days: 30
+  auto_promote_threshold: 0.9
+auth:
+  required: false
+  stop_on_missing_credential: false
+backfill:
+  enabled: false
+  mode: none
+tags: [demo, bookmark]
+filters:
+  include_topics: []
+  exclude_topics: []
+metadata:
+  demo: true

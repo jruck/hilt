@@ -86,6 +86,7 @@ export interface SourceStateEntry {
   last_success_at?: string;
   last_error?: string;
   cursor?: string;
+  backfill_complete_at?: string;
   blocked_reason?: string;
 }
 

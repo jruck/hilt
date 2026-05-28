@@ -171,6 +171,7 @@ This section tracks design decisions and refinements over time. Each entry shoul
 - Browse should optimize scanning: source list, compact artifact rows, and a stable detail pane.
 - Keep source-specific complexity out of the UI where possible; manual links, explicit-save sources, and discovery candidates should share the same artifact contract.
 - Candidate material can be useful without being durable. The interface should make that distinction visible without making the cache feel like a second-class trash pile.
+- Operational health belongs in compact chrome, not in the content feed. Scheduler/source/dead-letter state should be one click away from the Library header so failures are visible without making normal reading feel like a monitoring dashboard.
 
 ### 2026-05-19: Map View — Controls as Operational Chrome
 

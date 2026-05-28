@@ -481,11 +481,12 @@ The Reference Library is file-native first. Durable references live under `refer
 interface LibrarySourceConfig {
   id: string;
   name: string;
-  channel: "manual" | "youtube" | "twitter" | "raindrop" | "rss" | "email" | "arena" | "fixture";
-  adapter: string;
+  channel: "rss" | "youtube" | "twitter" | "email" | "raindrop" | "manual" | "fixture";
+  url: string;
   enabled: boolean;
   intent: "explicit_save" | "discovery";
   cadence: "manual" | "hourly" | "daily" | "weekly";
+  signal?: string;
   tags: string[];
   retention: {
     mode: "durable" | "candidate";
@@ -505,13 +506,53 @@ interface LibrarySourceConfig {
     limit?: number;
     mode: "none" | "checkpointed" | "full";
   };
-  backfill: {
-    enabled: boolean;
-    cursor?: string;
-    limit?: number;
-    mode: "none" | "checkpointed" | "full";
-  };
   metadata: Record<string, unknown>;
+}
+```
+
+Source auth checks report env key presence only. Real credential values live in `.env.local`, which is gitignored and loaded by the Library CLI before ingestion/auth verification.
+
+Checkpointed historical backfills store their current resume token in `meta/sources/.source-state.json` rather than mutating source YAML. A completed cursor-based run records `cursor` when another page exists, or `backfill_complete_at` when an adapter explicitly reports no next cursor.
+
+### IngestionReport
+
+```typescript
+interface IngestionReport {
+  started_at: string;
+  finished_at: string;
+  dry_run: boolean;
+  use_cursor: boolean;
+  limit: number | null;
+  checked: number;
+  candidates: number;
+  promoted: number;
+  saved: number;
+  skipped: number;
+  duplicates: number;
+  blocked: Array<{ source_id: string; reason: string }>;
+  errors: string[];
+  sources: Array<{
+    source_id: string;
+    source_name: string;
+    cursor?: string | null;
+    next_cursor?: string | null;
+    checked: boolean;
+    blocked: boolean;
+    fetched: number;
+    candidates: number;
+    promoted: number;
+    saved: number;
+    skipped: number;
+    duplicates: number;
+    errors: string[];
+    artifacts: Array<{
+      url: string;
+      title: string;
+      status: "candidate" | "saved" | "promoted" | "duplicate" | "skipped" | "error";
+      path?: string;
+      reason?: string;
+    }>;
+  }>;
 }
 ```
 
@@ -535,6 +576,50 @@ interface LibraryArtifact {
   save_recommendation: "file" | "review" | "skip";
   destination?: string;
   connections: string[];
+}
+```
+
+### RecommendedArtifact
+
+```typescript
+interface RecommendedArtifact extends LibraryArtifact {
+  why: string;
+  priority: "must_read" | "recommended" | "interesting";
+  matched_terms: string[];
+}
+```
+
+### LibraryOperationalHealth
+
+```typescript
+interface LibraryOperationalHealth {
+  checked_at: string;
+  ok: boolean;
+  scheduler: {
+    loaded: number;
+    expected: number;
+    jobs: Array<{
+      id: string;
+      label: string;
+      schedule: string;
+      loaded: boolean;
+      installed: boolean;
+      last_exit_code: number | null;
+      stderr_bytes: number;
+      status: "ok" | "warning" | "blocked";
+    }>;
+  };
+  sources: Array<LibrarySourceSummary & {
+    status: "ok" | "warning" | "blocked" | "disabled";
+    last_checked: string | null;
+    last_error: string | null;
+  }>;
+  dead_letters: {
+    total: number;
+    recent_24h: number;
+    last_at: string | null;
+    by_source: Array<{ source_id: string; count: number }>;
+  };
 }
 ```
 

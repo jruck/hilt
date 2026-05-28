@@ -12,6 +12,10 @@ export async function POST(request: NextRequest) {
     const report = await runIngestion(vaultPath, {
       sourceIds: Array.isArray(body.sourceIds) ? body.sourceIds.map(String) : undefined,
       useSummarize: body.useSummarize !== false,
+      dryRun: body.dryRun === true,
+      ignoreState: body.ignoreState === true || body.dryRun === true,
+      useCursor: body.useCursor === true,
+      limit: Number.isFinite(Number(body.limit)) ? Number(body.limit) : undefined,
     });
     const status = report.blocked.length ? 424 : 200;
     return NextResponse.json(report, { status });
@@ -20,4 +24,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to run ingestion" }, { status: 500 });
   }
 }
-

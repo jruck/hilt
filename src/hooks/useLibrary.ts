@@ -1,7 +1,7 @@
 "use client";
 
 import useSWR from "swr";
-import type { LibraryArtifact, LibraryArtifactDetail, LibrarySourceSummary, RecommendedArtifact } from "@/lib/library/types";
+import type { LibraryArtifact, LibraryArtifactDetail, LibraryOperationalHealth, LibrarySourceSummary, PromotionReason, RecommendedArtifact } from "@/lib/library/types";
 
 const fetcher = (url: string) => fetch(url).then((res) => {
   if (!res.ok) throw new Error(`Request failed: ${res.status}`);
@@ -42,11 +42,18 @@ export function useRecommendations(limit = 10) {
   return { items: data?.items || [], generatedAt: data?.generated_at || null, contextSummary: data?.context_summary || "", error, isLoading, mutate };
 }
 
-export async function promoteCandidate(id: string) {
+export function useLibraryHealth() {
+  const { data, error, isLoading, mutate } = useSWR<LibraryOperationalHealth>("/api/library/health", fetcher, {
+    refreshInterval: 60_000,
+  });
+  return { health: data || null, error, isLoading, mutate };
+}
+
+export async function promoteCandidate(id: string, reason: PromotionReason = "manual_save") {
   const res = await fetch(`/api/library/candidates/${id}/promote`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reason: "manual_save" }),
+    body: JSON.stringify({ reason }),
   });
   if (!res.ok) throw new Error(`Failed to promote candidate: ${res.status}`);
   return res.json();
@@ -62,3 +69,8 @@ export async function skipCandidate(id: string) {
   return res.json();
 }
 
+export async function archiveArtifact(id: string) {
+  const res = await fetch(`/api/library/${id}/archive`, { method: "POST" });
+  if (!res.ok) throw new Error(`Failed to archive artifact: ${res.status}`);
+  return res.json();
+}

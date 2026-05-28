@@ -1,0 +1,23 @@
+id: demo-newsletter
+name: Demo Newsletters
+channel: email
+url: fixture://demo-newsletters
+enabled: true
+cadence: daily
+intent: discovery
+retention:
+  mode: candidate
+  candidate_ttl_days: 21
+  auto_promote_threshold: 0.85
+auth:
+  required: false
+  stop_on_missing_credential: false
+backfill:
+  enabled: false
+  mode: none
+tags: [demo, newsletter]
+filters:
+  include_topics: [automation, product, search]
+  exclude_topics: []
+metadata:
+  demo: true

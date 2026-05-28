@@ -3,6 +3,7 @@ import path from "path";
 import type { CandidateStatus, ReferenceCandidate, ProcessedArtifact, PromotionReason } from "./types";
 import { addDays, atomicWriteFile, canonicalUrl, dateOnly, ensureDir, hashId, isoNow, slugify, walkMarkdown } from "./utils";
 import { extractBullets, extractSection, parseMarkdownFile, relativeVaultPath, stringifyMarkdown } from "./markdown";
+import { buildMediaMarkdown, cachedSourceContent, stripDetailsWrapper } from "./media";
 
 export const CANDIDATE_CACHE_DIR = path.join("references", ".cache", "library-candidates");
 
@@ -17,6 +18,7 @@ export function parseCandidateFile(vaultPath: string, filePath: string): Referen
   const score = typeof data.score === "object" && data.score !== null ? data.score as Record<string, unknown> : {};
   const promotion = typeof data.promotion === "object" && data.promotion !== null ? data.promotion as Record<string, unknown> : {};
   const keyPoints = extractBullets(extractSection(body, "Key Points"));
+  const cachedSource = stripDetailsWrapper(extractSection(body, "Raw Content"));
   return {
     id: hashId(relativeVaultPath(vaultPath, filePath)),
     path: relativeVaultPath(vaultPath, filePath),
@@ -29,6 +31,7 @@ export function parseCandidateFile(vaultPath: string, filePath: string): Referen
     channel: String(data.channel || "manual") as ReferenceCandidate["channel"],
     source_id: String(data.source_id || ""),
     source_name: String(data.source_name || ""),
+    thumbnail: typeof data.thumbnail === "string" ? data.thumbnail : null,
     intent: String(data.intent || "discovery") as ReferenceCandidate["intent"],
     status: String(data.status || "candidate") as CandidateStatus,
     expires: String(data.expires || addDays(new Date(), 30)),
@@ -48,6 +51,7 @@ export function parseCandidateFile(vaultPath: string, filePath: string): Referen
     },
     summary: extractSection(body, "Summary"),
     key_points: keyPoints,
+    cached_source: cachedSource || null,
     content: body.trim(),
     raw_frontmatter: data,
   };
@@ -86,6 +90,13 @@ export function buildCandidateMarkdown(processed: ProcessedArtifact): string {
     source_id: processed.source.id,
     source_name: processed.source.name,
     intent: processed.source.intent,
+    digestion_status: processed.digestion?.status,
+    digested_with: processed.digestion?.extractor,
+    digested_at: processed.digestion?.digested_at,
+    extracted_chars: processed.digestion?.extracted_chars,
+    cached_source_chars: processed.digestion?.cached_source_chars,
+    cached_source_extractor: processed.digestion?.cached_source_extractor,
+    thumbnail: processed.raw.thumbnail || undefined,
     status: "candidate",
     expires: addDays(now, processed.source.retention.candidate_ttl_days),
     score: processed.score,
@@ -103,9 +114,10 @@ export function buildCandidateMarkdown(processed: ProcessedArtifact): string {
     if (frontmatter[key] === undefined) delete frontmatter[key];
   }
 
+  const media = buildMediaMarkdown(processed.raw);
   const body = `# ${processed.raw.title}
 
-## Summary
+${media ? `${media}\n` : ""}## Summary
 
 ${processed.summary}
 
@@ -123,6 +135,15 @@ ${processed.key_points.length ? processed.key_points.map((point) => `- ${point}`
 ## Suggested Connections
 
 ${processed.connected_projects.length ? processed.connected_projects.map((item) => `- [[${item}]]`).join("\n") : "- "}
+
+## Raw Content
+
+<details>
+<summary>Full source cache</summary>
+
+${stripDetailsWrapper(cachedSourceContent(processed)) || "No cached source content available."}
+
+</details>
 `;
 
   return stringifyMarkdown(frontmatter, body);

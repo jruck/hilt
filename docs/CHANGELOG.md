@@ -6,11 +6,25 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+## [6.0.0] - 2026-05-28
+
 ### Added
 
 - **System inspection parent view** — Added `/system` as the top-level home for Hilt's machine/system views. System has internal `Sessions`, `Apps`, and `Stack` modes, with legacy `/map`, `/local-apps`, and `/stack` URLs still resolving into the matching System mode. Top-level navigation is now simplified to Bridge, People, Briefing, Library, Docs, and System.
 
 - **Reference Library v0** — Replaced the `/library` placeholder with a file-native Library surface: Feed and Browse views, candidate Save/Skip, source filters, detail panes, For You recommendations, keyword search, and APIs for library items, candidates, sources, ingestion, recommendations, and search. Added source YAML loading, fixture-first ingestion adapters, candidate cache handling, durable reference writing, promotion, retry/dead-letter state, and CLI entrypoints for ingestion, hourly runs, newsletter runs, candidate cleanup, retry replay, and recommendation refresh.
+
+- **Reference Library source verification** — Added `.env.local` loading for Library CLI scripts, masked source auth verification, ingestion dry-run/canary mode, per-artifact ingestion reports, and Superhuman News source configuration. Dry runs use the same adapter and digestion path as live ingestion but do not write references, candidates, source state, or dead letters. Added xurl-backed X bookmark ingestion, support for a scoped xurl binary that requests only bookmark-read OAuth scopes, a YouTube OAuth helper that writes token fields to `.env.local` without printing token values, and Superhuman News ingestion through `mcp-remote` with read-only `list_threads`/`get_thread` tool calls into hidden candidate files.
+
+- **Reference Library cursor backfill** — Added cursor-backed historical ingestion for Raindrop, YouTube liked videos, X bookmarks, and Superhuman News. `npm run library:backfill` uses source-state cursors and reports per-source `cursor`/`next_cursor`, so bounded backfills can resume without `--ignore-state`.
+
+- **Reference Library quality audit and re-digestion** — Added `library:audit-quality` and `library:redigest` utilities to identify warm/cold captures, queue items for `summarize` repair, and mark refreshed notes with `digestion_status`, `digested_with`, and `digested_at`. The ingestion path now lets `summarize` choose its default model unless `LIBRARY_SUMMARIZE_MODEL` is explicitly set.
+
+- **Reference Library rich source cache fallback** — Raindrop ingestion now preserves cover/media/cache metadata, can use Raindrop permanent copies as a bounded article source-cache fallback when `summarize --extract` cannot recover full text, and renders multiple source images in `## Media` for non-video references. X/Twitter links saved in Raindrop still prefer canonical source text instead of Raindrop's rendered permanent copy.
+
+- **Reference Library health dashboard** — Added `/api/library/health` and a compact Library header panel that surfaces launchd scheduler load state, source last-success/blocker state, and dead-letter counts without requiring log inspection.
+
+- **Reference Library scheduler wrappers** — Added launchd dry-run/install/uninstall scripts for hourly ingestion, daily newsletter ingestion, retry replay, candidate cleanup, and recommendation refresh. The scheduler uses the same CLI runner as manual/API ingestion and is dry-run by default unless explicitly installed.
 
 - **System tailnet session aggregation** — Added `/api/system/machine`, `/api/system/machines`, and `/api/system/sessions/*` routes. The Sessions mode now queries local Map indexes from each Hilt-running tailnet peer, namespaces machine/session/tree ids, and presents an all-machines session map while still resolving history previews through the machine that owns the session.
 
@@ -32,7 +46,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Repository agent instructions and historical Map plan** — Added repo-local `AGENTS.md`, Codex documentation reminder hooks, the Hilt control skill, and the superseded Convex Map plan so Xochipilli, Mercury, and origin share the same agent-facing project context.
 
+- **v6 release documentation and demo vault** — Refreshed the README for the current Bridge, People, Briefing, Library, Docs, and System navigation model; added demo Library saved references, candidates, source configs, and rich media assets; and recaptured README screenshots for all top-level views including Library Feed, Library Browse, and System.
+
 ### Changed
+
+- **Reference Library For You ranking** — For You now caps itself at eight picks, ranks against active projects, current tasks, North Stars, people notes, and recent saves, returns matched terms/reasons, and records `for_you_selected` when a candidate is saved from the For You feed.
 
 - **Primary navigation order** — Reordered the top-level tabs to Bridge, People, Briefing, Library, Docs, and System. Keyboard shortcuts follow the visual order: `⌘1` Bridge, `⌘2` People, `⌘3` Briefing, `⌘4` Library, `⌘5` Docs, and `⌘6` System.
 
@@ -101,6 +119,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - **Grouped navigation pill blocks** — Replaced the initial grouped-tab hairline dividers with separate pill blocks and real gaps, so the global nav reads as three chunks instead of one long noisy segmented control.
 
 ### Fixed
+
+- **Tailscale Library blank page after dev process exit** — The existing `com.hilt.dev-server` LaunchAgent was present but inactive, with `RunAtLoad` and `KeepAlive` disabled, so Tailscale continued proxying to `localhost:3000` after the foreground Next process died and returned `502`. Hilt's dev script now binds to `0.0.0.0:3000` by default, and the local LaunchAgent is configured to run at load and restart the dev server if it exits.
 
 - **People tab transcript-only recordings missing** — People matching now includes Granola recordings that only have a transcript file under `meetings/transcripts/YYYY-MM-DD/` and no companion meeting note under `meetings/YYYY-MM-DD/`. These transcript-only records are deduped when the note exists, keep their transcript path, and show in saved-person timelines/counts instead of disappearing.
 

@@ -1172,6 +1172,10 @@ Lists saved references and, by default, unexpired candidates.
 
 Returns a single saved reference or candidate with full summary, key points, assessment, metadata, and body content.
 
+### POST /api/library/:id/archive
+
+Archives a saved reference by moving its markdown file into a local `.archive/` folder beside the original file. Candidate review items should use Skip instead of archive.
+
 ### GET /api/library/candidates
 
 Lists hidden candidate records from `references/.cache/library-candidates/`.
@@ -1186,7 +1190,7 @@ Promotes a candidate to a durable reference and marks the candidate as promoted.
 
 ```typescript
 {
-  reason?: "explicit_signal" | "manual_promotion" | "auto_threshold" | "for_you_selected" | "briefing_selected";
+  reason?: "explicit_signal" | "manual_save" | "auto_threshold" | "for_you_selected" | "briefing_selected";
 }
 ```
 
@@ -1202,16 +1206,78 @@ Runs the shared source runner for selected sources or every enabled source. Cred
 {
   sourceIds?: string[];
   useSummarize?: boolean;
+  dryRun?: boolean;      // fetch + digest + report without writing refs/candidates/state/dead letters
+  ignoreState?: boolean; // ignore source checkpoints; dryRun implies this
+  useCursor?: boolean;   // use source-state/backfill cursor for resumable historical batches
+  limit?: number;        // canary/backfill batch cap
 }
 ```
+
+The response includes `dry_run`, `use_cursor`, `limit`, aggregate counts, per-source `cursor`/`next_cursor`, per-source counts, and per-artifact statuses. In dry-run mode, `saved`, `candidate`, `promoted`, and `skipped` mean "would write" outcomes; the vault is not mutated.
 
 ### GET /api/sources/status
 
 Returns current source configs and checkpoint state without running ingestion.
 
+### GET /api/library/health
+
+Returns the operational Reference Library dashboard contract: launchd scheduler job load state, source last-success/blocker status, and dead-letter counts.
+
+```typescript
+{
+  checked_at: string;
+  ok: boolean;
+  scheduler: {
+    loaded: number;
+    expected: number;
+    jobs: Array<{
+      id: string;
+      label: string;
+      schedule: string;
+      loaded: boolean;
+      installed: boolean;
+      last_exit_code: number | null;
+      stderr_bytes: number;
+      status: "ok" | "warning" | "blocked";
+    }>;
+  };
+  sources: Array<LibrarySourceSummary & {
+    status: "ok" | "warning" | "blocked" | "disabled";
+    last_checked: string | null;
+    last_error: string | null;
+  }>;
+  dead_letters: {
+    total: number;
+    recent_24h: number;
+    last_at: string | null;
+    by_source: Array<{ source_id: string; count: number }>;
+  };
+}
+```
+
+### CLI Source Utilities
+
+- `npm run library:auth` verifies required source credential names and live access where Hilt can call the source directly. It reports only env key presence, never secret values.
+- `npm run library:ingest:dry-run -- <source-id>` runs the same ingestion path in canary mode with no writes.
+- `npm run library:ingest -- --dry-run --limit 5 <source-id>` is the explicit form for one source.
+- `npm run library:backfill -- --limit 50 <source-id>` runs cursor-backed historical ingestion for checkpointed sources. Cursors are stored in `meta/sources/.source-state.json`; dry runs report `next_cursor` but do not advance it.
+- `npm run library:audit-quality -- --queue /path/to/queue.json` scans saved references and candidates for warm/cold digestion quality, source-policy mismatches, fallback notes, short summaries, and missing key points.
+- `npm run library:redigest -- --queue /path/to/queue.json --limit 5 --write` re-runs queued items through `summarize` and updates the existing note with `digestion_status`, `digested_with`, `digested_at`, and refreshed summary/key points. Omit `--write` for a dry run.
+- `npm run library:migrate-references` reports durable references still using legacy `source:` frontmatter. Add `-- --apply` to rewrite only those legacy source URLs to `url:`.
+- `npm run library:youtube:oauth -- --client-file /path/to/client_secret.json` opens Google OAuth for YouTube liked videos and writes token fields to `.env.local` without printing token values.
+- YouTube playlist sources use `url: youtube://playlist/<playlist-id>` or `metadata.playlist_id`. The configured `youtube-bookmarks` playlist is explicit-save/durable; other YouTube playlists default to candidate/review unless their source config says otherwise. Watch Later is not enabled because the YouTube Data API does not reliably expose it as a normal playlist.
+- `npm run library:repair-youtube-liked -- --write` converts older YouTube-liked durable references into candidate review records after a dry-run check.
+- `npm run library:scheduler:plan` prints the launchd schedule without installing anything.
+- `npm run library:scheduler:install` writes and loads user-level launchd jobs for hourly ingestion, daily newsletter ingestion, retry replay, candidate cleanup, and recommendation refresh.
+- `npm run library:scheduler:uninstall` unloads and removes those launchd jobs.
+
+X/Twitter bookmarks can use `xurl` instead of raw env tokens. Configure the source with `metadata.auth_provider: xurl`, install or build the scoped Bridge xurl binary, register an X API app with `/Users/jruck/go/bin/xurl-bridge-scoped auth apps add bridge-library --client-id ... --client-secret ... --redirect-uri http://localhost:8080/callback`, set it as the default app, and complete `/Users/jruck/go/bin/xurl-bridge-scoped auth oauth2 --app bridge-library`; then the adapter shells out to the configured xurl binary. The callback URL in the X Developer Portal must exactly match `http://localhost:8080/callback`. The Bridge source currently points at `/Users/jruck/go/bin/xurl-bridge-scoped`, which requests only `tweet.read`, `users.read`, `bookmark.read`, and `offline.access`.
+
+Superhuman News uses `mcp-remote` against `https://mcp.mail.superhuman.com/mcp`; OAuth is cached under `~/.mcp-auth` rather than `.env.local`. Run `npm run library:auth -- superhuman-news` to verify live access. The email adapter only calls `list_threads` and `get_thread`, filters mutating MCP tools at the proxy layer, and writes News split items as discovery candidates, not durable references. It does not fall back to Gmail.
+
 ### GET /api/library/recommendations
 
-Returns the file-native For You ranking over recent saved references and unexpired candidates.
+Returns the file-native For You ranking over recent saved references and unexpired candidates. The v0 ranker caps responses at eight items, scores against active projects, current weekly tasks, North Stars, people notes, and recent saves, and returns `why`, `priority`, and `matched_terms`.
 
 ### GET /api/search
 

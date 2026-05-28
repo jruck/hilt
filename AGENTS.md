@@ -1,6 +1,6 @@
 # Hilt
 
-Kanban UI for managing Codex sessions. See `README.md` for full feature list.
+File-native context space for Bridge planning, People memory, Briefings, Reference Library review, Docs, and System inspection. See `README.md` for the full feature list.
 
 ## Documentation
 
@@ -33,40 +33,44 @@ Kanban UI for managing Codex sessions. See `README.md` for full feature list.
 
 ## Quick Context
 
-Fills gaps that Codex CLI doesn't provide:
-- Persistent task/status tracking (native TodoWrite is session-scoped only)
-- Visual session organization across workflow states
-- Draft prompts (Inbox) for queuing work
+Hilt is a Next.js/Electron app over local markdown and local machine state:
+- Bridge reads weekly lists, tasks, and projects from the vault.
+- People combines person notes, group notes, and meeting transcripts.
+- Briefing renders daily agent-written summaries.
+- Library ingests external references, separates saved refs from review candidates, and surfaces source health.
+- Docs provides markdown/code/media browsing and editing.
+- System owns Sessions/Map, Apps, Stack, and Sync inspection.
 
 ## Key Files
 
 | Purpose | Location |
 |---------|----------|
-| Session parsing | `src/lib/Codex-sessions.ts` - reads `~/.Codex/projects/*.jsonl` |
-| Status persistence | `src/lib/db.ts` → `data/session-status.json` |
-| Board UI | `src/components/Board.tsx`, `Column.tsx`, `SessionCard.tsx` |
-| Terminal | `server/ws-server.ts` (PTY), `src/components/Terminal.tsx` (xterm.js) |
-| Tree View | `src/components/TreeView.tsx`, `src/lib/tree-utils.ts` |
+| Main shell | `src/components/Board.tsx` |
+| Bridge parsing | `src/lib/bridge/` |
+| People/meetings | `src/lib/people/`, `src/components/people/` |
+| Reference Library | `src/lib/library/`, `src/components/library/`, `scripts/library-*.ts` |
+| Docs | `src/components/docs/`, `src/lib/docs/` |
+| System inspection | `src/lib/system/`, `src/components/system/`, `src/lib/map/`, `src/lib/local-apps/` |
+| WebSocket/events | `server/ws-server.ts`, `server/event-server.ts` |
 
 ## Critical Constraints
 
-1. **Codex JSONL files are read-only** - Never write to `~/.Codex/projects/`
-2. **Use `terminalId` not `sessionId`** as React key for terminals (prevents reload)
-3. **Scope filtering modes differ**: Board uses exact match, Tree uses prefix match
-4. **Running detection**: 30-second file mtime threshold
+1. **Provider session files are read-only** - Never write to `~/.codex/projects/`, `~/.claude/projects/`, or other raw transcript stores.
+2. **Markdown remains source of truth** - Library references, candidates, Bridge tasks, people notes, and docs must round-trip through files.
+3. **Reference Library routing is policy-driven** - explicit-save sources create durable refs; discovery sources create candidates unless promoted.
+4. **System inspection is monitor-first** - keep destructive process, sync, and remote-machine actions out of the default UI.
 
-## Session Data Model
+## Reference Library Data Model
 
 ```typescript
-interface Session {
-  id: string;           // UUID from JSONL filename
-  slug: string | null;  // Codex's name (e.g., "dynamic-tickling-thunder")
-  title: string;        // Summary or first prompt
-  messageCount: number;
-  gitBranch: string | null;
-  status: "inbox" | "active" | "recent";  // Kanban column
-  isRunning?: boolean;  // File modified within 30s
-  terminalId?: string;  // Stable ID for terminal tracking
+interface LibraryArtifact {
+  id: string;
+  state: "saved" | "candidate";
+  title: string;
+  url: string;
+  summary: string;
+  media?: { kind: "image" | "video"; url: string }[];
+  cached_content?: string;
 }
 ```
 
@@ -86,9 +90,9 @@ curl -s -X POST "http://localhost:$PORT/navigate" \
   -d '{"view":"docs","path":"/absolute/path/to/file"}'
 ```
 
-Views: `bridge`, `docs`, `stack`, `briefings`, `people`
+Views: `bridge`, `people`, `briefings`, `library`, `docs`, `system`
 - `path` is optional — omit to just switch views
-- `docs`/`stack` use absolute file paths; `people` uses slug paths (e.g. `/art-vandelay`)
+- `docs` uses absolute file paths; `people` uses slug paths (e.g. `/art-vandelay`)
 - Window auto-focuses in Electron mode
 
 ## Development
@@ -96,6 +100,8 @@ Views: `bridge`, `docs`, `stack`, `briefings`, `people`
 ```bash
 npm run app       # Build the dev-mode macOS app (dist/Hilt.app)
 npm run dev:all   # Or run in browser: Next.js + WebSocket servers
+npm run test:library
+npm run test:system
 ```
 
 **Electron app**: `npm run app` compiles TypeScript and creates `dist/Hilt.app` — a dev-mode launcher with hot reload. This is the daily-driver app. Drag it to the Dock, launch from Spotlight/Raycast, etc. Re-run `npm run app` after changing `electron/main.ts`.

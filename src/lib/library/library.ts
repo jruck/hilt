@@ -4,7 +4,8 @@ import type { LibraryArtifact, LibraryArtifactDetail, LibraryLifecycleStatus, Li
 import { listCandidates } from "./candidate-cache";
 import { listSavedReferences } from "./references";
 import { loadSources, readSourceState } from "./source-config";
-import { hashId } from "./utils";
+import { ensureDir, hashId } from "./utils";
+import { relativeVaultPath } from "./markdown";
 
 export interface LibraryListOptions {
   source?: string | null;
@@ -30,7 +31,7 @@ function candidateToArtifact(candidate: ReferenceCandidate): LibraryArtifactDeta
     source_id: candidate.source_id,
     source_name: candidate.source_name,
     tags: [],
-    thumbnail: null,
+    thumbnail: candidate.thumbnail,
     author: candidate.author,
     url: candidate.url,
     created_at: candidate.digested,
@@ -122,3 +123,27 @@ export function artifactFilePath(vaultPath: string, artifact: LibraryArtifact): 
   return path.join(vaultPath, artifact.path);
 }
 
+function uniqueArchivePath(archiveDir: string, fileName: string): string {
+  let target = path.join(archiveDir, fileName);
+  const parsed = path.parse(fileName);
+  let index = 2;
+  while (fs.existsSync(target)) {
+    target = path.join(archiveDir, `${parsed.name}-${index}${parsed.ext}`);
+    index += 1;
+  }
+  return target;
+}
+
+export function archiveLibraryArtifact(vaultPath: string, id: string): { archived_to: string } {
+  const artifact = getLibraryArtifact(vaultPath, id);
+  if (!artifact) throw new Error("Artifact not found");
+  if (artifact.lifecycle_status !== "saved") throw new Error("Only saved references can be archived");
+
+  const filePath = artifactFilePath(vaultPath, artifact);
+  if (!fs.existsSync(filePath)) throw new Error("Reference file not found");
+  const archiveDir = path.join(path.dirname(filePath), ".archive");
+  ensureDir(archiveDir);
+  const targetPath = uniqueArchivePath(archiveDir, path.basename(filePath));
+  fs.renameSync(filePath, targetPath);
+  return { archived_to: relativeVaultPath(vaultPath, targetPath) };
+}

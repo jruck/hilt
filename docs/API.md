@@ -1169,16 +1169,19 @@ Lists saved references and, by default, unexpired candidates.
 | `source` | string | Source config id |
 | `channel` | string | Source channel such as `youtube`, `raindrop`, `twitter`, `rss`, or `manual` |
 | `tag` | string | Tag filter |
+| `unread` | boolean | When `true`, returns only artifacts that are still unread in local Hilt read state |
 | `includeCandidates` | boolean | Defaults to `true` |
 | `offset` | number | Offset for incremental loading |
 | `limit` | number | Maximum rows for this page |
+
+When no lifecycle `status` is requested, the list returns saved references plus active `candidate` review items. Skipped, expired, and promoted candidate-cache records stay hidden from the active Library feed unless requested explicitly with `status=skipped`, `status=expired`, or `status=promoted`.
 
 **Response**
 
 ```typescript
 {
   artifacts: LibraryArtifact[];
-  total: number;
+  total: number;        // Count after all active filters, including unread=true when present
   unread_total: number; // Count for the active filter/search slice
   offset: number;
   limit: number;
@@ -1188,6 +1191,22 @@ Lists saved references and, by default, unexpired candidates.
 ### GET /api/library/:id
 
 Returns a single saved reference or candidate with full summary, key points, assessment, metadata, and body content.
+
+Optional query parameter:
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `path` | string | Vault-relative markdown path from the list response. When present and the path hash matches `:id`, the route parses that exact file directly instead of walking the whole Library tree. |
+
+### GET /api/library/unread
+
+Returns whether any active Library item is unread. This is a lightweight shell endpoint for the top-level Library navigation dot; it short-circuits after the first unread saved reference or active candidate.
+
+```typescript
+{
+  has_unread: boolean;
+}
+```
 
 ### POST /api/library/read
 
@@ -1243,6 +1262,7 @@ Runs the shared source runner for selected sources or every enabled source. Cred
 ```typescript
 {
   sourceIds?: string[];
+  cadence?: "manual" | "hourly" | "daily" | "weekly"; // when sourceIds is omitted, run enabled sources with this cadence
   useSummarize?: boolean;
   dryRun?: boolean;      // fetch + digest + report without writing refs/candidates/state/dead letters
   ignoreState?: boolean; // ignore source checkpoints; dryRun implies this
@@ -1252,6 +1272,8 @@ Runs the shared source runner for selected sources or every enabled source. Cred
 ```
 
 The response includes `dry_run`, `use_cursor`, `limit`, aggregate counts, per-source `cursor`/`next_cursor`, per-source counts, and per-artifact statuses. In dry-run mode, `saved`, `candidate`, `promoted`, and `skipped` mean "would write" outcomes; the vault is not mutated.
+
+The Library UI uses this route for `Check sources`, separate from local list revalidation and `/api/library/health` status refresh. If a source is selected in the Library source rail, the check runs only that source. Otherwise it runs enabled hourly sources with a small batch limit.
 
 ### GET /api/sources/status
 
@@ -1318,6 +1340,8 @@ Returns the operational Reference Library dashboard contract: launchd scheduler 
 - `npm run library:scheduler:uninstall` unloads and removes those launchd jobs.
 
 X/Twitter bookmarks can use `xurl` instead of raw env tokens. Configure the source with `metadata.auth_provider: xurl`, install or build the scoped Bridge xurl binary, register an X API app with `/Users/jruck/go/bin/xurl-bridge-scoped auth apps add bridge-library --client-id ... --client-secret ... --redirect-uri http://localhost:8080/callback`, set it as the default app, and complete `/Users/jruck/go/bin/xurl-bridge-scoped auth oauth2 --app bridge-library`; then the adapter shells out to the configured xurl binary. The callback URL in the X Developer Portal must exactly match `http://localhost:8080/callback`. The Bridge source currently points at `/Users/jruck/go/bin/xurl-bridge-scoped`, which requests only `tweet.read`, `users.read`, `bookmark.read`, and `offline.access`. When the X response includes media expansions, Hilt stores the first image as `thumbnail:` and keeps the source media list for the `## Media` renderer.
+
+X/Twitter bookmark titles are normalized before writing: trailing `t.co`/HTTP URLs are stripped, and URL-only wrappers fall back to `X bookmark by <author>` instead of using the shortlink as the title. If a linked X URL is an article route such as `/i/article/...` rather than a standard status URL, redigestion marks the item warm/metadata-limited unless recoverable source text exists.
 
 Superhuman News uses `mcp-remote` against `https://mcp.mail.superhuman.com/mcp`; OAuth is cached under `~/.mcp-auth` rather than `.env.local`. Run `npm run library:auth -- superhuman-news` to verify live access. The email adapter only calls `list_threads` and `get_thread`, filters mutating MCP tools at the proxy layer, and writes News split items as discovery candidates, not durable references. It does not fall back to Gmail.
 

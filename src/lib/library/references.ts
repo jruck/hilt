@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import type { LibraryArtifact, LibraryArtifactDetail, ProcessedArtifact, PromotionReason } from "./types";
-import { atomicWriteFile, canonicalUrl, compareDatesDesc, dateOnly, ensureDir, hashId, slugify, toArray, walkMarkdown } from "./utils";
+import { atomicWriteFile, canonicalUrl, compareDatesDesc, dateOnly, ensureDir, hashId, isoNow, slugify, toArray, walkMarkdown } from "./utils";
 import { extractBullets, extractConnections, extractHeading, extractSection, frontmatterTags, parseMarkdownFile, relativeVaultPath, stringifyMarkdown } from "./markdown";
 import { buildMediaMarkdown, cachedSourceContent, stripDetailsWrapper } from "./media";
 
@@ -80,6 +80,16 @@ export function listSavedReferences(vaultPath: string): LibraryArtifactDetail[] 
     .sort((a, b) => compareDatesDesc(a.created_at, b.created_at));
 }
 
+export function findSavedReferenceById(vaultPath: string, id: string): LibraryArtifactDetail | null {
+  for (const filePath of walkMarkdown(referencesDir(vaultPath))) {
+    if (filePath.includes(`${path.sep}.cache${path.sep}`)) continue;
+    const relPath = relativeVaultPath(vaultPath, filePath);
+    if (hashId(relPath) !== id) continue;
+    return parseReferenceFile(vaultPath, filePath);
+  }
+  return null;
+}
+
 export function findSavedReferenceByUrl(vaultPath: string, url: string): LibraryArtifact | null {
   const canonical = canonicalUrl(url);
   return listSavedReferences(vaultPath).find((artifact) => artifact.url && canonicalUrl(artifact.url) === canonical) || null;
@@ -109,18 +119,21 @@ function connectionLines(processed: ProcessedArtifact): string {
   if (processed.connection_suggestions?.length) {
     return processed.connection_suggestions.map((suggestion) => {
       const target = suggestion.target ? `[[${suggestion.target}]]` : suggestion.label;
-      return `- ${target} — ${suggestion.reason}`;
+      return `- ${target} — ${suggestion.relationship}`;
     }).join("\n");
   }
   if (processed.connected_projects.length) {
     return processed.connected_projects.map((item) => `- [[${item}]]`).join("\n");
   }
-  return "- ";
+  // No connections: render an empty section body rather than a lone "- " bullet.
+  // The connection_reasoning lives in frontmatter instead.
+  return "";
 }
 
 export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reason?: PromotionReason): string {
   const { raw, source } = processed;
-  const captured = dateOnly();
+  const capturedAt = isoNow();
+  const captured = dateOnly(capturedAt);
   const frontmatter: Record<string, unknown> = {
     type: "reference",
     description: processed.summary.slice(0, 180),
@@ -129,6 +142,7 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
     author: raw.author || undefined,
     published: raw.date ? dateOnly(raw.date) : undefined,
     captured,
+    captured_at: capturedAt,
     channel: source.channel,
     source_id: source.id,
     source_name: source.name,
@@ -142,6 +156,8 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
     tags: processed.tags,
     connected_projects: processed.connected_projects.length ? processed.connected_projects : undefined,
     connection_suggestions: processed.connection_suggestions?.length ? processed.connection_suggestions : undefined,
+    connection_reasoning: processed.connection_reasoning || undefined,
+    reweave_candidates: processed.reweave_candidates?.length ? processed.reweave_candidates : undefined,
     relevance_signals: source.intent === "explicit_save" ? [{
       type: source.signal || "explicit_save",
       channel: source.channel,

@@ -291,6 +291,12 @@ export function parseMeetingFrontmatter(content: string, filename?: string): {
   created: string;
   transcript: string;
   granolaId: string;
+  granolaUrl: string;
+  calendarEventId: string;
+  calendarIcalUid: string;
+  hiltCalendarEventId: string;
+  hiltCalendarMatchMethod: string;
+  hiltCalendarMatchConfidence: number | null;
   body: string;
 } {
   const { fm, body } = parseFrontmatter(content);
@@ -333,8 +339,20 @@ export function parseMeetingFrontmatter(content: string, filename?: string): {
     created,
     transcript,
     granolaId: fm.granola_id || "",
+    granolaUrl: fm.granola_url || "",
+    calendarEventId: fm.calendar_event_id || "",
+    calendarIcalUid: fm.calendar_ical_uid || "",
+    hiltCalendarEventId: fm.hilt_calendar_event_id || "",
+    hiltCalendarMatchMethod: fm.hilt_calendar_match_method || "",
+    hiltCalendarMatchConfidence: parseConfidence(fm.hilt_calendar_match_confidence),
     body: body.trim(),
   };
+}
+
+function parseConfidence(value: string | undefined): number | null {
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function stripTranscriptSuffix(filename: string): string {
@@ -741,6 +759,13 @@ export async function getAllMeetings(vaultPath: string, filterName?: string): Pr
         filePath: entry.fullPath,
         transcriptPath: resolveTranscriptPath(vaultPath, entry, meta.transcript),
         summary: entry.transcriptOnly ? undefined : meta.body,
+        granolaId: meta.granolaId || undefined,
+        granolaUrl: meta.granolaUrl || undefined,
+        calendarEventId: meta.calendarEventId || undefined,
+        calendarIcalUid: meta.calendarIcalUid || undefined,
+        hiltCalendarEventId: meta.hiltCalendarEventId || undefined,
+        hiltCalendarMatchMethod: meta.hiltCalendarMatchMethod || undefined,
+        hiltCalendarMatchConfidence: meta.hiltCalendarMatchConfidence ?? undefined,
         matchedPeople: filterName ? [] : (personMatches.get(entry.filename) || []),
       });
     } catch { /* skip */ }
@@ -1151,6 +1176,13 @@ export async function getPersonDetail(
         filePath: mfEntry.fullPath,
         transcriptPath: resolveTranscriptPath(vaultPath, mfEntry, mfMeta.transcript),
         summary: mfEntry.transcriptOnly ? undefined : summary,
+        granolaId: mfMeta.granolaId || undefined,
+        granolaUrl: mfMeta.granolaUrl || undefined,
+        calendarEventId: mfMeta.calendarEventId || undefined,
+        calendarIcalUid: mfMeta.calendarIcalUid || undefined,
+        hiltCalendarEventId: mfMeta.hiltCalendarEventId || undefined,
+        hiltCalendarMatchMethod: mfMeta.hiltCalendarMatchMethod || undefined,
+        hiltCalendarMatchConfidence: mfMeta.hiltCalendarMatchConfidence ?? undefined,
       });
     } catch {
       // Skip unreadable meeting

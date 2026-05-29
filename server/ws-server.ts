@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as http from "http";
 import { EventServer } from "./event-server";
 import { getScopeWatcher, getInboxWatcher, getBridgeWatcher } from "./watchers";
+import { startGranolaSyncDaemon } from "../src/lib/granola/daemon";
 import type {
   TreeChangedEvent,
   FileChangedEvent,
@@ -13,6 +14,7 @@ const PREFERRED_PORT = parseInt(process.env.WS_PORT || "3001", 10);
 const PORT_FILE = path.join(process.env.HOME || "~", ".hilt-ws-port");
 const LOCK_FILE = path.join(process.env.HOME || "~", ".hilt-server.lock");
 const NAVIGATE_FILE = path.join(process.env.HOME || "~", ".hilt-pending-navigate.json");
+const CALENDAR_MARKER_FILE = path.join(process.env.DATA_DIR || path.join(process.cwd(), "data"), "calendar-sync-event.json");
 
 /**
  * Check if a process with the given PID is running
@@ -123,7 +125,7 @@ async function startServer() {
       req.on("end", () => {
         try {
           const { view, path } = JSON.parse(body);
-          const validViews = ["bridge", "docs", "stack", "briefings", "people"];
+          const validViews = ["bridge", "docs", "stack", "briefings", "calendar", "people"];
           if (!view || !validViews.includes(view)) {
             res.writeHead(400, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ error: "Invalid view. Must be one of: " + validViews.join(", ") }));
@@ -243,8 +245,15 @@ async function startServer() {
   });
 
   bridgeWatcher.start();
+  startGranolaSyncDaemon();
 
-  console.log(`Scope, inbox, and bridge watchers configured`);
+  fs.watchFile(CALENDAR_MARKER_FILE, { interval: 1000 }, (curr, prev) => {
+    if (curr.mtimeMs > 0 && curr.mtimeMs !== prev.mtimeMs) {
+      eventServer.broadcast("calendar", "changed", {});
+    }
+  });
+
+  console.log(`Scope, inbox, bridge, and calendar watchers configured`);
 
   // Manually handle WebSocket upgrades and route to appropriate server
   httpServer.on("upgrade", (request, socket, head) => {
@@ -271,6 +280,7 @@ async function startServer() {
     scopeWatcher.stop();
     inboxWatcher.stop();
     bridgeWatcher.stop();
+    fs.unwatchFile(CALENDAR_MARKER_FILE);
     eventServer.close();
     httpServer.close(() => {
       process.exit(0);

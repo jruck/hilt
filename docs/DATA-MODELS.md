@@ -577,20 +577,39 @@ interface IngestionReport {
 
 ### LibraryArtifact
 
-Digestion can also persist file-native Bridge context matches as structured suggestions:
+Digestion produces connections through LLM judgment (the Claude CLI), not deterministic token overlap. A connection is a directional relationship to an existing piece of the user's work — including baseline, contrast, and foundational ties — and a clean "no connection / just file it" verdict is a first-class outcome. The judge returns a `ConnectionJudgment`; its surviving connections are stored as structured `ConnectionSuggestion` entries:
 
 ```typescript
 interface ConnectionSuggestion {
-  kind: "project" | "task" | "area" | "person" | "recent_save";
-  label: string;
-  target?: string;       // Wiki-link target when one exists, e.g. "reference-library"
-  reason: string;        // Human-readable reason shown in the note and For You
-  terms: string[];       // Matched terms used as evidence
-  score: number;         // Deterministic file-native match score
+  target?: string | null; // Wiki-link target (slug) when one exists, or null for a peer/theme tie
+  label: string;          // Display label for the connection
+  relationship: string;   // LLM-written directional relationship (was `reason`)
+  kind?: "project" | "task" | "area" | "person" | "recent_save"; // Optional classification
+}
+
+interface ConnectionJudgment {
+  connects: boolean;
+  reasoning: string;       // One-line rationale; explains an abstain too
+  connections: ConnectionSuggestion[];
+  reweave_candidates?: Array<{ target: string; why: string }>;
 }
 ```
 
-Saved references and candidates may include `connection_suggestions` in frontmatter. Their markdown body renders those suggestions under `## Connections` or `## Suggested Connections`, while `connected_projects` remains the compact wiki-target list for filtering and compatibility.
+A connection (directional relationship, auto-written into the note) is distinct from a reweave candidate (a neighbor note that would be materially improved by this reference). Reweave candidates are surfaced for human review only; Hilt never auto-edits a neighbor note. The judge is deliberately abstain-biased and emits few high-signal ties rather than padding.
+
+`judgeConnections` returns a `ConnectionJudgment` that `digestion.ts` maps onto the processed artifact, which carries:
+
+```typescript
+// Fields added to ProcessedArtifact:
+connection_suggestions?: ConnectionSuggestion[];
+connection_reasoning?: string;                          // Judge reasoning, also folded into the assessment `why` tail
+reweave_candidates?: Array<{ target: string; why: string }>;
+connected_projects?: string[];                          // Subset of connection targets matching project-folder slugs
+```
+
+Connections are judged only when an artifact will be durably saved (explicit-save sources, or discovery items recommended to `file`); plain review candidates get empty connections and blank reasoning until promoted or re-judged. Saved references and candidates may include `connection_suggestions`, `connection_reasoning`, and `reweave_candidates` in frontmatter. Their markdown body renders connections as `- [[target]] — relationship` (or `- label — relationship` for null-target peer/theme ties) under `## Connections` (durable references) or `## Suggested Connections` (candidates); when there are no connections the section body is empty and reasoning/reweave candidates live in frontmatter instead of a lone `- ` bullet. `connected_projects` remains the compact wiki-target list for filtering and compatibility. New durable references also include precise `captured_at` metadata; `Recent` keeps `created_at` as the source date and uses precise fields such as `captured_at` or `digested_at` only to order items that land on the same source date.
+
+For X/Twitter bookmarks, `title` is source-normalized before file writes: short URLs are removed from human-readable tweet text, URL-only wrappers use an author fallback title, and non-status linked X routes remain `warm`/metadata-limited until a recoverable source body exists. The source URL still lives in `url:` and any cached source stays under `## Raw Content`; titles, descriptions, summaries, and key points should not be raw `t.co` links.
 
 ```typescript
 interface LibraryArtifact {
@@ -604,7 +623,8 @@ interface LibraryArtifact {
   channel: LibrarySourceConfig["channel"] | null;
   source_id: string | null;
   source_name: string | null;
-  captured_at: string;
+  created_at: string;       // Visible Library date: source published date when available, otherwise capture/file date.
+  updated_at: string;       // File mtime used for read-state freshness and as a last-resort ordering fallback.
   tags: string[];
   score: number;
   save_recommendation: "file" | "review" | "skip";
@@ -615,11 +635,13 @@ interface LibraryArtifact {
   raw_frontmatter?: {
     thumbnail?: string;
     connection_suggestions?: ConnectionSuggestion[];
+    connection_reasoning?: string;
+    reweave_candidates?: Array<{ target: string; why: string }>;
   };
 }
 ```
 
-Library read state is stored outside the bridge vault in `${DATA_DIR}/library-read-state/<vault-hash>.json`. The first Library API read creates a baseline timestamp so historical stock is treated as already seen; newly ingested or later-modified artifacts become unread until marked read by the UI.
+Library read state is stored outside the bridge vault in `${DATA_DIR}/library-read-state/<vault-hash>.json`. The first Library API read creates a baseline timestamp so historical stock is treated as already seen; newly ingested or later-modified artifacts become unread until marked read by the UI. `/api/library?unread=true` applies the same local read state before filtering, which powers the Library `New` ranking without adding unread flags to reference markdown. `/api/library/unread` returns a boolean shell hint for the top-level Library nav dot.
 
 ### RecommendedArtifact
 
@@ -730,4 +752,4 @@ Browser-side persistence (limited -- most preferences now server-side).
 
 ---
 
-*Last updated: 2026-05-27*
+*Last updated: 2026-05-29*

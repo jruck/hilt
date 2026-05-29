@@ -1,11 +1,11 @@
 "use client";
 
 import React from "react";
-import { FileText, Compass, CalendarDays, Users, Layers, Bookmark } from "lucide-react";
+import { FileText, Compass, CalendarDays, CalendarRange, Users, Layers, Bookmark } from "lucide-react";
 import { useHaptics } from "@/hooks/useHaptics";
 
 // The underlying view mode stored in state/preferences
-export type ViewMode = "docs" | "bridge" | "briefings" | "library" | "people" | "system";
+export type ViewMode = "docs" | "bridge" | "briefings" | "calendar" | "library" | "people" | "system";
 
 // Primary view categories (same as ViewMode now)
 export type PrimaryView = ViewMode;
@@ -31,17 +31,18 @@ interface ViewToggleProps {
 const VIEW_CONFIG = [
   { id: "briefings" as const, label: "Briefing", icon: CalendarDays, title: "Daily briefing", shortcut: "1" },
   { id: "bridge" as const, label: "Bridge", icon: Compass, title: "Bridge weekly tasks & projects", shortcut: "2" },
-  { id: "people" as const, label: "People", icon: Users, title: "People & meetings", shortcut: "3" },
-  { id: "library" as const, label: "Library", icon: Bookmark, title: "Library", shortcut: "4" },
-  { id: "docs" as const, label: "Docs", icon: FileText, title: "Documentation", shortcut: "5" },
-  { id: "system" as const, label: "System", icon: Layers, title: "System inspection", shortcut: "6" },
+  { id: "calendar" as const, label: "Calendar", icon: CalendarRange, title: "Calendar", shortcut: "3" },
+  { id: "people" as const, label: "People", icon: Users, title: "People & meetings", shortcut: "4" },
+  { id: "library" as const, label: "Library", icon: Bookmark, title: "Library", shortcut: "5" },
+  { id: "docs" as const, label: "Docs", icon: FileText, title: "Documentation", shortcut: "6" },
+  { id: "system" as const, label: "System", icon: Layers, title: "System inspection", shortcut: "7" },
 ];
 
 const VIEW_CONFIG_BY_ID = Object.fromEntries(
   VIEW_CONFIG.map((config) => [config.id, config]),
 ) as Record<ViewMode, (typeof VIEW_CONFIG)[number]>;
 
-const VIEW_GROUPS: ViewMode[][] = [["briefings", "bridge", "people", "library", "docs", "system"]];
+const VIEW_GROUPS: ViewMode[][] = [["briefings", "bridge", "calendar", "people", "library", "docs", "system"]];
 const NO_DRAG_STYLE = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 
 export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActive, unreadTabs }: ViewToggleProps) {
@@ -78,8 +79,8 @@ export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActiv
                     transition-colors
                     ${
                       view === id
-                        ? "text-[var(--text-primary)]"
-                        : "text-[var(--text-tertiary)]"
+                        ? "bg-[var(--nav-mobile-active-bg)] text-[var(--nav-mobile-active)] shadow-sm"
+                        : "text-[var(--nav-mobile-muted)] hover:text-[var(--nav-mobile-hover)] active:bg-[var(--nav-mobile-press-bg)]"
                     }
                   `}
                   title={title}

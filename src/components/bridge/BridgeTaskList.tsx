@@ -248,14 +248,6 @@ export function BridgeTaskList({
     setLocalContainers(null);
   }, []);
 
-  if (tasks.length === 0) {
-    return (
-      <div className="text-sm text-[var(--text-tertiary)] py-4">
-        No tasks this week.
-      </div>
-    );
-  }
-
   // Build display tasks from containers for rendering
   const displayTodoTasks = useMemo(() => {
     const result: { groupId: string; groupLabel: string | null; tasks: BridgeTask[] }[] = [];
@@ -274,6 +266,14 @@ export function BridgeTaskList({
   }, [containers, groupOrder, groupLabels, taskMap]);
 
   const totalTodo = displayTodoTasks.reduce((sum, g) => sum + g.tasks.length, 0);
+
+  if (tasks.length === 0) {
+    return (
+      <div className="text-sm text-[var(--text-tertiary)] py-4">
+        No tasks this week.
+      </div>
+    );
+  }
 
   return (
     <DndContext

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, CheckCircle2, ChevronDown, RefreshCw } from "lucide-react";
+import { Activity, CheckCircle2, ChevronDown, Loader2, RefreshCw } from "lucide-react";
 import { useLibraryHealth } from "@/hooks/useLibrary";
 import type { LibraryOperationalHealth, LibrarySchedulerJobSummary } from "@/lib/library/types";
 
@@ -85,7 +85,13 @@ function JobDetails({ job }: { job: LibrarySchedulerJobSummary }) {
   );
 }
 
-export function LibraryHealthPanel() {
+export function LibraryHealthPanel({
+  onCheckSources,
+  isCheckingSources = false,
+}: {
+  onCheckSources?: () => void | Promise<void>;
+  isCheckingSources?: boolean;
+} = {}) {
   const { health, error, isLoading, isValidating, refresh } = useLibraryHealth();
   const [open, setOpen] = useState(false);
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
@@ -182,18 +188,34 @@ export function LibraryHealthPanel() {
               <div className="font-semibold text-[var(--text-primary)]">Library Health</div>
               <div data-testid="library-health-checked" className="text-[var(--text-tertiary)]">{health ? `${summaryText(health)} · ${checkedLabel(health.checked_at)}` : "Loading status"}</div>
             </div>
-            <button
-              data-testid="library-health-refresh"
-              type="button"
-              onClick={handleRefresh}
-              disabled={refreshInFlight}
-              aria-busy={refreshInFlight}
-              className="inline-flex h-8 min-w-[92px] items-center justify-center gap-1.5 rounded-md px-2 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] disabled:cursor-wait disabled:text-[var(--text-tertiary)]"
-              title={refreshInFlight ? "Refreshing library health" : "Refresh library health"}
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${refreshInFlight ? "animate-spin" : ""}`} />
-              {refreshInFlight ? "Refreshing" : "Refresh"}
-            </button>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {onCheckSources && (
+                <button
+                  data-testid="library-check-sources"
+                  type="button"
+                  onClick={() => { void onCheckSources(); }}
+                  disabled={isCheckingSources}
+                  aria-busy={isCheckingSources}
+                  className="inline-flex h-8 min-w-[112px] items-center justify-center gap-1.5 rounded-md px-2 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] disabled:cursor-wait disabled:text-[var(--text-tertiary)]"
+                  title={isCheckingSources ? "Checking live Library sources" : "Check live Library sources now"}
+                >
+                  {isCheckingSources ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  {isCheckingSources ? "Checking" : "Check sources"}
+                </button>
+              )}
+              <button
+                data-testid="library-health-refresh"
+                type="button"
+                onClick={handleRefresh}
+                disabled={refreshInFlight}
+                aria-busy={refreshInFlight}
+                className="inline-flex h-8 min-w-[104px] items-center justify-center gap-1.5 rounded-md px-2 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] disabled:cursor-wait disabled:text-[var(--text-tertiary)]"
+                title={refreshInFlight ? "Refreshing library health status" : "Refresh library health status"}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshInFlight ? "animate-spin" : ""}`} />
+                {refreshInFlight ? "Refreshing" : "Refresh status"}
+              </button>
+            </div>
           </div>
 
           {(refreshError || error) && (

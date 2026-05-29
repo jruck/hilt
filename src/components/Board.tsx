@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useScope } from "@/contexts/ScopeContext";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
 import dynamic from "next/dynamic";
@@ -9,6 +9,7 @@ import { ViewMode } from "./ViewToggle";
 import { NavBar } from "./NavBar";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBriefingUnread } from "@/hooks/useBriefingUnread";
+import { useLibraryUnread } from "@/hooks/useLibrary";
 import { PullToRefresh } from "./PullToRefresh";
 import { MobileChromeProvider } from "@/contexts/MobileChromeContext";
 import { isSystemMode, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode, type SystemMode } from "@/lib/system/navigation";
@@ -16,6 +17,7 @@ import { isSystemMode, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeFo
 const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.DocsView })), { ssr: false });
 const BridgeView = dynamic(() => import("./bridge/BridgeView").then(m => ({ default: m.BridgeView })), { ssr: false });
 const BriefingsView = dynamic(() => import("./briefings/BriefingsView").then(m => ({ default: m.BriefingsView })), { ssr: false });
+const CalendarView = dynamic(() => import("./calendar/CalendarView").then(m => ({ default: m.CalendarView })), { ssr: false });
 const LibraryView = dynamic(() => import("./library/LibraryView").then(m => ({ default: m.LibraryView })), { ssr: false });
 const PeopleView = dynamic(() => import("./people/PeopleView").then(m => ({ default: m.PeopleView })), { ssr: false });
 const SystemView = dynamic(() => import("./system").then(m => ({ default: m.SystemView })), { ssr: false });
@@ -50,6 +52,7 @@ export function Board() {
   const viewMode: ViewMode = urlViewMode === "bridge" ? "bridge"
     : urlViewMode === "docs" ? "docs"
     : urlViewMode === "briefings" ? "briefings"
+    : urlViewMode === "calendar" ? "calendar"
     : urlViewMode === "library" ? "library"
     : urlViewMode === "people" ? "people"
     : urlViewMode === "system" || urlViewMode === "map" || urlViewMode === "local-apps" || urlViewMode === "stack" ? "system"
@@ -65,6 +68,8 @@ export function Board() {
       setUrlViewMode("docs");
     } else if (mode === "briefings") {
       setUrlViewMode("briefings");
+    } else if (mode === "calendar") {
+      navigateTo("calendar", "");
     } else if (mode === "library") {
       navigateTo("library", "");
     } else if (mode === "people") {
@@ -126,7 +131,14 @@ export function Board() {
   }, [isHydrated, workingFolder]);
   const isMobile = useIsMobile();
   const { hasUnread: hasBriefingUnread } = useBriefingUnread();
-  const usesWorkspaceGutter = !isMobile && (viewMode === "docs" || viewMode === "people" || viewMode === "system" || viewMode === "library");
+  const { hasUnread: hasLibraryUnread } = useLibraryUnread();
+  const unreadTabs = useMemo(() => {
+    const tabs = new Set<string>();
+    if (hasBriefingUnread) tabs.add("briefings");
+    if (hasLibraryUnread) tabs.add("library");
+    return tabs.size ? tabs : undefined;
+  }, [hasBriefingUnread, hasLibraryUnread]);
+  const usesWorkspaceGutter = !isMobile && (viewMode === "docs" || viewMode === "people" || viewMode === "system" || viewMode === "library" || viewMode === "calendar");
   const usesWorkspaceTopBorder = !isMobile && (viewMode === "docs" || viewMode === "people");
 
   // Search state
@@ -197,7 +209,7 @@ export function Board() {
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         setAddTaskTrigger={setAddTaskTrigger}
-        unreadTabs={hasBriefingUnread ? new Set(["briefings"]) : undefined}
+        unreadTabs={unreadTabs}
       />
 
       <div
@@ -232,6 +244,8 @@ export function Board() {
           />
         ) : viewMode === "briefings" ? (
           <BriefingsView />
+        ) : viewMode === "calendar" ? (
+          <CalendarView />
         ) : viewMode === "library" ? (
           <LibraryView searchQuery={searchQuery} />
         ) : viewMode === "people" ? (
@@ -267,6 +281,8 @@ export function Board() {
           />
         ) : viewMode === "briefings" ? (
           <BriefingsView />
+        ) : viewMode === "calendar" ? (
+          <CalendarView />
         ) : viewMode === "library" ? (
           <LibraryView searchQuery={searchQuery} />
         ) : viewMode === "people" ? (

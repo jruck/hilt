@@ -1,11 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import { Archive, ArrowLeft, MoreHorizontal, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Archive, ArrowLeft, Check, Copy, Link2, MoreHorizontal, X } from "lucide-react";
 import { archiveArtifact, promoteCandidate, skipCandidate, useLibraryArtifact } from "@/hooks/useLibrary";
 import { stripLegacyReferenceBodyCruft } from "@/lib/library/legacy-cleanup";
 import { getYouTubeVideoId } from "@/lib/library/media";
+import { parseTimedTranscript } from "@/lib/library/transcript";
+import { buildLibraryItemUrl } from "@/lib/library/url";
 import { LibraryMarkdown } from "./LibraryMarkdown";
+import { VideoTranscript } from "./VideoTranscript";
+import { YouTubeEmbed, type YouTubeSeekRequest } from "./YouTubeEmbed";
 
 function markdownSection(markdown: string, sectionName: string): string {
   const lines = markdown.split(/\r?\n/);
@@ -65,29 +69,76 @@ function frontmatterString(data: Record<string, unknown>, keys: string[]): strin
   return null;
 }
 
-function MediaPreview({ artifact }: { artifact: NonNullable<ReturnType<typeof useLibraryArtifact>["artifact"]> }) {
+function artifactVideoId(artifact: NonNullable<ReturnType<typeof useLibraryArtifact>["artifact"]>): string | null {
+  const embeddedMediaUrl = frontmatterString(artifact.raw_frontmatter, ["video_url", "youtube_url", "media_url"]);
+  return getYouTubeVideoId(embeddedMediaUrl || artifact.url)
+    || getYouTubeVideoId(markdownSection(artifact.content, "Media"))
+    || null;
+}
+
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
+}
+
+function MediaPreview({
+  artifact,
+  seekRequest,
+  onTimeChange,
+}: {
+  artifact: NonNullable<ReturnType<typeof useLibraryArtifact>["artifact"]>;
+  seekRequest?: YouTubeSeekRequest | null;
+  onTimeChange?: (seconds: number) => void;
+}) {
   const mediaMarkdown = markdownSection(artifact.content, "Media");
   if (mediaMarkdown) {
-    return <LibraryMarkdown markdown={mediaMarkdown} className="mb-5" />;
+    const mediaVideoId = getYouTubeVideoId(mediaMarkdown);
+    if (mediaVideoId) {
+      return (
+        <YouTubeEmbed
+          videoId={mediaVideoId}
+          title={artifact.title}
+          className="mb-5"
+          seekRequest={seekRequest}
+          onTimeChange={onTimeChange}
+        />
+      );
+    }
+    return (
+      <LibraryMarkdown
+        markdown={mediaMarkdown}
+        className="mb-5"
+        youTubeSeekRequest={seekRequest}
+        onYouTubeTimeChange={onTimeChange}
+      />
+    );
   }
   if (artifact.content.includes("<iframe") || artifact.content.includes("youtube.com/embed/")) {
     return null;
   }
 
-  const embeddedMediaUrl = frontmatterString(artifact.raw_frontmatter, ["video_url", "youtube_url", "media_url"]);
-  const videoId = getYouTubeVideoId(embeddedMediaUrl || artifact.url);
+  const videoId = artifactVideoId(artifact);
   if (videoId) {
     return (
-      <div className="mb-5 aspect-video w-full overflow-hidden rounded-lg border border-[var(--border-default)] bg-black">
-        <iframe
-          src={`https://www.youtube.com/embed/${videoId}`}
-          title={artifact.title}
-          className="h-full w-full"
-          loading="lazy"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-        />
-      </div>
+      <YouTubeEmbed
+        videoId={videoId}
+        title={artifact.title}
+        className="mb-5"
+        seekRequest={seekRequest}
+        onTimeChange={onTimeChange}
+      />
     );
   }
   if (artifact.thumbnail) {
@@ -103,30 +154,57 @@ function MediaPreview({ artifact }: { artifact: NonNullable<ReturnType<typeof us
 
 export function LibraryArtifactDetailPane({
   id,
+  artifactPath,
   onBack,
   onClose,
   showBack = false,
   showClose = false,
   onChanged,
+  onCandidateDismissed,
   className = "",
   controlsClassName = "",
   backClassName = "",
   closeClassName = "",
 }: {
   id: string | null;
+  artifactPath?: string | null;
   onBack?: () => void;
   onClose?: () => void;
   showBack?: boolean;
   showClose?: boolean;
   onChanged?: () => void;
+  onCandidateDismissed?: (artifact: NonNullable<ReturnType<typeof useLibraryArtifact>["artifact"]>) => void | Promise<void>;
   className?: string;
   controlsClassName?: string;
   backClassName?: string;
   closeClassName?: string;
 }) {
-  const { artifact, isLoading, mutate } = useLibraryArtifact(id);
+  const { artifact, isLoading, mutate } = useLibraryArtifact(id, artifactPath);
   const [mode, setMode] = useState<"summary" | "cache">("summary");
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [videoSeconds, setVideoSeconds] = useState<number | null>(null);
+  const [seekRequest, setSeekRequest] = useState<YouTubeSeekRequest | null>(null);
+  const [copied, setCopied] = useState<"link" | "path" | null>(null);
+
+  useEffect(() => {
+    setActionsOpen(false);
+    setVideoSeconds(null);
+    setSeekRequest(null);
+    setCopied(null);
+  }, [id]);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(null), 1400);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  const handleVideoTimeChange = useCallback((seconds: number) => {
+    setVideoSeconds((previous) => {
+      if (previous !== null && Math.abs(previous - seconds) < 0.25) return previous;
+      return seconds;
+    });
+  }, []);
 
   if (!id) {
     return <div className={`flex flex-1 items-center justify-center text-sm text-[var(--text-tertiary)] ${className}`}>Select an artifact</div>;
@@ -137,15 +215,25 @@ export function LibraryArtifactDetailPane({
 
   const sourceMarkdown = cachedSourceMarkdown(artifact.content);
   const hasCachedSource = sourceMarkdown.length > 0 && sourceMarkdown !== "No cached source content available.";
+  const videoId = artifactVideoId(artifact);
+  const transcriptSegments = videoId ? parseTimedTranscript(sourceMarkdown) : [];
+  const hasTimedTranscript = transcriptSegments.length >= 2;
   const isCandidate = artifact.lifecycle_status === "candidate";
   const handleChanged = async () => {
     await mutate();
     onChanged?.();
   };
+  const seekVideo = (seconds: number) => {
+    setSeekRequest({ id: Date.now(), seconds });
+    setVideoSeconds(seconds);
+  };
+  const hiltUrl = typeof window === "undefined"
+    ? buildLibraryItemUrl(artifact.id)
+    : new URL(buildLibraryItemUrl(artifact.id), window.location.origin).toString();
 
   return (
     <article data-testid="library-artifact-detail" data-mobile-scroll-chrome="top-bottom" className={`min-w-0 flex-1 overflow-y-auto bg-[var(--content-surface)] ${className}`}>
-      <div className="mx-auto max-w-3xl px-4 pb-[calc(var(--hilt-mobile-nav-clearance)+1rem)] pt-4 sm:px-6 sm:pb-[calc(var(--hilt-mobile-nav-clearance)+1.25rem)] sm:pt-5 lg:px-7 lg:pt-6">
+      <div className="mx-auto max-w-3xl px-4 pb-[calc(var(--hilt-mobile-nav-clearance)+var(--library-floating-video-clearance,0px)+1rem)] pt-4 sm:px-6 sm:pb-[calc(var(--hilt-mobile-nav-clearance)+var(--library-floating-video-clearance,0px)+1.25rem)] sm:pt-5 lg:px-7 lg:pt-6">
         {(showBack || showClose) && (
           <div className={`mb-4 flex items-center justify-between gap-3 ${controlsClassName}`}>
             {showBack ? (
@@ -211,6 +299,30 @@ export function LibraryArtifactDetailPane({
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                await copyText(hiltUrl);
+                setCopied("link");
+              }}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+              aria-label="Copy Hilt link"
+              title={copied === "link" ? "Copied Hilt link" : "Copy Hilt link"}
+            >
+              {copied === "link" ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                await copyText(artifact.path);
+                setCopied("path");
+              }}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+              aria-label="Copy markdown path"
+              title={copied === "path" ? "Copied markdown path" : "Copy markdown path"}
+            >
+              {copied === "path" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            </button>
             {isCandidate ? (
               <>
                 <button
@@ -220,7 +332,13 @@ export function LibraryArtifactDetailPane({
                   Save
                 </button>
                 <button
-                  onClick={async () => { await skipCandidate(artifact.id); await handleChanged(); }}
+                  onClick={async () => {
+                    if (onCandidateDismissed) await onCandidateDismissed(artifact);
+                    else {
+                      await skipCandidate(artifact.id);
+                      await handleChanged();
+                    }
+                  }}
                   className="min-h-9 rounded-md px-3 py-1.5 text-xs font-medium text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)]"
                   title="Dismiss this candidate from review; it remains in the temporary candidate cache until cleanup"
                 >
@@ -258,9 +376,11 @@ export function LibraryArtifactDetailPane({
         </div>
 
         <div className="mt-5">
-          <MediaPreview artifact={artifact} />
+          <MediaPreview artifact={artifact} seekRequest={seekRequest} onTimeChange={handleVideoTimeChange} />
           {mode === "summary" ? (
             <LibraryMarkdown markdown={summaryMarkdown(artifact)} />
+          ) : hasTimedTranscript ? (
+            <VideoTranscript segments={transcriptSegments} activeSeconds={videoSeconds} onSeek={seekVideo} />
           ) : hasCachedSource ? (
             <LibraryMarkdown markdown={sourceMarkdown} />
           ) : (

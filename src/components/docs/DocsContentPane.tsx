@@ -35,6 +35,8 @@ const CODE_EXTENSIONS = new Set([
   "env", "gitignore", "dockerignore", "editorconfig",
 ]);
 
+const MOBILE_DOCS_TOP_CHROME_OFFSET = "74px";
+
 // Dynamic import for MDXEditor (no SSR)
 const DocsEditor = dynamic(
   () => import("./DocsEditor").then((mod) => mod.DocsEditor),
@@ -303,7 +305,7 @@ export function DocsContentPane({
   const renderFileShell = (header: ReactNode, body: ReactNode, enabled = fileHeaderChromeEnabled) => (
     <div className="relative flex-1 flex flex-col overflow-hidden">
       <MobileChromeTopBar enabled={enabled}>{header}</MobileChromeTopBar>
-      <MobileChromeContent enabled={enabled} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <MobileChromeContent enabled={enabled} offset={MOBILE_DOCS_TOP_CHROME_OFFSET} className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {body}
       </MobileChromeContent>
     </div>
@@ -531,7 +533,7 @@ export function DocsContentPane({
         </div>
       </MobileChromeTopBar>
 
-      <MobileChromeContent enabled={markdownHeaderChromeEnabled} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <MobileChromeContent enabled={markdownHeaderChromeEnabled} offset={MOBILE_DOCS_TOP_CHROME_OFFSET} className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* Editor */}
         <div
           ref={scrollContainerRef}
@@ -546,7 +548,7 @@ export function DocsContentPane({
             scopePath={scopePath}
             fileTree={fileTree}
             onNavigateToFile={onNavigateToFile}
-            contentPadding={isMobile ? "px-2 py-2" : undefined}
+            contentPadding={isMobile ? "px-2 pb-2 pt-4" : undefined}
             scrollChrome={markdownHeaderChromeEnabled ? "top-bottom" : "bottom"}
           />
         </div>

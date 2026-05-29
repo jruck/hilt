@@ -2,7 +2,7 @@
 
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
-import type { LibraryArtifact, LibraryArtifactDetail, LibraryOperationalHealth, LibrarySourceSummary, PromotionReason, RecommendedArtifact } from "@/lib/library/types";
+import type { IngestionReport, LibraryArtifact, LibraryArtifactDetail, LibraryOperationalHealth, LibrarySourceConfig, LibrarySourceSummary, PromotionReason, RecommendedArtifact } from "@/lib/library/types";
 
 const fetcher = (url: string) => fetch(url, { cache: "no-store" }).then((res) => {
   if (!res.ok) throw new Error(`Request failed: ${res.status}`);
@@ -13,6 +13,7 @@ export interface UseLibraryOptions {
   source?: string | null;
   channel?: string | null;
   status?: string | null;
+  unread?: boolean | null;
   q?: string | null;
   limit?: number;
 }
@@ -30,6 +31,7 @@ function libraryParams(options: UseLibraryOptions, offset?: number, limit?: numb
   if (options.source) params.set("source", options.source);
   if (options.channel) params.set("channel", options.channel);
   if (options.status) params.set("status", options.status);
+  if (options.unread) params.set("unread", "true");
   if (options.q) params.set("q", options.q);
   params.set("limit", String(limit || options.limit || 80));
   if (typeof offset === "number") params.set("offset", String(offset));
@@ -76,8 +78,11 @@ export function useLibrarySources(options: Pick<UseLibraryOptions, "channel" | "
   return { sources: data?.sources || [], error, isLoading, mutate };
 }
 
-export function useLibraryArtifact(id: string | null) {
-  const { data, error, isLoading, mutate } = useSWR<LibraryArtifactDetail>(id ? `/api/library/${id}` : null, fetcher);
+export function useLibraryArtifact(id: string | null, artifactPath?: string | null) {
+  const key = id
+    ? `/api/library/${id}${artifactPath ? `?${new URLSearchParams({ path: artifactPath }).toString()}` : ""}`
+    : null;
+  const { data, error, isLoading, mutate } = useSWR<LibraryArtifactDetail>(key, fetcher);
   return { artifact: data || null, error, isLoading, mutate };
 }
 
@@ -95,6 +100,13 @@ export function useLibraryHealth() {
   return { health: data || null, error, isLoading, isValidating, mutate, refresh };
 }
 
+export function useLibraryUnread() {
+  const { data, error, isLoading, mutate } = useSWR<{ has_unread: boolean }>("/api/library/unread", fetcher, {
+    refreshInterval: 60_000,
+  });
+  return { hasUnread: Boolean(data?.has_unread), error, isLoading, mutate };
+}
+
 export async function promoteCandidate(id: string, reason: PromotionReason = "manual_save") {
   const res = await fetch(`/api/library/candidates/${id}/promote`, {
     method: "POST",
@@ -105,14 +117,50 @@ export async function promoteCandidate(id: string, reason: PromotionReason = "ma
   return res.json();
 }
 
-export async function skipCandidate(id: string) {
+export async function updateCandidateStatus(id: string, status: "candidate" | "skipped") {
   const res = await fetch(`/api/library/candidates/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status: "skipped" }),
+    body: JSON.stringify({ status }),
   });
-  if (!res.ok) throw new Error(`Failed to skip candidate: ${res.status}`);
+  if (!res.ok) throw new Error(`Failed to update candidate: ${res.status}`);
   return res.json();
+}
+
+export async function skipCandidate(id: string) {
+  return updateCandidateStatus(id, "skipped");
+}
+
+export async function restoreCandidate(id: string) {
+  return updateCandidateStatus(id, "candidate");
+}
+
+export async function ingestLibrarySources(options: {
+  sourceIds?: string[];
+  cadence?: LibrarySourceConfig["cadence"];
+  useSummarize?: boolean;
+  dryRun?: boolean;
+  ignoreState?: boolean;
+  useCursor?: boolean;
+  limit?: number;
+} = {}) {
+  const res = await fetch("/api/sources/ingest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(options),
+  });
+  const body = await res.json().catch(() => null) as IngestionReport | { error?: string } | null;
+  if (!res.ok) {
+    const reportMessage = body && "blocked" in body && body.blocked.length
+      ? body.blocked.map((entry) => `${entry.source_id}: ${entry.reason}`).join("; ")
+      : body && "errors" in body && body.errors.length
+        ? body.errors.join("; ")
+        : null;
+    const apiMessage = body && "error" in body && body.error ? body.error : null;
+    const message = reportMessage || apiMessage || `Failed to check sources: ${res.status}`;
+    throw new Error(message);
+  }
+  return body as IngestionReport;
 }
 
 export async function archiveArtifact(id: string) {

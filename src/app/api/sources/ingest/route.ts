@@ -1,16 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getVaultPath } from "@/lib/bridge/vault";
 import { runIngestion } from "@/lib/library/runner";
+import { loadSources } from "@/lib/library/source-config";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+const cadences = new Set(["manual", "hourly", "daily", "weekly"]);
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
     const vaultPath = await getVaultPath();
+    const cadence = typeof body.cadence === "string" && cadences.has(body.cadence) ? body.cadence : null;
+    const sourceIds = Array.isArray(body.sourceIds)
+      ? body.sourceIds.map(String)
+      : cadence
+        ? loadSources(vaultPath)
+            .filter((source) => source.enabled && source.cadence === cadence)
+            .map((source) => source.id)
+        : undefined;
     const report = await runIngestion(vaultPath, {
-      sourceIds: Array.isArray(body.sourceIds) ? body.sourceIds.map(String) : undefined,
+      sourceIds,
       useSummarize: body.useSummarize !== false,
       dryRun: body.dryRun === true,
       ignoreState: body.ignoreState === true || body.dryRun === true,

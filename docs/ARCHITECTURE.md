@@ -441,6 +441,47 @@ EventServer broadcasts matching events to subscribed clients
 Components receive events and trigger SWR revalidation
 ```
 
+### 10. Reference Library Connection Data Flow
+
+Connections between a new reference and the user's existing work are produced by LLM judgment, not deterministic token overlap. The old `suggestArtifactConnections` keyword scorer was removed; the digestion pipeline now calls a Claude-CLI judge against a compact index of the vault.
+
+```
+Ingestion adapter → digestion.ts (digestArtifact)
+         │
+         │ Connection judging runs ONLY for durable saves:
+         │   source.intent === "explicit_save"  OR  saveRecommendation === "file"
+         │ Plain review candidates get no connections and no LLM spend
+         │ until they are promoted or explicitly re-judged.
+         ▼
+buildKbIndex(vaultPath)                         (src/lib/library/kb-index.ts)
+         │ Assembles NORTH STARS / PROJECTS / AREAS / PEOPLE / RECENT REFERENCES
+         │ (~1.25K tokens). Caches to references/.cache/kb-index.md unless noWrite.
+         ▼
+judgeConnections(kbIndex, { title, summary, keyPoints, sourceExcerpt }, opts)
+         │                                        (src/lib/library/connections.ts)
+         │ Spawns the Claude CLI via execFile:
+         │   claude -p "<read stdin, follow system instructions>"
+         │     --append-system-prompt-file <tmp CONNECTION_PROMPT>
+         │     --output-format json [--model <LIBRARY_CONNECTIONS_MODEL>]
+         │ KB index + reference payload piped on stdin; sourceExcerpt capped at 5000 chars.
+         │ Reads .result from the JSON envelope, parses with parseConnectionJudgment.
+         │ Abstains (empty judgment) on any failure, timeout (default 90s),
+         │ or when LIBRARY_CONNECTIONS_DISABLED=1 — pipeline stays offline-safe.
+         ▼
+ConnectionJudgment { connects, reasoning, connections[], reweave_candidates[] }
+         │ digestion.ts maps onto ProcessedArtifact:
+         │   connection_suggestions, connection_reasoning, reweave_candidates,
+         │   connected_projects (filtered to targets matching project-folder slugs)
+         ▼
+references.ts / candidate-cache.ts write markdown
+         │ Body renders "- [[target]] — relationship" (or "- label — relationship"
+         │ for null-target peer/theme ties); empty body when no connections.
+         │ connection_reasoning + reweave_candidates persisted to frontmatter.
+         │ "## Connections" for durable refs, "## Suggested Connections" for candidates.
+```
+
+Backfill / re-judgment uses `scripts/library-rejudge-connections.ts`: a connections-only pass that builds the KB index once and runs `judgeConnections` per file. Dry run by default (prints per-file JSON, never writes); `--write` rewrites only the Connections section body and the `connection_reasoning`/`reweave_candidates` frontmatter, leaving Summary/Key Points/Raw Content/Media byte-identical. Reweave candidates are surfaced for human review only — Hilt never auto-edits a neighbor note.
+
 ## State Management
 
 | State | Location | Persistence | Purpose |
@@ -624,7 +665,7 @@ Board.tsx (274 lines)
 │   │       ├── LibraryArtifactDetailPane (rendered summary/cache/source reader; selection-driven)
 │   │       ├── LibraryHealthPanel (/api/library/health scheduler/source/dead-letter state)
 │   │       ├── Library APIs (/api/library/*, /api/search)
-│   │       └── Source runner CLI (auth verification, dry-run canaries, scheduled ingestion)
+│   │       └── Source runner API/CLI (manual Check sources, auth verification, dry-run canaries, scheduled ingestion)
 │
 │   └── viewMode === "local-apps"
 │       └── LocalAppsView

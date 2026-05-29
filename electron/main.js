@@ -60,9 +60,19 @@ if (fs.existsSync(envPath)) {
             process.env[key] = val;
     }
 }
-// Set DATA_DIR to Electron's userData path before anything else
-const DATA_DIR = path.join(electron_1.app.getPath("userData"), "data");
+// In dev, keep Electron-launched servers on the same shared Hilt data dir used
+// by CLI scripts and background jobs. Packaged builds can keep Electron userData.
+const DATA_DIR = process.env.DATA_DIR || (electron_1.app.isPackaged ? path.join(electron_1.app.getPath("userData"), "data") : path.join(os.homedir(), ".hilt", "data"));
 process.env.DATA_DIR = DATA_DIR;
+const CHILD_PATH = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", process.env.PATH || ""].join(":");
+function childEnv(extra = {}) {
+    return {
+        ...process.env,
+        PATH: CHILD_PATH,
+        DATA_DIR,
+        ...extra,
+    };
+}
 const PLANS_DIR = path.join(process.env.HOME || "~", ".claude", "plans");
 const NAVIGATE_FILE = path.join(process.env.HOME || "~", ".hilt-pending-navigate.json");
 // Track active windows and server processes
@@ -382,16 +392,14 @@ async function startServerForSource(source) {
     const logPath = path.join(logDir, `dev-server-${source.id}.log`);
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
     logStream.write(`\n--- Dev server for ${source.name} starting at ${new Date().toISOString()} ---\n`);
-    const env = {
-        ...process.env,
+    const env = childEnv({
         PORT: String(port),
         FORCE_COLOR: "0",
-        DATA_DIR,
         ...(source.folder && {
             HILT_WORKING_FOLDER: source.folder,
             BRIDGE_VAULT_PATH: source.folder,
         }),
-    };
+    });
     const serverProcess = (0, child_process_1.spawn)("npm", ["run", "dev", "--", "--port", String(port)], {
         cwd: projectDir,
         env,
@@ -507,7 +515,7 @@ async function startNextServer() {
         const projectDir = path.resolve(__dirname, "..");
         nextServer = (0, child_process_1.spawn)("npm", ["run", "dev", "--", "--port", String(port)], {
             cwd: projectDir,
-            env: { ...process.env, PORT: String(port), FORCE_COLOR: "0" },
+            env: childEnv({ PORT: String(port), FORCE_COLOR: "0" }),
             stdio: ["ignore", "pipe", "pipe"],
             detached: true,
         });
@@ -595,10 +603,9 @@ async function startNextServer() {
         }
         nextServer = (0, child_process_1.spawn)(nodeBin, [serverPath], {
             env: {
-                ...process.env,
+                ...childEnv(),
                 ...extraEnv,
                 PORT: String(port),
-                DATA_DIR,
                 NODE_ENV: "production",
             },
             cwd: standaloneDir,
@@ -674,7 +681,7 @@ function startWsServer() {
     const wsPort = nextPort + 100;
     wsServer = (0, child_process_1.spawn)("npm", ["run", "ws-server"], {
         cwd: projectDir,
-        env: { ...process.env, FORCE_COLOR: "0", WS_PORT: String(wsPort) },
+        env: childEnv({ FORCE_COLOR: "0", WS_PORT: String(wsPort) }),
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,
     });

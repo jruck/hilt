@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDocs } from "@/hooks/useDocs";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
+import { MobileChromeContent, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import { DocsFileTree } from "./docs/DocsFileTree";
 import { DocsContentPane } from "./docs/DocsContentPane";
 import type { FileNode } from "@/lib/types";
@@ -293,7 +293,7 @@ export function DocsView({ scopePath, focusedPath, onPathChange, searchQuery }: 
     <div className={`flex-1 flex overflow-hidden relative ${isResizing ? "select-none" : ""}`}>
       {/* Sidebar */}
       <div
-        className="flex-shrink-0 relative flex flex-col transition-transform duration-200 ease-out"
+        className="flex-shrink-0 relative flex flex-col overflow-hidden transition-transform duration-200 ease-out"
         style={{
           width: isMobile ? "85vw" : sidebarWidth,
           transform: sidebarOpen ? "translateX(0)" : "translateX(-100%)",
@@ -304,17 +304,24 @@ export function DocsView({ scopePath, focusedPath, onPathChange, searchQuery }: 
           ...(!isMobile && !sidebarOpen ? { position: "absolute", top: 0, left: 0, bottom: 0, zIndex: 30 } : {}),
         }}
       >
-        <DocsFileTree
-          tree={tree}
-          expandedPaths={expandedPaths}
-          selectedPath={selectedPath}
-          onToggleExpand={toggleExpanded}
-          onSelect={handleFileSelect}
-          isLoading={treeLoading}
-          searchQuery={searchQuery}
-          folderSortOrder={folderSortOrder}
-          onSetFolderSort={setFolderSort}
-        />
+        <MobileChromeContent
+          enabled={isMobile}
+          offset="calc(var(--hilt-mobile-top-chrome-height) + 13px)"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          inactiveClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          <DocsFileTree
+            tree={tree}
+            expandedPaths={expandedPaths}
+            selectedPath={selectedPath}
+            onToggleExpand={toggleExpanded}
+            onSelect={handleFileSelect}
+            isLoading={treeLoading}
+            searchQuery={searchQuery}
+            folderSortOrder={folderSortOrder}
+            onSetFolderSort={setFolderSort}
+          />
+        </MobileChromeContent>
         {/* Resize handle — desktop only, when sidebar open */}
         {!isMobile && sidebarOpen && (
           <div

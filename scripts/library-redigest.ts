@@ -14,10 +14,19 @@ const vaultPath = process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLD
 const args = process.argv.slice(2);
 const write = args.includes("--write");
 const writeHotOnly = args.includes("--write-hot-only");
+const refetch = args.includes("--refetch");
 
 function argValue(name: string): string | null {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] || null : null;
+}
+
+function argValues(name: string): string[] {
+  const values: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === name && args[index + 1]) values.push(args[index + 1]);
+  }
+  return values;
 }
 
 const summarizeTimeout = argValue("--summarize-timeout");
@@ -34,11 +43,35 @@ function existingRawContent(body: string): string {
   const raw = stripDetails(extractSection(body, "Raw Content"));
   if (/^#\s+.+$/m.test(raw) && raw.includes("## Summary") && raw.includes("## Key Points")) return "";
   if (/^#\s+.+$/m.test(raw) && raw.length < 250) return "";
+  if (/^No cached source content available\.?$/i.test(raw)) return "";
   return raw;
+}
+
+function resolvedSourceUrlFromNotes(body: string): string | undefined {
+  return body.match(/Resolved linked URL from source metadata:\s*(https?:\/\/\S+)/)?.[1];
+}
+
+function xEmbedVideoUrlFromBody(body: string): string | undefined {
+  const postId = body.match(/platform\.twitter\.com\/embed\/Tweet\.html\?id=(\d+)/)?.[1];
+  return postId ? `https://x.com/i/status/${postId}/video/1` : undefined;
 }
 
 function markdownList(items: string[], fallback = "- "): string {
   return items.length ? items.map((item) => `- ${item}`).join("\n") : fallback;
+}
+
+function connectionLines(processed: ProcessedArtifact): string {
+  if (processed.connection_suggestions?.length) {
+    return processed.connection_suggestions.map((suggestion) => {
+      const target = suggestion.target ? `[[${suggestion.target}]]` : suggestion.label;
+      return `- ${target} — ${suggestion.relationship}`;
+    }).join("\n");
+  }
+  if (processed.connected_projects.length) {
+    return processed.connected_projects.map((item) => `- [[${item}]]`).join("\n");
+  }
+  // No connections: render an empty section body; connection_reasoning lives in frontmatter.
+  return "";
 }
 
 function sourceNotes(processed: ProcessedArtifact): string {
@@ -61,7 +94,7 @@ ${markdownList(processed.key_points)}
 
 ## Connections
 
-${markdownList(processed.connected_projects.map((item) => `[[${item}]]`))}
+${connectionLines(processed)}
 
 ## Raw Content
 
@@ -95,7 +128,7 @@ ${markdownList(processed.key_points)}
 
 ## Suggested Connections
 
-${markdownList(processed.connected_projects.map((item) => `[[${item}]]`))}
+${connectionLines(processed)}
 
 ## Raw Content
 
@@ -136,6 +169,13 @@ function mergeFrontmatter(existing: Record<string, unknown>, processed: Processe
     merged.save_recommendation = processed.assessment.save_recommendation;
     merged.proposed_destination = processed.proposed_destination;
     merged.connected_projects = processed.connected_projects;
+    merged.connection_suggestions = processed.connection_suggestions?.length
+      ? processed.connection_suggestions
+      : existing.connection_suggestions;
+    merged.connection_reasoning = processed.connection_reasoning || existing.connection_reasoning;
+    merged.reweave_candidates = processed.reweave_candidates?.length
+      ? processed.reweave_candidates
+      : existing.reweave_candidates;
   }
   for (const key of Object.keys(merged)) {
     if (merged[key] === undefined) delete merged[key];
@@ -173,8 +213,12 @@ function thumbnailFromData(data: Record<string, unknown>): string | undefined {
 }
 
 function queueItems(): Array<{ path: string }> {
+  const directPaths = argValues("--path").map((item) => ({
+    path: path.isAbsolute(item) ? path.relative(vaultPath, item) : item,
+  }));
+  if (directPaths.length) return directPaths;
   const queuePath = argValue("--queue");
-  if (!queuePath) throw new Error("Pass --queue <quality-audit-queue.json>.");
+  if (!queuePath) throw new Error("Pass --queue <quality-audit-queue.json> or one or more --path <reference.md>.");
   const parsed = JSON.parse(fs.readFileSync(queuePath, "utf-8")) as { items?: Array<{ path: string }> };
   return parsed.items || [];
 }
@@ -198,17 +242,22 @@ async function main() {
       continue;
     }
 
+    const rawTitle = String(parsed.data.title || parsed.body.match(/^#\s+(.+)$/m)?.[1] || path.basename(filePath, ".md"));
     const rawContent = existingRawContent(parsed.body);
     const existingSummary = String(extractSection(parsed.body, "Summary") || parsed.data.description || "").trim();
     const existingKeyPoints = extractBullets(extractSection(parsed.body, "Key Points"));
+    const resolvedSourceUrl = resolvedSourceUrlFromNotes(parsed.body);
+    const xEmbedVideoUrl = xEmbedVideoUrlFromBody(parsed.body);
     const raw: RawArtifact = {
       url: String(parsed.data.url || ""),
-      title: String(parsed.data.title || parsed.body.match(/^#\s+(.+)$/m)?.[1] || path.basename(filePath, ".md")),
+      title: rawTitle,
       author: typeof parsed.data.author === "string" ? parsed.data.author : undefined,
       date: String(parsed.data.published || parsed.data.captured || parsed.data.digested || new Date().toISOString()),
       thumbnail: thumbnailFromData(parsed.data),
       content: rawContent,
       metadata: {
+        expanded_url: resolvedSourceUrl || xEmbedVideoUrl,
+        video_url: xEmbedVideoUrl,
         existing_key_points: extractBullets(extractSection(parsed.body, "Key Points")),
       },
     };
@@ -245,7 +294,7 @@ async function main() {
       continue;
     }
 
-    const processed = await digestArtifact(raw, source, { useSummarize: true, vaultPath });
+    const processed = await digestArtifact(raw, source, { useSummarize: true, vaultPath, preferCachedSource: !refetch });
     const hasRepairableYouTubeMedia = Boolean(getYouTubeVideoId(raw.url) && buildMediaMarkdown(processed.raw).trim());
     const mediaRepair = hasRepairableYouTubeMedia && !existingHasMedia && processed.summary.length >= 100 && processed.key_points.length >= 2;
     const qualitySkipped = write && writeHotOnly && processed.digestion?.status !== "hot" && !mediaRepair;
@@ -262,7 +311,7 @@ async function main() {
       summary_chars: processed.summary.length,
       key_points: processed.key_points.length,
       cached_source_chars: processed.digestion?.cached_source_chars || 0,
-      has_media: Boolean(processed.raw.thumbnail || processed.raw.url.includes("youtube.com/watch") || processed.raw.url.includes("youtu.be/")),
+      has_media: Boolean(buildMediaMarkdown(processed.raw).trim()),
       notes: processed.extraction_notes,
     });
   }

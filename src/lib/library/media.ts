@@ -13,6 +13,33 @@ export function isYouTubeUrl(url: string | null | undefined): boolean {
   return Boolean(getYouTubeVideoId(url));
 }
 
+export function getXPostId(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return url.match(/^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/[^/]+\/status\/(\d+)/i)?.[1] || null;
+}
+
+export function isXVideoUrl(url: string | null | undefined): boolean {
+  return Boolean(url && getXPostId(url) && /\/video(?:\/\d+)?(?:[?#].*)?$/i.test(url));
+}
+
+export function getXEmbedUrl(url: string | null | undefined): string | null {
+  const postId = getXPostId(url);
+  return postId ? `https://platform.twitter.com/embed/Tweet.html?id=${postId}&dnt=true` : null;
+}
+
+export function isXEmbedUrl(url: string | null | undefined): boolean {
+  return Boolean(url && /^https:\/\/platform\.twitter\.com\/embed\/Tweet\.html/i.test(url));
+}
+
+export function getXEmbedPostId(url: string | null | undefined): string | null {
+  if (!url || !isXEmbedUrl(url)) return null;
+  try {
+    return new URL(url).searchParams.get("id");
+  } catch {
+    return url.match(/[?&]id=(\d+)/)?.[1] || null;
+  }
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -48,8 +75,15 @@ export function buildMediaMarkdown(raw: RawArtifact): string {
     return `## Media
 
 <iframe width="560" height="315" src="https://www.youtube.com/embed/${videoId}" title="${escapeHtml(raw.title)}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+`;
+  }
 
-[Watch on YouTube](${embeddedMediaUrl})
+  const xMediaUrl = typeof raw.metadata.video_url === "string" ? raw.metadata.video_url : typeof raw.metadata.expanded_url === "string" ? raw.metadata.expanded_url : raw.url;
+  const xEmbedUrl = isXVideoUrl(xMediaUrl) ? getXEmbedUrl(xMediaUrl) : null;
+  if (xEmbedUrl) {
+    return `## Media
+
+<iframe width="550" height="900" src="${xEmbedUrl}" title="${escapeHtml(raw.title)}" frameborder="0" scrolling="no" allowfullscreen></iframe>
 `;
   }
 
@@ -65,7 +99,9 @@ ${images.map((image, index) => `![${escapeMarkdownAlt(index === 0 ? raw.title : 
 }
 
 export function cachedSourceContent(processed: ProcessedArtifact): string {
-  return (processed.source_cache?.content || processed.raw.content || "").trim();
+  const fallback = processed.raw.content || "";
+  const hasOnlyUrls = fallback.trim().split(/\s+/).every((token) => /^https?:\/\/\S+$/i.test(token));
+  return (processed.source_cache?.content || (hasOnlyUrls ? "" : fallback)).trim();
 }
 
 export function stripDetailsWrapper(markdown: string): string {

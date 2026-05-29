@@ -1,11 +1,11 @@
 import fs from "fs";
 import path from "path";
-import type { LibraryArtifact, LibraryArtifactDetail, LibraryLifecycleStatus, LibrarySourceSummary, ReferenceCandidate } from "./types";
-import { listCandidates } from "./candidate-cache";
-import { listSavedReferences, MANUAL_SOURCE_ID, MANUAL_SOURCE_NAME } from "./references";
-import { applyLibraryReadState, readLibraryReadState } from "./read-state";
+import type { CandidateStatus, LibraryArtifact, LibraryArtifactDetail, LibraryLifecycleStatus, LibrarySourceSummary, ReferenceCandidate } from "./types";
+import { CANDIDATE_CACHE_DIR, candidateCacheDir, findCandidateById, listCandidates, parseCandidateFile } from "./candidate-cache";
+import { findSavedReferenceById, listSavedReferences, MANUAL_SOURCE_ID, MANUAL_SOURCE_NAME, parseReferenceFile, referencesDir } from "./references";
+import { applyLibraryReadState, isLibraryArtifactUnread, readLibraryReadState } from "./read-state";
 import { loadSources, readSourceState } from "./source-config";
-import { compareDatesDesc, dateTimestamp, ensureDir, hashId } from "./utils";
+import { compareDatesDesc, dateTimestamp, ensureDir, hashId, walkMarkdown } from "./utils";
 import { relativeVaultPath } from "./markdown";
 
 export interface LibraryListOptions {
@@ -13,12 +13,54 @@ export interface LibraryListOptions {
   channel?: string | null;
   tag?: string | null;
   status?: LibraryLifecycleStatus | "all" | null;
+  unread?: boolean;
   q?: string | null;
   after?: string | null;
   before?: string | null;
   offset?: number;
   limit?: number;
   includeCandidates?: boolean;
+}
+
+const candidateStatuses = new Set<LibraryLifecycleStatus>(["candidate", "skipped", "expired", "promoted"]);
+const preciseRecencyFrontmatterKeys = [
+  "captured_at",
+  "saved_at",
+  "digested_at",
+  "created_at",
+  "fetched_at",
+] as const;
+
+function preciseTimestamp(value: unknown): number {
+  if (value instanceof Date) {
+    const timestamp = value.getTime();
+    if (!Number.isFinite(timestamp)) return 0;
+    const iso = value.toISOString();
+    return /T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(iso) && !iso.endsWith("T00:00:00.000Z") ? timestamp : 0;
+  }
+  if (typeof value !== "string") return 0;
+  const text = value.trim();
+  if (!/[Tt]|\d{1,2}:\d{2}/.test(text)) return 0;
+  const timestamp = Date.parse(text);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function artifactPreciseRecencyTimestamp(artifact: LibraryArtifactDetail): number {
+  for (const key of preciseRecencyFrontmatterKeys) {
+    const timestamp = preciseTimestamp(artifact.raw_frontmatter[key]);
+    if (timestamp) return timestamp;
+  }
+  return dateTimestamp(artifact.updated_at) || dateTimestamp(artifact.created_at);
+}
+
+function compareArtifactsByRecent(a: LibraryArtifactDetail, b: LibraryArtifactDetail): number {
+  const bySourceDate = compareDatesDesc(a.created_at, b.created_at);
+  if (bySourceDate !== 0) return bySourceDate;
+
+  const byPreciseRecency = artifactPreciseRecencyTimestamp(b) - artifactPreciseRecencyTimestamp(a);
+  if (byPreciseRecency !== 0) return byPreciseRecency;
+
+  return a.path.localeCompare(b.path);
 }
 
 function candidateToArtifact(vaultPath: string, candidate: ReferenceCandidate): LibraryArtifactDetail {
@@ -75,6 +117,7 @@ function filterArtifacts(artifacts: LibraryArtifactDetail[], options: LibraryLis
     if (options.channel && artifact.channel !== options.channel) return false;
     if (options.tag && !artifact.tags.includes(options.tag)) return false;
     if (options.status && options.status !== "all" && artifact.lifecycle_status !== options.status) return false;
+    if (options.unread && !artifact.is_unread) return false;
     if (after && dateTimestamp(artifact.created_at) < after) return false;
     if (before && dateTimestamp(artifact.created_at) > before) return false;
     if (options.q && !matchesText(artifact, options.q)) return false;
@@ -84,12 +127,19 @@ function filterArtifacts(artifacts: LibraryArtifactDetail[], options: LibraryLis
 
 export function listLibraryArtifactDetails(vaultPath: string, options: LibraryListOptions = {}): { artifacts: LibraryArtifactDetail[]; total: number; unread_total: number } {
   const saved = listSavedReferences(vaultPath);
+  const requestedCandidateStatus = options.status && options.status !== "all" && candidateStatuses.has(options.status)
+    ? options.status as CandidateStatus
+    : null;
   const candidates = options.includeCandidates === false
+    || options.status === "saved"
     ? []
-    : listCandidates(vaultPath).map((candidate) => candidateToArtifact(vaultPath, candidate));
-  const all = [...saved, ...candidates].sort((a, b) => compareDatesDesc(a.created_at, b.created_at));
+    : listCandidates(vaultPath, requestedCandidateStatus || undefined)
+      .filter((candidate) => requestedCandidateStatus || candidate.status === "candidate")
+      .map((candidate) => candidateToArtifact(vaultPath, candidate));
+  const all = [...saved, ...candidates].sort(compareArtifactsByRecent);
   const state = readLibraryReadState(vaultPath);
-  const filtered = applyLibraryReadState(filterArtifacts(all, options), state);
+  const readAware = applyLibraryReadState(all, state);
+  const filtered = filterArtifacts(readAware, options);
   const offset = options.offset || 0;
   const limit = options.limit || 50;
   return {
@@ -99,9 +149,67 @@ export function listLibraryArtifactDetails(vaultPath: string, options: LibraryLi
   };
 }
 
+export function hasUnreadLibraryArtifacts(vaultPath: string): boolean {
+  const state = readLibraryReadState(vaultPath);
+
+  for (const filePath of walkMarkdown(referencesDir(vaultPath))) {
+    if (filePath.includes(`${path.sep}.cache${path.sep}`)) continue;
+    const artifact = parseReferenceFile(vaultPath, filePath);
+    if (artifact && isLibraryArtifactUnread(artifact, state)) return true;
+  }
+
+  for (const filePath of walkMarkdown(candidateCacheDir(vaultPath), { includeHidden: true })) {
+    let candidate: ReferenceCandidate | null = null;
+    try {
+      candidate = parseCandidateFile(vaultPath, filePath);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[library] skipping malformed candidate for unread check: ${filePath}: ${message}`);
+      continue;
+    }
+    if (!candidate || candidate.status !== "candidate") continue;
+    const artifact = candidateToArtifact(vaultPath, candidate);
+    if (isLibraryArtifactUnread(artifact, state)) return true;
+  }
+
+  return false;
+}
+
 export function getLibraryArtifact(vaultPath: string, id: string): LibraryArtifactDetail | null {
-  const all = listLibraryArtifactDetails(vaultPath, { limit: 10000, includeCandidates: true }).artifacts;
-  return all.find((artifact) => artifact.id === id) || null;
+  const saved = findSavedReferenceById(vaultPath, id);
+  const artifact = saved || (() => {
+    const candidate = findCandidateById(vaultPath, id);
+    return candidate ? candidateToArtifact(vaultPath, candidate) : null;
+  })();
+  if (!artifact) return null;
+  return applyLibraryReadState([artifact], readLibraryReadState(vaultPath))[0] || null;
+}
+
+function resolveArtifactPath(vaultPath: string, artifactPath: string): { relPath: string; filePath: string } | null {
+  const relPath = artifactPath.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!relPath.endsWith(".md")) return null;
+  if (relPath.split("/").some((part) => part === "..")) return null;
+  const vaultRoot = path.resolve(vaultPath);
+  const filePath = path.resolve(vaultRoot, relPath);
+  if (filePath !== vaultRoot && !filePath.startsWith(`${vaultRoot}${path.sep}`)) return null;
+  if (!fs.existsSync(filePath)) return null;
+  return { relPath, filePath };
+}
+
+export function getLibraryArtifactByPath(vaultPath: string, id: string, artifactPath: string): LibraryArtifactDetail | null {
+  const resolved = resolveArtifactPath(vaultPath, artifactPath);
+  if (!resolved) return null;
+  if (hashId(resolved.relPath) !== id) return null;
+
+  const candidatePrefix = `${CANDIDATE_CACHE_DIR.split(path.sep).join("/")}/`;
+  const artifact = resolved.relPath.startsWith(candidatePrefix)
+    ? (() => {
+      const candidate = parseCandidateFile(vaultPath, resolved.filePath);
+      return candidate ? candidateToArtifact(vaultPath, candidate) : null;
+    })()
+    : parseReferenceFile(vaultPath, resolved.filePath);
+  if (!artifact) return null;
+  return applyLibraryReadState([artifact], readLibraryReadState(vaultPath))[0] || null;
 }
 
 export function summarizeArtifact(artifact: LibraryArtifactDetail): LibraryArtifact {

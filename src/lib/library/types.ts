@@ -88,12 +88,17 @@ export interface ArtifactScore {
 }
 
 export interface ConnectionSuggestion {
-  kind: "project" | "task" | "area" | "person" | "recent_save";
+  target?: string | null;
   label: string;
-  target?: string;
-  reason: string;
-  terms: string[];
-  score: number;
+  relationship: string;
+  kind?: "project" | "task" | "area" | "person" | "recent_save";
+}
+
+export interface ConnectionJudgment {
+  connects: boolean;
+  reasoning: string;
+  connections: ConnectionSuggestion[];
+  reweave_candidates?: Array<{ target: string; why: string }>;
 }
 
 export interface ProcessedArtifact {
@@ -113,6 +118,8 @@ export interface ProcessedArtifact {
   proposed_destination: string;
   connected_projects: string[];
   connection_suggestions?: ConnectionSuggestion[];
+  connection_reasoning?: string;
+  reweave_candidates?: Array<{ target: string; why: string }>;
   reasoning: string;
   extraction_notes: string[];
   digestion?: {

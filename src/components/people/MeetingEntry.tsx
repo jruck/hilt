@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect, type ReactNode } from "react"
 import {
   AlertTriangle,
   CalendarClock,
+  CalendarDays,
   ChevronDown,
   ChevronRight,
   CheckCircle2,
@@ -19,6 +20,7 @@ import dynamic from "next/dynamic";
 import type { PersonMeeting } from "@/lib/types";
 import { TranscriptView } from "./TranscriptView";
 import { useHaptics } from "@/hooks/useHaptics";
+import { useScope } from "@/contexts/ScopeContext";
 
 const BridgeTaskEditor = dynamic(
   () => import("../bridge/BridgeTaskEditor").then((mod) => mod.BridgeTaskEditor),
@@ -192,8 +194,37 @@ function NotesAccordionSection({
 
 export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, onSaved }: MeetingEntryProps) {
   const haptics = useHaptics();
+  const { navigateTo } = useScope();
   const editorAreaRef = useRef<HTMLDivElement>(null);
   const isNext = meeting.source === "next";
+
+  // Calendar link evidence — only Granola meetings carry a matched Hilt calendar event.
+  const calendarEventId = meeting.hiltCalendarEventId;
+  const calendarMatchConfidence = meeting.hiltCalendarMatchConfidence ?? null;
+  const isFuzzyCalendarMatch = calendarMatchConfidence != null && calendarMatchConfidence < 0.9;
+  const calendarChipTitle = calendarEventId
+    ? `Linked to calendar event${meeting.hiltCalendarMatchMethod ? ` · ${meeting.hiltCalendarMatchMethod}` : ""}${calendarMatchConfidence != null ? ` · ${Math.round(calendarMatchConfidence * 100)}%` : ""}`
+    : undefined;
+  const handleOpenCalendarEvent = useCallback(() => {
+    if (!calendarEventId) return;
+    haptics.light();
+    navigateTo("calendar", `/event/${encodeURIComponent(calendarEventId)}/${meeting.date}`);
+  }, [calendarEventId, haptics, meeting.date, navigateTo]);
+  const calendarChip = calendarEventId ? (
+    <button
+      type="button"
+      onClick={handleOpenCalendarEvent}
+      title={calendarChipTitle}
+      className={`inline-flex h-6 items-center gap-1 rounded-md border px-1.5 text-[11px] font-medium transition-colors ${
+        isFuzzyCalendarMatch
+          ? "border-amber-500/30 text-amber-600 hover:bg-amber-500/10 dark:text-amber-400"
+          : "border-[var(--border-default)] text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-secondary)]"
+      }`}
+    >
+      <CalendarDays className="h-3 w-3" />
+      Calendar
+    </button>
+  ) : null;
   const hasNotes = !!meeting.notes;
   const hasSummary = !!meeting.summary;
   const hasNotesTab = hasNotes || hasSummary;
@@ -606,6 +637,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
           )}
         </div>
         <div className="flex items-center gap-2">
+          {calendarChip}
           {hasNotes && <SaveIndicator state={saveState} error={saveError} />}
           {menuButton}
         </div>

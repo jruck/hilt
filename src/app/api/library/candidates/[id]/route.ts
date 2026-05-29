@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getVaultPath } from "@/lib/bridge/vault";
-import { listCandidates, updateCandidate } from "@/lib/library/candidate-cache";
+import { findCandidateById, updateCandidate } from "@/lib/library/candidate-cache";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,7 +13,7 @@ export async function PATCH(
     const { id } = await params;
     const body = await request.json();
     const vaultPath = await getVaultPath();
-    const candidate = listCandidates(vaultPath).find((item) => item.id === id);
+    const candidate = findCandidateById(vaultPath, id);
     if (!candidate) return NextResponse.json({ error: "Candidate not found" }, { status: 404 });
     const status = body.status === "skipped" ? "skipped" : body.status === "candidate" ? "candidate" : null;
     if (!status) return NextResponse.json({ error: "Unsupported candidate status" }, { status: 400 });
@@ -23,4 +23,3 @@ export async function PATCH(
     return NextResponse.json({ error: "Failed to update candidate" }, { status: 500 });
   }
 }
-

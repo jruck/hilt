@@ -11,6 +11,7 @@ import { MobileChromeContent, MobileChromeTopBar } from "@/contexts/MobileChrome
 import { PersonCard } from "./PersonCard";
 import { PersonMeetingList } from "./PersonMeetingList";
 import { MeetingEntry } from "./MeetingEntry";
+import { GranolaSyncControl } from "./GranolaSyncControl";
 import type { MeetingFilter } from "./PersonMeetingList";
 import type { BridgePerson, PersonMeeting, SuggestedMeeting } from "@/lib/types";
 
@@ -43,10 +44,13 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
   const { scopePath, navigateTo } = useScope();
 
   // Derive selected slug from URL scope: "/amrit" → "amrit", "/__inbox__" → "__inbox__"
-  const selectedSlug =
+  const rawSelectedSlug =
     scopePath && scopePath.startsWith("/")
       ? scopePath.slice(1) || null
       : scopePath || null;
+  const meetingDeepLink = rawSelectedSlug?.match(/^([^/]+)\/meeting\/(.+)$/) ?? null;
+  const selectedSlug = meetingDeepLink ? meetingDeepLink[1] : rawSelectedSlug;
+  const targetGranolaId = meetingDeepLink ? decodeURIComponent(meetingDeepLink[2]) : null;
 
   const isInboxMode = selectedSlug === INBOX_SLUG;
   const isSuggestedMode = selectedSlug?.startsWith(SUGGESTED_PREFIX) ?? false;
@@ -296,6 +300,14 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
   // Mobile: track navigation depth for stacked screens
   const [mobileShowMeeting, setMobileShowMeeting] = useState(false);
 
+  useEffect(() => {
+    if (!targetGranolaId || !selectedSlug || displayMeetings.length === 0) return;
+    const index = displayMeetings.findIndex((meeting) => meeting.granolaId === targetGranolaId);
+    if (index === -1) return;
+    setMeetingSelection({ slug: selectedSlug, index });
+    if (isMobile) setMobileShowMeeting(true);
+  }, [displayMeetings, isMobile, selectedSlug, targetGranolaId]);
+
   const handleCreateNext = useCallback(() => {
     if (!supportsNext) return;
     setFilterState({ slug: selectedSlug, value: "all" });
@@ -534,6 +546,7 @@ function PeopleListSections({
   return (
     <>
       <InboxCard compact={compact} selected={isInboxMode} onClick={onInboxSelect} stats={inboxStats} />
+      <GranolaSyncControl compact={compact} />
 
       {suggestedMeetings.length > 0 && (
         <>

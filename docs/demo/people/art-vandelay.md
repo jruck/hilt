@@ -4,15 +4,20 @@ created: 2025-09-15
 aliases: Art, Vandelay
 ---
 
+
+
 # Art Vandelay
 
 ## Next
 
-- Review latex shipment timeline for Q3
-- Discuss garden planner integration with import database
 
 ## Notes
 
+
+### 2026-05-29 - Client Review
+
+- Review latex shipment timeline for Q3
+- Discuss garden planner integration with import database
 ### 2026-02-14
 
 Talked through the new import/export dashboard. Art wants a map view showing shipment routes — says it'll help him pitch to the Kruger account. Agreed to prototype it next week using the garden planner's SVG approach.

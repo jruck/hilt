@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type MouseEvent } from "react";
+import { useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { LibraryArtifact, RecommendedArtifact } from "@/lib/library/types";
 import type { PromotionReason } from "@/lib/library/types";
 import { Archive, Bookmark, ExternalLink, FileText, Mail, MoreHorizontal, Play, Rss, Sparkles, X } from "lucide-react";
@@ -23,6 +23,7 @@ export function FeedCard({
   promoteReason = "manual_save",
   onChanged,
   onOpen,
+  onDismissCandidate,
   active = false,
 }: {
   artifact: LibraryArtifact | RecommendedArtifact;
@@ -31,6 +32,7 @@ export function FeedCard({
   promoteReason?: PromotionReason;
   onChanged?: () => void;
   onOpen?: (artifact: LibraryArtifact) => void;
+  onDismissCandidate?: (artifact: LibraryArtifact | RecommendedArtifact) => void | Promise<void>;
   active?: boolean;
 }) {
   const isCandidate = artifact.lifecycle_status === "candidate";
@@ -38,26 +40,33 @@ export function FeedCard({
   const priorityLabel = priority === "must_read" ? "Must Read" : priority === "recommended" ? "Recommended" : priority === "interesting" ? "Interesting" : null;
   const openArtifact = () => onOpen?.(artifact);
   const stopCardClick = (event: MouseEvent) => event.stopPropagation();
+  const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openArtifact();
+  };
   const activeClass = active
     ? "border-[var(--accent-primary)] ring-1 ring-[var(--accent-primary)]"
     : "border-[var(--border-default)] hover:border-[var(--text-tertiary)]";
 
   return (
-    <article className={`group relative overflow-hidden rounded-lg border bg-[var(--content-surface)] content-card-shadow transition-colors ${activeClass}`}>
-      <button
-        type="button"
-        aria-label={`Open ${artifact.title}`}
-        onClick={openArtifact}
-        aria-current={active ? "true" : undefined}
-        className="absolute inset-0 z-0 cursor-pointer rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)] focus:ring-offset-2 focus:ring-offset-[var(--bg-primary)]"
-      />
+    <article
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${artifact.title}`}
+      aria-current={active ? "true" : undefined}
+      onClick={openArtifact}
+      onKeyDown={handleCardKeyDown}
+      className={`group relative cursor-pointer overflow-hidden rounded-lg border bg-[var(--content-surface)] content-card-shadow transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)] focus:ring-offset-2 focus:ring-offset-[var(--bg-primary)] ${activeClass}`}
+    >
       {artifact.thumbnail && (
-        <div className="relative z-10 block aspect-video w-full overflow-hidden bg-[var(--bg-secondary)] text-left pointer-events-none">
+        <div className="relative z-10 block aspect-video w-full overflow-hidden bg-[var(--bg-secondary)] text-left">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={artifact.thumbnail} alt="" className="h-full w-full object-cover" />
         </div>
       )}
-      <div className="relative z-10 space-y-3 p-4 pointer-events-none">
+      <div className="relative z-10 space-y-3 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-tertiary)]">
           <div className="flex min-w-0 items-center gap-2">
             {artifact.is_unread && <span aria-label="Unread" title="Unread" className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />}
@@ -95,7 +104,14 @@ export function FeedCard({
                   Save
                 </button>
                 <button
-                  onClick={async (event) => { event.stopPropagation(); await skipCandidate(artifact.id); onChanged?.(); }}
+                  onClick={async (event) => {
+                    event.stopPropagation();
+                    if (onDismissCandidate) await onDismissCandidate(artifact);
+                    else {
+                      await skipCandidate(artifact.id);
+                      onChanged?.();
+                    }
+                  }}
                   className="pointer-events-auto min-h-9 rounded-md px-3 py-1.5 text-xs font-medium text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)]"
                   title="Dismiss this candidate from review; it remains in the temporary candidate cache until cleanup"
                 >

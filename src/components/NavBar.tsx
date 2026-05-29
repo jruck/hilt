@@ -14,20 +14,22 @@ const SHORTCUTS = [
   { keys: "⌘ J", description: "Add task" },
   { keys: "⌘ 1", description: "Briefing" },
   { keys: "⌘ 2", description: "Bridge" },
-  { keys: "⌘ 3", description: "People" },
-  { keys: "⌘ 4", description: "Library" },
-  { keys: "⌘ 5", description: "Docs" },
-  { keys: "⌘ 6", description: "System" },
+  { keys: "⌘ 3", description: "Calendar" },
+  { keys: "⌘ 4", description: "People" },
+  { keys: "⌘ 5", description: "Library" },
+  { keys: "⌘ 6", description: "Docs" },
+  { keys: "⌘ 7", description: "System" },
   { keys: "Esc", description: "Close search" },
 ];
 
 const VIEW_KEYS: Record<string, ViewMode> = {
   "1": "briefings",
   "2": "bridge",
-  "3": "people",
-  "4": "library",
-  "5": "docs",
-  "6": "system",
+  "3": "calendar",
+  "4": "people",
+  "5": "library",
+  "6": "docs",
+  "7": "system",
 };
 
 const DRAG_REGION_STYLE = { WebkitAppRegion: "drag" } as React.CSSProperties;
@@ -193,7 +195,7 @@ export function NavBar({
         }
       }
 
-      // Cmd+1..6: switch tabs
+      // Cmd+1..7: switch tabs
       if ((e.metaKey || e.ctrlKey) && VIEW_KEYS[e.key]) {
         e.preventDefault();
         setViewMode(VIEW_KEYS[e.key]);
@@ -238,11 +240,13 @@ export function NavBar({
           }}
         >
           <nav
-            className={`${mobileChrome.hidden ? "pointer-events-none" : "pointer-events-auto"} rounded-full border border-white/20 shadow-lg shadow-black/20 ${mobileSearchOpen ? "mx-6 w-[calc(100%-48px)]" : ""}`}
+            className={`${mobileChrome.hidden ? "pointer-events-none" : "pointer-events-auto"} rounded-full border ${mobileSearchOpen ? "mx-6 w-[calc(100%-48px)]" : ""}`}
             style={{
-              background: "rgba(255, 255, 255, 0.15)",
-              backdropFilter: "blur(20px) saturate(180%)",
-              WebkitBackdropFilter: "blur(20px) saturate(180%)",
+              background: "var(--nav-mobile-bg)",
+              borderColor: "var(--nav-mobile-border)",
+              boxShadow: "var(--nav-mobile-shadow), var(--nav-mobile-inner-shadow)",
+              backdropFilter: "blur(22px) saturate(1.7)",
+              WebkitBackdropFilter: "blur(22px) saturate(1.7)",
               transition: "width 200ms ease",
               ...(isElectron ? DRAG_REGION_STYLE : {}),
             } as React.CSSProperties}

@@ -10,19 +10,29 @@ import { formatXurlFailureMessage, parseTwitterBookmarks } from "./adapters/twit
 import { fetchRaindropArtifacts } from "./adapters/raindrop";
 import { fetchYouTubeArtifacts } from "./adapters/youtube";
 import { buildCandidateMarkdown, listCandidates } from "./candidate-cache";
+import { parseConnectionJudgment } from "./connection-prompt";
+import * as digestion from "./digestion";
 import { digestArtifact } from "./digestion";
 import { getLibraryOperationalHealth } from "./health";
 import { cleanupLegacyReferenceBody, stripLegacyReferenceBodyCruft } from "./legacy-cleanup";
-import { archiveLibraryArtifact, listLibraryArtifactDetails, listLibrarySources } from "./library";
+import { archiveLibraryArtifact, getLibraryArtifact, getLibraryArtifactByPath, hasUnreadLibraryArtifacts, listLibraryArtifactDetails, listLibrarySources } from "./library";
+import { buildMediaMarkdown } from "./media";
 import { parseOpenGraphHtml } from "./media-enrichment";
 import { markLibraryArtifactsRead } from "./read-state";
 import { getRecommendations } from "./recommendations";
 import { buildDurableReferenceMarkdown, listSavedReferences } from "./references";
 import { runIngestion } from "./runner";
 import { loadSources } from "./source-config";
-import type { LibrarySourceConfig, ProcessedArtifact } from "./types";
+import { parseTimedTranscript } from "./transcript";
+import { buildLibraryItemUrl, buildLibraryUrl, libraryItemIdFromScope, libraryItemScope, parseLibraryControls } from "./url";
+import type { ConnectionSuggestion, LibrarySourceConfig, ProcessedArtifact } from "./types";
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-library-state-"));
+// Keep the suite offline and deterministic: the LLM connection judge must never invoke the
+// real Claude CLI during tests, regardless of how the suite is launched (BRIDGE_VAULT_PATH /
+// HILT_WORKING_FOLDER may be set in the dev environment). Tests that exercise the judge stub
+// or override this flag locally.
+process.env.LIBRARY_CONNECTIONS_DISABLED = "1";
 
 function tempVault(): string {
   const vault = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-library-"));
@@ -91,6 +101,15 @@ function processedYouTubeArtifact(): ProcessedArtifact {
   };
 }
 
+function buildProcessedArtifactWithConnections(connections: ConnectionSuggestion[]): ProcessedArtifact {
+  const base = processedYouTubeArtifact();
+  return {
+    ...base,
+    connected_projects: [],
+    connection_suggestions: connections,
+  };
+}
+
 test("loads library source configs with defaults", () => {
   const vault = tempVault();
   writeSource(vault, "fixture.yaml", `
@@ -108,6 +127,24 @@ fixtures: []
   assert.equal(sources[0].retention.candidate_ttl_days, 30);
   assert.equal(sources[0].backfill.mode, "none");
   assert.equal(sources[0].backfill.enabled, false);
+});
+
+test("library URL helpers encode item links and view controls", () => {
+  assert.equal(libraryItemScope("abc/123"), "/item/abc%2F123");
+  assert.equal(libraryItemIdFromScope("/item/abc%2F123"), "abc/123");
+  assert.equal(buildLibraryItemUrl("abc123"), "/library/item/abc123");
+  assert.equal(buildLibraryUrl("/item/abc123", {
+    density: "list",
+    ranking: "new",
+    status: "candidate",
+    source: "twitter-bookmarks",
+  }), "/library/item/abc123?view=list&rank=new&status=candidate&source=twitter-bookmarks");
+  assert.deepEqual(parseLibraryControls("?view=list&rank=for-you&status=saved&source=manual"), {
+    density: "list",
+    ranking: "for-you",
+    status: "saved",
+    source: "manual",
+  });
 });
 
 test("loads explicit source policy, auth gate, and backfill contract", () => {
@@ -203,7 +240,7 @@ test("parses xurl bookmark responses into raw Twitter artifacts", () => {
   const [artifact] = parseTwitterBookmarks(source, {
     data: [{
       id: "123",
-      text: "A useful bookmarked post",
+      text: "A useful bookmarked post https://t.co/x",
       created_at: "2026-05-27T00:00:00Z",
       author_id: "u1",
       attachments: { media_keys: ["m1"] },
@@ -215,10 +252,51 @@ test("parses xurl bookmark responses into raw Twitter artifacts", () => {
     },
   });
   assert.equal(artifact.url, "https://x.com/justin/status/123");
+  assert.equal(artifact.title, "A useful bookmarked post");
   assert.equal(artifact.author, "Justin");
   assert.equal(artifact.thumbnail, "https://img.example/tweet.jpg");
   assert.equal(artifact.metadata.signal, "twitter_bookmark");
   assert.deepEqual(artifact.metadata.media, [{ link: "https://img.example/tweet.jpg", type: "image", source: "x_bookmark" }]);
+});
+
+test("parses X video media previews and embed hints from bookmarks", () => {
+  const source: LibrarySourceConfig = {
+    id: "twitter-bookmarks",
+    name: "X bookmarks",
+    channel: "twitter",
+    url: "x://bookmarks",
+    enabled: true,
+    cadence: "hourly",
+    intent: "explicit_save",
+    signal: "twitter_bookmark",
+    retention: { mode: "durable", candidate_ttl_days: 30, auto_promote_threshold: 0.85 },
+    backfill: { enabled: true, mode: "checkpointed" },
+    tags: [],
+    filters: { include_topics: [], exclude_topics: [] },
+    metadata: {},
+    path: "",
+  };
+  const [artifact] = parseTwitterBookmarks(source, {
+    data: [{
+      id: "456",
+      text: "A useful bookmarked video post https://t.co/video",
+      created_at: "2026-05-27T00:00:00Z",
+      attachments: { media_keys: ["v1"] },
+      entities: { urls: [{ expanded_url: "https://x.com/example/status/456/video/1" }] },
+    }],
+    includes: {
+      media: [{ media_key: "v1", type: "video", preview_image_url: "https://img.example/video-preview.jpg" }],
+    },
+  });
+
+  assert.equal(artifact.thumbnail, "https://img.example/video-preview.jpg");
+  assert.equal(artifact.metadata.video_url, "https://x.com/example/status/456/video/1");
+  assert.deepEqual(artifact.metadata.media, [{
+    link: "https://img.example/video-preview.jpg",
+    preview_image_url: "https://img.example/video-preview.jpg",
+    type: "video",
+    source: "x_bookmark",
+  }]);
 });
 
 test("extracts representative Open Graph media for article captures", () => {
@@ -261,6 +339,72 @@ test("normalizes malformed Unicode from X bookmark text", () => {
   });
   assert.equal(artifact.title, "Broken � text");
   assert.equal(artifact.content, "Broken � text");
+});
+
+test("uses a non-url fallback title for URL-only X bookmarks", () => {
+  const source: LibrarySourceConfig = {
+    id: "twitter-bookmarks",
+    name: "X bookmarks",
+    channel: "twitter",
+    url: "x://bookmarks",
+    enabled: true,
+    cadence: "hourly",
+    intent: "explicit_save",
+    signal: "twitter_bookmark",
+    retention: { mode: "durable", candidate_ttl_days: 30, auto_promote_threshold: 0.85 },
+    backfill: { enabled: true, mode: "checkpointed" },
+    tags: [],
+    filters: { include_topics: [], exclude_topics: [] },
+    metadata: {},
+    path: "",
+  };
+  const [artifact] = parseTwitterBookmarks(source, {
+    data: [{ id: "123", text: "https://t.co/only", created_at: "2026-05-27T00:00:00Z", author_id: "u1" }],
+    includes: { users: [{ id: "u1", username: "justin", name: "Justin" }] },
+  });
+  assert.equal(artifact.title, "X bookmark by Justin");
+});
+
+test("URL-only X bookmark digestion does not promote the URL to summary text", async () => {
+  const originalDisabled = process.env.LIBRARY_SUMMARIZE_DISABLED;
+  process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  const source: LibrarySourceConfig = {
+    id: "twitter-bookmarks",
+    name: "X bookmarks",
+    channel: "twitter",
+    url: "x://bookmarks",
+    enabled: true,
+    cadence: "hourly",
+    intent: "explicit_save",
+    signal: "twitter_bookmark",
+    retention: { mode: "durable", candidate_ttl_days: 30, auto_promote_threshold: 0.85 },
+    backfill: { enabled: true, mode: "checkpointed" },
+    tags: [],
+    filters: { include_topics: [], exclude_topics: [] },
+    metadata: {},
+    path: "",
+  };
+
+  try {
+    const processed = await digestArtifact({
+      url: "https://x.com/example/status/123",
+      title: "https://t.co/only",
+      author: "Siddharth",
+      date: "2026-05-28T00:00:00Z",
+      content: "https://t.co/only",
+      metadata: { expanded_url: "https://x.com/i/article/2059655090164944896" },
+    }, source, { useSummarize: false });
+
+    assert.equal(processed.raw.title, "X bookmark by Siddharth");
+    assert.equal(processed.summary, "X bookmark by Siddharth");
+    assert.equal(processed.digestion?.status, "warm");
+    assert.equal(processed.source_cache, undefined);
+    assert.match(processed.extraction_notes.join("\n"), /metadata-limited/);
+    assert.doesNotMatch(buildDurableReferenceMarkdown(processed), /https:\/\/t\.co\/only/);
+  } finally {
+    if (originalDisabled === undefined) delete process.env.LIBRARY_SUMMARIZE_DISABLED;
+    else process.env.LIBRARY_SUMMARIZE_DISABLED = originalDisabled;
+  }
 });
 
 test("formats xurl setup failures with local registration guidance", () => {
@@ -532,7 +676,44 @@ test("durable reference markdown embeds metadata video url when canonical url is
   processed.raw.metadata.video_url = "https://www.youtube.com/watch?v=n1E9IZfvGMA";
   const markdown = buildDurableReferenceMarkdown(processed);
   assert.match(markdown, /youtube\.com\/embed\/n1E9IZfvGMA/);
-  assert.match(markdown, /\[Watch on YouTube]\(https:\/\/www\.youtube\.com\/watch\?v=n1E9IZfvGMA\)/);
+  assert.doesNotMatch(markdown, /\[Watch on YouTube]/);
+});
+
+test("durable reference markdown embeds X video post urls", () => {
+  const processed = processedYouTubeArtifact();
+  processed.source.channel = "twitter";
+  processed.format = "tweet";
+  processed.raw.url = "https://x.com/wrapper/status/123";
+  processed.raw.metadata.video_url = "https://x.com/example/status/456/video/1";
+  const markdown = buildDurableReferenceMarkdown(processed);
+  assert.match(markdown, /platform\.twitter\.com\/embed\/Tweet\.html\?id=456&dnt=true/);
+  assert.match(markdown, /height="900"/);
+  assert.doesNotMatch(markdown, /\[Open on X]/);
+  assert.match(buildMediaMarkdown(processed.raw), /## Media/);
+});
+
+test("parses timestamped YouTube transcript cache into seekable segments", () => {
+  const segments = parseTimedTranscript(`00:00 Intro line
+00:30 A full transcript line.
+1:02:03 Long-form timestamp line.
+`);
+  assert.deepEqual(segments.map((segment) => segment.timestamp), ["0:00", "0:30", "1:02:03"]);
+  assert.equal(segments[1].start_seconds, 30);
+  assert.equal(segments[2].start_seconds, 3723);
+});
+
+test("parses WebVTT-like transcript ranges into seekable segments", () => {
+  const segments = parseTimedTranscript(`WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+Opening words.
+
+00:00:04.000 --> 00:00:06.000
+Second caption.
+`);
+  assert.equal(segments.length, 2);
+  assert.equal(segments[0].timestamp, "0:01");
+  assert.equal(segments[0].text, "Opening words.");
 });
 
 test("saved references use legacy created frontmatter before filesystem creation time", () => {
@@ -645,6 +826,32 @@ captured: 2026-05-28
   assert.equal(listed.artifacts[1].created_at, "2026-05-27");
 });
 
+test("recent library list uses precise ingestion time to order same-day references", () => {
+  const vault = tempVault();
+  fs.writeFileSync(path.join(vault, "references", "older-same-day.md"), `---
+type: reference
+description: Older same-day reference.
+url: https://example.com/older-same-day
+published: 2026-05-29
+digested_at: '2026-05-29T01:43:05.840Z'
+---
+# Older Same Day
+`, "utf-8");
+  fs.writeFileSync(path.join(vault, "references", "newer-same-day.md"), `---
+type: reference
+description: Newer same-day reference.
+url: https://example.com/newer-same-day
+published: 2026-05-29
+digested_at: '2026-05-29T12:19:52.713Z'
+---
+# Newer Same Day
+`, "utf-8");
+
+  const listed = listLibraryArtifactDetails(vault, { limit: 2 });
+  assert.deepEqual(listed.artifacts.map((artifact) => artifact.title), ["Newer Same Day", "Older Same Day"]);
+  assert.deepEqual(listed.artifacts.map((artifact) => artifact.created_at), ["2026-05-29", "2026-05-29"]);
+});
+
 test("library list supports offset pagination for incremental UI loading", () => {
   const vault = tempVault();
   for (const [index, date] of ["2026-05-29", "2026-05-28", "2026-05-27"].entries()) {
@@ -666,11 +873,66 @@ published: ${date}
   assert.deepEqual(second.artifacts.map((artifact) => artifact.created_at), ["2026-05-27"]);
 });
 
+test("library detail lookup returns saved references and candidates by id", () => {
+  const vault = tempVault();
+  fs.writeFileSync(path.join(vault, "references", "saved.md"), `---
+type: reference
+description: Saved detail summary.
+url: https://example.com/saved-detail
+published: 2026-05-29
+---
+# Saved Detail
+
+## Summary
+
+Saved detail body.
+`, "utf-8");
+
+  const processed = processedYouTubeArtifact();
+  const cacheDir = path.join(vault, "references", ".cache", "library-candidates");
+  fs.mkdirSync(cacheDir, { recursive: true });
+  fs.writeFileSync(path.join(cacheDir, "candidate.md"), buildCandidateMarkdown(processed), "utf-8");
+
+  const listed = listLibraryArtifactDetails(vault, { includeCandidates: true, limit: 10 }).artifacts;
+  const saved = listed.find((artifact) => artifact.lifecycle_status === "saved");
+  const candidate = listed.find((artifact) => artifact.lifecycle_status === "candidate");
+  assert.ok(saved);
+  assert.ok(candidate);
+
+  const savedDetail = getLibraryArtifact(vault, saved.id);
+  const candidateDetail = getLibraryArtifact(vault, candidate.id);
+  assert.equal(savedDetail?.title, "Saved Detail");
+  assert.equal(savedDetail?.content.includes("Saved detail body."), true);
+  assert.equal(candidateDetail?.title, processed.raw.title);
+  assert.equal(candidateDetail?.lifecycle_status, "candidate");
+  assert.equal(candidateDetail?.content.includes("Full source cache"), true);
+
+  assert.equal(getLibraryArtifactByPath(vault, saved.id, saved.path)?.title, "Saved Detail");
+  assert.equal(getLibraryArtifactByPath(vault, candidate.id, candidate.path)?.title, processed.raw.title);
+  assert.equal(getLibraryArtifactByPath(vault, saved.id, "../outside.md"), null);
+  assert.equal(getLibraryArtifactByPath(vault, "wrong-id", saved.path), null);
+});
+
+test("skipped candidates stay out of the default library feed", () => {
+  const vault = tempVault();
+  const cacheDir = path.join(vault, "references", ".cache", "library-candidates");
+  fs.mkdirSync(cacheDir, { recursive: true });
+  fs.writeFileSync(path.join(cacheDir, "skipped.md"), buildCandidateMarkdown(processedYouTubeArtifact()).replace("status: candidate", "status: skipped"), "utf-8");
+
+  const defaultList = listLibraryArtifactDetails(vault, { includeCandidates: true });
+  assert.equal(defaultList.total, 0);
+
+  const skippedList = listLibraryArtifactDetails(vault, { includeCandidates: true, status: "skipped" });
+  assert.equal(skippedList.total, 1);
+  assert.equal(skippedList.artifacts[0].lifecycle_status, "skipped");
+});
+
 test("library read state baselines old stock and marks new artifacts read", () => {
   const vault = tempVault();
   const initial = listLibraryArtifactDetails(vault, { includeCandidates: true });
   assert.equal(initial.total, 0);
   assert.equal(initial.unread_total, 0);
+  assert.equal(hasUnreadLibraryArtifacts(vault), false);
 
   const filePath = path.join(vault, "references", "new-reference.md");
   fs.writeFileSync(filePath, buildDurableReferenceMarkdown(processedYouTubeArtifact(), "manual_save"), "utf-8");
@@ -681,6 +943,10 @@ test("library read state baselines old stock and marks new artifacts read", () =
   assert.equal(withUnread.total, 1);
   assert.equal(withUnread.unread_total, 1);
   assert.equal(withUnread.artifacts[0].is_unread, true);
+  assert.equal(hasUnreadLibraryArtifacts(vault), true);
+  const unreadOnly = listLibraryArtifactDetails(vault, { includeCandidates: true, unread: true });
+  assert.equal(unreadOnly.total, 1);
+  assert.equal(unreadOnly.artifacts[0].id, withUnread.artifacts[0].id);
 
   const result = markLibraryArtifactsRead(vault, [withUnread.artifacts[0].id], new Date(Date.now() + 10_000).toISOString());
   assert.equal(result.marked, 1);
@@ -688,7 +954,10 @@ test("library read state baselines old stock and marks new artifacts read", () =
   const afterRead = listLibraryArtifactDetails(vault, { includeCandidates: true });
   assert.equal(afterRead.unread_total, 0);
   assert.equal(afterRead.artifacts[0].is_unread, false);
+  assert.equal(hasUnreadLibraryArtifacts(vault), false);
   assert.ok(afterRead.artifacts[0].read_at);
+  const unreadAfterRead = listLibraryArtifactDetails(vault, { includeCandidates: true, unread: true });
+  assert.equal(unreadAfterRead.total, 0);
 });
 
 test("legacy saved references without source ids appear as manual captures", () => {
@@ -745,7 +1014,7 @@ test("parses Superhuman News threads into candidate-ready email artifacts", () =
         from: "News <news@example.com>",
         subject: "Useful market note",
         snippet: "Short thread summary.",
-        body: "<html><body><p>The full newsletter body has enough text for fallback digestion &amp; candidate summaries.</p></body></html>",
+        body: "<html><body><p>The full newsletter body has enough text for fallback digestion &amp; candidate summaries.</p><p>\u034f \u00ad\u034f \u00ad Forwarded this email? Subscribe here for more.</p></body></html>",
         sent_at: "2026-05-27T22:45:06Z",
       }],
     }],
@@ -759,6 +1028,191 @@ test("parses Superhuman News threads into candidate-ready email artifacts", () =
   assert.match(artifact.content || "", /full newsletter body/);
   assert.match(artifact.content || "", /& candidate summaries/);
   assert.doesNotMatch(artifact.content || "", /<p>/);
+  assert.doesNotMatch(artifact.content || "", /\u034f|\u00ad/);
+});
+
+test("metadata fallback digestion strips newsletter chrome before summarizing", async () => {
+  const originalDisabled = process.env.LIBRARY_SUMMARIZE_DISABLED;
+  process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  const source: LibrarySourceConfig = {
+    id: "superhuman-news",
+    name: "Superhuman News",
+    channel: "email",
+    url: "superhuman://split/news",
+    enabled: true,
+    cadence: "daily",
+    intent: "discovery",
+    retention: { mode: "candidate", candidate_ttl_days: 30, auto_promote_threshold: 0.85 },
+    backfill: { enabled: true, mode: "checkpointed" },
+    tags: ["newsletter"],
+    filters: { include_topics: [], exclude_topics: [] },
+    metadata: { split: "News" },
+    path: "",
+  };
+  const realParagraph = [
+    "Anthropic announced a major financing round and a new Claude model focused on long-running coding work.",
+    "The meaningful product shift is dynamic workflows, where the coding agent plans a migration and coordinates parallel subagents.",
+    "The operational risk is that these workflows can consume large token budgets and need careful harnessing before they are reliable.",
+    "For the library, this is useful because it connects model capability, agent orchestration, and infrastructure costs.",
+  ].join(" ");
+
+  try {
+    const processed = await digestArtifact({
+      url: "superhuman://thread/test-newsletter",
+      title: "Useful AI infrastructure note",
+      date: "2026-05-29T00:00:00Z",
+      content: `Products Products Workplace Systems Pricing Login. Total Anthropic victory!. \u034f \u00ad\u034f \u00ad Forwarded this email? Subscribe here for more. ${realParagraph}`,
+      metadata: { format: "newsletter" },
+    }, source);
+
+    assert.equal(processed.source_cache?.extractor, "source-metadata");
+    assert.match(processed.summary, /Anthropic announced a major financing round/);
+    assert.doesNotMatch(processed.summary, /\u034f|\u00ad|Forwarded this email|Subscribe here/);
+    assert.doesNotMatch(processed.key_points.join("\n"), /\u034f|\u00ad|Forwarded this email|Subscribe here/);
+    assert.doesNotMatch(processed.source_cache?.content || "", /\u034f|\u00ad|Forwarded this email|Subscribe here/);
+    // Web-nav chrome (collapsed "Products Products" plus a capitalized nav run) must not leak into the summary.
+    assert.doesNotMatch(processed.summary, /Products Products Workplace Systems/);
+    assert.doesNotMatch(processed.summary, /Workplace Systems Pricing Login/);
+    // Summary now preserves the full narrative; key points are the DISTINCT remaining sentences,
+    // so the two must no longer be identical (the old slice(0,4)/slice(0,5) overlap is gone).
+    assert.ok(processed.key_points.length > 0);
+    assert.notEqual(processed.summary, processed.key_points.join(" "));
+    assert.notEqual(processed.summary, processed.key_points.join("\n"));
+    for (const point of processed.key_points) {
+      assert.equal(processed.summary.includes(point), false);
+    }
+  } finally {
+    if (originalDisabled === undefined) delete process.env.LIBRARY_SUMMARIZE_DISABLED;
+    else process.env.LIBRARY_SUMMARIZE_DISABLED = originalDisabled;
+  }
+});
+
+test("digestion does not leak markdown headings into prose summaries", async () => {
+  const originalDisabled = process.env.LIBRARY_SUMMARIZE_DISABLED;
+  process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  const source: LibrarySourceConfig = {
+    id: "fixture-source",
+    name: "Fixture",
+    channel: "fixture",
+    url: "fixture://source",
+    enabled: true,
+    cadence: "manual",
+    intent: "explicit_save",
+    retention: { mode: "durable", candidate_ttl_days: 30, auto_promote_threshold: 0.85 },
+    backfill: { enabled: false, mode: "none" },
+    tags: [],
+    filters: { include_topics: [], exclude_topics: [] },
+    metadata: {},
+    path: "",
+  };
+
+  try {
+    const processed = await digestArtifact({
+      url: "https://example.com/markdown-summary",
+      title: "Markdown summary",
+      date: "2026-05-29T00:00:00Z",
+      content: [
+        "Building a monopoly from scratch requires a company to create and capture value in a durable way.",
+        "",
+        "### Core Lessons for Market Dominance",
+        "",
+        "- **Value Creation vs. Value Capture:** It is not enough to create value; the business has to capture part of it.",
+        "- *Create value, then capture it* is the foundational rule for long-term viability.",
+      ].join("\n"),
+      metadata: {},
+    }, source, { useSummarize: false });
+
+    assert.doesNotMatch(processed.summary, /###|\*\*/);
+    assert.doesNotMatch(processed.key_points.join("\n"), /###|\*\*/);
+    // Key points now come from the source's distinct markdown bullets (stripped of markers),
+    // not a slice(0,5) overlap with the summary.
+    assert.match(processed.key_points.join("\n"), /Value Creation vs\. Value Capture/);
+    assert.match(processed.key_points.join("\n"), /Create value, then capture it/);
+    assert.equal(processed.key_points.length, 2);
+    // Summary and key points are no longer the same slice of text.
+    assert.notEqual(processed.summary, processed.key_points.join(" "));
+  } finally {
+    if (originalDisabled === undefined) delete process.env.LIBRARY_SUMMARIZE_DISABLED;
+    else process.env.LIBRARY_SUMMARIZE_DISABLED = originalDisabled;
+  }
+});
+
+// These helpers are module-private in digestion.ts today. The namespace access keeps this test
+// file compiling and the suite green; the moment the core agent exports them, the assertions run
+// for real instead of skipping. See report note about required exports.
+const parseDigestOutput = (digestion as {
+  parseDigestOutput?: (raw: string) => { summary: string; keyPoints: string[] };
+}).parseDigestOutput;
+const stripWebChrome = (digestion as {
+  stripWebChrome?: (text: string) => string;
+}).stripWebChrome;
+
+test("parseDigestOutput keeps the full narrative and parses distinct key points", { skip: typeof parseDigestOutput !== "function" ? "digestion.parseDigestOutput is not exported" : false }, () => {
+  const parse = parseDigestOutput as (raw: string) => { summary: string; keyPoints: string[] };
+  const { summary, keyPoints } = parse("Narrative sentence one. Sentence two.\n\nKey takeaways:\n- alpha\n- beta\n- gamma");
+  // Full narrative preserved (both sentences), not sentence-sliced.
+  assert.equal(summary, "Narrative sentence one. Sentence two.");
+  assert.deepEqual(keyPoints, ["alpha", "beta", "gamma"]);
+  // Key points are distinct from the summary and carry no markers/markdown.
+  assert.notEqual(summary, keyPoints.join(" "));
+  assert.doesNotMatch(summary, /Key takeaways|^- |[*#]/);
+  assert.doesNotMatch(keyPoints.join("\n"), /^- |[*#]/);
+});
+
+test("parseDigestOutput falls back to the full text when no takeaways marker is present", { skip: typeof parseDigestOutput !== "function" ? "digestion.parseDigestOutput is not exported" : false }, () => {
+  const parse = parseDigestOutput as (raw: string) => { summary: string; keyPoints: string[] };
+  const { summary, keyPoints } = parse("Just a narrative with no marker. A second sentence stays in full.");
+  assert.equal(summary, "Just a narrative with no marker. A second sentence stays in full.");
+  assert.deepEqual(keyPoints, []);
+});
+
+test("stripWebChrome collapses repeated navigation tokens", { skip: typeof stripWebChrome !== "function" ? "digestion.stripWebChrome is not exported" : false }, () => {
+  const strip = stripWebChrome as (text: string) => string;
+  const collapsed = strip("North North star metric metric metric dashboard");
+  assert.doesNotMatch(collapsed, /North North/);
+  assert.doesNotMatch(collapsed, /metric metric/);
+  assert.match(collapsed, /North star metric dashboard/);
+});
+
+test("pure navigation chrome triggers the low-sentence guard and falls back to the title", async () => {
+  const originalDisabled = process.env.LIBRARY_SUMMARIZE_DISABLED;
+  process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  const source: LibrarySourceConfig = {
+    id: "fixture-source",
+    name: "Fixture",
+    channel: "fixture",
+    url: "fixture://source",
+    enabled: true,
+    cadence: "manual",
+    intent: "explicit_save",
+    retention: { mode: "durable", candidate_ttl_days: 30, auto_promote_threshold: 0.85 },
+    backfill: { enabled: false, mode: "none" },
+    tags: [],
+    filters: { include_topics: [], exclude_topics: [] },
+    metadata: {},
+    path: "",
+  };
+
+  try {
+    const processed = await digestArtifact({
+      url: "https://example.com/nav-only",
+      title: "Marketing Site Home",
+      date: "2026-05-29T00:00:00Z",
+      // Site navigation chrome with no real sentences (no terminal punctuation, capitalized run).
+      content: "Acme Dashboard Reporting Analytics widget toolbar sidebar panel",
+      metadata: {},
+    }, source, { useSummarize: false });
+
+    // No source-metadata cache is emitted for chrome-only source text.
+    assert.equal(processed.source_cache, undefined);
+    // Summary and key points fall back to the title rather than the navigation text.
+    assert.equal(processed.summary, "Marketing Site Home");
+    assert.deepEqual(processed.key_points, ["Marketing Site Home"]);
+    assert.match(processed.extraction_notes.join("\n"), /Source text looked like site navigation/);
+  } finally {
+    if (originalDisabled === undefined) delete process.env.LIBRARY_SUMMARIZE_DISABLED;
+    else process.env.LIBRARY_SUMMARIZE_DISABLED = originalDisabled;
+  }
 });
 
 test("discovery ingestion writes candidate and is idempotent", async () => {
@@ -930,6 +1384,41 @@ fixtures:
   assert.equal(listSavedReferences(vault).length, 1);
 });
 
+test("windowed X bookmark ingestion does not filter newly saved old tweets by tweet date", async () => {
+  process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  const vault = tempVault();
+  writeSource(vault, "twitter.yaml", `
+id: twitter-bookmarks
+name: X/Twitter bookmarks
+channel: twitter
+url: x://bookmarks
+enabled: true
+intent: explicit_save
+signal: twitter_bookmark
+metadata:
+  incremental_mode: window
+fixtures:
+  - url: https://x.com/example/status/123
+    title: Older tweet bookmarked today
+    date: 2026-01-01T00:00:00.000Z
+    content: This tweet is older than the last check but appears in the fetched bookmark window.
+    metadata:
+      signal: twitter_bookmark
+`);
+  fs.writeFileSync(path.join(vault, "meta", "sources", ".source-state.json"), JSON.stringify({
+    "twitter-bookmarks": { last_checked_at: "2026-05-29T12:00:00.000Z" },
+  }, null, 2), "utf-8");
+
+  const report = await runIngestion(vault, { useSummarize: false });
+  assert.equal(report.saved, 1);
+  assert.equal(listSavedReferences(vault).length, 1);
+
+  const duplicateReport = await runIngestion(vault, { useSummarize: false });
+  assert.equal(duplicateReport.saved, 0);
+  assert.equal(duplicateReport.duplicates, 1);
+  assert.equal(listSavedReferences(vault).length, 1);
+});
+
 test("dry-run ingestion reports intended writes without mutating vault state", async () => {
   process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
   const vault = tempVault();
@@ -1010,9 +1499,13 @@ ${fixtures.map((fixture) => `  - url: ${fixture.url}
   assert.ok(recommendations.items[0].matched_terms.includes("agentic"));
 });
 
-test("digestion proposes file-native bridge connections when vault context matches", async () => {
+test("digestion abstains from fabricating connections when the LLM judge is disabled", async () => {
   const originalMediaDisabled = process.env.LIBRARY_MEDIA_ENRICHMENT_DISABLED;
+  const originalConnectionsDisabled = process.env.LIBRARY_CONNECTIONS_DISABLED;
   process.env.LIBRARY_MEDIA_ENRICHMENT_DISABLED = "1";
+  // No real LLM/CLI may run in the suite. With the judge disabled the engine must abstain:
+  // no fabricated connections, no lone "- " bullet, and frontmatter records the abstention.
+  process.env.LIBRARY_CONNECTIONS_DISABLED = "1";
   const vault = tempVault();
   fs.mkdirSync(path.join(vault, "projects", "agentic-product"), { recursive: true });
   fs.writeFileSync(path.join(vault, "projects", "agentic-product", "index.md"), "# Agentic Product\n\nActive work on agentic product discovery loops and surfaced insights.\n", "utf-8");
@@ -1041,13 +1534,134 @@ test("digestion proposes file-native bridge connections when vault context match
       content: "Agentic product discovery loops help surfaced insights connect to active projects. The reference library can use this context to recommend candidates.",
       metadata: {},
     }, source, { useSummarize: false, vaultPath: vault });
-    assert.ok(processed.connected_projects.includes("agentic-product"));
-    assert.match(processed.assessment.why, /Suggested tie-in/);
-    assert.match(buildCandidateMarkdown(processed), /\[\[agentic-product\]\] — Shares active project language/);
+
+    // Token-overlap inference is gone: no project ties, no suggestions, no reasoning are fabricated.
+    assert.deepEqual(processed.connected_projects, []);
+    assert.deepEqual(processed.connection_suggestions, []);
+    assert.equal(processed.connection_reasoning, undefined);
+    assert.equal(processed.reweave_candidates, undefined);
+    // The assessment why carries no appended connection reasoning when the judge abstains.
+    assert.equal(processed.assessment.why, "The source action is configured as explicit save intent.");
+
+    // The rendered Connections section is empty — never a stray "- " placeholder bullet.
+    const candidateMarkdown = buildCandidateMarkdown(processed);
+    assert.match(candidateMarkdown, /## Suggested Connections\n\n\n\n## Raw Content/);
+    assert.doesNotMatch(candidateMarkdown, /## Suggested Connections\n\n- /);
+
+    const referenceMarkdown = buildDurableReferenceMarkdown(processed);
+    assert.match(referenceMarkdown, /## Connections\n\n\n\n## Raw Content/);
+    assert.doesNotMatch(referenceMarkdown, /## Connections\n\n- /);
+    // No connection frontmatter keys are emitted on abstention.
+    assert.doesNotMatch(referenceMarkdown, /connection_suggestions:/);
+    assert.doesNotMatch(referenceMarkdown, /connection_reasoning:/);
   } finally {
     if (originalMediaDisabled === undefined) delete process.env.LIBRARY_MEDIA_ENRICHMENT_DISABLED;
     else process.env.LIBRARY_MEDIA_ENRICHMENT_DISABLED = originalMediaDisabled;
+    if (originalConnectionsDisabled === undefined) delete process.env.LIBRARY_CONNECTIONS_DISABLED;
+    else process.env.LIBRARY_CONNECTIONS_DISABLED = originalConnectionsDisabled;
   }
+});
+
+test("parseConnectionJudgment parses clean JSON", () => {
+  const judgment = parseConnectionJudgment(JSON.stringify({
+    connects: true,
+    reasoning: "Extends the personal-orchestrator project with a delivery-rate counterexample.",
+    connections: [
+      { target: "personal-orchestrator", label: "Personal Orchestrator", relationship: "Extends the orchestrator with a concrete delivery-rate counterexample." },
+    ],
+    reweave_candidates: [{ target: "agent-architecture", why: "Adds a data point on tool routing." }],
+  }));
+  assert.equal(judgment.connects, true);
+  assert.equal(judgment.connections.length, 1);
+  assert.equal(judgment.connections[0].target, "personal-orchestrator");
+  assert.equal(judgment.connections[0].label, "Personal Orchestrator");
+  assert.match(judgment.connections[0].relationship, /delivery-rate counterexample/);
+  assert.equal(judgment.reweave_candidates?.length, 1);
+  assert.equal(judgment.reweave_candidates?.[0].target, "agent-architecture");
+});
+
+test("parseConnectionJudgment parses JSON inside ```json fences", () => {
+  const raw = "Sure, here is the judgment:\n```json\n" + JSON.stringify({
+    connects: true,
+    reasoning: "Is a peer/alternative of an existing type-foundry reference.",
+    connections: [
+      { target: null, label: "Type foundry references", relationship: "Is a peer/alternative of the existing type-foundry reference cluster." },
+    ],
+  }) + "\n```\nLet me know if you want more.";
+  const judgment = parseConnectionJudgment(raw);
+  assert.equal(judgment.connects, true);
+  assert.equal(judgment.connections.length, 1);
+  assert.equal(judgment.connections[0].target, null);
+  assert.equal(judgment.connections[0].label, "Type foundry references");
+});
+
+test("parseConnectionJudgment parses JSON embedded in prose", () => {
+  const raw = "After reviewing the index, my answer is { \"connects\": true, \"reasoning\": \"Builds on memory-and-search.\", \"connections\": [ { \"target\": \"memory-and-search\", \"label\": \"Memory and Search\", \"relationship\": \"Builds on the memory-and-search retrieval design.\" } ] } and nothing else applies.";
+  const judgment = parseConnectionJudgment(raw);
+  assert.equal(judgment.connects, true);
+  assert.equal(judgment.connections.length, 1);
+  assert.equal(judgment.connections[0].target, "memory-and-search");
+  assert.match(judgment.connections[0].relationship, /retrieval design/);
+});
+
+test("parseConnectionJudgment treats plain-prose abstention as no connection", () => {
+  const judgment = parseConnectionJudgment("This chicken-roasting guide doesn't connect to anything in his active work.");
+  assert.equal(judgment.connects, false);
+  assert.deepEqual(judgment.connections, []);
+  assert.match(judgment.reasoning, /doesn't connect/);
+});
+
+test("parseConnectionJudgment drops connection entries that lack a relationship", () => {
+  const judgment = parseConnectionJudgment(JSON.stringify({
+    connects: true,
+    reasoning: "Mixed bag.",
+    connections: [
+      { target: "agent-architecture", label: "Agent Architecture" },
+      { target: "personal-orchestrator", label: "Personal Orchestrator", relationship: "Supports the orchestrator with a routing data point." },
+    ],
+  }));
+  // The entry with no relationship sentence is not a connection and is dropped.
+  assert.equal(judgment.connections.length, 1);
+  assert.equal(judgment.connections[0].target, "personal-orchestrator");
+  assert.equal(judgment.connects, true);
+});
+
+test("parseConnectionJudgment abstains on empty or unparseable input", () => {
+  const empty = parseConnectionJudgment("");
+  assert.equal(empty.connects, false);
+  assert.deepEqual(empty.connections, []);
+  assert.equal(empty.reasoning, "");
+  // connects:true with every connection dropped collapses to a clean abstain.
+  const allDropped = parseConnectionJudgment(JSON.stringify({
+    connects: true,
+    reasoning: "Claimed a tie but named no relationship.",
+    connections: [{ target: "agent-architecture", label: "Agent Architecture" }],
+  }));
+  assert.equal(allDropped.connects, false);
+  assert.deepEqual(allDropped.connections, []);
+});
+
+test("connection rendering formats target, null-target, and empty cases", () => {
+  const base = buildProcessedArtifactWithConnections([]);
+  // Empty connections render no bullet and no stray dash.
+  const emptyMd = buildCandidateMarkdown(base);
+  assert.match(emptyMd, /## Suggested Connections\n\n\n\n## Raw Content/);
+  assert.doesNotMatch(emptyMd, /## Suggested Connections\n\n- /);
+
+  // A targeted connection renders "[[target]] — relationship".
+  const targeted = buildProcessedArtifactWithConnections([
+    { target: "personal-orchestrator", label: "Personal Orchestrator", relationship: "Extends the orchestrator with a delivery-rate counterexample." },
+  ]);
+  assert.match(buildCandidateMarkdown(targeted), /- \[\[personal-orchestrator\]\] — Extends the orchestrator with a delivery-rate counterexample\./);
+  assert.match(buildDurableReferenceMarkdown(targeted), /- \[\[personal-orchestrator\]\] — Extends the orchestrator with a delivery-rate counterexample\./);
+
+  // A null-target (theme-level) connection renders "label — relationship", no wiki link.
+  const nullTarget = buildProcessedArtifactWithConnections([
+    { target: null, label: "Type foundry references", relationship: "Is a peer/alternative of the type-foundry cluster." },
+  ]);
+  const nullMd = buildCandidateMarkdown(nullTarget);
+  assert.match(nullMd, /- Type foundry references — Is a peer\/alternative of the type-foundry cluster\./);
+  assert.doesNotMatch(nullMd, /\[\[Type foundry references\]\]/);
 });
 
 test("library health summarizes scheduler, source, and dead-letter state", () => {

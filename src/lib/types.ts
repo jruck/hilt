@@ -138,6 +138,13 @@ export interface PersonMeeting {
   filePath?: string;               // Path to meeting .md file
   transcriptPath?: string;         // Path to transcript file
   summary?: string;                // Full meeting body (markdown)
+  granolaId?: string;              // Stable Granola document id
+  granolaUrl?: string;             // Granola web URL
+  calendarEventId?: string;        // Source calendar event id from Granola, if available
+  calendarIcalUid?: string;        // iCalUID from Granola calendar metadata
+  hiltCalendarEventId?: string;    // Linked Hilt calendar event id
+  hiltCalendarMatchMethod?: string;// How the calendar link was made
+  hiltCalendarMatchConfidence?: number;
   // For inbox mode (all meetings view):
   matchedPeople?: string[];        // Person names this meeting matched to
 }

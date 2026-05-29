@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
       channel: params.get("channel"),
       tag: params.get("tag"),
       status,
+      unread: params.get("unread") === "true",
       q: params.get("q"),
       after: params.get("after"),
       before: params.get("before"),

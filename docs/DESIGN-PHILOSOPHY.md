@@ -101,6 +101,8 @@ Every action should have visible feedback:
 - The Electron shell should allow the app to reach phone-width responsive layouts. Keep the minimum native window size no wider than the small iPhone/SE viewport class (`375px` wide) unless a specific feature has a documented hard constraint.
 - Mobile layout mode should be reachable by viewport width as well as by touch hardware. A narrow Electron or desktop browser window should use the same bottom nav and staged mobile structure as a phone once it is below the `sm` breakpoint.
 - Mobile-width Electron still needs native window chrome affordances. Reserve a quiet top drag/titlebar strip for the macOS traffic lights before content starts, and make any floating bottom navigation chrome draggable only in its empty/padded regions so tab buttons remain normal controls.
+- The floating mobile bottom nav is a theme-aware material surface, not a hardcoded glass effect. Light mode should read as warm translucent white with a soft border; dark mode should use a denser dark translucent fill, stronger shadow, and higher-contrast inactive icons so the pill remains legible over media cards and dark content.
+- Mobile content that sits under a hideable top toolbar must use the shared mobile chrome offset contract. Drawers and sidebars count as body content too; their first actionable row should start below visible top chrome and only reclaim that space through the same chrome translation behavior.
 - Scrollbars are interaction chrome, not persistent layout chrome. Across the app they should remain invisible until the user is actively scrolling, then appear as thin, transparent-track thumbs only long enough to orient the user.
 - Secondary navigation rows should be one shared 44px toolbar pattern. Library and System controls should not invent separate heights or wrapping rules; keep segmented mode controls, filters, health/status, and refresh actions in one non-wrapping row that can horizontally overflow on narrow screens before it overlaps or changes height. Body content below that row should use the shared 13px optical gutter before attached borders or full-bleed panes begin, and toolbar badges/popovers need enough inset or fixed positioning to avoid clipping at scroll edges.
 - Use a compact secondary segmented control inside System for `Sessions`, `Apps`, `Stack`, and `Sync`; this is mode chrome, not explanatory copy.
@@ -165,6 +167,43 @@ Every action should have visible feedback:
 
 This section tracks design decisions and refinements over time. Each entry should note what was tried, what was rejected, and why.
 
+### 2026-05-29: Library Connections — LLM Judgment, "Just File It" Is a Win
+
+**Principle (durable)**: Connections between a new reference and the user's existing work are an act of judgment, not string matching. Hilt judges connections with an LLM (Claude) reading a compact index of the user's North Stars, projects, areas, people, and recent references — replacing the earlier deterministic token-overlap scorer. Keyword overlap produced confident-but-shallow ties; what the user actually wants is "does this genuinely relate to my work, and how?"
+
+**What a connection is, and what it is not**:
+- **Connect** = a directional relationship to something that already exists in the user's work. This explicitly includes *baseline*, *contrast*, and *foundational* ties (e.g. "this is a peer/alternative to a reference you already saved," "this challenges your current approach in project X," "this is the groundwork the Y note assumes"), not only "same topic." The relationship sentence is the payload, not a similarity score.
+- **Reweave** = a separate, stronger signal: this reference would *materially update* a specific neighbor note. Reweave candidates are surfaced for human approval only. Hilt never auto-edits a neighbor note — the user decides whether to fold the new material in. This distinction came directly from the user's own experience asking Claude to reweave summaries: rewriting a note is a human-approved act, while noting a relationship is safe to do automatically.
+
+**Encouraged outcomes**:
+- **"No connection / just file it" is a first-class, encouraged result.** Most references do not connect to active work, and saying so is correct, not a failure. The judge is deliberately abstain-biased; a clean `connects: false` with one line of reasoning is a good answer and should never be padded into spurious ties.
+- **Few high-signal ties over many weak ones.** When there are connections, prefer two or three that a practitioner would actually act on. Never pad the list to look thorough.
+- **Practitioner voice.** Relationship sentences should read like a knowledgeable colleague pointing out a real link, not a recommendation engine ("Related items you may like"). Plain, specific, directional.
+
+**Cost/visibility implications for UI and pipeline**:
+- Connections are judged only when a reference will be durably saved, so review candidates do not silently spend LLM budget. Promotion or an explicit re-judge is what earns connections for a candidate.
+- When there are no connections, the rendered `## Connections` / `## Suggested Connections` section is simply empty — no placeholder bullet, no apology. Reasoning lives in frontmatter for the curious, not in the visible body.
+
+**Rationale**: The point of the Library is to make the user's own corpus more useful, which means honest, specific links and the discipline to stay quiet when there is nothing to say. An LLM that can abstain models that judgment far better than a scorer that always finds *something* to overlap on.
+
+### 2026-05-29: Calendar ↔ Meeting — One Action Row, Bidirectional Links
+
+**Change**: Consolidated the calendar event popover's scattered links into a single action row at the top, and added reciprocal calendar evidence on Granola meeting notes.
+
+**What was tried and rejected**:
+- Links spread across three places in the popover (a "Join" section mid-body, an "Open notes" button under the description, and a primary-styled "Open link" pinned at the bottom). The bottom "Open link" was both the least-used action and the only filled button — emphasis was inverted.
+- Generic "Open link" / "Open notes" labels. Rejected — they didn't distinguish an in-app jump (to the Granola note) from an external hop (to Google/Outlook), and "Open link" read as ambiguous next to the join links, which are also links.
+
+**Pattern established**:
+- Collect all of an entity's actions/connections into one row at the top of its detail surface, rather than scattering them by type through the body. Order by likelihood of use: live action → in-app cross-link → external link.
+- Reserve the single filled/primary button for the live, time-sensitive action (joining the meeting). In-app and external links are secondary outline buttons. One primary affordance per surface.
+- Name external destinations explicitly ("Open in Google" / "Open in Outlook"), and use the `ExternalLink` icon, so leaving the app is never a surprise. In-app jumps use a content icon (`NotebookPen`) and a plain label.
+- Avoid label collisions: the calendar event's free-text body is "Description," not "Notes," because "Notes" now means the linked meeting record.
+- Make cross-surface links bidirectional and visible. If A links to B, B should show evidence of the link and offer the return trip. Granola notes now carry a `Calendar` chip; the calendar event offers `Notes`.
+- Encode match certainty in the chip color, reusing the existing amber-warning language: a neutral chip for an exact (iCalUID) match, amber for a fuzzy (title+time) match, with method and confidence in the tooltip. Don't hide that a link was guessed.
+
+**Rationale**: The two systems were already linked in data but the connection was illegible in the UI — actions were scattered and one direction had no visible evidence at all. Grouping actions and making the link reciprocal turns a hidden data relationship into a navigable one.
+
 ### 2026-05-27: Library — Feed First, Browse Dense
 
 **Change**: The Library moved from a placeholder to a working reference surface with Feed as the default view and Browse as a dense three-column inspection view.
@@ -195,6 +234,12 @@ This section tracks design decisions and refinements over time. Each entry shoul
 - Opening a Library item should preserve the current Library context. Desktop can compress the current Feed/List into a left pane with detail on the right; mobile should open detail over the current list with a Back control and restore scroll position when returning.
 - Library detail rendering should use Docs read-mode as the gold master for Markdown typography, links, bullets, tables, and rich text. Reference bodies should not carry navigation chrome or repeated source metadata; source/author/date/format live in frontmatter, while the visible document starts with title, optional media, summary, key points, connections, and raw content.
 - Unread state in Library should feel like an inbox hint, not an obligation. Use the same small blue-dot language as top-level unread nav, keep count badges compact, and avoid marking a dense list read just because it rendered. Feed can mark read after an item has been visible and scrolled past; List should require an explicit open.
+- New/unread filtering belongs with Library ranking, not lifecycle status. `New` can span saved references and candidates, while source/status filters remain orthogonal controls for narrowing the same surface.
+- Video references should behave like media documents, not static notes. Keep the video available while reading by letting it collapse into a small bottom-right player after the inline embed scrolls away, prefer faster playback for review, and make timestamped transcripts feel like an app-native reading surface with seekable rows and playhead context.
+- Floating video should be tied to active playback, not mere scroll position. Do not pop out a video that has not been played or is currently paused; when floating, it should be movable/resizable and dismissible back inline without stopping playback.
+- Transcript playhead tracking should not steal scroll. Keep active-line highlighting synced to the video, but require an explicit `Jump to Live` / live-follow action before the UI scrolls the transcript; any manual scroll should release that live-follow lock.
+- Candidate dismissal should feel like an inbox action: remove the candidate from the active review surface immediately, show a brief undo toast, and keep skipped cache records out of default feeds unless explicitly requested.
+- Library local refresh and source ingestion must be visibly different operations. Local refresh should be fast and reread file-backed state; `Check sources` should clearly mean a live external-source poll, show in-flight state, and report whether it added items, found duplicates/no new items, or hit a credential/source blocker.
 
 ### 2026-05-19: Map View — Controls as Operational Chrome
 

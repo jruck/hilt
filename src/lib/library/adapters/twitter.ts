@@ -3,6 +3,7 @@ import { promisify } from "util";
 import type { ArtifactFetchBatch, FetchArtifactsOptions, LibrarySourceConfig, RawArtifact } from "../types";
 import { LibrarySourceBlockedError, MissingCredentialError } from "../errors";
 import { refreshXAccessToken } from "../oauth";
+import { isXVideoUrl } from "../media";
 
 const execFileAsync = promisify(execFile);
 
@@ -29,6 +30,16 @@ function sanitizeUnicode(input: string): string {
     }
   }
   return output;
+}
+
+function stripUrls(input: string): string {
+  return input.replace(/https?:\/\/\S+/gi, " ").replace(/\s+/g, " ").trim();
+}
+
+function cleanTweetTitle(text: string, tweetId: string, author?: string): string {
+  const withoutUrls = stripUrls(text).replace(/[ \t:;,-]+$/g, "").trim();
+  if (withoutUrls) return withoutUrls.slice(0, 120);
+  return author ? `X bookmark by ${author}` : `X bookmark ${tweetId}`;
 }
 
 function xurlSetupMessage(xurlBin: string): string {
@@ -65,20 +76,23 @@ export function parseTwitterBookmarks(source: LibrarySourceConfig, json: {
       .filter((item): item is NonNullable<ReturnType<typeof mediaByKey.get>> => Boolean(item))
       .map((item) => ({
         link: item.url || item.preview_image_url,
+        ...(item.preview_image_url ? { preview_image_url: item.preview_image_url } : {}),
         type: item.type === "photo" ? "image" : item.type,
         source: "x_bookmark",
       }))
       .filter((item) => typeof item.link === "string" && item.link.length > 0);
-    const thumbnail = media.find((item) => item.type === "image")?.link;
+    const thumbnail = media.find((item) => item.type === "image")?.link || media.find((item) => item.type === "video")?.link;
+    const videoUrl = expandedUrl && isXVideoUrl(expandedUrl) ? expandedUrl : undefined;
     const text = sanitizeUnicode(tweet.text || `X bookmark ${tweet.id}`);
+    const author = user?.name ? sanitizeUnicode(user.name) : user?.username;
     return {
       url: `https://x.com/${user?.username || "i"}/status/${tweet.id}`,
-      title: text.slice(0, 120),
-      author: user?.name ? sanitizeUnicode(user.name) : user?.username,
+      title: cleanTweetTitle(text, tweet.id, author),
+      author,
       date: tweet.created_at || new Date().toISOString(),
       thumbnail,
       content: text,
-      metadata: { tweet_id: tweet.id, expanded_url: expandedUrl, folder_id: folderId, signal: "twitter_bookmark", media },
+      metadata: { tweet_id: tweet.id, expanded_url: expandedUrl, video_url: videoUrl, folder_id: folderId, signal: "twitter_bookmark", media },
     };
   });
 }

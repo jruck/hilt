@@ -23,9 +23,15 @@ The following ignored local env keys are required:
 - `HILT_CALENDAR_ICS_PERSONAL_URL`
 - `HILT_CALENDAR_ICS_PRICELESS_URL`
 - `HILT_CALENDAR_ICS_EVERCOMMERCE_URL`
+- `HILT_CALENDAR_ICS_US_HOLIDAYS_URL` (optional override; defaults to a public US holidays ICS feed and filters to public holidays)
 - Optional:
   - `HILT_CALENDAR_SYNC_PAST_DAYS=180`
   - `HILT_CALENDAR_SYNC_FUTURE_DAYS=365`
+  - `HILT_WEATHER_POSTAL_CODE=30310`
+  - `HILT_WEATHER_LOCATION_LABEL=Atlanta, GA`
+  - `HILT_WEATHER_LATITUDE=33.7269`
+  - `HILT_WEATHER_LONGITUDE=-84.4289`
+  - `HILT_WEATHER_TIMEZONE=America/New_York`
 
 Bootstrap flow:
 
@@ -50,6 +56,7 @@ Add these server APIs:
 - `PATCH /api/calendar/calendars/:id`
 - `GET /api/calendar/events?start=...&end=...&sourceIds=...&calendarIds=...`
 - `GET /api/calendar/events/:id`
+- `GET /api/weather/forecast?start=YYYY-MM-DD&end=YYYY-MM-DD`
 
 Expose normalized client types:
 
@@ -72,6 +79,7 @@ RSVP behavior:
 - Calendar sidebar supports source grouping, calendar toggles, source health, and manual sync.
 - Event drawer shows title, time, calendar, source, description, location, extracted join links, organizer/attendees when available, recurrence hints, and read-only status.
 - Calendar colors come from feed metadata when available, otherwise deterministic Hilt colors by source/calendar.
+- Day and week headers show compact forecast chips with condition icon, high/low, and a weather.gov click-through; the default forecast location is Atlanta ZIP 30310.
 - Mobile first version must render the same modes, but may prioritize compact toolbar and drawer behavior over dense desktop controls.
 
 ## Test Plan

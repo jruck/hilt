@@ -116,7 +116,12 @@ function parseJsonToolResult<T>(result: unknown, sourceId: string, toolName: str
 }
 
 function compactText(value: unknown): string {
-  return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  return typeof value === "string"
+    ? value
+      .replace(/[\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+    : "";
 }
 
 function decodeHtmlEntities(text: string): string {

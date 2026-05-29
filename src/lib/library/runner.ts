@@ -14,6 +14,10 @@ function afterSince(artifact: RawArtifact, since?: string): boolean {
   return artifactDate > sinceDate;
 }
 
+function usesFetchedWindowForIncrementalChecks(source: LibrarySourceConfig): boolean {
+  return source.metadata.incremental_mode === "window" || source.signal === "twitter_bookmark";
+}
+
 function sourceResult(source: LibrarySourceConfig): IngestionSourceResult {
   return {
     source_id: source.id,
@@ -54,7 +58,7 @@ export async function runIngestion(
   const useCursor = Boolean(options.useCursor);
   const sources = loadSources(vaultPath)
     .filter((source) => source.enabled)
-    .filter((source) => !options.sourceIds?.length || options.sourceIds.includes(source.id));
+    .filter((source) => !options.sourceIds || options.sourceIds.includes(source.id));
 
   const report: IngestionReport = {
     started_at: started,
@@ -82,7 +86,13 @@ export async function runIngestion(
       const batch = await fetchArtifactBatchForSource(source, { cursor: sourceCursor, limit });
       result.next_cursor = batch.next_cursor ?? null;
       const artifacts = batch.artifacts
-        .filter((artifact) => options.ignoreState || options.dryRun || useCursor || afterSince(artifact, state[source.id]?.last_checked_at))
+        .filter((artifact) => (
+          options.ignoreState ||
+          options.dryRun ||
+          useCursor ||
+          usesFetchedWindowForIncrementalChecks(source) ||
+          afterSince(artifact, state[source.id]?.last_checked_at)
+        ))
         .slice(0, limit ?? undefined);
       result.checked = true;
       result.fetched = artifacts.length;

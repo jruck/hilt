@@ -11,7 +11,7 @@ App (layout.tsx)
     ├── Floating Navigation Chrome
     │   ├── Search input (expandable)
     │   ├── ThemeToggle
-    │   └── ViewToggle (Briefing/Bridge/People/Library/Docs/System) — centered
+    │   └── ViewToggle (Briefing/Bridge/Calendar/People/Library/Docs/System) — centered
     │
     ├── Main Content (conditional on viewMode)
     │   │
@@ -109,6 +109,7 @@ const viewMode: ViewMode = urlViewMode === "bridge" ? "bridge"
 - Keeps Map, Apps, Stack, and Sync under the System tab
 - Includes the Library route for file-native references, hidden candidates, source filtering, and promotion
 - Supports cross-view navigation (e.g., Bridge project click navigates to Docs view)
+- On mobile, the Docs file tree drawer uses `MobileChromeContent` so its scrollable body starts below the visible hideable document toolbar and does not sit under sticky chrome.
 
 ---
 
@@ -122,16 +123,46 @@ Primary toggle for view modes.
 type ViewMode = "briefings" | "bridge" | "docs" | "library" | "people" | "system";
 ```
 
+`ViewToggle` accepts `unreadTabs` for quiet top-level unread dots. Briefing uses its read-state check, and Library uses `/api/library/unread` so the shell can show a dot without loading the full Library feed.
+
+Compact mobile mode uses the mobile nav theme tokens (`--nav-mobile-*`) for active/inactive icon contrast so the floating bottom pill works over both light and dark content.
+
 **View Configuration**
 
 | View | Icon | Description |
 |------|------|-------------|
-| Bridge | Compass | Weekly tasks and projects |
-| People | Users | People and meeting history |
 | Briefing | CalendarDays | Daily briefing |
+| Bridge | Compass | Weekly tasks and projects |
+| Calendar | CalendarDays | Read-only unified calendar |
+| People | Users | People and meeting history |
 | Library | Bookmark | Reference feed, candidates, source browse, and search |
 | Docs | FileText | Documentation browser/editor |
 | System | Layers | System inspection modes |
+
+---
+
+### CalendarView.tsx
+
+**File**: `src/components/calendar/CalendarView.tsx`
+
+Read-only unified calendar backed by local ICS sync and Schedule X.
+
+**Key behaviors**
+
+- Uses Schedule X for day, week, month, and agenda views, while Hilt owns the toolbar, source menu, event detail content, and read-only data model.
+- Uses Schedule X plugins for event updates, calendar controls, current-time indication, scroll control, anchored event modal positioning, and background availability bands.
+- Keeps EverCommerce punctuation blockers (`!` and `-`) out of the visible event query, but returns them as availability blocks so the UI can render subtle background blocked-time hints.
+- Adds a purple US Holidays source from a public ICS feed and filters that feed to public-holiday all-day events, excluding broad observances.
+- Shows EverCommerce blocker background hints only on Monday-Friday non-holiday business days.
+- Marks non-EverCommerce timed events during 9 AM-5 PM Eastern business days with a compact warning when no EverCommerce event or hidden blocker fully covers that range.
+- Adds daily weather forecast chips to the Schedule X day/week headers through the `weekGridDate` custom component. Forecast data comes from Hilt's `/api/weather/forecast` route, defaults to Atlanta ZIP 30310, and links to weather.gov for fuller details.
+- Keeps event detail content Hilt-native through the `eventModal` custom component hook, so future meeting notes, people records, docs, and Bridge tasks can attach to stable Hilt calendar event IDs.
+- Collects every event action into one row at the top of the detail popover: live join links (Teams/Meet/Zoom, first one styled as the primary action), a `Notes` button that jumps to the linked Granola meeting note in People, and an `Open in Google`/`Open in Outlook` external link derived from the provider URL. The free-text event body is labeled `Description` to disambiguate it from linked meeting notes.
+- Accepts a `/event/<encoded id>/<YYYY-MM-DD>` deep link via the scope path. On arrival it lands on the event's date, focuses the event, scrolls it into view, and opens its popover once the date's events load. A guard ref keeps later manual navigation from being yanked back to the deep-linked event.
+
+**Custom Plugin Breadcrumb**
+
+Schedule X custom plugins can add behavior to the shared calendar app object through `beforeRender`, `onRender`, range/timezone hooks, and Hilt-prefixed app fields. Prefer this path when calendar intelligence needs cross-cutting state, for example meeting-note links, people-directory badges, Bridge task indicators, transcript/prep status, or availability audits. Keep provider sync and event storage in Hilt services; use plugins only for calendar surface behavior and metadata overlays.
 
 ---
 
@@ -161,7 +192,8 @@ Reference Library workspace backed by markdown reference files and hidden candid
 
 - Uses one composable Library surface instead of separate Feed and Browse destinations.
 - Defaults to Feed density with `Recent` ranking, `All` lifecycle status, no source sidebar, and no reader pane until an item is opened.
-- Independent controls: `Sources` toggles the filter rail, `Feed/List` controls density, and `Recent/For You` controls ranking. Lifecycle status is filtered inside the `Sources` rail under `Status` (`All`, `Saved`, `Candidates`), not in the top toolbar.
+- Independent controls: `Sources` toggles the filter rail, `Feed/List` controls density, and `Recent/For You/New` controls ranking. `New` is the unread-only slice across saved references and candidates. Lifecycle status is filtered inside the `Sources` rail under `Status` (`All`, `Saved`, `Candidates`), not in the top toolbar.
+- `Recent` ranks by source publication/capture date first, then uses precise ingestion metadata such as `captured_at` and `digested_at` only as a same-day tie-breaker.
 - Feed density stays full-width until an item is selected. Selecting the active Feed card again clears the reader and restores the full-width feed.
 - List density gives the old Browse/inbox scanning behavior, always reserves the reader slot on desktop, auto-selects the first visible row when possible, and shows a placeholder when no item is selected.
 - Unread indicators are deliberately quiet: Feed cards and List rows show a small blue dot, the toolbar shows a `new` count beside the current item/pick count, and the source rail shows per-status/per-source unread badges.
@@ -169,9 +201,17 @@ Reference Library workspace backed by markdown reference files and hidden candid
 - Desktop source/content columns use slim persisted resize handles; defaults keep the source rail narrow, the list/feed pane scannable, and the detail reader as the largest pane.
 - `LibraryArtifactDetailPane` is shared across densities so rendered Markdown, media embeds, cache/source tabs, Save/Dismiss, and archive behavior stay consistent.
 - `LibraryArtifactDetailPane` strips legacy manual-capture body chrome before rendering summaries, so old `← References` links and bold source/author/date clusters do not leak into the reader. The underlying repair CLI removes the same cruft from markdown files.
+- YouTube media is rendered through `YouTubeEmbed`, which uses the YouTube IFrame API plus direct embed commands to prefer 2x playback, keep the same iframe alive as a floating mini-player only while playback is active after the inline embed scrolls away, and accept seek requests from transcript rows. The floating player has hover controls to move, resize, or return it inline, and the reader adds bottom clearance while it is visible.
+- X/Twitter media is rendered through `XPostEmbed`, which lets the X widgets API size the embedded post at its native tweet width. Do not wrap X embeds in an additional Hilt card/border; the third-party embed already owns that chrome, and fixed-height iframe wrappers can crop text or video footers.
+- Media alignment is centered by default when the media is narrower than the reader. Keep `mx-auto` on X posts, YouTube embeds, generic iframes, and markdown images; full-width embeds still fill their available width, but constrained embeds should not sit awkwardly left-aligned in the reader.
+- Generated media markdown should not include duplicate source-navigation links under embeds. The detail toolbar and Source tab own outbound source access; the reference body should stay focused on media, summary, connections, and cached content.
+- Timestamped YouTube cache content renders through `VideoTranscript` instead of generic Markdown. Transcript rows use a compact time/text layout, highlight the active playhead line, and click-to-seek the active video. Highlighting is passive by default; the `Jump to Live` control opt-in scrolls to and follows the playhead until the user manually scrolls away.
 - Item opens preserve the current Library context: desktop uses split panes, while mobile opens detail over the current list and returns with Back without losing scroll position.
-- Header includes a compact health panel backed by `/api/library/health` for scheduler, source, and dead-letter visibility.
-- Uses `/api/library`, `/api/library/candidates/*`, `/api/library/sources`, `/api/library/recommendations`, `/api/library/health`, and `/api/search`.
+- Opened Library items are addressable at `/library/item/<id>`. Feed/List/Recent/For You/New/status/source controls are reflected as query state so browser Back/Forward works inside Library and direct item links can reopen the detail pane.
+- Detail panes expose icon buttons for copying the Hilt item link and the underlying markdown path.
+- Candidate Dismiss is an active review operation: it marks the candidate `skipped`, removes it from the active Feed/List immediately, and shows an undo toast. Skipped/expired/promoted candidate cache records are excluded from default Library lists so dismissed candidates do not linger as ordinary feed items.
+- Header includes a compact health panel backed by `/api/library/health` for scheduler, source, and dead-letter visibility. Health refresh is status-only; the separate `Check sources` action runs a bounded live ingest for the selected source or all hourly sources, then revalidates the local Library view.
+- Uses `/api/library`, `/api/library/unread`, `/api/library/candidates/*`, `/api/library/sources`, `/api/library/recommendations`, `/api/library/health`, and `/api/search`.
 - Manual, explicit-save, and discovery records share the same artifact shape, so UI actions do not need source-specific handling.
 
 ### SecondaryToolbar.tsx

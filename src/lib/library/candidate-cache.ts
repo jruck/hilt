@@ -65,6 +65,15 @@ export function listCandidates(vaultPath: string, status?: CandidateStatus): Ref
     .sort((a, b) => b.digested.localeCompare(a.digested));
 }
 
+export function findCandidateById(vaultPath: string, id: string): ReferenceCandidate | null {
+  for (const filePath of walkMarkdown(candidateCacheDir(vaultPath), { includeHidden: true })) {
+    const relPath = relativeVaultPath(vaultPath, filePath);
+    if (hashId(relPath) !== id) continue;
+    return parseCandidateFile(vaultPath, filePath);
+  }
+  return null;
+}
+
 export function findCandidateByUrl(vaultPath: string, url: string): ReferenceCandidate | null {
   const canonical = canonicalUrl(url);
   return listCandidates(vaultPath).find((candidate) => canonicalUrl(candidate.url) === canonical) || null;
@@ -74,13 +83,15 @@ function connectionLines(processed: ProcessedArtifact): string {
   if (processed.connection_suggestions?.length) {
     return processed.connection_suggestions.map((suggestion) => {
       const target = suggestion.target ? `[[${suggestion.target}]]` : suggestion.label;
-      return `- ${target} — ${suggestion.reason}`;
+      return `- ${target} — ${suggestion.relationship}`;
     }).join("\n");
   }
   if (processed.connected_projects.length) {
     return processed.connected_projects.map((item) => `- [[${item}]]`).join("\n");
   }
-  return "- ";
+  // No connections: render an empty section body rather than a lone "- " bullet.
+  // The connection_reasoning lives in frontmatter instead.
+  return "";
 }
 
 function candidateFilePath(vaultPath: string, processed: ProcessedArtifact): string {
@@ -117,6 +128,8 @@ export function buildCandidateMarkdown(processed: ProcessedArtifact): string {
     proposed_destination: processed.proposed_destination,
     connected_projects: processed.connected_projects,
     connection_suggestions: processed.connection_suggestions?.length ? processed.connection_suggestions : undefined,
+    connection_reasoning: processed.connection_reasoning || undefined,
+    reweave_candidates: processed.reweave_candidates?.length ? processed.reweave_candidates : undefined,
     promotion: {
       promoted_to: null,
       promoted_at: null,

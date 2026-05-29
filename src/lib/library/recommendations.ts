@@ -137,7 +137,7 @@ function whyForArtifact(artifact: LibraryArtifactDetail, matches: ReturnType<typ
   const suggestions = connectionSuggestionsForArtifact(artifact);
   const topSuggestion = suggestions[0];
   if (topSuggestion) {
-    parts.push(`Suggested tie-in to ${topSuggestion.label}: ${topSuggestion.reason}`);
+    parts.push(`Suggested tie-in to ${topSuggestion.label}: ${topSuggestion.relationship}`);
   }
   const topContext = matches.find((match) => match.kind !== "recent_save");
   const recentSave = matches.find((match) => match.kind === "recent_save");
@@ -166,7 +166,9 @@ export function getRecommendations(vaultPath: string, limit = 10): { items: Reco
     .filter((artifact) => artifact.lifecycle_status !== "expired" && artifact.lifecycle_status !== "skipped")
     .map((artifact) => {
       const contextScore = scoreAgainstSignals(artifact, signals);
-      const suggestedConnectionScore = Math.min(0.3, connectionSuggestionsForArtifact(artifact).reduce((sum, suggestion) => sum + suggestion.score, 0) * 0.6);
+      // LLM-judged connections no longer carry a per-suggestion score; treat each surviving
+      // connection as a fixed, capped signal (presence of a genuine tie is itself the signal).
+      const suggestedConnectionScore = Math.min(0.3, connectionSuggestionsForArtifact(artifact).length * 0.12);
       const sourceScore = Math.min(0.35, (artifact.relevance_score || 0) * 0.35);
       const candidateBonus = artifact.lifecycle_status === "candidate" ? 0.12 : 0;
       const savedRecapBonus = artifact.lifecycle_status === "saved" ? 0.06 : 0;

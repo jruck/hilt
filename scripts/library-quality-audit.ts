@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { loadEnvConfig } from "@next/env";
 import { CANDIDATE_CACHE_DIR } from "../src/lib/library/candidate-cache";
-import { extractBullets, extractHeading, extractSection, parseMarkdownFile, relativeVaultPath } from "../src/lib/library/markdown";
+import { extractBullets, extractConnections, extractHeading, extractSection, parseMarkdownFile, relativeVaultPath } from "../src/lib/library/markdown";
 import { walkMarkdown } from "../src/lib/library/utils";
 
 loadEnvConfig(process.cwd());
@@ -85,6 +85,7 @@ function auditFile(filePath: string): AuditItem | null {
   const title = String(data.title || extractHeading(body, path.basename(filePath, ".md")));
   const summary = String(extractSection(body, "Summary") || data.description || "").trim();
   const keyPoints = extractBullets(extractSection(body, "Key Points"));
+  const connections = extractConnections(body);
   const rawContent = stripDetails(extractSection(body, "Raw Content"));
   const mediaSection = extractSection(body, "Media");
   const digestionStatus = typeof data.digestion_status === "string" ? data.digestion_status : null;
@@ -159,6 +160,7 @@ function auditFile(filePath: string): AuditItem | null {
   if (digestionStatus !== "hot") reasons.push("not_marked_hot");
   if (summary.length < 160) reasons.push("short_summary");
   if (keyPoints.length < 3 && summary.length < 500) reasons.push("few_key_points");
+  if (connections.length === 0) reasons.push("empty_connections");
   if (data.type === "reference" && urlSummarizable && digestionStatus !== "hot" && rawContent.length < 200) {
     reasons.push("short_or_empty_raw_content");
   }
@@ -168,7 +170,7 @@ function auditFile(filePath: string): AuditItem | null {
   if (storage === "candidate" && data.type === "reference") reasons.push("candidate_source_saved_durable");
   if (storage === "durable" && data.type === "reference-candidate") reasons.push("durable_source_still_candidate");
 
-  const sourceLimitedOkReasons = new Set(["summarize_fallback_note", "short_summary", "few_key_points", "short_or_empty_raw_content", "short_or_empty_video_transcript", "not_marked_hot"]);
+  const sourceLimitedOkReasons = new Set(["summarize_fallback_note", "short_summary", "few_key_points", "short_or_empty_raw_content", "short_or_empty_video_transcript", "not_marked_hot", "empty_connections"]);
   const actionableRedigestionReasons = reasons.filter((reason) => [
     "summarize_fallback_note",
     "not_marked_hot",
@@ -178,6 +180,7 @@ function auditFile(filePath: string): AuditItem | null {
     "missing_media_embed",
     "short_or_empty_video_transcript",
     "missing_thumbnail",
+    "empty_connections",
   ].includes(reason) && !(sourceLimited && sourceLimitedOkReasons.has(reason)));
 
   const needsRedigestion = Boolean(

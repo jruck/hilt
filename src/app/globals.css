@@ -277,7 +277,7 @@ input, textarea, select, [contenteditable] {
   --font-mono: var(--font-geist-mono);
 }
 
-/* Touch device detection — CSS companion to useIsMobile() hook */
+/* Touch device detection — CSS companion for touch-specific affordances. */
 @media (pointer: coarse) {
   :root {
     --is-touch: 1;

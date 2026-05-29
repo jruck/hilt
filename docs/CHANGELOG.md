@@ -18,6 +18,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Electron mobile-width resizing** — Lowered the Hilt Electron minimum window size from `800x600` to the small iPhone/SE viewport class, `375x667`, so the native app can actually reach the responsive mobile layouts.
 
+- **Responsive mobile-mode trigger** — Hilt's shared mobile layout hook now activates for either coarse-pointer devices or viewports below the `sm` breakpoint. Narrow Electron windows therefore use the same bottom navigation and mobile view structure as phones.
+
 - **README demo screenshot privacy pass** — Reduced the Library README section to one Browse screenshot and replaced the System screenshot with a fake demo Sessions treemap instead of a live Stack view that exposed real machine names. Added `npm run demo:seed-map` and `npm run dev:demo` so the demo System view can be populated with synthetic map data.
 
 - **Reference Library chrome polish** — Consolidated Library Feed/Browse, Recent/For You, Saved/Candidate filtering, item counts, and health into one System-style secondary row. The health control is now a compact icon popover with expandable scheduler rows and log excerpts instead of a static panel.

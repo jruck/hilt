@@ -42,6 +42,7 @@ const VIEW_CONFIG_BY_ID = Object.fromEntries(
 ) as Record<ViewMode, (typeof VIEW_CONFIG)[number]>;
 
 const VIEW_GROUPS: ViewMode[][] = [["bridge", "people", "briefings", "library", "docs", "system"]];
+const NO_DRAG_STYLE = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 
 export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActive, unreadTabs }: ViewToggleProps) {
   const size = iconSize ?? (compact ? 24 : 16);
@@ -71,6 +72,7 @@ export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActiv
                 <button
                   key={id}
                   onClick={() => handleTap(id)}
+                  style={NO_DRAG_STYLE}
                   className={`
                     relative flex min-h-[48px] min-w-[48px] items-center justify-center rounded-full
                     transition-colors

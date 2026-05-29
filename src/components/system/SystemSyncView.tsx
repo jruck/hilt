@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, FileWarning, FolderSync, Loader2, RefreshCw, ServerOff } from "lucide-react";
+import { SecondaryIconButton, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
 import type { SystemSyncMachineResult, SystemSyncMachineSnapshot, SystemSyncResponse } from "@/lib/system/sync";
 
 interface SystemSyncViewProps {
@@ -129,22 +130,22 @@ function SyncToolbar({
   onRefresh: () => void;
 }) {
   return (
-    <div className="flex h-9 items-center justify-between gap-3 px-3">
-      {modeSwitcher}
-      <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-        {summary}
-        {loading ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-tertiary)]" /> : null}
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={refreshing}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--border-default)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-60"
-          title="Refresh sync status"
-        >
-          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-        </button>
-      </div>
-    </div>
+    <SecondaryToolbar
+      left={modeSwitcher}
+      right={
+        <>
+          {summary}
+          {loading ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-tertiary)]" /> : null}
+          <SecondaryIconButton
+            onClick={onRefresh}
+            disabled={refreshing}
+            title="Refresh sync status"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          </SecondaryIconButton>
+        </>
+      }
+    />
   );
 }
 

@@ -165,6 +165,19 @@ Reference Library workspace backed by markdown reference files and hidden candid
 - Uses `/api/library`, `/api/library/candidates/*`, `/api/library/sources`, `/api/library/recommendations`, `/api/library/health`, and `/api/search`.
 - Manual, explicit-save, and discovery records share the same artifact shape, so UI actions do not need source-specific handling.
 
+### SecondaryToolbar.tsx
+
+**File**: `src/components/layout/SecondaryToolbar.tsx`
+
+Shared 44px toolbar chrome for secondary navigation rows.
+
+**Key behaviors**
+
+- Used by Library and System so mode switchers, filters, health/status, and refresh controls share one height and spacing contract.
+- Keeps narrow widths to a single non-wrapping horizontal row with hidden scrollbars instead of wrapping controls into a taller toolbar.
+- Provides shared segmented-control, segmented-button, and icon-button primitives for consistent active, hover, and compact-label states.
+- Exports `SECONDARY_TOOLBAR_BODY_GUTTER_CLASS` for the standard 13px space between the toolbar and attached full-bleed body panes.
+
 ---
 
 ## Bridge Components

@@ -11,6 +11,7 @@ import { StackSummary } from "@/components/stack/StackSummary";
 import { MCPServerDetail } from "@/components/stack/MCPServerDetail";
 import { PluginDetail } from "@/components/stack/PluginDetail";
 import { CodeViewer } from "@/components/docs/CodeViewer";
+import { SecondarySegmentedButton, SecondarySegmentedControl, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
 import type { ClaudeStack, ConfigFile, ConfigFileContent, ConfigLayer, MCPServerConfig, PluginConfig } from "@/lib/claude-config/types";
 import type { SystemStackSnapshot } from "@/lib/system/stack";
 import type { SystemMode } from "@/lib/system/navigation";
@@ -60,24 +61,20 @@ export function SystemView({ mode, onModeChange, searchQuery = "", workingFolder
 
 function SystemModeSwitcher({ mode, onModeChange }: { mode: SystemMode; onModeChange: (mode: SystemMode) => void }) {
   return (
-    <div className="flex shrink-0 items-center gap-1 rounded-lg bg-[var(--bg-tertiary)] p-0.5">
+    <SecondarySegmentedControl>
       {MODES.map(({ id, label, icon: Icon, title }) => (
-        <button
+        <SecondarySegmentedButton
           key={id}
-          type="button"
           onClick={() => onModeChange(id)}
-          className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors ${
-            mode === id
-              ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm"
-              : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-          }`}
+          active={mode === id}
+          icon={<Icon className="h-4 w-4" />}
+          collapseLabel
           title={title}
         >
-          <Icon className="h-4 w-4" />
-          <span>{label}</span>
-        </button>
+          {label}
+        </SecondarySegmentedButton>
       ))}
-    </div>
+    </SecondarySegmentedControl>
   );
 }
 
@@ -260,40 +257,42 @@ function StackMachineBar({
   error: string | null;
 }) {
   return (
-    <div className="flex h-9 items-center justify-between gap-3 px-3">
-      {modeSwitcher}
-      <div className="flex min-w-0 flex-1 items-center justify-end gap-2 overflow-x-auto">
-        <button
-          type="button"
-          onClick={() => onSelect("all")}
-          className={`h-7 rounded-md px-2.5 text-xs font-medium transition-colors ${
-            selectedMachineId === "all"
-              ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]"
-              : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-          }`}
-        >
-          All machines
-        </button>
-        {snapshots.map((snapshot) => (
+    <SecondaryToolbar
+      left={modeSwitcher}
+      right={
+        <>
           <button
-            key={snapshot.machine.id}
             type="button"
-            onClick={() => onSelect(snapshot.machine.id)}
-            className={`h-7 rounded-md px-2.5 text-xs font-medium transition-colors ${
-              selectedMachineId === snapshot.machine.id
+            onClick={() => onSelect("all")}
+            className={`h-8 shrink-0 rounded-md px-2.5 text-xs font-medium transition-colors ${
+              selectedMachineId === "all"
                 ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]"
                 : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             }`}
           >
-            {machineTitle(snapshot)}
+            All machines
           </button>
-        ))}
-      </div>
-      <div className="flex shrink-0 items-center gap-2 text-xs text-[var(--text-tertiary)]">
-        {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-        {error ? <span className="text-red-600">{error}</span> : null}
-      </div>
-    </div>
+          {snapshots.map((snapshot) => (
+            <button
+              key={snapshot.machine.id}
+              type="button"
+              onClick={() => onSelect(snapshot.machine.id)}
+              className={`h-8 shrink-0 rounded-md px-2.5 text-xs font-medium transition-colors ${
+                selectedMachineId === snapshot.machine.id
+                  ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              }`}
+            >
+              {machineTitle(snapshot)}
+            </button>
+          ))}
+          <div className="flex shrink-0 items-center gap-2 text-xs text-[var(--text-tertiary)]">
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            {error ? <span className="text-red-600">{error}</span> : null}
+          </div>
+        </>
+      }
+    />
   );
 }
 

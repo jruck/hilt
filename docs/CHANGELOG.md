@@ -28,6 +28,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Reference Library source date and depth repair** — Library list dates now prefer source publication time over file creation time, fixing historical Raindrop/X saves that appeared newly captured. A bounded source-depth pass added older Raindrop and X bookmark pages and left clean cursors for later historical maintenance.
 
+- **Shared secondary toolbar chrome** — Library and System now use the same 44px secondary toolbar primitive for mode switchers, filters, status, health, and refresh controls. Narrow widths keep a single non-wrapping row with horizontal overflow instead of letting Library grow taller or System controls overlap.
+
+### Fixed
+
+- **Electron mobile window drag chrome** — Mobile-width Electron layouts now keep an Electron-only top drag/titlebar reservation so macOS traffic lights no longer overlap view headers, and the floating bottom nav pill exposes draggable empty space while keeping its icon buttons clickable.
+- **Library Browse secondary rhythm** — Browse now uses the same 13px body gutter as System under the shared secondary toolbar, and the Library health badge/popover no longer get clipped by the toolbar overflow edge.
+
 ## [6.0.0] - 2026-05-28
 
 ### Added

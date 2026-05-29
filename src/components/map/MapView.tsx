@@ -25,6 +25,7 @@ import type {
   MapStatusFilter,
 } from "@/lib/map/local-types";
 import { heatForWindow } from "@/lib/map/activity-heat";
+import { SecondaryIconButton, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
 
 const WINDOWS: ActivityWindow[] = ["24h", "7d", "30d", "all"];
 
@@ -667,42 +668,20 @@ export function MapView({
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[var(--bg-primary)] text-[var(--text-primary)]">
       <div>
-        <div className="flex h-9 items-center justify-between gap-3 px-3">
-          {modeSwitcher ? (
-            modeSwitcher
-          ) : (
-            <div className="flex min-w-0 flex-1 items-center gap-3">
-              <button
-                onClick={() => setFiltersOpen((open) => !open)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2.5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] lg:hidden"
-              >
-                {filtersOpen ? <X className="h-4 w-4" /> : <SlidersHorizontal className="h-4 w-4" />}
-                Filters
-              </button>
-              <div className="hidden lg:block">
-                <FilterControls
-                  graph={graph}
-                  source={sourceFilter}
-                  status={statusFilter}
-                  window={window}
-                  onSourceChange={setSourceFilter}
-                  onStatusChange={setStatusFilter}
-                  onWindowChange={setWindow}
-                />
-              </div>
-            </div>
-          )}
-          <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-            {modeSwitcher ? (
-              <>
+        <SecondaryToolbar
+          left={
+            modeSwitcher ? (
+              modeSwitcher
+            ) : (
+              <div className="flex min-w-0 items-center gap-3">
                 <button
                   onClick={() => setFiltersOpen((open) => !open)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2.5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] xl:hidden"
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2.5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] lg:hidden"
                 >
                   {filtersOpen ? <X className="h-4 w-4" /> : <SlidersHorizontal className="h-4 w-4" />}
                   Filters
                 </button>
-                <div className="hidden xl:block">
+                <div className="hidden lg:block">
                   <FilterControls
                     graph={graph}
                     source={sourceFilter}
@@ -713,37 +692,58 @@ export function MapView({
                     onWindowChange={setWindow}
                   />
                 </div>
-              </>
-            ) : null}
-            <div className="hidden min-w-0 max-w-[340px] items-center justify-end gap-2 text-right text-xs text-[var(--text-tertiary)] min-[1120px]:flex">
-              <span className="truncate font-medium text-[var(--text-secondary)]">{selectedTitle}</span>
-              <span>{selectedSessionCount} sessions</span>
-              <span>/</span>
-              <span>{graph?.summary.workspaceCount ?? 0} workspaces</span>
-            </div>
-            <button
-              onClick={() => setDiagnosticsOpen((open) => !open)}
-              className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
-                diagnosticsOpen
-                  ? "border-blue-500 bg-blue-500/10 text-[var(--text-primary)]"
-                  : "border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-              }`}
-              title="Diagnostics"
-            >
-              <Database className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => void refresh()}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-              title="Refresh index"
-            >
-              <RefreshCw className={`h-4 w-4 ${isGraphLoading || isRefreshing ? "animate-spin" : ""}`} />
-            </button>
-          </div>
-        </div>
+              </div>
+            )
+          }
+          right={
+            <>
+              {modeSwitcher ? (
+                <>
+                  <button
+                    onClick={() => setFiltersOpen((open) => !open)}
+                    className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2.5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] xl:hidden"
+                  >
+                    {filtersOpen ? <X className="h-4 w-4" /> : <SlidersHorizontal className="h-4 w-4" />}
+                    Filters
+                  </button>
+                  <div className="hidden xl:block">
+                    <FilterControls
+                      graph={graph}
+                      source={sourceFilter}
+                      status={statusFilter}
+                      window={window}
+                      onSourceChange={setSourceFilter}
+                      onStatusChange={setStatusFilter}
+                      onWindowChange={setWindow}
+                    />
+                  </div>
+                </>
+              ) : null}
+              <div className="hidden min-w-0 max-w-[340px] items-center justify-end gap-2 text-right text-xs text-[var(--text-tertiary)] min-[1120px]:flex">
+                <span className="truncate font-medium text-[var(--text-secondary)]">{selectedTitle}</span>
+                <span>{selectedSessionCount} sessions</span>
+                <span>/</span>
+                <span>{graph?.summary.workspaceCount ?? 0} workspaces</span>
+              </div>
+              <SecondaryIconButton
+                onClick={() => setDiagnosticsOpen((open) => !open)}
+                active={diagnosticsOpen}
+                title="Diagnostics"
+              >
+                <Database className="h-4 w-4" />
+              </SecondaryIconButton>
+              <SecondaryIconButton
+                onClick={() => void refresh()}
+                title="Refresh index"
+              >
+                <RefreshCw className={`h-4 w-4 ${isGraphLoading || isRefreshing ? "animate-spin" : ""}`} />
+              </SecondaryIconButton>
+            </>
+          }
+        />
 
         {filtersOpen && (
-          <div className="border-b border-[var(--border-default)] px-3 py-2 lg:hidden">
+          <div className={`border-b border-[var(--border-default)] px-3 py-2 ${modeSwitcher ? "xl:hidden" : "lg:hidden"}`}>
             <FilterControls
               graph={graph}
               source={sourceFilter}

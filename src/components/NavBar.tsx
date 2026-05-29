@@ -29,6 +29,9 @@ const VIEW_KEYS: Record<string, ViewMode> = {
   "6": "system",
 };
 
+const DRAG_REGION_STYLE = { WebkitAppRegion: "drag" } as React.CSSProperties;
+const NO_DRAG_REGION_STYLE = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
+
 function ShortcutsPopup({ visible, onFocus }: { visible: boolean; onClose: () => void; onFocus?: () => void }) {
   if (!visible) return null;
   return (
@@ -76,6 +79,7 @@ export function NavBar({
   const isMobile = useIsMobile();
   const haptics = useHaptics();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [isElectron] = useState(() => typeof window !== "undefined" && Boolean(window.electronAPI?.isElectron));
   const [devMode, setDevMode] = useState(false);
   const [activePanel, setActivePanel] = useState<"all" | "shortcuts" | "nextjs" | "inspector">("all");
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -207,66 +211,77 @@ export function NavBar({
 
   if (isMobile) {
     return (
-      <div
-        className="fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none"
-        style={{
-          paddingBottom: "calc(env(safe-area-inset-bottom) + 20px)",
-        }}
-      >
-        <nav
-          className={`pointer-events-auto rounded-full border border-white/20 shadow-lg shadow-black/20 ${mobileSearchOpen ? "mx-6 w-[calc(100%-48px)]" : ""}`}
+      <>
+        {isElectron && (
+          <div
+            data-electron-mobile-titlebar
+            aria-hidden="true"
+            className="relative z-40 h-11 shrink-0 bg-[var(--bg-primary)]"
+            style={DRAG_REGION_STYLE}
+          />
+        )}
+        <div
+          className="fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none"
           style={{
-            background: "rgba(255, 255, 255, 0.15)",
-            backdropFilter: "blur(20px) saturate(180%)",
-            WebkitBackdropFilter: "blur(20px) saturate(180%)",
-            transition: "width 200ms ease",
+            paddingBottom: "calc(env(safe-area-inset-bottom) + 20px)",
           }}
         >
-          {mobileSearchOpen ? (
-            /* Search mode: full-width pill with input */
-            <div className="flex items-center gap-2 h-14 px-4">
-              <Search className="flex-shrink-0 w-5 h-5 text-[var(--text-tertiary)]" />
-              <input
-                type="text"
-                placeholder="Search..."
-                value={searchQuery.trim() === "" ? "" : searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                autoFocus
-                className="flex-1 min-w-0 py-2 text-base bg-transparent text-[var(--text-primary)] placeholder-[var(--text-tertiary)] outline-none"
-              />
-              <button
-                onClick={() => {
-                  haptics.rigid();
-                  setMobileSearchOpen(false);
-                  setSearchQuery("");
-                }}
-                className="flex items-center justify-center w-10 h-10 text-[var(--text-secondary)]"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-          ) : (
-            /* Normal mode: compact floating pill */
-            <div className="flex items-center gap-1 h-14 px-2">
-              {/*
-              Mobile search entry point paused for now. Keep the search mode
-              markup above so we can restore it without rebuilding the pill.
-              <button
-                onClick={() => { haptics.light(); setMobileSearchOpen(true); }}
-                className="flex h-11 w-11 items-center justify-center rounded-full text-[var(--text-tertiary)] active:bg-white/10 transition-colors"
-                title="Search"
-              >
-                <Search className="h-5 w-5" />
-              </button>
-              */}
+          <nav
+            className={`pointer-events-auto rounded-full border border-white/20 shadow-lg shadow-black/20 ${mobileSearchOpen ? "mx-6 w-[calc(100%-48px)]" : ""}`}
+            style={{
+              background: "rgba(255, 255, 255, 0.15)",
+              backdropFilter: "blur(20px) saturate(180%)",
+              WebkitBackdropFilter: "blur(20px) saturate(180%)",
+              transition: "width 200ms ease",
+              ...(isElectron ? DRAG_REGION_STYLE : {}),
+            } as React.CSSProperties}
+          >
+            {mobileSearchOpen ? (
+              /* Search mode: full-width pill with input */
+              <div className="flex items-center gap-2 h-14 px-4" style={isElectron ? NO_DRAG_REGION_STYLE : undefined}>
+                <Search className="flex-shrink-0 w-5 h-5 text-[var(--text-tertiary)]" />
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={searchQuery.trim() === "" ? "" : searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  autoFocus
+                  className="flex-1 min-w-0 py-2 text-base bg-transparent text-[var(--text-primary)] placeholder-[var(--text-tertiary)] outline-none"
+                />
+                <button
+                  onClick={() => {
+                    haptics.rigid();
+                    setMobileSearchOpen(false);
+                    setSearchQuery("");
+                  }}
+                  className="flex items-center justify-center w-10 h-10 text-[var(--text-secondary)]"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            ) : (
+              /* Normal mode: compact floating pill */
+              <div className="flex items-center gap-1 h-14 px-2">
+                {/*
+                Mobile search entry point paused for now. Keep the search mode
+                markup above so we can restore it without rebuilding the pill.
+                <button
+                  onClick={() => { haptics.light(); setMobileSearchOpen(true); }}
+                  className="flex h-11 w-11 items-center justify-center rounded-full text-[var(--text-tertiary)] active:bg-white/10 transition-colors"
+                  title="Search"
+                >
+                  <Search className="h-5 w-5" />
+                </button>
+                */}
 
-              {/* View toggle (compact mode) */}
-              <ViewToggle view={viewMode} onChange={setViewMode} compact onDoubleTapActive={() => window.location.reload()} unreadTabs={unreadTabs} />
+                {/* View toggle (compact mode) */}
+                <ViewToggle view={viewMode} onChange={setViewMode} compact onDoubleTapActive={() => window.location.reload()} unreadTabs={unreadTabs} />
 
-            </div>
-          )}
-        </nav>
-      </div>
+              </div>
+            )}
+          </nav>
+        </div>
+      </>
     );
   }
 

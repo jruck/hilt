@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, CheckCircle2, ChevronDown, RefreshCw } from "lucide-react";
 import { useLibraryHealth } from "@/hooks/useLibrary";
 import type { LibraryOperationalHealth, LibrarySchedulerJobSummary } from "@/lib/library/types";
@@ -92,6 +92,8 @@ export function LibraryHealthPanel() {
   const [isManualRefresh, setIsManualRefresh] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const [panelPosition, setPanelPosition] = useState({ top: 0, right: 12 });
   const counts = healthCounts(health);
   const hasProblem = Boolean(counts.blocked || counts.warnings);
   const issueBadge = counts.blocked || counts.warnings;
@@ -102,6 +104,16 @@ export function LibraryHealthPanel() {
       : "border-[var(--border-default)] bg-[var(--content-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]";
   const healthBadgeClass = counts.blocked ? "bg-red-500 text-white" : "bg-amber-500 text-white";
   const refreshInFlight = isManualRefresh || Boolean(isValidating && health);
+
+  const updatePanelPosition = useCallback(() => {
+    const button = buttonRef.current;
+    if (!button || typeof window === "undefined") return;
+    const rect = button.getBoundingClientRect();
+    setPanelPosition({
+      top: Math.round(rect.bottom + 8),
+      right: Math.max(12, Math.round(window.innerWidth - rect.right)),
+    });
+  }, []);
 
   const handleRefresh = async () => {
     setIsManualRefresh(true);
@@ -117,6 +129,7 @@ export function LibraryHealthPanel() {
 
   useEffect(() => {
     if (!open) return;
+    updatePanelPosition();
 
     const handleMouseDown = (event: MouseEvent) => {
       if (panelRef.current?.contains(event.target as Node)) return;
@@ -128,17 +141,25 @@ export function LibraryHealthPanel() {
 
     document.addEventListener("mousedown", handleMouseDown);
     document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", updatePanelPosition);
+    window.addEventListener("scroll", updatePanelPosition, true);
     return () => {
       document.removeEventListener("mousedown", handleMouseDown);
       document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", updatePanelPosition);
+      window.removeEventListener("scroll", updatePanelPosition, true);
     };
-  }, [open]);
+  }, [open, updatePanelPosition]);
 
   return (
     <div ref={panelRef} className="relative">
       <button
+        ref={buttonRef}
         data-testid="library-health-button"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          updatePanelPosition();
+          setOpen((value) => !value);
+        }}
         className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${healthButtonClass}`}
         title={isLoading ? "Checking Library health" : summaryText(health)}
         aria-label={isLoading ? "Checking Library health" : summaryText(health)}
@@ -152,7 +173,10 @@ export function LibraryHealthPanel() {
       </button>
 
       {open && (
-        <div className="absolute right-0 z-20 mt-2 max-h-[min(680px,76vh)] w-[min(94vw,760px)] overflow-y-auto rounded-lg border border-[var(--border-default)] bg-[var(--content-surface)] p-3 text-xs content-card-shadow">
+        <div
+          className="fixed z-50 max-h-[min(680px,76vh)] w-[min(94vw,760px)] overflow-y-auto rounded-lg border border-[var(--border-default)] bg-[var(--content-surface)] p-3 text-xs content-card-shadow"
+          style={{ top: `${panelPosition.top}px`, right: `${panelPosition.right}px` }}
+        >
           <div className="mb-3 flex items-center justify-between gap-2">
             <div>
               <div className="font-semibold text-[var(--text-primary)]">Library Health</div>

@@ -11,6 +11,7 @@ import {
   ShieldOff,
 } from "lucide-react";
 import { openExternal } from "@/lib/openExternal";
+import { SecondaryIconButton, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
 import { preserveLocalAppsPreviews } from "@/lib/local-apps/preview-merge";
 import type { LocalAppsMachineSnapshot, LocalAppsResponse, Service, ServiceGroup } from "@/lib/local-apps/types";
 
@@ -130,11 +131,7 @@ export function LocalAppsView({ searchQuery = "", modeSwitcher }: LocalAppsViewP
   if (loading && !snapshot) {
     return (
       <div className="flex h-full flex-col bg-[var(--bg-primary)]">
-        {modeSwitcher ? (
-          <div className="flex h-9 items-center justify-between gap-3 px-3">
-            {modeSwitcher}
-          </div>
-        ) : null}
+        {modeSwitcher ? <SecondaryToolbar left={modeSwitcher} /> : null}
         <div className="flex flex-1 items-center justify-center text-[var(--text-secondary)]">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           Scanning local apps
@@ -146,11 +143,7 @@ export function LocalAppsView({ searchQuery = "", modeSwitcher }: LocalAppsViewP
   if (error && !snapshot) {
     return (
       <div className="flex h-full flex-col bg-[var(--bg-primary)]">
-        {modeSwitcher ? (
-          <div className="flex h-9 items-center justify-between gap-3 px-3">
-            {modeSwitcher}
-          </div>
-        ) : null}
+        {modeSwitcher ? <SecondaryToolbar left={modeSwitcher} /> : null}
         <div className="flex flex-1 items-center justify-center p-6">
           <div className="rounded-md border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-300">
             {error}
@@ -163,11 +156,7 @@ export function LocalAppsView({ searchQuery = "", modeSwitcher }: LocalAppsViewP
   if (!snapshot?.enabled) {
     return (
       <div className="flex h-full flex-col bg-[var(--bg-primary)]">
-        {modeSwitcher ? (
-          <div className="flex h-9 items-center justify-between gap-3 px-3">
-            {modeSwitcher}
-          </div>
-        ) : null}
+        {modeSwitcher ? <SecondaryToolbar left={modeSwitcher} /> : null}
         <div className="flex flex-1 items-center justify-center p-6">
           <div className="max-w-md rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] p-5">
             <div className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)]">
@@ -198,36 +187,39 @@ export function LocalAppsView({ searchQuery = "", modeSwitcher }: LocalAppsViewP
   return (
     <div className="flex-1 overflow-hidden bg-[var(--bg-primary)]">
       <div className="flex h-full flex-col">
-        <div className="flex h-9 items-center justify-between gap-3 px-3">
-          {modeSwitcher ? (
-            modeSwitcher
-          ) : (
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)]">
-                <Server className="h-4 w-4 text-[var(--text-secondary)]" />
-                <span className="truncate">Local Apps</span>
-                {diagnostics.is_scanning ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--text-tertiary)]" /> : null}
+        <SecondaryToolbar
+          left={
+            modeSwitcher ? (
+              modeSwitcher
+            ) : (
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)]">
+                  <Server className="h-4 w-4 text-[var(--text-secondary)]" />
+                  <span className="truncate">Local Apps</span>
+                  {diagnostics.is_scanning ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--text-tertiary)]" /> : null}
+                </div>
+                <div className="mt-0.5">
+                  {summary}
+                </div>
               </div>
-              <div className="mt-0.5">
+            )
+          }
+          right={
+            <>
+              {modeSwitcher ? <div className="hidden min-w-0 md:block">
                 {summary}
-              </div>
-            </div>
-          )}
-          <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-            {modeSwitcher ? <div className="hidden min-w-0 md:block">
-              {summary}
-            </div> : null}
-            {diagnostics.is_scanning ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-tertiary)]" /> : null}
-            <button
-              onClick={() => void refresh({ force: true })}
-              disabled={refreshing}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--border-default)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-              title="Refresh local apps and screenshots"
-            >
-              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            </button>
-          </div>
-        </div>
+              </div> : null}
+              {diagnostics.is_scanning ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-tertiary)]" /> : null}
+              <SecondaryIconButton
+                onClick={() => void refresh({ force: true })}
+                disabled={refreshing}
+                title="Refresh local apps and screenshots"
+              >
+                <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              </SecondaryIconButton>
+            </>
+          }
+        />
 
         {diagnostics.errors.length > 0 ? (
           <div className="border-b border-amber-500/20 bg-amber-500/5 px-4 py-2 text-xs text-amber-300">

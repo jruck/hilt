@@ -303,7 +303,7 @@ Stack mode reads each machine's Claude/Codex configuration stack through `/api/s
 
 Sync mode reads local Syncthing through a Hilt-local adapter only. `/api/system/sync?scope=local` reads the serving machine's loopback Syncthing REST API using an API key file, while aggregate `/api/system/sync` asks peer Hilt instances for their own local snapshots. Hilt never exposes the Syncthing API key or proxies arbitrary Syncthing API calls over the tailnet. The adapter caches expensive folder status reads with a short TTL and single-flight refresh.
 
-System inspection views share one secondary chrome row. `SystemView` owns the mode switcher and passes it into the active mode, so Sessions can place Map filters/diagnostics/refresh beside it, Apps can place machine/app/service freshness beside it, Stack can place machine selection/status beside it, and Sync can place health summary/refresh beside it. System inspection views also use a client-side stale-while-refresh pattern. Sessions, Apps, Stack, and Sync keep their last successful client snapshot and selection in module memory, render it immediately when the user switches back, and refresh in the background. Refresh failures should not blank the view; they surface as status chrome while stale content remains visible.
+System inspection views share the `SecondaryToolbar` 44px chrome row. `SystemView` owns the mode switcher and passes it into the active mode, so Sessions can place Map filters/diagnostics/refresh beside it, Apps can place machine/app/service freshness beside it, Stack can place machine selection/status beside it, and Sync can place health summary/refresh beside it. Library uses the same toolbar primitive for Feed/Browse and mode-specific controls, keeping secondary navigation height and narrow-width overflow behavior aligned across the newest workspace views. System inspection views also use a client-side stale-while-refresh pattern. Sessions, Apps, Stack, and Sync keep their last successful client snapshot and selection in module memory, render it immediately when the user switches back, and refresh in the background. Refresh failures should not blank the view; they surface as status chrome while stale content remains visible.
 
 ### 5. Stack View Data Flow
 
@@ -750,6 +750,7 @@ interface UserPreferences {
 
 ### 7. Electron Wrapper
 - macOS native app with hidden title bar (traffic light buttons)
+- Renderer marks app-region drag areas: desktop top statusbar, mobile Electron titlebar reservation, and empty space in the mobile bottom nav pill
 - Manages Next.js and WS server as child processes
 - Startup activity tracking with loading screen
 - Keyboard shortcuts: Cmd+[ / Cmd+] for history back/forward

@@ -5,6 +5,7 @@ import type { LibraryArtifact } from "@/lib/library/types";
 import { archiveArtifact, promoteCandidate, skipCandidate, useLibrary, useLibraryArtifact, useLibrarySources } from "@/hooks/useLibrary";
 import { Archive, ArrowLeft, Bookmark, FileText, MoreHorizontal } from "lucide-react";
 import { getYouTubeVideoId } from "@/lib/library/media";
+import { SECONDARY_TOOLBAR_BODY_GUTTER_CLASS } from "@/components/layout/SecondaryToolbar";
 import { LibraryMarkdown } from "./LibraryMarkdown";
 
 const SOURCE_WIDTH_KEY = "hilt-library-source-width";
@@ -216,11 +217,6 @@ function ArtifactDetail({
   const [mode, setMode] = useState<"summary" | "cache">("summary");
   const [actionsOpen, setActionsOpen] = useState(false);
 
-  useEffect(() => {
-    setMode("summary");
-    setActionsOpen(false);
-  }, [id]);
-
   if (!id) {
     return <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-tertiary)]">Select an artifact</div>;
   }
@@ -367,25 +363,12 @@ export function BrowseView({
   const [listWidth, setListWidth] = useState(() => storedWidth(LIST_WIDTH_KEY, DEFAULT_LIST_WIDTH, MIN_LIST_WIDTH, MAX_LIST_WIDTH));
   const [resizing, setResizing] = useState<"source" | "list" | null>(null);
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
-  const previousStatusRef = useRef(statusFilter);
   const firstId = useMemo(() => artifacts[0]?.id || null, [artifacts]);
-
-  useEffect(() => {
-    if (!selectedId || !artifacts.some((artifact) => artifact.id === selectedId)) {
-      setSelectedId(firstId);
-    }
-  }, [artifacts, firstId, selectedId]);
+  const selectedArtifactId = selectedId && artifacts.some((artifact) => artifact.id === selectedId) ? selectedId : firstId;
 
   useEffect(() => {
     onCountChange?.(total);
   }, [onCountChange, total]);
-
-  useEffect(() => {
-    if (previousStatusRef.current !== statusFilter) {
-      previousStatusRef.current = statusFilter;
-      setMobilePane("list");
-    }
-  }, [statusFilter]);
 
   useEffect(() => {
     localStorage.setItem(SOURCE_WIDTH_KEY, String(sourceWidth));
@@ -423,6 +406,7 @@ export function BrowseView({
 
   const selectSource = (source: string | null) => {
     setSelectedSource(source);
+    setSelectedId(null);
     setMobilePane("list");
   };
 
@@ -439,63 +423,66 @@ export function BrowseView({
   }, []);
 
   return (
-    <div className={`flex min-h-0 flex-1 flex-col overflow-hidden border-t border-[var(--border-default)] ${resizing ? "select-none" : ""}`}>
-      <div data-testid="library-mobile-pane-nav" className="flex shrink-0 items-center gap-2 border-b border-[var(--border-default)] bg-[var(--bg-primary)] px-3 py-2 lg:hidden">
-        <button
-          onClick={() => setMobilePane("sources")}
-          className={`min-h-9 rounded-md px-3 py-1.5 text-xs font-medium ${mobilePane === "sources" ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)]"}`}
-        >
-          Sources
-        </button>
-        <button
-          onClick={() => setMobilePane("list")}
-          className={`min-h-9 rounded-md px-3 py-1.5 text-xs font-medium ${mobilePane === "list" ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)]"}`}
-        >
-          Items
-        </button>
-        <button
-          onClick={() => setMobilePane("detail")}
-          disabled={!selectedId}
-          className={`min-h-9 rounded-md px-3 py-1.5 text-xs font-medium ${mobilePane === "detail" ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] disabled:opacity-40"}`}
-        >
-          Detail
-        </button>
-        <span className="ml-auto min-w-0 truncate text-xs text-[var(--text-tertiary)]">{artifacts.length} items</span>
-      </div>
+    <div className={`flex min-h-0 flex-1 flex-col overflow-hidden ${SECONDARY_TOOLBAR_BODY_GUTTER_CLASS} ${resizing ? "select-none" : ""}`}>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-[var(--border-default)]">
+        <div data-testid="library-mobile-pane-nav" className="flex shrink-0 items-center gap-2 border-b border-[var(--border-default)] bg-[var(--bg-primary)] px-3 py-2 lg:hidden">
+          <button
+            onClick={() => setMobilePane("sources")}
+            className={`min-h-9 rounded-md px-3 py-1.5 text-xs font-medium ${mobilePane === "sources" ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)]"}`}
+          >
+            Sources
+          </button>
+          <button
+            onClick={() => setMobilePane("list")}
+            className={`min-h-9 rounded-md px-3 py-1.5 text-xs font-medium ${mobilePane === "list" ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)]"}`}
+          >
+            Items
+          </button>
+          <button
+            onClick={() => setMobilePane("detail")}
+            disabled={!selectedArtifactId}
+            className={`min-h-9 rounded-md px-3 py-1.5 text-xs font-medium ${mobilePane === "detail" ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] disabled:opacity-40"}`}
+          >
+            Detail
+          </button>
+          <span className="ml-auto min-w-0 truncate text-xs text-[var(--text-tertiary)]">{artifacts.length} items</span>
+        </div>
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <SourceNav
-          selectedSource={selectedSource}
-          statusFilter={statusFilter}
-          searchQuery={searchQuery}
-          onSelect={selectSource}
-          className={`${mobilePane === "sources" ? "block" : "hidden"} relative min-h-0 w-full flex-1 lg:block lg:w-[var(--library-source-width)] lg:flex-none lg:shrink-0 lg:border-r lg:border-[var(--border-default)]`}
-          style={{ "--library-source-width": `${sourceWidth}px` } as CSSProperties}
-        />
-        <div
-          data-testid="library-source-resizer"
-          className={`hidden lg:block w-1 cursor-col-resize transition-colors hover:bg-[var(--accent-primary)] ${resizing === "source" ? "bg-[var(--accent-primary)]" : "bg-transparent"}`}
-          onMouseDown={startResize("source", sourceWidth)}
-        />
-        <ArtifactList
-          artifacts={artifacts}
-          selected={selectedId}
-          onSelect={selectArtifact}
-          className={`${mobilePane === "list" ? "block" : "hidden"} min-h-0 w-full flex-1 lg:block lg:w-[var(--library-list-width)] lg:flex-none lg:shrink-0 lg:border-r lg:border-[var(--border-default)]`}
-          style={{ "--library-list-width": `${listWidth}px` } as CSSProperties}
-        />
-        <div
-          data-testid="library-list-resizer"
-          className={`hidden lg:block w-1 cursor-col-resize transition-colors hover:bg-[var(--accent-primary)] ${resizing === "list" ? "bg-[var(--accent-primary)]" : "bg-transparent"}`}
-          onMouseDown={startResize("list", listWidth)}
-        />
-        <div className={`${mobilePane === "detail" ? "flex" : "hidden"} min-h-0 flex-1 lg:flex`}>
-          <ArtifactDetail
-            id={selectedId}
-            showBack={mobilePane === "detail"}
-            onBack={() => setMobilePane("list")}
-            onChanged={() => mutate()}
+        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+          <SourceNav
+            selectedSource={selectedSource}
+            statusFilter={statusFilter}
+            searchQuery={searchQuery}
+            onSelect={selectSource}
+            className={`${mobilePane === "sources" ? "block" : "hidden"} relative min-h-0 w-full flex-1 lg:block lg:w-[var(--library-source-width)] lg:flex-none lg:shrink-0 lg:border-r lg:border-[var(--border-default)]`}
+            style={{ "--library-source-width": `${sourceWidth}px` } as CSSProperties}
           />
+          <div
+            data-testid="library-source-resizer"
+            className={`hidden lg:block w-1 cursor-col-resize transition-colors hover:bg-[var(--accent-primary)] ${resizing === "source" ? "bg-[var(--accent-primary)]" : "bg-transparent"}`}
+            onMouseDown={startResize("source", sourceWidth)}
+          />
+          <ArtifactList
+            artifacts={artifacts}
+            selected={selectedArtifactId}
+            onSelect={selectArtifact}
+            className={`${mobilePane === "list" ? "block" : "hidden"} min-h-0 w-full flex-1 lg:block lg:w-[var(--library-list-width)] lg:flex-none lg:shrink-0 lg:border-r lg:border-[var(--border-default)]`}
+            style={{ "--library-list-width": `${listWidth}px` } as CSSProperties}
+          />
+          <div
+            data-testid="library-list-resizer"
+            className={`hidden lg:block w-1 cursor-col-resize transition-colors hover:bg-[var(--accent-primary)] ${resizing === "list" ? "bg-[var(--accent-primary)]" : "bg-transparent"}`}
+            onMouseDown={startResize("list", listWidth)}
+          />
+          <div className={`${mobilePane === "detail" ? "flex" : "hidden"} min-h-0 flex-1 lg:flex`}>
+            <ArtifactDetail
+              key={selectedArtifactId ?? "empty"}
+              id={selectedArtifactId}
+              showBack={mobilePane === "detail"}
+              onBack={() => setMobilePane("list")}
+              onChanged={() => mutate()}
+            />
+          </div>
         </div>
       </div>
     </div>

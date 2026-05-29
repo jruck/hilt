@@ -42,13 +42,14 @@ function sourceImages(raw: RawArtifact): string[] {
 }
 
 export function buildMediaMarkdown(raw: RawArtifact): string {
-  const videoId = getYouTubeVideoId(raw.url);
+  const embeddedMediaUrl = typeof raw.metadata.video_url === "string" ? raw.metadata.video_url : raw.url;
+  const videoId = getYouTubeVideoId(embeddedMediaUrl);
   if (videoId) {
     return `## Media
 
 <iframe width="560" height="315" src="https://www.youtube.com/embed/${videoId}" title="${escapeHtml(raw.title)}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
 
-[Watch on YouTube](${raw.url})
+[Watch on YouTube](${embeddedMediaUrl})
 `;
   }
 

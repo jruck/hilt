@@ -1154,6 +1154,8 @@ Fetch transcript for a YouTube video.
 
 The Library APIs expose the file-native reference system in the bridge vault. Durable references are markdown files under `references/`; discovery candidates are hidden markdown files under `references/.cache/library-candidates/`. All routes use the shared artifact contract from `src/lib/library/types.ts`.
 
+Saved references that predate source configs and have no `source_id:` are exposed as the synthetic source `manual` / `Manual captures`. This is a read-time grouping so older hand-filed references can be isolated without rewriting their frontmatter.
+
 ### GET /api/library
 
 Lists saved references and, by default, unexpired candidates.
@@ -1164,11 +1166,12 @@ Lists saved references and, by default, unexpired candidates.
 |-------|------|-------------|
 | `q` | string | Keyword search over title, description, summary, tags, URL, and connections |
 | `status` | string | `saved`, `candidate`, `promoted`, `skipped`, or `expired` |
-| `sourceId` | string | Source config id |
+| `source` | string | Source config id |
 | `channel` | string | Source channel such as `youtube`, `raindrop`, `twitter`, `rss`, or `manual` |
 | `tag` | string | Tag filter |
 | `includeCandidates` | boolean | Defaults to `true` |
-| `limit` | number | Maximum rows |
+| `offset` | number | Offset for incremental loading |
+| `limit` | number | Maximum rows for this page |
 
 ### GET /api/library/:id
 
@@ -1279,6 +1282,7 @@ Returns the operational Reference Library dashboard contract: launchd scheduler 
 - `npm run library:backfill -- --limit 50 <source-id>` runs cursor-backed historical ingestion for checkpointed sources. Cursors are stored in `meta/sources/.source-state.json`; dry runs report `next_cursor` but do not advance it.
 - `npm run library:audit-quality -- --queue /path/to/queue.json` scans saved references and candidates for warm/cold digestion quality, source-policy mismatches, fallback notes, short summaries, and missing key points.
 - `npm run library:redigest -- --queue /path/to/queue.json --limit 5 --write` re-runs queued items through `summarize` and updates the existing note with `digestion_status`, `digested_with`, `digested_at`, and refreshed summary/key points. Omit `--write` for a dry run.
+- `npm run library:repair-legacy -- --path references/example.md` performs a non-destructive legacy reference repair: it preserves existing summaries/connections, adds missing `published`, `thumbnail`, `video_url`, `## Media`, and `## Raw Content` where available, and only writes with `-- --write`. Source cache snippets shorter than 500 characters are ignored by default; use `-- --min-cache-chars <n>` only for an intentional source-limited repair.
 - `npm run library:migrate-references` reports durable references still using legacy `source:` frontmatter. Add `-- --apply` to rewrite only those legacy source URLs to `url:`.
 - `npm run library:youtube:oauth -- --client-file /path/to/client_secret.json` opens Google OAuth for YouTube liked videos and writes token fields to `.env.local` without printing token values.
 - YouTube playlist sources use `url: youtube://playlist/<playlist-id>` or `metadata.playlist_id`. The configured `youtube-bookmarks` playlist is explicit-save/durable; other YouTube playlists default to candidate/review unless their source config says otherwise. Watch Later is not enabled because the YouTube Data API does not reliably expose it as a normal playlist.

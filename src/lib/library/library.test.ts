@@ -498,6 +498,34 @@ test("durable reference markdown includes bounded source images for articles", (
   assert.doesNotMatch(markdown, /not-image\.mp4/);
 });
 
+test("durable reference markdown embeds metadata video url when canonical url is an article page", () => {
+  const processed = processedYouTubeArtifact();
+  processed.raw.url = "https://www.dwarkesh.com/p/dario-amodei-2";
+  processed.raw.metadata.video_url = "https://www.youtube.com/watch?v=n1E9IZfvGMA";
+  const markdown = buildDurableReferenceMarkdown(processed);
+  assert.match(markdown, /youtube\.com\/embed\/n1E9IZfvGMA/);
+  assert.match(markdown, /\[Watch on YouTube]\(https:\/\/www\.youtube\.com\/watch\?v=n1E9IZfvGMA\)/);
+});
+
+test("saved references use legacy created frontmatter before filesystem creation time", () => {
+  const vault = tempVault();
+  fs.writeFileSync(path.join(vault, "references", "legacy.md"), `---
+type: reference
+description: Legacy reference.
+url: https://example.com/legacy
+created: 2026-02-14T00:00:00.000Z
+---
+# Legacy Reference
+
+## Summary
+
+Older manually captured reference.
+`, "utf-8");
+
+  const [reference] = listSavedReferences(vault);
+  assert.equal(reference.created_at, "2026-02-14");
+});
+
 test("recent library list sorts mixed frontmatter date formats by timestamp", () => {
   const vault = tempVault();
   fs.writeFileSync(path.join(vault, "references", "saved.md"), `---
@@ -520,6 +548,49 @@ captured: 2026-05-28
   assert.equal(listed.artifacts[0].lifecycle_status, "candidate");
   assert.equal(listed.artifacts[0].created_at, "2026-05-28");
   assert.equal(listed.artifacts[1].created_at, "2026-05-27");
+});
+
+test("library list supports offset pagination for incremental UI loading", () => {
+  const vault = tempVault();
+  for (const [index, date] of ["2026-05-29", "2026-05-28", "2026-05-27"].entries()) {
+    fs.writeFileSync(path.join(vault, "references", `saved-${index}.md`), `---
+type: reference
+description: Saved ${index}.
+url: https://example.com/saved-${index}
+published: ${date}
+---
+# Saved ${index}
+`, "utf-8");
+  }
+
+  const first = listLibraryArtifactDetails(vault, { limit: 2 });
+  const second = listLibraryArtifactDetails(vault, { offset: 2, limit: 2 });
+  assert.equal(first.total, 3);
+  assert.deepEqual(first.artifacts.map((artifact) => artifact.created_at), ["2026-05-29", "2026-05-28"]);
+  assert.equal(second.total, 3);
+  assert.deepEqual(second.artifacts.map((artifact) => artifact.created_at), ["2026-05-27"]);
+});
+
+test("legacy saved references without source ids appear as manual captures", () => {
+  const vault = tempVault();
+  fs.writeFileSync(path.join(vault, "references", "manual.md"), `---
+type: reference
+description: Manual saved item.
+url: https://example.com/manual
+published: 2026-05-29
+---
+# Manual Saved Item
+`, "utf-8");
+
+  const [artifact] = listLibraryArtifactDetails(vault, { source: "manual" }).artifacts;
+  assert.equal(artifact.source_id, "manual");
+  assert.equal(artifact.source_name, "Manual captures");
+  assert.equal(artifact.channel, "manual");
+
+  const sources = listLibrarySources(vault);
+  assert.equal(sources[0].id, "manual");
+  assert.equal(sources[0].name, "Manual captures");
+  assert.equal(sources[0].artifact_count, 1);
 });
 
 test("parses Superhuman News threads into candidate-ready email artifacts", () => {

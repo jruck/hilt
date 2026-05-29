@@ -6,6 +6,8 @@ import { extractBullets, extractConnections, extractHeading, extractSection, fro
 import { buildMediaMarkdown, cachedSourceContent, stripDetailsWrapper } from "./media";
 
 const REFERENCES_DIR = "references";
+export const MANUAL_SOURCE_ID = "manual";
+export const MANUAL_SOURCE_NAME = "Manual captures";
 
 export function referencesDir(vaultPath: string): string {
   return path.join(vaultPath, REFERENCES_DIR);
@@ -39,8 +41,9 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
       ? data.source
       : null;
   const channel = typeof data.channel === "string" ? data.channel : null;
-  const sourceId = typeof data.source_id === "string" ? data.source_id : null;
-  const created = frontmatterDate(data.published) || frontmatterDate(data.captured) || dateOnly(stat.birthtime);
+  const explicitSourceId = typeof data.source_id === "string" ? data.source_id : null;
+  const sourceId = explicitSourceId || MANUAL_SOURCE_ID;
+  const created = frontmatterDate(data.published) || frontmatterDate(data.created) || frontmatterDate(data.captured) || dateOnly(stat.birthtime);
   const updated = stat.mtime.toISOString();
   const keyPoints = extractBullets(extractSection(body, "Key Points"));
 
@@ -50,9 +53,9 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
     title,
     summary,
     source_type: "reference",
-    channel: channel as LibraryArtifactDetail["channel"],
+    channel: (channel || MANUAL_SOURCE_ID) as LibraryArtifactDetail["channel"],
     source_id: sourceId,
-    source_name: typeof data.source_name === "string" ? data.source_name : null,
+    source_name: typeof data.source_name === "string" ? data.source_name : explicitSourceId ? null : MANUAL_SOURCE_NAME,
     tags: frontmatterTags(data),
     thumbnail: typeof data.thumbnail === "string" ? data.thumbnail : null,
     author: typeof data.author === "string" ? data.author : null,

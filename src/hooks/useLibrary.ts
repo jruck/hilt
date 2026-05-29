@@ -1,6 +1,7 @@
 "use client";
 
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import type { LibraryArtifact, LibraryArtifactDetail, LibraryOperationalHealth, LibrarySourceSummary, PromotionReason, RecommendedArtifact } from "@/lib/library/types";
 
 const fetcher = (url: string) => fetch(url, { cache: "no-store" }).then((res) => {
@@ -16,15 +17,51 @@ export interface UseLibraryOptions {
   limit?: number;
 }
 
-export function useLibrary(options: UseLibraryOptions = {}) {
+interface LibraryListResponse {
+  artifacts: LibraryArtifact[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+function libraryParams(options: UseLibraryOptions, offset?: number, limit?: number): URLSearchParams {
   const params = new URLSearchParams();
   if (options.source) params.set("source", options.source);
   if (options.channel) params.set("channel", options.channel);
   if (options.status) params.set("status", options.status);
   if (options.q) params.set("q", options.q);
-  params.set("limit", String(options.limit || 80));
-  const { data, error, isLoading, mutate } = useSWR<{ artifacts: LibraryArtifact[]; total: number }>(`/api/library?${params.toString()}`, fetcher);
+  params.set("limit", String(limit || options.limit || 80));
+  if (typeof offset === "number") params.set("offset", String(offset));
+  return params;
+}
+
+export function useLibrary(options: UseLibraryOptions = {}) {
+  const params = libraryParams(options);
+  const { data, error, isLoading, mutate } = useSWR<LibraryListResponse>(`/api/library?${params.toString()}`, fetcher);
   return { artifacts: data?.artifacts || [], total: data?.total || 0, error, isLoading, mutate };
+}
+
+export function useInfiniteLibrary(options: UseLibraryOptions = {}, pageSize = 80) {
+  const getKey = (pageIndex: number, previousPageData: LibraryListResponse | null) => {
+    if (previousPageData && previousPageData.artifacts.length === 0) return null;
+    if (previousPageData && previousPageData.offset + previousPageData.artifacts.length >= previousPageData.total) return null;
+    const params = libraryParams(options, pageIndex * pageSize, pageSize);
+    return `/api/library?${params.toString()}`;
+  };
+  const { data, error, isLoading, isValidating, size, setSize, mutate } = useSWRInfinite<LibraryListResponse>(getKey, fetcher, {
+    revalidateFirstPage: false,
+  });
+  const artifacts = data?.flatMap((page) => page.artifacts) || [];
+  const total = data?.[0]?.total || 0;
+  const lastPage = data?.[data.length - 1] || null;
+  const isLoadingMore = Boolean(isLoading || (size > 0 && data && typeof data[size - 1] === "undefined"));
+  const hasMore = Boolean(lastPage && lastPage.offset + lastPage.artifacts.length < lastPage.total);
+  const loadMore = () => {
+    if (!hasMore || isLoadingMore) return;
+    void setSize(size + 1);
+  };
+
+  return { artifacts, total, error, isLoading, isLoadingMore, isValidating, hasMore, loadMore, mutate, size, setSize };
 }
 
 export function useLibrarySources(options: Pick<UseLibraryOptions, "channel" | "status" | "q"> = {}) {

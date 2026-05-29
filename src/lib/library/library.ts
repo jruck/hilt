@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import type { LibraryArtifact, LibraryArtifactDetail, LibraryLifecycleStatus, LibrarySourceSummary, ReferenceCandidate } from "./types";
 import { listCandidates } from "./candidate-cache";
-import { listSavedReferences } from "./references";
+import { listSavedReferences, MANUAL_SOURCE_ID, MANUAL_SOURCE_NAME } from "./references";
 import { loadSources, readSourceState } from "./source-config";
 import { compareDatesDesc, dateTimestamp, ensureDir, hashId } from "./utils";
 import { relativeVaultPath } from "./markdown";
@@ -108,7 +108,7 @@ export function listLibrarySources(vaultPath: string, options: Omit<LibraryListO
     limit: 10000,
     includeCandidates: true,
   }).artifacts;
-  return sources.map((source) => ({
+  const summaries = sources.map((source) => ({
     id: source.id,
     name: source.name,
     channel: source.channel,
@@ -119,6 +119,24 @@ export function listLibrarySources(vaultPath: string, options: Omit<LibraryListO
     last_fetched: state[source.id]?.last_success_at || null,
     blocked: state[source.id]?.blocked_reason || null,
   }));
+  if (!summaries.some((source) => source.id === MANUAL_SOURCE_ID)) {
+    const artifactCount = all.filter((artifact) => artifact.source_id === MANUAL_SOURCE_ID && artifact.lifecycle_status === "saved").length;
+    const candidateCount = all.filter((artifact) => artifact.source_id === MANUAL_SOURCE_ID && artifact.lifecycle_status === "candidate").length;
+    if (artifactCount || candidateCount) {
+      summaries.unshift({
+        id: MANUAL_SOURCE_ID,
+        name: MANUAL_SOURCE_NAME,
+        channel: "manual",
+        enabled: true,
+        intent: "explicit_save",
+        artifact_count: artifactCount,
+        candidate_count: candidateCount,
+        last_fetched: null,
+        blocked: null,
+      });
+    }
+  }
+  return summaries;
 }
 
 export function contentHashForFile(filePath: string): string {

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { LibraryArtifact } from "@/lib/library/types";
-import { archiveArtifact, promoteCandidate, skipCandidate, useLibrary, useLibraryArtifact, useLibrarySources } from "@/hooks/useLibrary";
+import { archiveArtifact, promoteCandidate, skipCandidate, useInfiniteLibrary, useLibraryArtifact, useLibrarySources } from "@/hooks/useLibrary";
 import { Archive, ArrowLeft, Bookmark, FileText, MoreHorizontal } from "lucide-react";
 import { getYouTubeVideoId } from "@/lib/library/media";
 import { SECONDARY_TOOLBAR_BODY_GUTTER_CLASS } from "@/components/layout/SecondaryToolbar";
@@ -16,6 +16,8 @@ const MAX_SOURCE_WIDTH = 320;
 const DEFAULT_LIST_WIDTH = 360;
 const MIN_LIST_WIDTH = 300;
 const MAX_LIST_WIDTH = 540;
+const ARTIFACT_ROW_HEIGHT = 92;
+const ARTIFACT_ROW_OVERSCAN = 10;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -76,50 +78,124 @@ function SourceNav({
 
 function ArtifactList({
   artifacts,
+  total,
   selected,
   onSelect,
+  isLoading,
+  hasMore,
+  isLoadingMore,
+  onLoadMore,
   className = "",
   style,
 }: {
   artifacts: LibraryArtifact[];
+  total: number;
   selected: string | null;
   onSelect: (artifact: LibraryArtifact) => void;
+  isLoading: boolean;
+  hasMore: boolean;
+  isLoadingMore: boolean;
+  onLoadMore: () => void;
   className?: string;
   style?: CSSProperties;
 }) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const [scrollState, setScrollState] = useState({ top: 0, height: 0 });
+  const rowCount = artifacts.length + (hasMore || isLoadingMore ? 1 : 0);
+  const startIndex = Math.max(0, Math.floor(scrollState.top / ARTIFACT_ROW_HEIGHT) - ARTIFACT_ROW_OVERSCAN);
+  const endIndex = Math.min(
+    rowCount,
+    Math.ceil((scrollState.top + scrollState.height) / ARTIFACT_ROW_HEIGHT) + ARTIFACT_ROW_OVERSCAN,
+  );
+  const visibleIndexes = [];
+  for (let index = startIndex; index < endIndex; index += 1) visibleIndexes.push(index);
+
+  const maybeLoadMore = useCallback(() => {
+    const node = parentRef.current;
+    if (!node || !hasMore || isLoadingMore) return;
+    if (node.scrollHeight - node.scrollTop - node.clientHeight < 900) onLoadMore();
+  }, [hasMore, isLoadingMore, onLoadMore]);
+
+  useEffect(() => {
+    const node = parentRef.current;
+    if (!node) return;
+    const update = () => {
+      setScrollState({ top: node.scrollTop, height: node.clientHeight });
+      maybeLoadMore();
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [maybeLoadMore]);
+
+  useEffect(() => {
+    maybeLoadMore();
+  }, [artifacts.length, maybeLoadMore]);
+
+  const handleScroll = useCallback(() => {
+    const node = parentRef.current;
+    if (!node) return;
+    setScrollState({ top: node.scrollTop, height: node.clientHeight });
+    maybeLoadMore();
+  }, [maybeLoadMore]);
+
   return (
-    <div data-testid="library-artifact-list" className={`overflow-y-auto bg-[var(--bg-primary)] ${className}`} style={style}>
-      {artifacts.map((artifact) => (
-        <button
-          key={artifact.id}
-          data-testid="library-artifact-row"
-          onClick={() => onSelect(artifact)}
-          className={`flex w-full gap-3 border-b border-[var(--border-default)] p-3 text-left transition-colors ${selected === artifact.id ? "bg-[var(--bg-secondary)]" : "hover:bg-[var(--bg-secondary)]"}`}
-        >
-          <div className="flex h-12 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[var(--content-surface)] text-[var(--text-tertiary)]">
-            {artifact.thumbnail ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={artifact.thumbnail} alt="" className="h-full w-full object-cover" />
-            ) : artifact.lifecycle_status === "candidate" ? (
-              <Bookmark className="h-4 w-4" />
-            ) : (
-              <FileText className="h-4 w-4" />
-            )}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="line-clamp-2 text-sm font-medium leading-5 text-[var(--text-primary)]">{artifact.title}</div>
-            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-tertiary)]">
-              <span className="truncate">{artifact.source_name || artifact.channel}</span>
-              <span>{artifact.created_at?.slice(0, 10)}</span>
-              <span className={`rounded-full px-1.5 py-0.5 ${artifact.lifecycle_status === "candidate" ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-[var(--bg-secondary)] text-[var(--text-secondary)]"}`}>
-                {artifact.lifecycle_status === "candidate" ? "Candidate" : "Saved"}
-              </span>
-            </div>
-          </div>
-        </button>
-      ))}
-      {artifacts.length === 0 && (
-        <div className="p-5 text-sm text-[var(--text-tertiary)]">No artifacts match this source or search.</div>
+    <div ref={parentRef} onScroll={handleScroll} data-testid="library-artifact-list" className={`overflow-y-auto bg-[var(--bg-primary)] ${className}`} style={style}>
+      {artifacts.length > 0 ? (
+        <div className="relative w-full" style={{ height: rowCount * ARTIFACT_ROW_HEIGHT }}>
+          {visibleIndexes.map((index) => {
+            const artifact = artifacts[index];
+            if (!artifact) {
+              return (
+                <div
+                  key="library-artifact-list-loader"
+                  className="absolute left-0 top-0 flex w-full items-center justify-center border-b border-[var(--border-default)] px-3 py-4 text-xs text-[var(--text-tertiary)]"
+                  style={{ height: ARTIFACT_ROW_HEIGHT, transform: `translateY(${index * ARTIFACT_ROW_HEIGHT}px)` }}
+                >
+                  {isLoadingMore ? "Loading more..." : `${artifacts.length} of ${total} loaded`}
+                </div>
+              );
+            }
+            return (
+              <button
+                key={artifact.id}
+                data-testid="library-artifact-row"
+                onClick={() => onSelect(artifact)}
+                className={`absolute left-0 top-0 flex w-full gap-3 border-b border-[var(--border-default)] p-3 text-left transition-colors ${selected === artifact.id ? "bg-[var(--bg-secondary)]" : "hover:bg-[var(--bg-secondary)]"}`}
+                style={{ height: ARTIFACT_ROW_HEIGHT, transform: `translateY(${index * ARTIFACT_ROW_HEIGHT}px)` }}
+              >
+                <div className="flex h-12 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[var(--content-surface)] text-[var(--text-tertiary)]">
+                  {artifact.thumbnail ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={artifact.thumbnail} alt="" className="h-full w-full object-cover" />
+                  ) : artifact.lifecycle_status === "candidate" ? (
+                    <Bookmark className="h-4 w-4" />
+                  ) : (
+                    <FileText className="h-4 w-4" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="line-clamp-2 text-sm font-medium leading-5 text-[var(--text-primary)]">{artifact.title}</div>
+                  <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-tertiary)]">
+                    <span className="truncate">{artifact.source_name || artifact.channel}</span>
+                    <span>{artifact.created_at?.slice(0, 10)}</span>
+                    <span className={`rounded-full px-1.5 py-0.5 ${artifact.lifecycle_status === "candidate" ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-[var(--bg-secondary)] text-[var(--text-secondary)]"}`}>
+                      {artifact.lifecycle_status === "candidate" ? "Candidate" : "Saved"}
+                    </span>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="p-5 text-sm text-[var(--text-tertiary)]">{isLoading ? "Loading library..." : "No artifacts match this source or search."}</div>
+      )}
+      {artifacts.length > 0 && !hasMore && (
+        <div className="border-t border-[var(--border-default)] p-3 text-center text-xs text-[var(--text-tertiary)]">
+          {artifacts.length} of {total} loaded
+        </div>
       )}
     </div>
   );
@@ -175,8 +251,25 @@ function cachedSourceMarkdown(content: string): string {
   return stripDetails(markdownSection(content, "Raw Content"));
 }
 
+function frontmatterString(data: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = data[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
 function MediaPreview({ artifact }: { artifact: NonNullable<ReturnType<typeof useLibraryArtifact>["artifact"]> }) {
-  const videoId = getYouTubeVideoId(artifact.url);
+  const mediaMarkdown = markdownSection(artifact.content, "Media");
+  if (mediaMarkdown) {
+    return <LibraryMarkdown markdown={mediaMarkdown} className="mb-5" />;
+  }
+  if (artifact.content.includes("<iframe") || artifact.content.includes("youtube.com/embed/")) {
+    return null;
+  }
+
+  const embeddedMediaUrl = frontmatterString(artifact.raw_frontmatter, ["video_url", "youtube_url", "media_url"]);
+  const videoId = getYouTubeVideoId(embeddedMediaUrl || artifact.url);
   if (videoId) {
     return (
       <div className="mb-5 aspect-video w-full overflow-hidden rounded-lg border border-[var(--border-default)] bg-black">
@@ -351,12 +444,11 @@ export function BrowseView({
   onOpen?: (artifact: LibraryArtifact) => void;
 }) {
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
-  const { artifacts, total, mutate } = useLibrary({
+  const { artifacts, total, mutate, isLoading, hasMore, isLoadingMore, loadMore } = useInfiniteLibrary({
     source: selectedSource,
     status: statusFilter === "all" ? null : statusFilter,
     q: searchQuery || null,
-    limit: 200,
-  });
+  }, 80);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<"sources" | "list" | "detail">("list");
   const [sourceWidth, setSourceWidth] = useState(() => storedWidth(SOURCE_WIDTH_KEY, DEFAULT_SOURCE_WIDTH, MIN_SOURCE_WIDTH, MAX_SOURCE_WIDTH));
@@ -445,7 +537,7 @@ export function BrowseView({
           >
             Detail
           </button>
-          <span className="ml-auto min-w-0 truncate text-xs text-[var(--text-tertiary)]">{artifacts.length} items</span>
+          <span className="ml-auto min-w-0 truncate text-xs text-[var(--text-tertiary)]">{artifacts.length} of {total}</span>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
@@ -464,8 +556,13 @@ export function BrowseView({
           />
           <ArtifactList
             artifacts={artifacts}
+            total={total}
             selected={selectedArtifactId}
             onSelect={selectArtifact}
+            isLoading={isLoading}
+            hasMore={hasMore}
+            isLoadingMore={isLoadingMore}
+            onLoadMore={loadMore}
             className={`${mobilePane === "list" ? "block" : "hidden"} min-h-0 w-full flex-1 lg:block lg:w-[var(--library-list-width)] lg:flex-none lg:shrink-0 lg:border-r lg:border-[var(--border-default)]`}
             style={{ "--library-list-width": `${listWidth}px` } as CSSProperties}
           />

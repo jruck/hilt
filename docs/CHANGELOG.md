@@ -8,6 +8,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
+- **Reference Library legacy reference repair** — Added a non-destructive `library:repair-legacy` CLI for old saved references that predate the rich media/cache standard. It preserves existing summaries and connections while adding publication dates, thumbnails, YouTube embeds, and full source/transcript cache when available. Hilt now also honors legacy `created:` frontmatter before falling back to filesystem creation time, so repaired notes do not appear newly saved.
+
+- **Reference Library incremental lists** — Browse and Recent now page through `/api/library` with `offset`/`limit` instead of stopping at a fixed client cap. Browse virtualizes its artifact rows and automatically requests older pages near the end of the visible list, so deep historical references remain reachable without rendering the whole library at once.
+
+- **Reference Library manual capture grouping** — Saved references that predate source configs and have no `source_id:` now appear under a synthetic `Manual captures` source in Browse and `/api/library/sources`, so old hand-filed captures can be isolated without rewriting their frontmatter.
+
+- **Reference Library manual capture repair** — Ran a bounded preservation repair over manual captures, adding meaningful source caches to 11 older references, YouTube metadata/media to recovered videos, and metadata-only improvements where safe. The legacy repair CLI now ignores source-cache snippets below 500 characters by default so source-limited stubs are reported instead of persisted.
+
 - **Reference Library health warning clarity** — Scheduler rows now classify repeated Node/tsx `DEP0205` stderr as successful log notices instead of warnings, keep log excerpts line-aligned, and surface the first actionable stderr line when a job really does need attention.
 
 - **Reference Library health refresh feedback** — The health popover Refresh action now forces a no-cache health fetch, shows an in-flight spinner/label, and displays the exact checked time so manual refreshes have visible confirmation.

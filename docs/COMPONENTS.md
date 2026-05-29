@@ -11,7 +11,7 @@ App (layout.tsx)
     ├── Floating Navigation Chrome
     │   ├── Search input (expandable)
     │   ├── ThemeToggle
-    │   └── ViewToggle (Bridge/People/Briefing/Library/Docs/System) — centered
+    │   └── ViewToggle (Briefing/Bridge/People/Library/Docs/System) — centered
     │
     ├── Main Content (conditional on viewMode)
     │   │
@@ -159,8 +159,15 @@ Reference Library workspace backed by markdown reference files and hidden candid
 
 **Key behaviors**
 
-- Defaults to Feed, with a compact For You / Recent switch and candidate Save / Skip actions.
-- Browse mode uses a source column, dense reference/candidate list, and detail pane.
+- Uses one composable Library surface instead of separate Feed and Browse destinations.
+- Defaults to Feed density with `Recent` ranking, `All` lifecycle status, no source sidebar, and no reader pane until an item is opened.
+- Independent controls: `Sources` toggles the filter rail, `Feed/List` controls density, and `Recent/For You` controls ranking. Lifecycle status is filtered inside the `Sources` rail under `Status` (`All`, `Saved`, `Candidates`), not in the top toolbar.
+- Feed density stays full-width until an item is selected. Selecting the active Feed card again clears the reader and restores the full-width feed.
+- List density gives the old Browse/inbox scanning behavior, always reserves the reader slot on desktop, auto-selects the first visible row when possible, and shows a placeholder when no item is selected.
+- Desktop source/content columns use slim persisted resize handles; defaults keep the source rail narrow, the list/feed pane scannable, and the detail reader as the largest pane.
+- `LibraryArtifactDetailPane` is shared across densities so rendered Markdown, media embeds, cache/source tabs, Save/Dismiss, and archive behavior stay consistent.
+- `LibraryArtifactDetailPane` strips legacy manual-capture body chrome before rendering summaries, so old `← References` links and bold source/author/date clusters do not leak into the reader. The underlying repair CLI removes the same cruft from markdown files.
+- Item opens preserve the current Library context: desktop uses split panes, while mobile opens detail over the current list and returns with Back without losing scroll position.
 - Header includes a compact health panel backed by `/api/library/health` for scheduler, source, and dead-letter visibility.
 - Uses `/api/library`, `/api/library/candidates/*`, `/api/library/sources`, `/api/library/recommendations`, `/api/library/health`, and `/api/search`.
 - Manual, explicit-save, and discovery records share the same artifact shape, so UI actions do not need source-specific handling.

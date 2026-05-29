@@ -233,7 +233,7 @@ export function LocalAppsView({ searchQuery = "", modeSwitcher }: LocalAppsViewP
           </div>
         ) : null}
 
-        <div className="flex-1 overflow-auto px-4 pb-4 pt-[13px]">
+        <div data-mobile-scroll-chrome="bottom" className="flex-1 overflow-auto px-4 pb-[calc(var(--hilt-mobile-nav-clearance)+1rem)] pt-[13px]">
           {machines.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">
               No matching local apps

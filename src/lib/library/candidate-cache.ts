@@ -70,6 +70,19 @@ export function findCandidateByUrl(vaultPath: string, url: string): ReferenceCan
   return listCandidates(vaultPath).find((candidate) => canonicalUrl(candidate.url) === canonical) || null;
 }
 
+function connectionLines(processed: ProcessedArtifact): string {
+  if (processed.connection_suggestions?.length) {
+    return processed.connection_suggestions.map((suggestion) => {
+      const target = suggestion.target ? `[[${suggestion.target}]]` : suggestion.label;
+      return `- ${target} — ${suggestion.reason}`;
+    }).join("\n");
+  }
+  if (processed.connected_projects.length) {
+    return processed.connected_projects.map((item) => `- [[${item}]]`).join("\n");
+  }
+  return "- ";
+}
+
 function candidateFilePath(vaultPath: string, processed: ProcessedArtifact): string {
   const date = dateOnly(processed.raw.date || new Date());
   const id = hashId(`${processed.source.id}:${canonicalUrl(processed.raw.url)}`, 10);
@@ -103,6 +116,7 @@ export function buildCandidateMarkdown(processed: ProcessedArtifact): string {
     save_recommendation: processed.assessment.save_recommendation,
     proposed_destination: processed.proposed_destination,
     connected_projects: processed.connected_projects,
+    connection_suggestions: processed.connection_suggestions?.length ? processed.connection_suggestions : undefined,
     promotion: {
       promoted_to: null,
       promoted_at: null,
@@ -134,7 +148,7 @@ ${processed.key_points.length ? processed.key_points.map((point) => `- ${point}`
 
 ## Suggested Connections
 
-${processed.connected_projects.length ? processed.connected_projects.map((item) => `- [[${item}]]`).join("\n") : "- "}
+${connectionLines(processed)}
 
 ## Raw Content
 

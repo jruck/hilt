@@ -804,7 +804,7 @@ export function MapView({
 
       <div className={`grid min-h-0 flex-1 ${layoutColumns}`}>
           <main className="flex min-h-0 flex-col overflow-hidden">
-            <div className="flex min-h-[420px] flex-1 flex-col overflow-hidden px-3 pb-3 pt-[13px]">
+            <div className="flex min-h-[420px] flex-1 flex-col overflow-hidden px-3 pb-[calc(var(--hilt-mobile-nav-clearance)+0.75rem)] pt-[13px]">
               {selectedId !== "root" && selectedPath.length > 0 && (
                 <div className="mb-2 flex min-h-7 min-w-0 items-center gap-1 text-xs text-[var(--text-tertiary)]">
                   <button
@@ -905,7 +905,7 @@ export function MapView({
             </div>
           </main>
 
-          <aside className={`${selectedId === "root" ? "max-md:hidden" : ""} min-h-0 overflow-auto bg-[var(--bg-primary)] px-3 pb-3 pt-[13px]`}>
+          <aside data-mobile-scroll-chrome="bottom" className={`${selectedId === "root" ? "max-md:hidden" : ""} min-h-0 overflow-auto bg-[var(--bg-primary)] px-3 pb-[calc(var(--hilt-mobile-nav-clearance)+0.75rem)] pt-[13px]`}>
             <button
               onClick={() => {
                 setSelectedId("root");
@@ -960,7 +960,7 @@ export function MapView({
           </aside>
 
           {selectedSessionId && (
-            <aside className="min-h-0 overflow-auto bg-[var(--bg-primary)] px-3 pb-3 pt-[13px]">
+            <aside data-mobile-scroll-chrome="bottom" className="min-h-0 overflow-auto bg-[var(--bg-primary)] px-3 pb-[calc(var(--hilt-mobile-nav-clearance)+0.75rem)] pt-[13px]">
               <div>
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex min-w-0 flex-col gap-2">

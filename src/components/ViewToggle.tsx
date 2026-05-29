@@ -29,9 +29,9 @@ interface ViewToggleProps {
 }
 
 const VIEW_CONFIG = [
-  { id: "bridge" as const, label: "Bridge", icon: Compass, title: "Bridge weekly tasks & projects", shortcut: "1" },
-  { id: "people" as const, label: "People", icon: Users, title: "People & meetings", shortcut: "2" },
-  { id: "briefings" as const, label: "Briefing", icon: CalendarDays, title: "Daily briefing", shortcut: "3" },
+  { id: "briefings" as const, label: "Briefing", icon: CalendarDays, title: "Daily briefing", shortcut: "1" },
+  { id: "bridge" as const, label: "Bridge", icon: Compass, title: "Bridge weekly tasks & projects", shortcut: "2" },
+  { id: "people" as const, label: "People", icon: Users, title: "People & meetings", shortcut: "3" },
   { id: "library" as const, label: "Library", icon: Bookmark, title: "Library", shortcut: "4" },
   { id: "docs" as const, label: "Docs", icon: FileText, title: "Documentation", shortcut: "5" },
   { id: "system" as const, label: "System", icon: Layers, title: "System inspection", shortcut: "6" },
@@ -41,7 +41,7 @@ const VIEW_CONFIG_BY_ID = Object.fromEntries(
   VIEW_CONFIG.map((config) => [config.id, config]),
 ) as Record<ViewMode, (typeof VIEW_CONFIG)[number]>;
 
-const VIEW_GROUPS: ViewMode[][] = [["bridge", "people", "briefings", "library", "docs", "system"]];
+const VIEW_GROUPS: ViewMode[][] = [["briefings", "bridge", "people", "library", "docs", "system"]];
 const NO_DRAG_STYLE = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 
 export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActive, unreadTabs }: ViewToggleProps) {

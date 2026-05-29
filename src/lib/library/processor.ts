@@ -25,7 +25,7 @@ export async function processArtifact(
     return { status: "duplicate", path: path.join(vaultPath, existingCandidate.path), reason: "candidate_exists" };
   }
 
-  const processed = await digestArtifact(raw, source, options);
+  const processed = await digestArtifact(raw, source, { ...options, vaultPath });
   if (options.dryRun) {
     if (processed.assessment.save_recommendation === "skip" && source.intent !== "explicit_save") {
       return { status: "skipped", reason: "dry_run_low_score_candidate" };

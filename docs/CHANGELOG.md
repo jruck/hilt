@@ -8,6 +8,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
+- **Reference Library legacy body cleanup** — Added `npm run library:repair-body-cruft` for report-first cleanup of old manual captures that embedded `← References` navigation, bold source/author/date metadata clusters, or `## Media` before the title. The Library reader also strips that legacy chrome defensively before rendering summaries, and Library Markdown table styling now matches the Docs read-mode header treatment.
+
+- **Primary navigation order** — Moved Briefing to the first top-level tab while keeping app startup/default routing on Bridge. Keyboard shortcuts now follow the visible order: `⌘1` Briefing, `⌘2` Bridge, `⌘3` People, `⌘4` Library, `⌘5` Docs, and `⌘6` System.
+
+- **Reference Library media enrichment** — New ingestion now fills missing representative media from source-provided media first and Open Graph metadata second, storing `thumbnail:` plus bounded image entries for `## Media`. X bookmark ingestion requests media expansions when available, and `npm run library:repair-media` can add missing article/bookmark images to old saved references without rewriting summaries.
+
+- **Reference Library connection suggestions** — Digestion now performs file-native Bridge context matching against active projects, current tasks, areas, and people notes, storing structured `connection_suggestions` plus readable `## Connections` / `## Suggested Connections` bullets. For You uses those precomputed tie-ins as ranking evidence and richer recommendation explanations.
+
+- **Reference Library review interactions** — Feed cards now open from the whole card surface while keeping Save, Dismiss, Source, and saved-reference menu actions independent. Candidate "Skip" copy is now "Dismiss" in the UI; the underlying candidate status remains `skipped` for API/file compatibility.
+
+- **Reference Library Feed reading context** — Opening a Feed card now keeps the user in Feed instead of switching to Browse. Desktop turns the Feed into a split reader with the selected card highlighted on the left and the rendered reference detail on the right; mobile opens the same detail pane over the Feed with a Back control, preserving the Feed scroll position.
+
+- **Reference Library unified control model** — Replaced the separate Feed/Browse top-level Library mode with one composable Library surface. `Sources` is now an independent sidebar toggle, `Feed/List` controls density, and `Recent/For You` controls ranking. Lifecycle filtering moved into the source rail as a `Status` section so `All`, `Saved`, and `Candidates` behave like filters rather than a second toolbar.
+
+- **Reference Library reader/layout semantics** — Removed the separate reader toggle. Feed stays full-width until an item is selected, then compresses into a split reader and can be closed by selecting the active card again or using mobile Back. List density always reserves the reader slot on desktop, auto-selects a row when possible, and keeps a placeholder when no item is selected. Source/content columns now use persisted drag handles with defaults that keep the detail reader as the widest pane.
+
+- **Reference Library Browse row measurement** — Browse now uses measured row virtualization for the item list instead of a fixed row height, so wrapped source/status chips expand their row instead of overlapping the next item.
+
 - **Reference Library legacy reference repair** — Added a non-destructive `library:repair-legacy` CLI for old saved references that predate the rich media/cache standard. It preserves existing summaries and connections while adding publication dates, thumbnails, YouTube embeds, and full source/transcript cache when available. Hilt now also honors legacy `created:` frontmatter before falling back to filesystem creation time, so repaired notes do not appear newly saved.
 
 - **Reference Library incremental lists** — Browse and Recent now page through `/api/library` with `offset`/`limit` instead of stopping at a fixed client cap. Browse virtualizes its artifact rows and automatically requests older pages near the end of the visible list, so deep historical references remain reachable without rendering the whole library at once.
@@ -42,6 +60,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Electron mobile window drag chrome** — Mobile-width Electron layouts now keep an Electron-only top drag/titlebar reservation so macOS traffic lights no longer overlap view headers, and the floating bottom nav pill exposes draggable empty space while keeping its icon buttons clickable.
 - **Library Browse secondary rhythm** — Browse now uses the same 13px body gutter as System under the shared secondary toolbar, and the Library health badge/popover no longer get clipped by the toolbar overflow edge.
+- **Library mobile list hit target** — After returning from a mobile List detail with Back, the list pane now keeps its full flex width instead of collapsing virtualized rows to a narrow hit target while their text overflowed visually.
 
 ## [6.0.0] - 2026-05-28
 

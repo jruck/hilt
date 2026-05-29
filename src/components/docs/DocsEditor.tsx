@@ -130,6 +130,7 @@ interface DocsEditorProps {
   /** Kept for backward compatibility — toolbar no longer rendered. */
   hideToolbar?: boolean;
   contentPadding?: string;
+  scrollChrome?: "top-bottom" | "bottom";
   wrapperClassName?: string;
   currentFilePath?: string;
   scopePath?: string;
@@ -142,6 +143,7 @@ export function DocsEditor({
   onChange,
   readOnly = false,
   contentPadding,
+  scrollChrome,
   wrapperClassName,
   currentFilePath,
   scopePath,
@@ -449,7 +451,7 @@ export function DocsEditor({
       )}
 
       {readOnly ? (
-        <div className={`${proseClass} flex-1 overflow-auto ${contentPadding ?? "px-12 py-6"}`}>
+        <div data-mobile-scroll-chrome={scrollChrome} className={`${proseClass} flex-1 overflow-auto ${contentPadding ?? "px-12 py-6"}`}>
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeRaw]}

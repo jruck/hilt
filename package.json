@@ -23,6 +23,8 @@
     "library:audit-quality": "tsx scripts/library-quality-audit.ts",
     "library:redigest": "tsx scripts/library-redigest.ts",
     "library:repair-legacy": "tsx scripts/library-repair-legacy-references.ts",
+    "library:repair-body-cruft": "tsx scripts/library-repair-body-cruft.ts",
+    "library:repair-media": "tsx scripts/library-repair-media.ts",
     "library:repair-youtube-liked": "tsx scripts/library-repair-youtube-liked.ts",
     "library:auth": "tsx scripts/library-ingest.ts auth",
     "library:ingest:dry-run": "tsx scripts/library-ingest.ts --dry-run --limit 5",

@@ -38,7 +38,7 @@ export async function promoteCandidate(vaultPath: string, candidate: ReferenceCa
       proposed_destination: candidate.proposed_destination || "references",
     },
   };
-  const processed = await digestArtifact(raw, sourceFromCandidate(candidate), { useSummarize: false });
+  const processed = await digestArtifact(raw, sourceFromCandidate(candidate), { useSummarize: false, vaultPath });
   processed.summary = candidate.summary || processed.summary;
   processed.key_points = candidate.key_points.length ? candidate.key_points : processed.key_points;
   processed.score = candidate.score;

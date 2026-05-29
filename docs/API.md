@@ -1179,7 +1179,7 @@ Returns a single saved reference or candidate with full summary, key points, ass
 
 ### POST /api/library/:id/archive
 
-Archives a saved reference by moving its markdown file into a local `.archive/` folder beside the original file. Candidate review items should use Skip instead of archive.
+Archives a saved reference by moving its markdown file into a local `.archive/` folder beside the original file. Candidate review items should use Dismiss instead of archive; the file-level status remains `skipped`.
 
 ### GET /api/library/candidates
 
@@ -1187,7 +1187,7 @@ Lists hidden candidate records from `references/.cache/library-candidates/`.
 
 ### PATCH /api/library/candidates/:id
 
-Updates candidate review status. Supported status values are `candidate` and `skipped`.
+Updates candidate review status. Supported status values are `candidate` and `skipped`. The UI labels `skipped` as Dismissed because it means "remove from active review"; the hidden candidate record remains available until cleanup/expiry.
 
 ### POST /api/library/candidates/:id/promote
 
@@ -1283,6 +1283,8 @@ Returns the operational Reference Library dashboard contract: launchd scheduler 
 - `npm run library:audit-quality -- --queue /path/to/queue.json` scans saved references and candidates for warm/cold digestion quality, source-policy mismatches, fallback notes, short summaries, and missing key points.
 - `npm run library:redigest -- --queue /path/to/queue.json --limit 5 --write` re-runs queued items through `summarize` and updates the existing note with `digestion_status`, `digested_with`, `digested_at`, and refreshed summary/key points. Omit `--write` for a dry run.
 - `npm run library:repair-legacy -- --path references/example.md` performs a non-destructive legacy reference repair: it preserves existing summaries/connections, adds missing `published`, `thumbnail`, `video_url`, `## Media`, and `## Raw Content` where available, and only writes with `-- --write`. Source cache snippets shorter than 500 characters are ignored by default; use `-- --min-cache-chars <n>` only for an intentional source-limited repair.
+- `npm run library:repair-body-cruft` reports saved references with old manual-capture body chrome such as `← [[index|References]]`, bold source/author/date/format blocks, or `## Media` before `# Title`. Add `-- --write` to remove only that chrome, translate missing body metadata into frontmatter, and normalize the body section order.
+- `npm run library:repair-media -- --source manual --include-candidates` performs a report-first media repair for references/candidates missing representative images. It fetches Open Graph/Twitter card image metadata, adds `thumbnail:` plus `## Media` when safe, and only writes with `-- --write`.
 - `npm run library:migrate-references` reports durable references still using legacy `source:` frontmatter. Add `-- --apply` to rewrite only those legacy source URLs to `url:`.
 - `npm run library:youtube:oauth -- --client-file /path/to/client_secret.json` opens Google OAuth for YouTube liked videos and writes token fields to `.env.local` without printing token values.
 - YouTube playlist sources use `url: youtube://playlist/<playlist-id>` or `metadata.playlist_id`. The configured `youtube-bookmarks` playlist is explicit-save/durable; other YouTube playlists default to candidate/review unless their source config says otherwise. Watch Later is not enabled because the YouTube Data API does not reliably expose it as a normal playlist.
@@ -1291,13 +1293,13 @@ Returns the operational Reference Library dashboard contract: launchd scheduler 
 - `npm run library:scheduler:install` writes and loads user-level launchd jobs for hourly ingestion, daily newsletter ingestion, retry replay, candidate cleanup, and recommendation refresh.
 - `npm run library:scheduler:uninstall` unloads and removes those launchd jobs.
 
-X/Twitter bookmarks can use `xurl` instead of raw env tokens. Configure the source with `metadata.auth_provider: xurl`, install or build the scoped Bridge xurl binary, register an X API app with `/Users/jruck/go/bin/xurl-bridge-scoped auth apps add bridge-library --client-id ... --client-secret ... --redirect-uri http://localhost:8080/callback`, set it as the default app, and complete `/Users/jruck/go/bin/xurl-bridge-scoped auth oauth2 --app bridge-library`; then the adapter shells out to the configured xurl binary. The callback URL in the X Developer Portal must exactly match `http://localhost:8080/callback`. The Bridge source currently points at `/Users/jruck/go/bin/xurl-bridge-scoped`, which requests only `tweet.read`, `users.read`, `bookmark.read`, and `offline.access`.
+X/Twitter bookmarks can use `xurl` instead of raw env tokens. Configure the source with `metadata.auth_provider: xurl`, install or build the scoped Bridge xurl binary, register an X API app with `/Users/jruck/go/bin/xurl-bridge-scoped auth apps add bridge-library --client-id ... --client-secret ... --redirect-uri http://localhost:8080/callback`, set it as the default app, and complete `/Users/jruck/go/bin/xurl-bridge-scoped auth oauth2 --app bridge-library`; then the adapter shells out to the configured xurl binary. The callback URL in the X Developer Portal must exactly match `http://localhost:8080/callback`. The Bridge source currently points at `/Users/jruck/go/bin/xurl-bridge-scoped`, which requests only `tweet.read`, `users.read`, `bookmark.read`, and `offline.access`. When the X response includes media expansions, Hilt stores the first image as `thumbnail:` and keeps the source media list for the `## Media` renderer.
 
 Superhuman News uses `mcp-remote` against `https://mcp.mail.superhuman.com/mcp`; OAuth is cached under `~/.mcp-auth` rather than `.env.local`. Run `npm run library:auth -- superhuman-news` to verify live access. The email adapter only calls `list_threads` and `get_thread`, filters mutating MCP tools at the proxy layer, and writes News split items as discovery candidates, not durable references. It does not fall back to Gmail.
 
 ### GET /api/library/recommendations
 
-Returns the file-native For You ranking over recent saved references and unexpired candidates. The v0 ranker caps responses at eight items, scores against active projects, current weekly tasks, North Stars, people notes, and recent saves, and returns `why`, `priority`, and `matched_terms`.
+Returns the file-native For You ranking over recent saved references and unexpired candidates. The v0 ranker caps responses at eight items, scores against active projects, current weekly tasks, North Stars, people notes, recent saves, and persisted `connection_suggestions`, and returns `why`, `priority`, and `matched_terms`.
 
 ### GET /api/search
 

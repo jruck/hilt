@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { LibraryArtifact } from "@/lib/library/types";
-import { archiveArtifact, promoteCandidate, skipCandidate, useInfiniteLibrary, useLibraryArtifact, useLibrarySources } from "@/hooks/useLibrary";
-import { Archive, ArrowLeft, Bookmark, FileText, MoreHorizontal } from "lucide-react";
-import { getYouTubeVideoId } from "@/lib/library/media";
+import { useInfiniteLibrary, useLibrarySources } from "@/hooks/useLibrary";
+import { Bookmark, FileText } from "lucide-react";
 import { SECONDARY_TOOLBAR_BODY_GUTTER_CLASS } from "@/components/layout/SecondaryToolbar";
-import { LibraryMarkdown } from "./LibraryMarkdown";
+import { LibraryArtifactDetailPane } from "./LibraryArtifactDetailPane";
 
 const SOURCE_WIDTH_KEY = "hilt-library-source-width";
 const LIST_WIDTH_KEY = "hilt-library-list-width";
@@ -16,7 +16,7 @@ const MAX_SOURCE_WIDTH = 320;
 const DEFAULT_LIST_WIDTH = 360;
 const MIN_LIST_WIDTH = 300;
 const MAX_LIST_WIDTH = 540;
-const ARTIFACT_ROW_HEIGHT = 92;
+const ARTIFACT_ROW_HEIGHT = 104;
 const ARTIFACT_ROW_OVERSCAN = 10;
 
 function clamp(value: number, min: number, max: number): number {
@@ -31,11 +31,12 @@ function storedWidth(key: string, fallback: number, min: number, max: number): n
   return Number.isFinite(parsed) ? clamp(parsed, min, max) : fallback;
 }
 
-function SourceNav({
+export function SourceNav({
   selectedSource,
   statusFilter,
   searchQuery,
   onSelect,
+  onStatusSelect,
   className = "",
   style,
 }: {
@@ -43,16 +44,46 @@ function SourceNav({
   statusFilter: "all" | "saved" | "candidate";
   searchQuery: string;
   onSelect: (source: string | null) => void;
+  onStatusSelect?: (status: "all" | "saved" | "candidate") => void;
   className?: string;
   style?: CSSProperties;
 }) {
+  const { sources: allStatusSources } = useLibrarySources({
+    q: searchQuery || null,
+  });
   const { sources } = useLibrarySources({
     status: statusFilter === "all" ? null : statusFilter,
     q: searchQuery || null,
   });
+  const allCount = allStatusSources.reduce((sum, source) => sum + source.artifact_count + source.candidate_count, 0);
+  const savedCount = allStatusSources.reduce((sum, source) => sum + source.artifact_count, 0);
+  const candidateCount = allStatusSources.reduce((sum, source) => sum + source.candidate_count, 0);
   const totalCount = sources.reduce((sum, source) => sum + source.artifact_count + source.candidate_count, 0);
+  const statusItems = [
+    { id: "all", label: "All", count: allCount },
+    { id: "saved", label: "Saved", count: savedCount },
+    { id: "candidate", label: "Candidates", count: candidateCount },
+  ] as const;
   return (
     <aside data-testid="library-source-nav" className={`overflow-y-auto bg-[var(--bg-primary)] p-3 ${className}`} style={style}>
+      {onStatusSelect && (
+        <div className="mb-4 border-b border-[var(--border-default)] pb-3">
+          <div className="mb-1 px-3 text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Status</div>
+          <div className="space-y-1">
+            {statusItems.map((status) => (
+              <button
+                key={status.id}
+                onClick={() => onStatusSelect(status.id)}
+                className={`flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm ${statusFilter === status.id ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`}
+              >
+                <span>{status.label}</span>
+                <span className="shrink-0 text-xs text-[var(--text-tertiary)]">{status.count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="mb-1 px-3 text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Sources</div>
       <button
         onClick={() => onSelect(null)}
         className={`mb-2 flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm ${selectedSource === null ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`}
@@ -76,7 +107,7 @@ function SourceNav({
   );
 }
 
-function ArtifactList({
+export function ArtifactList({
   artifacts,
   total,
   selected,
@@ -100,15 +131,14 @@ function ArtifactList({
   style?: CSSProperties;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
-  const [scrollState, setScrollState] = useState({ top: 0, height: 0 });
   const rowCount = artifacts.length + (hasMore || isLoadingMore ? 1 : 0);
-  const startIndex = Math.max(0, Math.floor(scrollState.top / ARTIFACT_ROW_HEIGHT) - ARTIFACT_ROW_OVERSCAN);
-  const endIndex = Math.min(
-    rowCount,
-    Math.ceil((scrollState.top + scrollState.height) / ARTIFACT_ROW_HEIGHT) + ARTIFACT_ROW_OVERSCAN,
-  );
-  const visibleIndexes = [];
-  for (let index = startIndex; index < endIndex; index += 1) visibleIndexes.push(index);
+  const rowVirtualizer = useVirtualizer({
+    count: rowCount,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => ARTIFACT_ROW_HEIGHT,
+    overscan: ARTIFACT_ROW_OVERSCAN,
+  });
+  const virtualItems = rowVirtualizer.getVirtualItems();
 
   const maybeLoadMore = useCallback(() => {
     const node = parentRef.current;
@@ -120,7 +150,6 @@ function ArtifactList({
     const node = parentRef.current;
     if (!node) return;
     const update = () => {
-      setScrollState({ top: node.scrollTop, height: node.clientHeight });
       maybeLoadMore();
     };
     update();
@@ -134,24 +163,23 @@ function ArtifactList({
   }, [artifacts.length, maybeLoadMore]);
 
   const handleScroll = useCallback(() => {
-    const node = parentRef.current;
-    if (!node) return;
-    setScrollState({ top: node.scrollTop, height: node.clientHeight });
     maybeLoadMore();
   }, [maybeLoadMore]);
 
   return (
-    <div ref={parentRef} onScroll={handleScroll} data-testid="library-artifact-list" className={`overflow-y-auto bg-[var(--bg-primary)] ${className}`} style={style}>
+    <div ref={parentRef} onScroll={handleScroll} data-mobile-scroll-chrome="top-bottom" data-testid="library-artifact-list" className={`overflow-y-auto bg-[var(--bg-primary)] ${className}`} style={style}>
       {artifacts.length > 0 ? (
-        <div className="relative w-full" style={{ height: rowCount * ARTIFACT_ROW_HEIGHT }}>
-          {visibleIndexes.map((index) => {
-            const artifact = artifacts[index];
+        <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
+          {virtualItems.map((virtualRow) => {
+            const artifact = artifacts[virtualRow.index];
             if (!artifact) {
               return (
                 <div
                   key="library-artifact-list-loader"
-                  className="absolute left-0 top-0 flex w-full items-center justify-center border-b border-[var(--border-default)] px-3 py-4 text-xs text-[var(--text-tertiary)]"
-                  style={{ height: ARTIFACT_ROW_HEIGHT, transform: `translateY(${index * ARTIFACT_ROW_HEIGHT}px)` }}
+                  ref={rowVirtualizer.measureElement}
+                  data-index={virtualRow.index}
+                  className="absolute left-0 top-0 flex min-h-20 w-full items-center justify-center border-b border-[var(--border-default)] px-3 py-4 text-xs text-[var(--text-tertiary)]"
+                  style={{ transform: `translateY(${virtualRow.start}px)` }}
                 >
                   {isLoadingMore ? "Loading more..." : `${artifacts.length} of ${total} loaded`}
                 </div>
@@ -160,10 +188,12 @@ function ArtifactList({
             return (
               <button
                 key={artifact.id}
+                ref={rowVirtualizer.measureElement}
+                data-index={virtualRow.index}
                 data-testid="library-artifact-row"
                 onClick={() => onSelect(artifact)}
-                className={`absolute left-0 top-0 flex w-full gap-3 border-b border-[var(--border-default)] p-3 text-left transition-colors ${selected === artifact.id ? "bg-[var(--bg-secondary)]" : "hover:bg-[var(--bg-secondary)]"}`}
-                style={{ height: ARTIFACT_ROW_HEIGHT, transform: `translateY(${index * ARTIFACT_ROW_HEIGHT}px)` }}
+                className={`absolute left-0 top-0 flex min-h-[92px] w-full gap-3 border-b border-[var(--border-default)] p-3 text-left transition-colors ${selected === artifact.id ? "bg-[var(--bg-secondary)]" : "hover:bg-[var(--bg-secondary)]"}`}
+                style={{ transform: `translateY(${virtualRow.start}px)` }}
               >
                 <div className="flex h-12 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[var(--content-surface)] text-[var(--text-tertiary)]">
                   {artifact.thumbnail ? (
@@ -175,7 +205,7 @@ function ArtifactList({
                     <FileText className="h-4 w-4" />
                   )}
                 </div>
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 self-center">
                   <div className="line-clamp-2 text-sm font-medium leading-5 text-[var(--text-primary)]">{artifact.title}</div>
                   <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-tertiary)]">
                     <span className="truncate">{artifact.source_name || artifact.channel}</span>
@@ -201,245 +231,16 @@ function ArtifactList({
   );
 }
 
-function markdownSection(markdown: string, sectionName: string): string {
-  const lines = markdown.split(/\r?\n/);
-  const start = lines.findIndex((line) => line.trim().toLowerCase() === `## ${sectionName}`.toLowerCase());
-  if (start === -1) return "";
-  const collected: string[] = [];
-  for (let i = start + 1; i < lines.length; i += 1) {
-    if (/^##\s+/.test(lines[i])) break;
-    collected.push(lines[i]);
-  }
-  return collected.join("\n").trim();
-}
-
-function removeMarkdownSections(markdown: string, sectionNames: string[]): string {
-  const names = new Set(sectionNames.map((name) => name.toLowerCase()));
-  const lines = markdown.split(/\r?\n/);
-  const kept: string[] = [];
-  let skipping = false;
-  for (const line of lines) {
-    const heading = line.match(/^##\s+(.+?)\s*$/);
-    if (heading) {
-      skipping = names.has(heading[1].toLowerCase());
-    }
-    if (!skipping) kept.push(line);
-  }
-  return kept.join("\n").replace(/^#\s+.+\n+/, "").trim();
-}
-
-function stripDetails(markdown: string): string {
-  const trimmed = markdown.trim();
-  const match = trimmed.match(/^<details>\s*<summary>[\s\S]*?<\/summary>\s*([\s\S]*?)\s*<\/details>$/i);
-  return (match?.[1] || trimmed).trim();
-}
-
-function summaryMarkdown(artifact: NonNullable<ReturnType<typeof useLibraryArtifact>["artifact"]>): string {
-  const body = removeMarkdownSections(artifact.content, ["Media", "Raw Content"]);
-  if (body) return body;
-  const keyPoints = artifact.key_points.length ? artifact.key_points.map((point) => `- ${point}`).join("\n") : "";
-  const connections = artifact.connections.length ? artifact.connections.map((connection) => `- ${connection}`).join("\n") : "";
-  return [
-    "## Summary",
-    artifact.summary || "",
-    keyPoints ? `\n## Key Points\n\n${keyPoints}` : "",
-    connections ? `\n## Connections\n\n${connections}` : "",
-  ].join("\n").trim();
-}
-
-function cachedSourceMarkdown(content: string): string {
-  return stripDetails(markdownSection(content, "Raw Content"));
-}
-
-function frontmatterString(data: Record<string, unknown>, keys: string[]): string | null {
-  for (const key of keys) {
-    const value = data[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return null;
-}
-
-function MediaPreview({ artifact }: { artifact: NonNullable<ReturnType<typeof useLibraryArtifact>["artifact"]> }) {
-  const mediaMarkdown = markdownSection(artifact.content, "Media");
-  if (mediaMarkdown) {
-    return <LibraryMarkdown markdown={mediaMarkdown} className="mb-5" />;
-  }
-  if (artifact.content.includes("<iframe") || artifact.content.includes("youtube.com/embed/")) {
-    return null;
-  }
-
-  const embeddedMediaUrl = frontmatterString(artifact.raw_frontmatter, ["video_url", "youtube_url", "media_url"]);
-  const videoId = getYouTubeVideoId(embeddedMediaUrl || artifact.url);
-  if (videoId) {
-    return (
-      <div className="mb-5 aspect-video w-full overflow-hidden rounded-lg border border-[var(--border-default)] bg-black">
-        <iframe
-          src={`https://www.youtube.com/embed/${videoId}`}
-          title={artifact.title}
-          className="h-full w-full"
-          loading="lazy"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-        />
-      </div>
-    );
-  }
-  if (artifact.thumbnail) {
-    return (
-      <div className="mb-5 overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)]">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={artifact.thumbnail} alt="" className="max-h-[360px] w-full object-cover" />
-      </div>
-    );
-  }
-  return null;
-}
-
-function ArtifactDetail({
-  id,
-  onBack,
-  showBack = false,
-  onChanged,
-}: {
-  id: string | null;
-  onBack?: () => void;
-  showBack?: boolean;
-  onChanged?: () => void;
-}) {
-  const { artifact, isLoading, mutate } = useLibraryArtifact(id);
-  const [mode, setMode] = useState<"summary" | "cache">("summary");
-  const [actionsOpen, setActionsOpen] = useState(false);
-
-  if (!id) {
-    return <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-tertiary)]">Select an artifact</div>;
-  }
-  if (isLoading || !artifact) {
-    return <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-tertiary)]">Loading...</div>;
-  }
-  const sourceMarkdown = cachedSourceMarkdown(artifact.content);
-  const hasCachedSource = sourceMarkdown.length > 0 && sourceMarkdown !== "No cached source content available.";
-  const isCandidate = artifact.lifecycle_status === "candidate";
-  const handleChanged = async () => {
-    await mutate();
-    onChanged?.();
-  };
-  return (
-    <article data-testid="library-artifact-detail" className="min-w-0 flex-1 overflow-y-auto bg-[var(--content-surface)]">
-      <div className="mx-auto max-w-3xl px-4 py-4 sm:px-6 sm:py-5 lg:px-7 lg:py-6">
-        {showBack && (
-          <button
-            onClick={onBack}
-            className="mb-4 inline-flex min-h-10 items-center gap-2 rounded-md border border-[var(--border-default)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] lg:hidden"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </button>
-        )}
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-tertiary)]">
-          <span>{artifact.source_name || artifact.channel} · {artifact.created_at?.slice(0, 10)}</span>
-          <span className={`rounded-full px-2 py-0.5 ${artifact.lifecycle_status === "candidate" ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-[var(--bg-secondary)] text-[var(--text-secondary)]"}`}>
-            {artifact.lifecycle_status === "candidate" ? "Candidate" : "Saved"}
-          </span>
-        </div>
-        <h1 className="text-xl font-semibold leading-tight text-[var(--text-primary)] sm:text-2xl">{artifact.title}</h1>
-
-        <div className="mt-5 flex flex-col gap-3 border-y border-[var(--border-default)] py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-          <div className="grid grid-cols-3 rounded-lg bg-[var(--bg-tertiary)] p-0.5 sm:inline-flex">
-            <button
-              onClick={() => setMode("summary")}
-              className={`h-8 rounded-md px-3 text-xs font-medium transition-colors ${mode === "summary" ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}`}
-            >
-              Summary
-            </button>
-            <button
-              onClick={() => setMode("cache")}
-              disabled={!hasCachedSource}
-              className={`h-8 rounded-md px-3 text-xs font-medium transition-colors ${mode === "cache" ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"}`}
-            >
-              Cache
-            </button>
-            {artifact.url ? (
-              <a
-                href={artifact.url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex h-8 items-center justify-center rounded-md px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
-              >
-                Source
-              </a>
-            ) : (
-              <span className="inline-flex h-8 cursor-not-allowed items-center justify-center rounded-md px-3 text-xs font-medium text-[var(--text-tertiary)] opacity-40">Source</span>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {isCandidate ? (
-              <>
-                <button
-                  onClick={async () => { await promoteCandidate(artifact.id); await handleChanged(); }}
-                  className="min-h-9 rounded-md border border-[var(--border-default)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
-                >
-                  Save
-                </button>
-                <button
-                  onClick={async () => { await skipCandidate(artifact.id); await handleChanged(); }}
-                  className="min-h-9 rounded-md px-3 py-1.5 text-xs font-medium text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)]"
-                >
-                  Skip
-                </button>
-              </>
-            ) : (
-              <div className="relative">
-                <button
-                  onClick={() => setActionsOpen((value) => !value)}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                  title="More saved-reference actions"
-                >
-                  <MoreHorizontal className="h-4 w-4" />
-                </button>
-                {actionsOpen && (
-                  <div className="absolute right-0 z-10 mt-1 w-44 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] p-1 content-card-shadow">
-                    <button
-                      onClick={async () => {
-                        if (!window.confirm("Archive this saved reference? It will move out of the active Library.")) return;
-                        await archiveArtifact(artifact.id);
-                        setActionsOpen(false);
-                        onChanged?.();
-                      }}
-                      className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                    >
-                      <Archive className="h-3.5 w-3.5" />
-                      Archive reference
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="mt-5">
-          <MediaPreview artifact={artifact} />
-          {mode === "summary" ? (
-            <LibraryMarkdown markdown={summaryMarkdown(artifact)} />
-          ) : hasCachedSource ? (
-            <LibraryMarkdown markdown={sourceMarkdown} />
-          ) : (
-            <p className="text-sm text-[var(--text-tertiary)]">No cached source content is available for this item yet.</p>
-          )}
-        </div>
-      </div>
-    </article>
-  );
-}
-
 export function BrowseView({
   searchQuery,
   statusFilter,
+  openArtifactId,
   onCountChange,
   onOpen,
 }: {
   searchQuery: string;
   statusFilter: "all" | "saved" | "candidate";
+  openArtifactId?: string | null;
   onCountChange?: (count: number) => void;
   onOpen?: (artifact: LibraryArtifact) => void;
 }) {
@@ -461,6 +262,12 @@ export function BrowseView({
   useEffect(() => {
     onCountChange?.(total);
   }, [onCountChange, total]);
+
+  useEffect(() => {
+    if (!openArtifactId) return;
+    setSelectedId(openArtifactId);
+    setMobilePane("detail");
+  }, [openArtifactId]);
 
   useEffect(() => {
     localStorage.setItem(SOURCE_WIDTH_KEY, String(sourceWidth));
@@ -572,7 +379,7 @@ export function BrowseView({
             onMouseDown={startResize("list", listWidth)}
           />
           <div className={`${mobilePane === "detail" ? "flex" : "hidden"} min-h-0 flex-1 lg:flex`}>
-            <ArtifactDetail
+            <LibraryArtifactDetailPane
               key={selectedArtifactId ?? "empty"}
               id={selectedArtifactId}
               showBack={mobilePane === "detail"}

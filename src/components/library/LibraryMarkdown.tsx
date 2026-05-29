@@ -31,6 +31,7 @@ export function LibraryMarkdown({ markdown, className = "" }: { markdown: string
     prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
     prose-img:rounded-lg prose-img:border prose-img:border-[var(--border-default)]
     prose-table:border-collapse prose-table:bg-[var(--bg-primary)]
+    prose-thead:bg-[var(--bg-secondary)]
     prose-th:border prose-th:border-[var(--border-default)] prose-th:px-3 prose-th:py-2
     prose-td:border prose-td:border-[var(--border-default)] prose-td:px-3 prose-td:py-2 prose-td:bg-[var(--bg-primary)]`;
 

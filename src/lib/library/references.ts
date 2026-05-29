@@ -103,6 +103,19 @@ function uniqueReferencePath(dir: string, title: string, date: string): string {
   return candidate;
 }
 
+function connectionLines(processed: ProcessedArtifact): string {
+  if (processed.connection_suggestions?.length) {
+    return processed.connection_suggestions.map((suggestion) => {
+      const target = suggestion.target ? `[[${suggestion.target}]]` : suggestion.label;
+      return `- ${target} — ${suggestion.reason}`;
+    }).join("\n");
+  }
+  if (processed.connected_projects.length) {
+    return processed.connected_projects.map((item) => `- [[${item}]]`).join("\n");
+  }
+  return "- ";
+}
+
 export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reason?: PromotionReason): string {
   const { raw, source } = processed;
   const captured = dateOnly();
@@ -125,6 +138,8 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
     cached_source_extractor: processed.digestion?.cached_source_extractor,
     thumbnail: raw.thumbnail || undefined,
     tags: processed.tags,
+    connected_projects: processed.connected_projects.length ? processed.connected_projects : undefined,
+    connection_suggestions: processed.connection_suggestions?.length ? processed.connection_suggestions : undefined,
     relevance_signals: source.intent === "explicit_save" ? [{
       type: source.signal || "explicit_save",
       channel: source.channel,
@@ -143,9 +158,7 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
   const keyPoints = processed.key_points.length
     ? processed.key_points.map((point) => `- ${point}`).join("\n")
     : "- ";
-  const connections = processed.connected_projects.length
-    ? processed.connected_projects.map((item) => `- [[${item}]]`).join("\n")
-    : "- ";
+  const connections = connectionLines(processed);
   const media = buildMediaMarkdown(raw);
   const rawContent = stripDetailsWrapper(cachedSourceContent(processed));
   const notes = processed.extraction_notes.length

@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { Save, Loader2, AlertCircle, Copy, FolderOpen, Check, ExternalLink, MoreVertical, PanelLeftOpen, PanelLeftClose } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import { DocsBreadcrumbs } from "./DocsBreadcrumbs";
 import { DocsEditToggle } from "./DocsEditToggle";
 import { DocsFallbackView } from "./DocsFallbackView";
@@ -198,6 +199,8 @@ export function DocsContentPane({
   useEffect(() => {
     setShowOverflow(false);
   }, [filePath]);
+  useMobileChromeVisibilityLock(showOverflow);
+  const fileHeaderChromeEnabled = !isEditMode;
 
   // File action buttons component for consistent UI across all file types
   const FileActionButtons = useCallback(({ showNewTab = false }: { showNewTab?: boolean }) => {
@@ -297,6 +300,15 @@ export function DocsContentPane({
     [scopePath, onNavigateToFolder]
   );
 
+  const renderFileShell = (header: ReactNode, body: ReactNode, enabled = fileHeaderChromeEnabled) => (
+    <div className="relative flex-1 flex flex-col overflow-hidden">
+      <MobileChromeTopBar enabled={enabled}>{header}</MobileChromeTopBar>
+      <MobileChromeContent enabled={enabled} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {body}
+      </MobileChromeContent>
+    </div>
+  );
+
   // No file selected
   if (!filePath) {
     return (
@@ -337,9 +349,8 @@ export function DocsContentPane({
 
   // Image files
   if (IMAGE_EXTENSIONS.has(extension)) {
-    return (
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
+    return renderFileShell(
+      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
           <div className="flex items-center gap-2 min-w-0">
             {SidebarToggle}
             <DocsBreadcrumbs
@@ -351,17 +362,15 @@ export function DocsContentPane({
           <div className="flex items-center gap-2 flex-shrink-0">
             <FileActionButtons showNewTab />
           </div>
-        </div>
-        <ImageViewer filePath={filePath} scopePath={scopePath} />
-      </div>
+        </div>,
+      <ImageViewer filePath={filePath} scopePath={scopePath} />
     );
   }
 
   // PDF files
   if (PDF_EXTENSIONS.has(extension)) {
-    return (
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
+    return renderFileShell(
+      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
           <div className="flex items-center gap-2 min-w-0">
             {SidebarToggle}
             <DocsBreadcrumbs
@@ -373,17 +382,15 @@ export function DocsContentPane({
           <div className="flex items-center gap-2 flex-shrink-0">
             <FileActionButtons showNewTab />
           </div>
-        </div>
-        <PDFViewer filePath={filePath} scopePath={scopePath} />
-      </div>
+        </div>,
+      <PDFViewer filePath={filePath} scopePath={scopePath} />
     );
   }
 
   // CSV files
   if (CSV_EXTENSIONS.has(extension) && content !== null) {
-    return (
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
+    return renderFileShell(
+      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
           <div className="flex items-center gap-2 min-w-0">
             {SidebarToggle}
             <DocsBreadcrumbs
@@ -395,18 +402,16 @@ export function DocsContentPane({
           <div className="flex items-center gap-2 flex-shrink-0">
             <FileActionButtons />
           </div>
-        </div>
-        <CSVTableViewer filePath={filePath} content={content} />
-      </div>
+        </div>,
+      <CSVTableViewer filePath={filePath} content={content} />
     );
   }
 
   // Code files
   if (CODE_EXTENSIONS.has(extension) && content !== null) {
     const displayContent = editedContent !== null ? editedContent : content;
-    return (
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
+    return renderFileShell(
+      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
           <div className="flex items-center gap-2 min-w-0">
             {SidebarToggle}
             <DocsBreadcrumbs
@@ -440,23 +445,20 @@ export function DocsContentPane({
               onToggle={handleModeToggle}
             />
           </div>
-        </div>
-        <CodeViewer
+        </div>,
+      <CodeViewer
           filePath={filePath}
           content={displayContent}
           readOnly={!isEditMode}
           onChange={isEditMode ? (newContent) => onContentChange(newContent) : undefined}
         />
-      </div>
     );
   }
 
   // Binary or non-viewable file
   if (fileMeta && (!fileMeta.isViewable || fileMeta.isBinary)) {
-    return (
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
+    return renderFileShell(
+      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
           <div className="flex items-center gap-2 min-w-0">
             {SidebarToggle}
             <DocsBreadcrumbs
@@ -468,79 +470,87 @@ export function DocsContentPane({
           <div className="flex items-center gap-2 flex-shrink-0">
             <FileActionButtons />
           </div>
-        </div>
-
-        <DocsFallbackView
+        </div>,
+      <DocsFallbackView
           filePath={filePath}
           size={fileMeta.size}
           mimeType={fileMeta.mimeType}
           isLargeFile={fileMeta.size > 1024 * 1024}
         />
-      </div>
     );
   }
 
   // Viewable content
   const displayContent = editedContent !== null ? editedContent : content || "";
+  const markdownHeaderChromeEnabled = !isEditMode;
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="relative flex-1 flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
-        <div className="flex items-center gap-2 min-w-0">
-          {SidebarToggle}
-          <DocsBreadcrumbs
-            filePath={filePath}
+      <MobileChromeTopBar enabled={markdownHeaderChromeEnabled}>
+        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-default)] gap-4 min-h-[44px]">
+          <div className="flex items-center gap-2 min-w-0">
+            {SidebarToggle}
+            <DocsBreadcrumbs
+              filePath={filePath}
+              scopePath={scopePath}
+              onNavigate={handleBreadcrumbNavigate}
+            />
+          </div>
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <FileActionButtons />
+
+            {/* Save button - shown when there are unsaved changes */}
+            {hasUnsavedChanges && (
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 text-xs font-medium transition-colors"
+              >
+                {isSaving ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Save className="w-3.5 h-3.5" />
+                )}
+                Save
+              </button>
+            )}
+
+            {/* Save error */}
+            {saveError && (
+              <span className="text-xs text-red-500">{saveError}</span>
+            )}
+
+            {/* Edit toggle */}
+            <DocsEditToggle
+              isEditMode={isEditMode}
+              onToggle={handleModeToggle}
+            />
+          </div>
+        </div>
+      </MobileChromeTopBar>
+
+      <MobileChromeContent enabled={markdownHeaderChromeEnabled} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {/* Editor */}
+        <div
+          ref={scrollContainerRef}
+          data-mobile-scroll-chrome={markdownHeaderChromeEnabled ? "top-bottom" : "bottom"}
+          className="flex-1 overflow-auto"
+        >
+          <DocsEditor
+            markdown={displayContent}
+            onChange={isEditMode ? (newContent) => onContentChange(newContent) : undefined}
+            readOnly={!isEditMode}
+            currentFilePath={filePath}
             scopePath={scopePath}
-            onNavigate={handleBreadcrumbNavigate}
+            fileTree={fileTree}
+            onNavigateToFile={onNavigateToFile}
+            contentPadding={isMobile ? "px-2 py-2" : undefined}
+            scrollChrome={markdownHeaderChromeEnabled ? "top-bottom" : "bottom"}
           />
         </div>
-
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <FileActionButtons />
-
-          {/* Save button - shown when there are unsaved changes */}
-          {hasUnsavedChanges && (
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 text-xs font-medium transition-colors"
-            >
-              {isSaving ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Save className="w-3.5 h-3.5" />
-              )}
-              Save
-            </button>
-          )}
-
-          {/* Save error */}
-          {saveError && (
-            <span className="text-xs text-red-500">{saveError}</span>
-          )}
-
-          {/* Edit toggle */}
-          <DocsEditToggle
-            isEditMode={isEditMode}
-            onToggle={handleModeToggle}
-          />
-        </div>
-      </div>
-
-      {/* Editor */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-auto">
-        <DocsEditor
-          markdown={displayContent}
-          onChange={isEditMode ? (newContent) => onContentChange(newContent) : undefined}
-          readOnly={!isEditMode}
-          currentFilePath={filePath}
-          scopePath={scopePath}
-          fileTree={fileTree}
-          onNavigateToFile={onNavigateToFile}
-          contentPadding={isMobile ? "px-2 py-2" : undefined}
-        />
-      </div>
+      </MobileChromeContent>
     </div>
   );
 }

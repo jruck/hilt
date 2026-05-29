@@ -245,7 +245,7 @@ async function main() {
       continue;
     }
 
-    const processed = await digestArtifact(raw, source, { useSummarize: true });
+    const processed = await digestArtifact(raw, source, { useSummarize: true, vaultPath });
     const hasRepairableYouTubeMedia = Boolean(getYouTubeVideoId(raw.url) && buildMediaMarkdown(processed.raw).trim());
     const mediaRepair = hasRepairableYouTubeMedia && !existingHasMedia && processed.summary.length >= 100 && processed.key_points.length >= 2;
     const qualitySkipped = write && writeHotOnly && processed.digestion?.status !== "hot" && !mediaRepair;

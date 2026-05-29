@@ -285,7 +285,7 @@ export function StackView({ scopePath, searchQuery = "" }: StackViewProps) {
     // Tree panel (default on mobile)
     return (
       <div className="flex flex-col h-full">
-        <div className="flex-1 overflow-y-auto pt-1.5 pb-1">
+        <div data-mobile-scroll-chrome="bottom" className="flex-1 overflow-y-auto pt-1.5 pb-[var(--hilt-mobile-nav-clearance)]">
           <StackFileTree
             layers={stack.layers}
             mcpServers={stack.mcpServers}

@@ -332,7 +332,7 @@ export function StackContentPane({
         </div>
 
         {/* Content - always in edit mode */}
-        <div ref={scrollContainerRef} className="flex-1 overflow-auto">
+        <div ref={scrollContainerRef} data-mobile-scroll-chrome="bottom" className="flex-1 overflow-auto pb-[var(--hilt-mobile-nav-clearance)]">
           {isMarkdown ? (
             <DocsEditor
               markdown={createContent}
@@ -460,7 +460,7 @@ export function StackContentPane({
       </div>
 
       {/* Content */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-auto">
+      <div ref={scrollContainerRef} data-mobile-scroll-chrome="bottom" className="flex-1 overflow-auto pb-[var(--hilt-mobile-nav-clearance)]">
         {isMarkdown ? (
           <DocsEditor
             markdown={displayContent}

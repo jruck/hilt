@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import type { LibraryArtifact, RecommendedArtifact } from "@/lib/library/types";
 import type { PromotionReason } from "@/lib/library/types";
 import { Archive, Bookmark, ExternalLink, FileText, Mail, MoreHorizontal, Play, Rss, Sparkles, X } from "lucide-react";
@@ -23,6 +23,7 @@ export function FeedCard({
   promoteReason = "manual_save",
   onChanged,
   onOpen,
+  active = false,
 }: {
   artifact: LibraryArtifact | RecommendedArtifact;
   why?: string;
@@ -30,20 +31,33 @@ export function FeedCard({
   promoteReason?: PromotionReason;
   onChanged?: () => void;
   onOpen?: (artifact: LibraryArtifact) => void;
+  active?: boolean;
 }) {
   const isCandidate = artifact.lifecycle_status === "candidate";
   const [actionsOpen, setActionsOpen] = useState(false);
   const priorityLabel = priority === "must_read" ? "Must Read" : priority === "recommended" ? "Recommended" : priority === "interesting" ? "Interesting" : null;
+  const openArtifact = () => onOpen?.(artifact);
+  const stopCardClick = (event: MouseEvent) => event.stopPropagation();
+  const activeClass = active
+    ? "border-[var(--accent-primary)] ring-1 ring-[var(--accent-primary)]"
+    : "border-[var(--border-default)] hover:border-[var(--text-tertiary)]";
 
   return (
-    <article className="group overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--content-surface)] content-card-shadow transition-colors hover:border-[var(--text-tertiary)]">
+    <article className={`group relative overflow-hidden rounded-lg border bg-[var(--content-surface)] content-card-shadow transition-colors ${activeClass}`}>
+      <button
+        type="button"
+        aria-label={`Open ${artifact.title}`}
+        onClick={openArtifact}
+        aria-current={active ? "true" : undefined}
+        className="absolute inset-0 z-0 cursor-pointer rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)] focus:ring-offset-2 focus:ring-offset-[var(--bg-primary)]"
+      />
       {artifact.thumbnail && (
-        <button onClick={() => onOpen?.(artifact)} className="block aspect-video w-full overflow-hidden bg-[var(--bg-secondary)] text-left">
+        <div className="relative z-10 block aspect-video w-full overflow-hidden bg-[var(--bg-secondary)] text-left pointer-events-none">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={artifact.thumbnail} alt="" className="h-full w-full object-cover" />
-        </button>
+        </div>
       )}
-      <div className="space-y-3 p-4">
+      <div className="relative z-10 space-y-3 p-4 pointer-events-none">
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-tertiary)]">
           <div className="flex min-w-0 items-center gap-2">
             <ChannelIcon channel={artifact.channel} />
@@ -56,9 +70,7 @@ export function FeedCard({
           </div>
         </div>
 
-        <button onClick={() => onOpen?.(artifact)} className="block text-left">
-          <h3 className="line-clamp-2 text-base font-semibold leading-snug text-[var(--text-primary)]">{artifact.title}</h3>
-        </button>
+        <h3 className="line-clamp-2 text-base font-semibold leading-snug text-[var(--text-primary)]">{artifact.title}</h3>
         {artifact.summary && <p className="line-clamp-3 text-sm leading-6 text-[var(--text-secondary)]">{artifact.summary}</p>}
         {why && (
           <p className="flex gap-2 text-sm leading-5 text-[var(--text-tertiary)]">
@@ -71,27 +83,27 @@ export function FeedCard({
             <span key={tag} className="rounded-full bg-[var(--bg-secondary)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">{tag}</span>
           ))}
         </div>
-        <div className="flex flex-col gap-3 border-t border-[var(--border-default)] pt-3 sm:flex-row sm:items-center sm:justify-between">
-          <button onClick={() => onOpen?.(artifact)} className="min-h-9 text-left text-sm font-medium text-[var(--text-primary)] hover:text-[var(--accent-primary)]">Read more</button>
-          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[var(--border-default)] pt-3">
             {isCandidate && (
               <>
                 <button
-                  onClick={async () => { await promoteCandidate(artifact.id, promoteReason); onChanged?.(); }}
-                  className="min-h-9 rounded-md border border-[var(--border-default)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
+                  onClick={async (event) => { event.stopPropagation(); await promoteCandidate(artifact.id, promoteReason); onChanged?.(); }}
+                  className="pointer-events-auto min-h-9 rounded-md border border-[var(--border-default)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
+                  title="Save this candidate as a durable reference"
                 >
                   Save
                 </button>
                 <button
-                  onClick={async () => { await skipCandidate(artifact.id); onChanged?.(); }}
-                  className="min-h-9 rounded-md px-3 py-1.5 text-xs font-medium text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)]"
+                  onClick={async (event) => { event.stopPropagation(); await skipCandidate(artifact.id); onChanged?.(); }}
+                  className="pointer-events-auto min-h-9 rounded-md px-3 py-1.5 text-xs font-medium text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)]"
+                  title="Dismiss this candidate from review; it remains in the temporary candidate cache until cleanup"
                 >
-                  Skip
+                  Dismiss
                 </button>
               </>
             )}
             {!isCandidate && (
-              <div className="relative">
+              <div className="pointer-events-auto relative" onClick={stopCardClick}>
                 <button
                   onClick={() => setActionsOpen((value) => !value)}
                   className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
@@ -117,11 +129,17 @@ export function FeedCard({
               </div>
             )}
             {artifact.url && (
-              <a href={artifact.url} target="_blank" rel="noreferrer" className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]" title="Open source">
+              <a
+                href={artifact.url}
+                target="_blank"
+                rel="noreferrer"
+                onClick={stopCardClick}
+                className="pointer-events-auto inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                title="Open source"
+              >
                 <ExternalLink className="h-4 w-4" />
               </a>
             )}
-          </div>
         </div>
       </div>
     </article>

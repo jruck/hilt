@@ -11,9 +11,9 @@ This document provides a comprehensive architectural overview of Hilt for AI age
 │  │  Next.js 16 + React 19                                            │  │
 │  │  ┌─────────────────────────────────────────────────────────────┐  │  │
 │  │  │  Board.tsx (Main Container)                                  │  │  │
-│  │  │  ├── ViewToggle (Bridge / People / Briefing / Library / Docs / System) │  │  │
+│  │  │  ├── ViewToggle (Briefing / Bridge / People / Library / Docs / System) │  │  │
 │  │  │  ├── BridgeView (weekly tasks, projects, notes)              │  │  │
-│  │  │  ├── LibraryView (feed, candidates, browse, search)           │  │  │
+│  │  │  ├── LibraryView (unified feed/list reference workspace)       │  │  │
 │  │  │  ├── DocsView (markdown file browser + editor)               │  │  │
 │  │  │  ├── SystemView (Sessions / Apps / Stack / Sync inspection)  │  │  │
 │  │  │  ├── MapView (local/tailnet work/session map)                │  │  │
@@ -303,7 +303,7 @@ Stack mode reads each machine's Claude/Codex configuration stack through `/api/s
 
 Sync mode reads local Syncthing through a Hilt-local adapter only. `/api/system/sync?scope=local` reads the serving machine's loopback Syncthing REST API using an API key file, while aggregate `/api/system/sync` asks peer Hilt instances for their own local snapshots. Hilt never exposes the Syncthing API key or proxies arbitrary Syncthing API calls over the tailnet. The adapter caches expensive folder status reads with a short TTL and single-flight refresh.
 
-System inspection views share the `SecondaryToolbar` 44px chrome row. `SystemView` owns the mode switcher and passes it into the active mode, so Sessions can place Map filters/diagnostics/refresh beside it, Apps can place machine/app/service freshness beside it, Stack can place machine selection/status beside it, and Sync can place health summary/refresh beside it. Library uses the same toolbar primitive for Feed/Browse and mode-specific controls, keeping secondary navigation height and narrow-width overflow behavior aligned across the newest workspace views. System inspection views also use a client-side stale-while-refresh pattern. Sessions, Apps, Stack, and Sync keep their last successful client snapshot and selection in module memory, render it immediately when the user switches back, and refresh in the background. Refresh failures should not blank the view; they surface as status chrome while stale content remains visible.
+System inspection views share the `SecondaryToolbar` 44px chrome row. `SystemView` owns the mode switcher and passes it into the active mode, so Sessions can place Map filters/diagnostics/refresh beside it, Apps can place machine/app/service freshness beside it, Stack can place machine selection/status beside it, and Sync can place health summary/refresh beside it. Library uses the same toolbar primitive for source visibility, Feed/List density, ranking, counts, and health, keeping secondary navigation height and narrow-width overflow behavior aligned across the newest workspace views. System inspection views also use a client-side stale-while-refresh pattern. Sessions, Apps, Stack, and Sync keep their last successful client snapshot and selection in module memory, render it immediately when the user switches back, and refresh in the background. Refresh failures should not blank the view; they surface as status chrome while stale content remains visible.
 
 ### 5. Stack View Data Flow
 
@@ -446,7 +446,7 @@ Components receive events and trigger SWR revalidation
 | State | Location | Persistence | Purpose |
 |-------|----------|-------------|---------|
 | Theme preference | `data/preferences.json` | Server JSON | Light/dark/system |
-| View mode | `data/preferences.json` + URL | Server JSON + URL | Bridge/People/Briefing/Library/Docs/System |
+| View mode | `data/preferences.json` + URL | Server JSON + URL | Briefing/Bridge/People/Library/Docs/System |
 | Bridge vault path | `data/preferences.json` | Server JSON | Path to bridge vault |
 | Working folder | `data/preferences.json` | Server JSON | Default scope for all views |
 | Draft prompts | `Todo.md` / `data/inbox.json` | Local files | Queued prompts |
@@ -568,7 +568,7 @@ Board.tsx (274 lines)
 ├── Floating Navigation Chrome
 │   ├── Search input
 │   ├── ThemeToggle
-│   └── ViewToggle ([Bridge / People / Briefing / Library / Docs / System]) — centered
+│   └── ViewToggle ([Briefing / Bridge / People / Library / Docs / System]) — centered
 │
 ├── Main Content (conditional on viewMode)
 │   ├── viewMode === "bridge"
@@ -616,8 +616,11 @@ Board.tsx (274 lines)
 │
 │   ├── viewMode === "library"
 │   │   └── LibraryView (URL: /library)
-│   │       ├── FeedView (For You / Recent, Save / Skip)
-│   │       ├── BrowseView (sources, dense list, detail pane)
+│   │       ├── Unified controls (Sources, Feed/List, Recent/For You, count, health)
+│   │       ├── SourceNav (optional filter rail: Status + Sources)
+│   │       ├── FeedCard stream or ArtifactList density
+│   │       ├── Persisted source/content resize handles on desktop
+│   │       ├── LibraryArtifactDetailPane (rendered summary/cache/source reader; selection-driven)
 │   │       ├── LibraryHealthPanel (/api/library/health scheduler/source/dead-letter state)
 │   │       ├── Library APIs (/api/library/*, /api/search)
 │   │       └── Source runner CLI (auth verification, dry-run canaries, scheduled ingestion)

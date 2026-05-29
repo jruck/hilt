@@ -87,6 +87,15 @@ export interface ArtifactScore {
   total: number;
 }
 
+export interface ConnectionSuggestion {
+  kind: "project" | "task" | "area" | "person" | "recent_save";
+  label: string;
+  target?: string;
+  reason: string;
+  terms: string[];
+  score: number;
+}
+
 export interface ProcessedArtifact {
   raw: RawArtifact;
   source: LibrarySourceConfig;
@@ -103,6 +112,7 @@ export interface ProcessedArtifact {
   tags: string[];
   proposed_destination: string;
   connected_projects: string[];
+  connection_suggestions?: ConnectionSuggestion[];
   reasoning: string;
   extraction_notes: string[];
   digestion?: {

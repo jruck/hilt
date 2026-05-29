@@ -7,6 +7,7 @@ import { usePersonDetail } from "@/hooks/usePersonDetail";
 import { useInboxMeetings } from "@/hooks/useInboxMeetings";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useScope } from "@/contexts/ScopeContext";
+import { MobileChromeContent, MobileChromeTopBar } from "@/contexts/MobileChromeContext";
 import { PersonCard } from "./PersonCard";
 import { PersonMeetingList } from "./PersonMeetingList";
 import { MeetingEntry } from "./MeetingEntry";
@@ -345,8 +346,9 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
     // Level 3: Meeting content
     if (selectedSlug && mobileShowMeeting && selectedMeeting) {
       return (
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-shrink-0 px-3 py-2 border-b border-[var(--border-default)]">
+        <div className="relative flex-1 flex flex-col overflow-hidden">
+          <MobileChromeTopBar>
+          <div className="flex h-11 items-center border-b border-[var(--border-default)] px-3">
             <button
               onClick={handleMobileBackFromMeeting}
               className="text-sm text-[var(--text-accent)]"
@@ -354,16 +356,19 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
               &larr; Back
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto">
-            <MeetingEntry
-              meeting={selectedMeeting}
-              slug={isInboxMode || isSuggestedMode ? "" : (personSlug ?? "")}
-              vaultPath={vaultPath}
-              autoFocus={shouldAutoFocus}
-              onDelete={isInboxMode || isSuggestedMode ? undefined : handleDeleteMeeting}
-              onSaved={isInboxMode || isSuggestedMode ? undefined : mutatePersonDetail}
-            />
-          </div>
+          </MobileChromeTopBar>
+          <MobileChromeContent className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div data-mobile-scroll-chrome="top-bottom" className="flex-1 overflow-y-auto pb-[var(--hilt-mobile-nav-clearance)]">
+              <MeetingEntry
+                meeting={selectedMeeting}
+                slug={isInboxMode || isSuggestedMode ? "" : (personSlug ?? "")}
+                vaultPath={vaultPath}
+                autoFocus={shouldAutoFocus}
+                onDelete={isInboxMode || isSuggestedMode ? undefined : handleDeleteMeeting}
+                onSaved={isInboxMode || isSuggestedMode ? undefined : mutatePersonDetail}
+              />
+            </div>
+          </MobileChromeContent>
         </div>
       );
     }
@@ -398,8 +403,8 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
 
     // Level 1: Person list
     return (
-      <div className="flex-1 overflow-y-auto">
-        <div className="px-4 py-4 space-y-4">
+      <div data-mobile-scroll-chrome="bottom" className="flex-1 overflow-y-auto">
+        <div className="px-4 py-4 pb-[var(--hilt-mobile-nav-clearance)] space-y-4">
           <PeopleListSections
             inboxStats={data.inboxStats}
             isInboxMode={isInboxMode}

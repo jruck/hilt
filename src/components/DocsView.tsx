@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDocs } from "@/hooks/useDocs";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import { DocsFileTree } from "./docs/DocsFileTree";
 import { DocsContentPane } from "./docs/DocsContentPane";
 import type { FileNode } from "@/lib/types";
@@ -68,6 +69,7 @@ export function DocsView({ scopePath, focusedPath, onPathChange, searchQuery }: 
     if (stored !== null) return stored === "true";
     return true;
   });
+  useMobileChromeVisibilityLock(sidebarOpen);
 
   // Persist desktop sidebar open state
   useEffect(() => {

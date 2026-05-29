@@ -94,7 +94,7 @@ hilt/
 │   │   ├── bridge/          # Bridge view (notes, tasks, projects)
 │   │   ├── briefings/       # Briefing view
 │   │   ├── docs/            # Docs viewer (file tree, content pane)
-│   │   ├── library/         # Reference Library Feed/Browse/Health
+│   │   ├── library/         # Reference Library surface, detail reader, health
 │   │   ├── people/          # People and meeting timelines
 │   │   ├── system/          # Sessions/Apps/Stack/Sync modes
 │   │   ├── ui/              # Shared UI components
@@ -138,7 +138,7 @@ hilt/
 |------|---------|
 | `src/components/Board.tsx` | Main container, view routing and state management |
 | `src/components/bridge/BridgeView.tsx` | Bridge view: notes, tasks, projects |
-| `src/components/library/LibraryView.tsx` | Library Feed/Browse wrapper |
+| `src/components/library/LibraryView.tsx` | Unified Library feed/list, source filter, lifecycle/ranking, and reader shell |
 | `src/components/library/LibraryHealthPanel.tsx` | Scheduler/source/dead-letter health panel |
 | `src/components/system/SystemView.tsx` | System inspection modes |
 | `src/components/docs/DocsContentPane.tsx` | Docs viewer content rendering |
@@ -266,7 +266,10 @@ Manual UI checklist:
 
 ### Library View
 - [ ] Feed loads Recent and For You
-- [ ] Browse shows sources, saved refs, candidates, and detail
+- [ ] Sources rail shows Status and Sources filters with counts that match the current search/status slice
+- [ ] Feed/List density switching preserves selection and scroll context
+- [ ] List density reserves the reader slot on desktop and shows a placeholder when there is no selected item
+- [ ] Source/content columns are draggable on desktop and keep the detail reader wider than the list/feed pane
 - [ ] Save/Skip/Archive actions work
 - [ ] Detail renders markdown, media, and cached source without raw markup
 - [ ] Health panel shows scheduler/source/dead-letter state

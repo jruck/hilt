@@ -48,22 +48,37 @@ export function formatXurlFailureMessage(xurlBin: string, error: Error & { stder
 }
 
 export function parseTwitterBookmarks(source: LibrarySourceConfig, json: {
-  data?: Array<{ id: string; text?: string; created_at?: string; author_id?: string; entities?: { urls?: Array<{ expanded_url?: string; url?: string }> } }>;
-  includes?: { users?: Array<{ id: string; username?: string; name?: string }> };
+  data?: Array<{ id: string; text?: string; created_at?: string; author_id?: string; attachments?: { media_keys?: string[] }; entities?: { urls?: Array<{ expanded_url?: string; url?: string }> } }>;
+  includes?: {
+    users?: Array<{ id: string; username?: string; name?: string }>;
+    media?: Array<{ media_key: string; type?: string; url?: string; preview_image_url?: string }>;
+  };
 }): RawArtifact[] {
   const folderId = typeof source.metadata.folder_id === "string" ? source.metadata.folder_id : null;
   const users = new Map((json.includes?.users || []).map((user) => [user.id, user]));
+  const mediaByKey = new Map((json.includes?.media || []).map((media) => [media.media_key, media]));
   return (json.data || []).map((tweet) => {
     const user = tweet.author_id ? users.get(tweet.author_id) : undefined;
     const expandedUrl = tweet.entities?.urls?.find((item) => item.expanded_url)?.expanded_url;
+    const media = (tweet.attachments?.media_keys || [])
+      .map((key) => mediaByKey.get(key))
+      .filter((item): item is NonNullable<ReturnType<typeof mediaByKey.get>> => Boolean(item))
+      .map((item) => ({
+        link: item.url || item.preview_image_url,
+        type: item.type === "photo" ? "image" : item.type,
+        source: "x_bookmark",
+      }))
+      .filter((item) => typeof item.link === "string" && item.link.length > 0);
+    const thumbnail = media.find((item) => item.type === "image")?.link;
     const text = sanitizeUnicode(tweet.text || `X bookmark ${tweet.id}`);
     return {
       url: `https://x.com/${user?.username || "i"}/status/${tweet.id}`,
       title: text.slice(0, 120),
       author: user?.name ? sanitizeUnicode(user.name) : user?.username,
       date: tweet.created_at || new Date().toISOString(),
+      thumbnail,
       content: text,
-      metadata: { tweet_id: tweet.id, expanded_url: expandedUrl, folder_id: folderId, signal: "twitter_bookmark" },
+      metadata: { tweet_id: tweet.id, expanded_url: expandedUrl, folder_id: folderId, signal: "twitter_bookmark", media },
     };
   });
 }
@@ -81,15 +96,16 @@ async function fetchTwitterArtifactsWithToken(
     : `https://api.x.com/2/users/${userId}/bookmarks`);
   url.searchParams.set("max_results", String(options.limit || source.metadata.max_results || 50));
   if (options.cursor) url.searchParams.set("pagination_token", options.cursor);
-  url.searchParams.set("tweet.fields", "created_at,author_id,entities");
-  url.searchParams.set("expansions", "author_id");
+  url.searchParams.set("tweet.fields", "created_at,author_id,entities,attachments");
+  url.searchParams.set("expansions", "author_id,attachments.media_keys");
   url.searchParams.set("user.fields", "username,name");
+  url.searchParams.set("media.fields", "media_key,type,url,preview_image_url");
 
   const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) throw new Error(`X bookmarks fetch failed: ${response.status} ${await response.text()}`);
   const json = await response.json() as {
-    data?: Array<{ id: string; text?: string; created_at?: string; author_id?: string; entities?: { urls?: Array<{ expanded_url?: string; url?: string }> } }>;
-    includes?: { users?: Array<{ id: string; username?: string; name?: string }> };
+    data?: Array<{ id: string; text?: string; created_at?: string; author_id?: string; attachments?: { media_keys?: string[] }; entities?: { urls?: Array<{ expanded_url?: string; url?: string }> } }>;
+    includes?: { users?: Array<{ id: string; username?: string; name?: string }>; media?: Array<{ media_key: string; type?: string; url?: string; preview_image_url?: string }> };
     meta?: { next_token?: string; result_count?: number };
   };
   return {
@@ -119,8 +135,8 @@ async function fetchTwitterArtifactsWithXurl(
     }
     const { stdout } = await execFileAsync(xurlBin, args, { timeout: 30000, maxBuffer: 1024 * 1024 * 4 });
     const json = JSON.parse(stripAnsi(stdout)) as {
-      data?: Array<{ id: string; text?: string; created_at?: string; author_id?: string; entities?: { urls?: Array<{ expanded_url?: string; url?: string }> } }>;
-      includes?: { users?: Array<{ id: string; username?: string; name?: string }> };
+      data?: Array<{ id: string; text?: string; created_at?: string; author_id?: string; attachments?: { media_keys?: string[] }; entities?: { urls?: Array<{ expanded_url?: string; url?: string }> } }>;
+      includes?: { users?: Array<{ id: string; username?: string; name?: string }>; media?: Array<{ media_key: string; type?: string; url?: string; preview_image_url?: string }> };
       meta?: { next_token?: string; result_count?: number };
     };
     return {

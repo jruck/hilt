@@ -2,6 +2,8 @@
 
 import { useState, useCallback } from "react";
 import { ArrowLeft, Check, EyeOff, Inbox, Settings, Copy, FolderOpen, NotebookPen } from "lucide-react";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import MeetingRow from "./MeetingRow";
 import type { PersonDetail, PersonMeeting, SuggestedMeeting } from "@/lib/types";
 
@@ -53,6 +55,9 @@ export function PersonMeetingList({
   const [description, setDescription] = useState("");
   const [actionPending, setActionPending] = useState<"promote" | "hide" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const isMobile = useIsMobile();
+  useMobileChromeVisibilityLock(showConfig || showSuggestedActions || showPromoteForm || actionPending !== null);
+  const mobileHeaderChromeEnabled = !(showConfig || showSuggestedActions || showPromoteForm || actionPending !== null);
 
   const notesCount = person
     ? person.meetings.filter((m) => !!m.notes).length
@@ -96,107 +101,108 @@ export function PersonMeetingList({
   }, [onHideSuggested, suggestedMeeting]);
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex-shrink-0 h-16 px-4 flex items-center border-b border-[var(--border-default)]">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            {onClose && (
-              <button
-                onClick={onClose}
-                className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4" />
-              </button>
-            )}
-            {suggestedName ? (
-              <>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-base font-semibold text-[var(--text-primary)] truncate">
-                      {suggestedName}
-                    </span>
-                    <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] uppercase tracking-wide">
-                      Suggested
-                    </span>
-                  </div>
-                  {suggestedMeeting && (
-                    <div className="text-xs text-[var(--text-secondary)] mt-1">
-                      {suggestedMeeting.count} unmatched recording{suggestedMeeting.count !== 1 ? "s" : ""}
+    <div className="relative flex h-full flex-col overflow-hidden">
+      <MobileChromeTopBar enabled={mobileHeaderChromeEnabled}>
+        {/* Header */}
+        <div className="flex h-16 items-center border-b border-[var(--border-default)] px-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              {onClose && (
+                <button
+                  onClick={onClose}
+                  className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+              )}
+              {suggestedName ? (
+                <>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-base font-semibold text-[var(--text-primary)] truncate">
+                        {suggestedName}
+                      </span>
+                      <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] uppercase tracking-wide">
+                        Suggested
+                      </span>
                     </div>
-                  )}
-                </div>
-                <div className="ml-auto flex items-center gap-1">
-                  <button
-                    onClick={() => {
-                      const next = !showSuggestedActions;
-                      setShowSuggestedActions(next);
-                      if (!next) setShowPromoteForm(false);
-                    }}
-                    className={`p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ${
-                      showSuggestedActions ? "text-[var(--text-secondary)]" : ""
-                    }`}
-                    title="Show suggestion actions"
-                  >
-                    <Settings className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </>
-            ) : inboxMode ? (
-              <>
-                <Inbox className="w-4 h-4 text-[var(--text-tertiary)]" />
-                <span className="text-base font-semibold text-[var(--text-primary)]">
-                  All Meetings
-                </span>
-              </>
-            ) : person ? (
-              <>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-base font-semibold text-[var(--text-primary)] truncate">
-                      {person.name}
-                    </span>
-                    <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] uppercase tracking-wide">
-                      {person.type === "group" ? "Group" : "Person"}
-                    </span>
+                    {suggestedMeeting && (
+                      <div className="text-xs text-[var(--text-secondary)] mt-1">
+                        {suggestedMeeting.count} unmatched recording{suggestedMeeting.count !== 1 ? "s" : ""}
+                      </div>
+                    )}
                   </div>
-                  {person.description && (
-                    <div className="text-xs text-[var(--text-secondary)] mt-1 truncate">
-                      {person.description}
-                    </div>
-                  )}
-                </div>
-                <div className="ml-auto flex flex-shrink-0 items-center gap-1">
-                  {onCreateNext && (
+                  <div className="ml-auto flex items-center gap-1">
                     <button
-                      onClick={onCreateNext}
-                      className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                      title="Open prep note"
+                      onClick={() => {
+                        const next = !showSuggestedActions;
+                        setShowSuggestedActions(next);
+                        if (!next) setShowPromoteForm(false);
+                      }}
+                      className={`p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ${
+                        showSuggestedActions ? "text-[var(--text-secondary)]" : ""
+                      }`}
+                      title="Show suggestion actions"
                     >
-                      <NotebookPen className="w-3.5 h-3.5" />
-                      Prep
+                      <Settings className="w-3.5 h-3.5" />
                     </button>
-                  )}
-                  <button
-                    onClick={() => setShowConfig((v) => !v)}
-                    className={`p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ${
-                      showConfig ? "text-[var(--text-secondary)]" : ""
-                    }`}
-                    title="Show matching config"
-                  >
-                    <Settings className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </>
-            ) : null}
+                  </div>
+                </>
+              ) : inboxMode ? (
+                <>
+                  <Inbox className="w-4 h-4 text-[var(--text-tertiary)]" />
+                  <span className="text-base font-semibold text-[var(--text-primary)]">
+                    All Meetings
+                  </span>
+                </>
+              ) : person ? (
+                <>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-base font-semibold text-[var(--text-primary)] truncate">
+                        {person.name}
+                      </span>
+                      <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] uppercase tracking-wide">
+                        {person.type === "group" ? "Group" : "Person"}
+                      </span>
+                    </div>
+                    {person.description && (
+                      <div className="text-xs text-[var(--text-secondary)] mt-1 truncate">
+                        {person.description}
+                      </div>
+                    )}
+                  </div>
+                  <div className="ml-auto flex flex-shrink-0 items-center gap-1">
+                    {onCreateNext && (
+                      <button
+                        onClick={onCreateNext}
+                        className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                        title="Open prep note"
+                      >
+                        <NotebookPen className="w-3.5 h-3.5" />
+                        Prep
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setShowConfig((v) => !v)}
+                      className={`p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ${
+                        showConfig ? "text-[var(--text-secondary)]" : ""
+                      }`}
+                      title="Show matching config"
+                    >
+                      <Settings className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Config Panel (person mode only) */}
-      {showConfig && person && !inboxMode && (
-        <ConfigPanel person={person} />
-      )}
+        {/* Config Panel (person mode only) */}
+        {showConfig && person && !inboxMode && (
+          <ConfigPanel person={person} />
+        )}
 
       {showSuggestedActions && suggestedName && (
         <div className="flex-shrink-0 px-4 py-3 border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">
@@ -292,69 +298,76 @@ export function PersonMeetingList({
         </div>
       )}
 
-      {/* Meetings Header + Filter */}
-      <div className="flex-shrink-0 h-10 px-4 border-b border-[var(--border-default)] flex items-center justify-between">
-        <span className="text-[11px] font-medium text-[var(--text-tertiary)] uppercase tracking-wide">
-          Meetings ({meetingCount})
-        </span>
-        {!inboxMode && !suggestedName && (
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => onFilterChange("all")}
-              className={`text-[11px] px-2 py-0.5 rounded transition-colors ${
-                filter === "all"
-                  ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium"
-                  : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-              }`}
-            >
-              All
-            </button>
-            {notesCount > 0 && (
+        {/* Meetings Header + Filter */}
+        <div className="flex h-10 items-center justify-between border-b border-[var(--border-default)] px-4">
+          <span className="text-[11px] font-medium text-[var(--text-tertiary)] uppercase tracking-wide">
+            Meetings ({meetingCount})
+          </span>
+          {!inboxMode && !suggestedName && (
+            <div className="flex items-center gap-1">
               <button
-                onClick={() => onFilterChange("notes")}
+                onClick={() => onFilterChange("all")}
                 className={`text-[11px] px-2 py-0.5 rounded transition-colors ${
-                  filter === "notes"
+                  filter === "all"
                     ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium"
                     : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
                 }`}
               >
-                Written
+                All
               </button>
-            )}
-            {granolaCount > 0 && (
-              <button
-                onClick={() => onFilterChange("granola")}
-                className={`text-[11px] px-2 py-0.5 rounded transition-colors ${
-                  filter === "granola"
-                    ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium"
-                    : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-                }`}
-              >
-                Recorded
-              </button>
-            )}
-          </div>
-        )}
-      </div>
+              {notesCount > 0 && (
+                <button
+                  onClick={() => onFilterChange("notes")}
+                  className={`text-[11px] px-2 py-0.5 rounded transition-colors ${
+                    filter === "notes"
+                      ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium"
+                      : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                  }`}
+                >
+                  Written
+                </button>
+              )}
+              {granolaCount > 0 && (
+                <button
+                  onClick={() => onFilterChange("granola")}
+                  className={`text-[11px] px-2 py-0.5 rounded transition-colors ${
+                    filter === "granola"
+                      ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium"
+                      : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                  }`}
+                >
+                  Recorded
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </MobileChromeTopBar>
 
-      {/* Meeting List */}
-      <div className="flex-1 overflow-y-auto">
-        {displayMeetings.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-[var(--text-tertiary)] text-sm">
-            No meetings yet
-          </div>
-        ) : (
-          displayMeetings.map((meeting, i) => (
-            <MeetingRow
-              key={meeting.source === "next" ? "next" : `${meeting.date}-${meeting.source}-${i}`}
-              meeting={meeting}
-              selected={i === selectedMeetingIndex}
-              onClick={() => onSelectMeeting(i)}
-              inboxMode={inboxMode}
-            />
-          ))
-        )}
-      </div>
+      <MobileChromeContent
+        enabled={mobileHeaderChromeEnabled}
+        offset="104px"
+        className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      >
+        {/* Meeting List */}
+        <div data-mobile-scroll-chrome="top-bottom" className={`flex-1 overflow-y-auto ${isMobile ? "pb-[var(--hilt-mobile-nav-clearance)]" : ""}`}>
+          {displayMeetings.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-[var(--text-tertiary)] text-sm">
+              No meetings yet
+            </div>
+          ) : (
+            displayMeetings.map((meeting, i) => (
+              <MeetingRow
+                key={meeting.source === "next" ? "next" : `${meeting.date}-${meeting.source}-${i}`}
+                meeting={meeting}
+                selected={i === selectedMeetingIndex}
+                onClick={() => onSelectMeeting(i)}
+                inboxMode={inboxMode}
+              />
+            ))
+          )}
+        </div>
+      </MobileChromeContent>
     </div>
   );
 }

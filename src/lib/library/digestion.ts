@@ -3,6 +3,8 @@ import { promisify } from "util";
 import type { LibrarySourceConfig, ProcessedArtifact, RawArtifact, SaveRecommendation } from "./types";
 import { isoNow, scoreClamp } from "./utils";
 import { isYouTubeUrl } from "./media";
+import { enrichRawArtifactMedia } from "./media-enrichment";
+import { suggestArtifactConnections } from "./connections";
 
 const execFileAsync = promisify(execFile);
 
@@ -210,9 +212,15 @@ function recommendation(score: ProcessedArtifact["score"], source: LibrarySource
 export async function digestArtifact(
   raw: RawArtifact,
   source: LibrarySourceConfig,
-  options: { useSummarize?: boolean } = {},
+  options: { useSummarize?: boolean; vaultPath?: string } = {},
 ): Promise<ProcessedArtifact> {
   const extractionNotes: string[] = [];
+  const mediaEnrichment = await enrichRawArtifactMedia(raw, {
+    disabled: source.channel === "raindrop" && Boolean(raw.metadata.raindrop_id),
+  });
+  raw = mediaEnrichment.raw;
+  extractionNotes.push(...mediaEnrichment.notes);
+
   const requestedSummarize = options.useSummarize ?? true;
   const xSource = source.channel === "twitter" || isXUrl(raw.url);
   const shouldSummarize = requestedSummarize && !xSource;
@@ -272,6 +280,21 @@ export async function digestArtifact(
     : source.channel === "youtube" || source.channel === "twitter"
       ? "references/process"
       : "references";
+  const connectionSuggestions = suggestArtifactConnections(
+    options.vaultPath || process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER,
+    [
+      raw.title,
+      raw.author || "",
+      tags.join(" "),
+      summary,
+      keyPoints.join("\n"),
+      sourceCache?.content || raw.content || metadataExcerpt,
+    ].filter(Boolean).join("\n\n"),
+  );
+  const connectedProjects = Array.from(new Set(connectionSuggestions.map((suggestion) => suggestion.target).filter((target): target is string => Boolean(target))));
+  const connectionWhy = connectionSuggestions[0]
+    ? ` Suggested tie-in: ${connectionSuggestions[0].label} (${connectionSuggestions[0].terms.slice(0, 3).join(", ")}).`
+    : "";
 
   return {
     raw,
@@ -282,15 +305,16 @@ export async function digestArtifact(
     assessment: {
       save_recommendation: saveRecommendation,
       why: source.intent === "explicit_save"
-        ? "The source action is configured as explicit save intent."
-        : `Discovery score ${score.total.toFixed(2)} against source policy.`,
+        ? `The source action is configured as explicit save intent.${connectionWhy}`
+        : `Discovery score ${score.total.toFixed(2)} against source policy.${connectionWhy}`,
       what_changed: "",
       what_is_suspect: extractionNotes.length ? "Extraction fell back to available metadata." : "",
     },
     score,
     tags,
     proposed_destination: proposedDestination,
-    connected_projects: [],
+    connected_projects: connectedProjects,
+    connection_suggestions: connectionSuggestions,
     reasoning: source.intent === "explicit_save" ? "Explicit save signal" : "Automated discovery assessment",
     extraction_notes: extractionNotes,
     digestion: {

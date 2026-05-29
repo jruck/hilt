@@ -7,13 +7,14 @@ import { ViewToggle, ViewMode } from "./ViewToggle";
 import { ThemeToggle } from "./ThemeToggle";
 import { SourceToggle } from "./SourceToggle";
 import { Search, X } from "lucide-react";
+import { useMobileChrome, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 
 const SHORTCUTS = [
   { keys: "⌘ K", description: "Search" },
   { keys: "⌘ J", description: "Add task" },
-  { keys: "⌘ 1", description: "Bridge" },
-  { keys: "⌘ 2", description: "People" },
-  { keys: "⌘ 3", description: "Briefing" },
+  { keys: "⌘ 1", description: "Briefing" },
+  { keys: "⌘ 2", description: "Bridge" },
+  { keys: "⌘ 3", description: "People" },
   { keys: "⌘ 4", description: "Library" },
   { keys: "⌘ 5", description: "Docs" },
   { keys: "⌘ 6", description: "System" },
@@ -21,9 +22,9 @@ const SHORTCUTS = [
 ];
 
 const VIEW_KEYS: Record<string, ViewMode> = {
-  "1": "bridge",
-  "2": "people",
-  "3": "briefings",
+  "1": "briefings",
+  "2": "bridge",
+  "3": "people",
   "4": "library",
   "5": "docs",
   "6": "system",
@@ -77,6 +78,7 @@ export function NavBar({
   unreadTabs,
 }: NavBarProps) {
   const isMobile = useIsMobile();
+  const mobileChrome = useMobileChrome();
   const haptics = useHaptics();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [isElectron] = useState(() => typeof window !== "undefined" && Boolean(window.electronAPI?.isElectron));
@@ -86,6 +88,7 @@ export function NavBar({
   const lastCmdPressRef = useRef<number>(0);
 
   const showShortcuts = devMode && (activePanel === "all" || activePanel === "shortcuts");
+  useMobileChromeVisibilityLock(mobileSearchOpen);
 
   // Sync dev mode + focus attributes on body
   useEffect(() => {
@@ -221,13 +224,21 @@ export function NavBar({
           />
         )}
         <div
+          data-mobile-chrome-animated
+          data-mobile-chrome-bottom
+          data-mobile-chrome-state={mobileChrome.hidden ? "hidden" : "visible"}
+          aria-hidden={mobileChrome.hidden}
           className="fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none"
           style={{
-            paddingBottom: "calc(env(safe-area-inset-bottom) + 20px)",
+            paddingBottom: "calc(var(--safe-area-bottom) + var(--hilt-mobile-nav-bottom-gap))",
+            transform: mobileChrome.hidden ? "translateY(calc(100% + var(--safe-area-bottom) + var(--hilt-mobile-nav-bottom-gap) + 8px))" : undefined,
+            opacity: mobileChrome.hidden ? 0 : undefined,
+            transition: "transform 220ms cubic-bezier(0.2, 0, 0, 1), opacity 180ms ease",
+            willChange: mobileChrome.hidden ? "transform, opacity" : undefined,
           }}
         >
           <nav
-            className={`pointer-events-auto rounded-full border border-white/20 shadow-lg shadow-black/20 ${mobileSearchOpen ? "mx-6 w-[calc(100%-48px)]" : ""}`}
+            className={`${mobileChrome.hidden ? "pointer-events-none" : "pointer-events-auto"} rounded-full border border-white/20 shadow-lg shadow-black/20 ${mobileSearchOpen ? "mx-6 w-[calc(100%-48px)]" : ""}`}
             style={{
               background: "rgba(255, 255, 255, 0.15)",
               backdropFilter: "blur(20px) saturate(180%)",

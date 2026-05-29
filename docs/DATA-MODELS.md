@@ -574,6 +574,21 @@ interface IngestionReport {
 
 ### LibraryArtifact
 
+Digestion can also persist file-native Bridge context matches as structured suggestions:
+
+```typescript
+interface ConnectionSuggestion {
+  kind: "project" | "task" | "area" | "person" | "recent_save";
+  label: string;
+  target?: string;       // Wiki-link target when one exists, e.g. "reference-library"
+  reason: string;        // Human-readable reason shown in the note and For You
+  terms: string[];       // Matched terms used as evidence
+  score: number;         // Deterministic file-native match score
+}
+```
+
+Saved references and candidates may include `connection_suggestions` in frontmatter. Their markdown body renders those suggestions under `## Connections` or `## Suggested Connections`, while `connected_projects` remains the compact wiki-target list for filtering and compatibility.
+
 ```typescript
 interface LibraryArtifact {
   id: string;
@@ -592,6 +607,10 @@ interface LibraryArtifact {
   save_recommendation: "file" | "review" | "skip";
   destination?: string;
   connections: string[];
+  raw_frontmatter?: {
+    thumbnail?: string;
+    connection_suggestions?: ConnectionSuggestion[];
+  };
 }
 ```
 

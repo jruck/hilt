@@ -206,7 +206,7 @@ function SystemStackView({
         loading={loading}
         error={error}
       />
-      <div className="flex-1 overflow-auto px-4 pb-4 pt-[13px]">
+      <div data-mobile-scroll-chrome="bottom" className="flex-1 overflow-auto px-4 pb-[calc(var(--hilt-mobile-nav-clearance)+1rem)] pt-[13px]">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {snapshots.map((snapshot) => (
             <button
@@ -319,7 +319,7 @@ function RemoteStackInspector({ snapshot, searchQuery }: { snapshot: SystemStack
             <div className="text-xs font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Remote stack</div>
             <div className="mt-1 truncate text-sm text-[var(--text-primary)]">{displayPath(snapshot.projectPath || stack.projectPath)}</div>
           </div>
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div data-mobile-scroll-chrome="bottom" className="min-h-0 flex-1 overflow-auto">
             <StackFileTree
               layers={stack.layers}
               mcpServers={stack.mcpServers}

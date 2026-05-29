@@ -10,6 +10,7 @@ import { NavBar } from "./NavBar";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBriefingUnread } from "@/hooks/useBriefingUnread";
 import { PullToRefresh } from "./PullToRefresh";
+import { MobileChromeProvider } from "@/contexts/MobileChromeContext";
 import { isSystemMode, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode, type SystemMode } from "@/lib/system/navigation";
 
 const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.DocsView })), { ssr: false });
@@ -187,6 +188,7 @@ export function Board() {
   }
 
   return (
+    <MobileChromeProvider resetKey={viewMode}>
     <div className="flex flex-col h-dvh bg-[var(--bg-primary)]">
       {/* NavBar: top bar on desktop, fixed bottom bar on mobile */}
       <NavBar
@@ -274,5 +276,6 @@ export function Board() {
         </div>}
       </div>
     </div>
+    </MobileChromeProvider>
   );
 }

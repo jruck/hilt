@@ -5,6 +5,7 @@ import { useBridgeWeekly } from "@/hooks/useBridgeWeekly";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
 import { useBridgeThoughts } from "@/hooks/useBridgeThoughts";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import { WeekHeader } from "./WeekHeader";
 import { BridgeTaskList } from "./BridgeTaskList";
 import { BridgeNotes } from "./BridgeNotes";
@@ -86,6 +87,7 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
   const resolvedTask = selectedTask && weekly
     ? weekly.tasks.find(t => t.id === selectedTask.id) ?? null
     : null;
+  useMobileChromeVisibilityLock(Boolean(resolvedTask) || showRecycleModal);
 
   // Animate bottom sheet in on mobile when task is selected
   useEffect(() => {
@@ -331,8 +333,8 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
   return (
     <div className="flex-1 flex overflow-hidden">
       {/* Main content */}
-      <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-        <div className={`max-w-3xl mx-auto px-6 py-8 ${isMobile ? "pb-[100px]" : ""}`}>
+      <div data-mobile-scroll-chrome="bottom" className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+        <div className={`max-w-3xl mx-auto px-6 py-8 ${isMobile ? "pb-[var(--hilt-mobile-nav-clearance)]" : ""}`}>
           <WeekHeader
             week={weekly.week}
             needsRecycle={weekly.needsRecycle}
@@ -455,7 +457,7 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
             <div className="flex justify-center pt-3 pb-1">
               <div className="w-12 h-1 rounded-full bg-[var(--text-tertiary)] opacity-40" />
             </div>
-            <div className="overflow-y-auto pb-[100px]" style={{ maxHeight: "calc(85vh - 24px)" }}>
+            <div className="overflow-y-auto pb-[var(--hilt-mobile-nav-clearance)]" style={{ maxHeight: "calc(85vh - 24px)" }}>
               <BridgeTaskPanel
                 task={resolvedTask}
                 autoFocusTitle={autoFocusPanel}

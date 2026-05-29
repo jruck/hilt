@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import type { LibraryArtifactDetail, RecommendedArtifact } from "./types";
+import type { ConnectionSuggestion, LibraryArtifactDetail, RecommendedArtifact } from "./types";
 import { listLibraryArtifactDetails } from "./library";
 import { markdownToPlain } from "./markdown";
 
@@ -12,7 +12,7 @@ interface ContextSignal {
 }
 
 const STOPWORDS = new Set([
-  "about", "after", "again", "also", "and", "because", "been", "before", "being", "between", "could", "from",
+  "about", "active", "after", "again", "also", "and", "because", "been", "before", "being", "between", "could", "from",
   "have", "into", "just", "like", "more", "most", "only", "over", "should", "some", "that", "their", "them",
   "there", "these", "this", "through", "with", "would", "your", "reference", "library", "candidate", "saved",
   "article", "author", "bookmark", "bookmarks", "cached", "captured", "channel", "connections", "content", "created",
@@ -116,6 +116,12 @@ function scoreAgainstSignals(artifact: LibraryArtifactDetail, signals: ContextSi
   };
 }
 
+function connectionSuggestionsForArtifact(artifact: LibraryArtifactDetail): ConnectionSuggestion[] {
+  return Array.isArray(artifact.raw_frontmatter.connection_suggestions)
+    ? artifact.raw_frontmatter.connection_suggestions.filter((item): item is ConnectionSuggestion => Boolean(item && typeof item === "object" && typeof (item as ConnectionSuggestion).label === "string"))
+    : [];
+}
+
 function recencyBonus(date: string): number {
   const time = new Date(date).getTime();
   if (!Number.isFinite(time)) return 0;
@@ -128,6 +134,11 @@ function recencyBonus(date: string): number {
 
 function whyForArtifact(artifact: LibraryArtifactDetail, matches: ReturnType<typeof scoreAgainstSignals>["matches"], score: number): string {
   const parts: string[] = [];
+  const suggestions = connectionSuggestionsForArtifact(artifact);
+  const topSuggestion = suggestions[0];
+  if (topSuggestion) {
+    parts.push(`Suggested tie-in to ${topSuggestion.label}: ${topSuggestion.reason}`);
+  }
   const topContext = matches.find((match) => match.kind !== "recent_save");
   const recentSave = matches.find((match) => match.kind === "recent_save");
   if (topContext) {
@@ -155,10 +166,11 @@ export function getRecommendations(vaultPath: string, limit = 10): { items: Reco
     .filter((artifact) => artifact.lifecycle_status !== "expired" && artifact.lifecycle_status !== "skipped")
     .map((artifact) => {
       const contextScore = scoreAgainstSignals(artifact, signals);
+      const suggestedConnectionScore = Math.min(0.3, connectionSuggestionsForArtifact(artifact).reduce((sum, suggestion) => sum + suggestion.score, 0) * 0.6);
       const sourceScore = Math.min(0.35, (artifact.relevance_score || 0) * 0.35);
       const candidateBonus = artifact.lifecycle_status === "candidate" ? 0.12 : 0;
       const savedRecapBonus = artifact.lifecycle_status === "saved" ? 0.06 : 0;
-      const score = Number((contextScore.score + sourceScore + candidateBonus + savedRecapBonus + recencyBonus(artifact.created_at)).toFixed(3));
+      const score = Number((contextScore.score + suggestedConnectionScore + sourceScore + candidateBonus + savedRecapBonus + recencyBonus(artifact.created_at)).toFixed(3));
       const priority: RecommendedArtifact["priority"] = score >= 0.7 ? "must_read" : score >= 0.38 ? "recommended" : "interesting";
       const matchedTerms = Array.from(new Set(contextScore.matches.flatMap((match) => match.terms))).slice(0, 8);
       return {

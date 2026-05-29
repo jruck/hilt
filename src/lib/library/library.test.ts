@@ -12,7 +12,9 @@ import { fetchYouTubeArtifacts } from "./adapters/youtube";
 import { buildCandidateMarkdown, listCandidates } from "./candidate-cache";
 import { digestArtifact } from "./digestion";
 import { getLibraryOperationalHealth } from "./health";
+import { cleanupLegacyReferenceBody, stripLegacyReferenceBodyCruft } from "./legacy-cleanup";
 import { archiveLibraryArtifact, listLibraryArtifactDetails, listLibrarySources } from "./library";
+import { parseOpenGraphHtml } from "./media-enrichment";
 import { getRecommendations } from "./recommendations";
 import { buildDurableReferenceMarkdown, listSavedReferences } from "./references";
 import { runIngestion } from "./runner";
@@ -201,13 +203,36 @@ test("parses xurl bookmark responses into raw Twitter artifacts", () => {
       text: "A useful bookmarked post",
       created_at: "2026-05-27T00:00:00Z",
       author_id: "u1",
+      attachments: { media_keys: ["m1"] },
       entities: { urls: [{ expanded_url: "https://example.com" }] },
     }],
-    includes: { users: [{ id: "u1", username: "justin", name: "Justin" }] },
+    includes: {
+      users: [{ id: "u1", username: "justin", name: "Justin" }],
+      media: [{ media_key: "m1", type: "photo", url: "https://img.example/tweet.jpg" }],
+    },
   });
   assert.equal(artifact.url, "https://x.com/justin/status/123");
   assert.equal(artifact.author, "Justin");
+  assert.equal(artifact.thumbnail, "https://img.example/tweet.jpg");
   assert.equal(artifact.metadata.signal, "twitter_bookmark");
+  assert.deepEqual(artifact.metadata.media, [{ link: "https://img.example/tweet.jpg", type: "image", source: "x_bookmark" }]);
+});
+
+test("extracts representative Open Graph media for article captures", () => {
+  const metadata = parseOpenGraphHtml(`
+    <html>
+      <head>
+        <meta property="og:title" content="Useful Product Page" />
+        <meta property="og:image" content="/og.png" />
+        <meta name="description" content="A useful product page." />
+        <link rel="canonical" href="/canonical" />
+      </head>
+    </html>
+  `, "https://example.com/path");
+  assert.equal(metadata.image, "https://example.com/og.png");
+  assert.equal(metadata.title, "Useful Product Page");
+  assert.equal(metadata.description, "A useful product page.");
+  assert.equal(metadata.canonicalUrl, "https://example.com/canonical");
 });
 
 test("normalizes malformed Unicode from X bookmark text", () => {
@@ -524,6 +549,73 @@ Older manually captured reference.
 
   const [reference] = listSavedReferences(vault);
   assert.equal(reference.created_at, "2026-02-14");
+});
+
+test("cleans legacy reference body navigation and metadata into frontmatter", () => {
+  const body = `# Legacy Video
+
+← [[index|References]]
+
+**Source**: https://www.youtube.com/watch?v=abc123def45
+**Author:** Example Author
+**Publisher**: Example Publisher
+**Date**: May 24, 2026
+**Captured**: May 25, 2026
+**Format**: podcast video (1:34:06)
+
+---
+
+## Summary
+
+Useful preserved summary.
+`;
+  const result = cleanupLegacyReferenceBody({ type: "reference" }, body);
+  assert.equal(result.removedNavigation, true);
+  assert.deepEqual(result.addedFrontmatterKeys, ["url", "author", "publisher", "published", "captured", "format"]);
+  assert.equal(result.data.url, "https://www.youtube.com/watch?v=abc123def45");
+  assert.equal(result.data.published, "2026-05-24");
+  assert.equal(result.data.captured, "2026-05-25");
+  assert.doesNotMatch(result.body, /\[\[index\|References\]\]/);
+  assert.doesNotMatch(result.body, /\*\*Source/);
+  assert.match(result.body, /^# Legacy Video\n\n## Summary/m);
+});
+
+test("legacy body cleanup is limited to top chrome and preserves raw source metadata", () => {
+  const body = `# Legacy Article
+
+## Summary
+
+Useful summary.
+
+## Raw Content
+
+<details>
+<summary>Full source cache</summary>
+
+**Source:** This line belongs to the source cache, not the note chrome.
+
+</details>
+`;
+  const result = cleanupLegacyReferenceBody({ type: "reference", url: "https://example.com" }, body);
+  assert.equal(result.body, body);
+  assert.deepEqual(result.addedFrontmatterKeys, []);
+  assert.equal(stripLegacyReferenceBodyCruft(body), body);
+});
+
+test("legacy body cleanup moves pre-title media into the standard reference order", () => {
+  const body = `## Media
+
+![Hero](https://example.com/hero.jpg)
+
+# Legacy Article
+
+## Summary
+
+Useful summary.
+`;
+  const result = cleanupLegacyReferenceBody({ type: "reference" }, body);
+  assert.equal(result.movedLeadingMedia, true);
+  assert.match(result.body, /^# Legacy Article\n\n## Media\n\n!\[Hero\]\(https:\/\/example\.com\/hero\.jpg\)\n\n## Summary/m);
 });
 
 test("recent library list sorts mixed frontmatter date formats by timestamp", () => {
@@ -888,6 +980,46 @@ ${fixtures.map((fixture) => `  - url: ${fixture.url}
   assert.equal(recommendations.items[0].title, "Agentic Product Discovery Loops");
   assert.match(recommendations.items[0].why, /Matches/);
   assert.ok(recommendations.items[0].matched_terms.includes("agentic"));
+});
+
+test("digestion proposes file-native bridge connections when vault context matches", async () => {
+  const originalMediaDisabled = process.env.LIBRARY_MEDIA_ENRICHMENT_DISABLED;
+  process.env.LIBRARY_MEDIA_ENRICHMENT_DISABLED = "1";
+  const vault = tempVault();
+  fs.mkdirSync(path.join(vault, "projects", "agentic-product"), { recursive: true });
+  fs.writeFileSync(path.join(vault, "projects", "agentic-product", "index.md"), "# Agentic Product\n\nActive work on agentic product discovery loops and surfaced insights.\n", "utf-8");
+  const source: LibrarySourceConfig = {
+    id: "manual",
+    name: "Manual captures",
+    channel: "manual",
+    url: "manual://capture",
+    enabled: true,
+    cadence: "manual",
+    intent: "explicit_save",
+    signal: "manual_capture",
+    retention: { mode: "durable", candidate_ttl_days: 30, auto_promote_threshold: 0.85 },
+    backfill: { enabled: false, mode: "none" },
+    tags: ["agentic"],
+    filters: { include_topics: [], exclude_topics: [] },
+    metadata: {},
+    path: "",
+  };
+
+  try {
+    const processed = await digestArtifact({
+      url: "https://example.com/agentic",
+      title: "Agentic Product Discovery Loops",
+      date: "2026-05-28",
+      content: "Agentic product discovery loops help surfaced insights connect to active projects. The reference library can use this context to recommend candidates.",
+      metadata: {},
+    }, source, { useSummarize: false, vaultPath: vault });
+    assert.ok(processed.connected_projects.includes("agentic-product"));
+    assert.match(processed.assessment.why, /Suggested tie-in/);
+    assert.match(buildCandidateMarkdown(processed), /\[\[agentic-product\]\] — Shares active project language/);
+  } finally {
+    if (originalMediaDisabled === undefined) delete process.env.LIBRARY_MEDIA_ENRICHMENT_DISABLED;
+    else process.env.LIBRARY_MEDIA_ENRICHMENT_DISABLED = originalMediaDisabled;
+  }
 });
 
 test("library health summarizes scheduler, source, and dead-letter state", () => {

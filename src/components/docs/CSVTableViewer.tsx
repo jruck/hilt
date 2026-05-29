@@ -83,7 +83,7 @@ export function CSVTableViewer({ content }: CSVTableViewerProps) {
   }
 
   return (
-    <div className="flex-1 overflow-auto bg-[var(--content-surface)] px-4 pb-4">
+    <div data-mobile-scroll-chrome="bottom" className="flex-1 overflow-auto bg-[var(--content-surface)] px-4 pb-[calc(var(--hilt-mobile-nav-clearance)+1rem)]">
       {/* Stats centered at top */}
       <div className="text-center text-xs text-[var(--text-tertiary)] py-3">
         {rows.length} row{rows.length !== 1 ? "s" : ""} × {headers.length} column{headers.length !== 1 ? "s" : ""}

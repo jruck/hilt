@@ -95,7 +95,7 @@ Every action should have visible feedback:
 - Treat Briefing as the synthesized output surface across work, knowledge, people, sessions, and systems.
 - Treat Bridge, People, Library, and Docs as the user's workspace/knowledge cluster.
 - Treat System as the parent for inspection/observability views: Sessions/Map, Apps, Stack/configuration, and Sync.
-- Keep the top-level nav simple and legible: `[Bridge People Briefing Library Docs System]`. Put inspection sub-modes inside System instead of making every system lens a primary destination.
+- Keep the top-level nav simple and legible: `[Briefing Bridge People Library Docs System]`. Put inspection sub-modes inside System instead of making every system lens a primary destination.
 - Let primary navigation chrome float over the canvas instead of painting a full-width desktop toolbar strip, but keep the top row's layout reservation so content does not jump upward. Mobile should use one floating pill for section icons; avoid nested inset pills inside the pill.
 - Full-bleed workspace views with sidebars or secondary toolbars should leave an optically balanced gutter below the floating primary nav, then begin the body with a top border attached to the body rather than to the nav. Keep right-side controls and native window controls vertically centered within that top chrome.
 - The Electron shell should allow the app to reach phone-width responsive layouts. Keep the minimum native window size no wider than the small iPhone/SE viewport class (`375px` wide) unless a specific feature has a documented hard constraint.
@@ -105,7 +105,7 @@ Every action should have visible feedback:
 - Secondary navigation rows should be one shared 44px toolbar pattern. Library and System controls should not invent separate heights or wrapping rules; keep segmented mode controls, filters, health/status, and refresh actions in one non-wrapping row that can horizontally overflow on narrow screens before it overlaps or changes height. Body content below that row should use the shared 13px optical gutter before attached borders or full-bleed panes begin, and toolbar badges/popovers need enough inset or fixed positioning to avoid clipping at scroll edges.
 - Use a compact secondary segmented control inside System for `Sessions`, `Apps`, `Stack`, and `Sync`; this is mode chrome, not explanatory copy.
 - Keep System mode chrome to one row where possible: mode switcher on the left, mode-specific filters/status/refresh controls right-aligned on the same line. Let this row sit directly on the canvas without a strip background, enclosing border, or extra vertical padding. When a full-width body needs structure, place its top border below the secondary toolbar after the standard optical gutter, not above the toolbar.
-- Top-level shortcuts follow the top-level mental model: Bridge, People, Briefing, Library, Docs, System.
+- Top-level shortcuts follow the visible top-level order: Briefing, Bridge, People, Library, Docs, System. Hilt still defaults to Bridge on startup until Briefing is strong enough to be the landing surface.
 
 ### Drawers/Panels
 
@@ -179,16 +179,21 @@ This section tracks design decisions and refinements over time. Each entry shoul
 
 ### 2026-05-28: Library — One Toolbar, Reading Pane First
 
-**Change**: Library subnavigation was consolidated into a single System-style toolbar. Feed/Browse stays left; mode-specific controls, counts, and the compact health popover live right-aligned in the same row.
+**Change**: Library subnavigation was consolidated into a single System-style toolbar. The top row now controls source rail visibility, Feed/List density, Recent/For You ranking, counts, and compact health. Lifecycle status lives inside the source/filter rail rather than as another toolbar segment.
 
 **Pattern established**:
-- Avoid stacked Library subnav rows. Feed/For You/Recent and Browse/Saved/Candidate state should feel like one coherent control surface.
+- Avoid stacked Library subnav rows. Source visibility, Feed/List density, ranking, status, counts, and health should feel like one coherent control surface.
 - Use the same compact segmented-control styling as System for Library modes. Library should not invent a new toggle language for the same interaction.
 - Treat health as operational chrome: an icon with a popover, expandable details, and log excerpts. Warnings must explain themselves where they appear.
-- Browse defaults should privilege the reading pane. Source lists should be only as wide as their labels require, artifact lists should stay scannable, and detail panes should get the remaining space.
+- List defaults should privilege the reading pane. Source lists should be only as wide as their labels require, artifact/feed lists should stay scannable, and detail panes should get the remaining space.
 - Resizable panes should follow the Docs convention: stable defaults, a slim hover handle, and localStorage persistence.
 - Saved-reference archive is destructive enough to hide behind an overflow menu and confirmation. Candidate Skip is a normal review action and can stay direct.
-- Lifecycle filters must update both the visible item list and source-list counts, so the numbers describe the current slice rather than the whole library.
+- Lifecycle filters belong with source filters in the rail and must update both the visible item list and source-list counts, so the numbers describe the current slice rather than the whole library.
+- Library should be one composable surface, not separate Feed and Browse destinations. Keep ranking (`Recent` / `For You`), lifecycle (`All` / `Saved` / `Candidates`), source visibility, and density (`Feed` / `List`) as independent controls.
+- Feed density is the default because it is the easiest reviewing surface. Feed can be full-width when nothing is selected, then compress into a split reader when an item is opened. Re-selecting the active Feed item can dismiss the reader.
+- List density gives the old Browse/inbox feel. It implies a reader slot: desktop should always reserve detail space, auto-select a visible item when possible, and show a quiet placeholder instead of expanding the list to full width when no item is selected.
+- Opening a Library item should preserve the current Library context. Desktop can compress the current Feed/List into a left pane with detail on the right; mobile should open detail over the current list with a Back control and restore scroll position when returning.
+- Library detail rendering should use Docs read-mode as the gold master for Markdown typography, links, bullets, tables, and rich text. Reference bodies should not carry navigation chrome or repeated source metadata; source/author/date/format live in frontmatter, while the visible document starts with title, optional media, summary, key points, connections, and raw content.
 
 ### 2026-05-19: Map View — Controls as Operational Chrome
 

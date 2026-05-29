@@ -20,6 +20,7 @@ export interface UseLibraryOptions {
 interface LibraryListResponse {
   artifacts: LibraryArtifact[];
   total: number;
+  unread_total: number;
   offset: number;
   limit: number;
 }
@@ -38,7 +39,7 @@ function libraryParams(options: UseLibraryOptions, offset?: number, limit?: numb
 export function useLibrary(options: UseLibraryOptions = {}) {
   const params = libraryParams(options);
   const { data, error, isLoading, mutate } = useSWR<LibraryListResponse>(`/api/library?${params.toString()}`, fetcher);
-  return { artifacts: data?.artifacts || [], total: data?.total || 0, error, isLoading, mutate };
+  return { artifacts: data?.artifacts || [], total: data?.total || 0, unreadTotal: data?.unread_total || 0, error, isLoading, mutate };
 }
 
 export function useInfiniteLibrary(options: UseLibraryOptions = {}, pageSize = 80) {
@@ -53,6 +54,7 @@ export function useInfiniteLibrary(options: UseLibraryOptions = {}, pageSize = 8
   });
   const artifacts = data?.flatMap((page) => page.artifacts) || [];
   const total = data?.[0]?.total || 0;
+  const unreadTotal = data?.[0]?.unread_total || 0;
   const lastPage = data?.[data.length - 1] || null;
   const isLoadingMore = Boolean(isLoading || (size > 0 && data && typeof data[size - 1] === "undefined"));
   const hasMore = Boolean(lastPage && lastPage.offset + lastPage.artifacts.length < lastPage.total);
@@ -61,7 +63,7 @@ export function useInfiniteLibrary(options: UseLibraryOptions = {}, pageSize = 8
     void setSize(size + 1);
   };
 
-  return { artifacts, total, error, isLoading, isLoadingMore, isValidating, hasMore, loadMore, mutate, size, setSize };
+  return { artifacts, total, unreadTotal, error, isLoading, isLoadingMore, isValidating, hasMore, loadMore, mutate, size, setSize };
 }
 
 export function useLibrarySources(options: Pick<UseLibraryOptions, "channel" | "status" | "q"> = {}) {
@@ -116,5 +118,15 @@ export async function skipCandidate(id: string) {
 export async function archiveArtifact(id: string) {
   const res = await fetch(`/api/library/${id}/archive`, { method: "POST" });
   if (!res.ok) throw new Error(`Failed to archive artifact: ${res.status}`);
+  return res.json();
+}
+
+export async function markLibraryArtifactsRead(ids: string[]) {
+  const res = await fetch("/api/library/read", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+  if (!res.ok) throw new Error(`Failed to mark library artifacts read: ${res.status}`);
   return res.json();
 }

@@ -3,6 +3,7 @@ import path from "path";
 import type { LibraryArtifact, LibraryArtifactDetail, LibraryLifecycleStatus, LibrarySourceSummary, ReferenceCandidate } from "./types";
 import { listCandidates } from "./candidate-cache";
 import { listSavedReferences, MANUAL_SOURCE_ID, MANUAL_SOURCE_NAME } from "./references";
+import { applyLibraryReadState, readLibraryReadState } from "./read-state";
 import { loadSources, readSourceState } from "./source-config";
 import { compareDatesDesc, dateTimestamp, ensureDir, hashId } from "./utils";
 import { relativeVaultPath } from "./markdown";
@@ -20,7 +21,11 @@ export interface LibraryListOptions {
   includeCandidates?: boolean;
 }
 
-function candidateToArtifact(candidate: ReferenceCandidate): LibraryArtifactDetail {
+function candidateToArtifact(vaultPath: string, candidate: ReferenceCandidate): LibraryArtifactDetail {
+  const filePath = path.join(vaultPath, candidate.path);
+  const updatedAt = fs.existsSync(filePath)
+    ? fs.statSync(filePath).mtime.toISOString()
+    : candidate.digested;
   return {
     id: candidate.id,
     path: candidate.path,
@@ -35,12 +40,14 @@ function candidateToArtifact(candidate: ReferenceCandidate): LibraryArtifactDeta
     author: candidate.author,
     url: candidate.url,
     created_at: candidate.published || candidate.digested,
-    updated_at: candidate.digested,
+    updated_at: updatedAt,
     relevance_score: candidate.score.total,
     lifecycle_status: candidate.status,
     save_recommendation: candidate.save_recommendation,
     proposed_destination: candidate.proposed_destination,
     expires_at: candidate.expires,
+    is_unread: false,
+    read_at: null,
     content: candidate.content,
     key_points: candidate.key_points,
     connections: candidate.connected_projects,
@@ -75,18 +82,20 @@ function filterArtifacts(artifacts: LibraryArtifactDetail[], options: LibraryLis
   });
 }
 
-export function listLibraryArtifactDetails(vaultPath: string, options: LibraryListOptions = {}): { artifacts: LibraryArtifactDetail[]; total: number } {
+export function listLibraryArtifactDetails(vaultPath: string, options: LibraryListOptions = {}): { artifacts: LibraryArtifactDetail[]; total: number; unread_total: number } {
   const saved = listSavedReferences(vaultPath);
   const candidates = options.includeCandidates === false
     ? []
-    : listCandidates(vaultPath).map(candidateToArtifact);
+    : listCandidates(vaultPath).map((candidate) => candidateToArtifact(vaultPath, candidate));
   const all = [...saved, ...candidates].sort((a, b) => compareDatesDesc(a.created_at, b.created_at));
-  const filtered = filterArtifacts(all, options);
+  const state = readLibraryReadState(vaultPath);
+  const filtered = applyLibraryReadState(filterArtifacts(all, options), state);
   const offset = options.offset || 0;
   const limit = options.limit || 50;
   return {
     artifacts: filtered.slice(offset, offset + limit),
     total: filtered.length,
+    unread_total: filtered.filter((artifact) => artifact.is_unread).length,
   };
 }
 
@@ -116,6 +125,9 @@ export function listLibrarySources(vaultPath: string, options: Omit<LibraryListO
     intent: source.intent,
     artifact_count: all.filter((artifact) => artifact.source_id === source.id && artifact.lifecycle_status === "saved").length,
     candidate_count: all.filter((artifact) => artifact.source_id === source.id && artifact.lifecycle_status === "candidate").length,
+    unread_count: all.filter((artifact) => artifact.source_id === source.id && artifact.is_unread).length,
+    saved_unread_count: all.filter((artifact) => artifact.source_id === source.id && artifact.lifecycle_status === "saved" && artifact.is_unread).length,
+    candidate_unread_count: all.filter((artifact) => artifact.source_id === source.id && artifact.lifecycle_status === "candidate" && artifact.is_unread).length,
     last_fetched: state[source.id]?.last_success_at || null,
     blocked: state[source.id]?.blocked_reason || null,
   }));
@@ -131,6 +143,9 @@ export function listLibrarySources(vaultPath: string, options: Omit<LibraryListO
         intent: "explicit_save",
         artifact_count: artifactCount,
         candidate_count: candidateCount,
+        unread_count: all.filter((artifact) => artifact.source_id === MANUAL_SOURCE_ID && artifact.is_unread).length,
+        saved_unread_count: all.filter((artifact) => artifact.source_id === MANUAL_SOURCE_ID && artifact.lifecycle_status === "saved" && artifact.is_unread).length,
+        candidate_unread_count: all.filter((artifact) => artifact.source_id === MANUAL_SOURCE_ID && artifact.lifecycle_status === "candidate" && artifact.is_unread).length,
         last_fetched: null,
         blocked: null,
       });

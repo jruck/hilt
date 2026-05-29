@@ -19,6 +19,19 @@ const MAX_LIST_WIDTH = 540;
 const ARTIFACT_ROW_HEIGHT = 104;
 const ARTIFACT_ROW_OVERSCAN = 10;
 
+function CountBadge({ count, unread }: { count: number; unread?: number }) {
+  return (
+    <span className="flex shrink-0 items-center gap-1.5">
+      <span className="text-xs text-[var(--text-tertiary)]">{count}</span>
+      {Boolean(unread) && (
+        <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[11px] font-medium leading-none text-blue-500">
+          {unread}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -58,11 +71,15 @@ export function SourceNav({
   const allCount = allStatusSources.reduce((sum, source) => sum + source.artifact_count + source.candidate_count, 0);
   const savedCount = allStatusSources.reduce((sum, source) => sum + source.artifact_count, 0);
   const candidateCount = allStatusSources.reduce((sum, source) => sum + source.candidate_count, 0);
+  const allUnreadCount = allStatusSources.reduce((sum, source) => sum + source.unread_count, 0);
+  const savedUnreadCount = allStatusSources.reduce((sum, source) => sum + source.saved_unread_count, 0);
+  const candidateUnreadCount = allStatusSources.reduce((sum, source) => sum + source.candidate_unread_count, 0);
   const totalCount = sources.reduce((sum, source) => sum + source.artifact_count + source.candidate_count, 0);
+  const totalUnreadCount = sources.reduce((sum, source) => sum + source.unread_count, 0);
   const statusItems = [
-    { id: "all", label: "All", count: allCount },
-    { id: "saved", label: "Saved", count: savedCount },
-    { id: "candidate", label: "Candidates", count: candidateCount },
+    { id: "all", label: "All", count: allCount, unread: allUnreadCount },
+    { id: "saved", label: "Saved", count: savedCount, unread: savedUnreadCount },
+    { id: "candidate", label: "Candidates", count: candidateCount, unread: candidateUnreadCount },
   ] as const;
   return (
     <aside data-testid="library-source-nav" className={`overflow-y-auto bg-[var(--bg-primary)] p-3 ${className}`} style={style}>
@@ -77,7 +94,7 @@ export function SourceNav({
                 className={`flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm ${statusFilter === status.id ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`}
               >
                 <span>{status.label}</span>
-                <span className="shrink-0 text-xs text-[var(--text-tertiary)]">{status.count}</span>
+                <CountBadge count={status.count} unread={status.unread} />
               </button>
             ))}
           </div>
@@ -89,7 +106,7 @@ export function SourceNav({
         className={`mb-2 flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm ${selectedSource === null ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`}
       >
         <span>All sources</span>
-        <span className="shrink-0 text-xs text-[var(--text-tertiary)]">{totalCount}</span>
+        <CountBadge count={totalCount} unread={totalUnreadCount} />
       </button>
       <div className="space-y-1">
         {sources.map((source) => (
@@ -99,7 +116,7 @@ export function SourceNav({
             className={`flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm ${selectedSource === source.id ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`}
           >
             <span className="min-w-0 truncate">{source.name}</span>
-            <span className="shrink-0 text-xs text-[var(--text-tertiary)]">{source.artifact_count + source.candidate_count}</span>
+            <CountBadge count={source.artifact_count + source.candidate_count} unread={source.unread_count} />
           </button>
         ))}
       </div>
@@ -206,7 +223,12 @@ export function ArtifactList({
                   )}
                 </div>
                 <div className="min-w-0 flex-1 self-center">
-                  <div className="line-clamp-2 text-sm font-medium leading-5 text-[var(--text-primary)]">{artifact.title}</div>
+                  <div className="flex items-start gap-2">
+                    {artifact.is_unread && (
+                      <span aria-label="Unread" title="Unread" className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-blue-500" />
+                    )}
+                    <div className="line-clamp-2 min-w-0 text-sm font-medium leading-5 text-[var(--text-primary)]">{artifact.title}</div>
+                  </div>
                   <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-tertiary)]">
                     <span className="truncate">{artifact.source_name || artifact.channel}</span>
                     <span>{artifact.created_at?.slice(0, 10)}</span>

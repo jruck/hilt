@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     const limit = Number(params.get("limit") || 50);
     const includeCandidates = params.get("includeCandidates") !== "false";
     const status = params.get("status") as LibraryLifecycleStatus | "all" | null;
-    const { artifacts, total } = listLibraryArtifactDetails(vaultPath, {
+    const { artifacts, total, unread_total } = listLibraryArtifactDetails(vaultPath, {
       source: params.get("source"),
       channel: params.get("channel"),
       tag: params.get("tag"),
@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       artifacts: artifacts.map(summarizeArtifact),
       total,
+      unread_total,
       offset,
       limit,
     });

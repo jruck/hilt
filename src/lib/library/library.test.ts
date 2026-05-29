@@ -15,11 +15,14 @@ import { getLibraryOperationalHealth } from "./health";
 import { cleanupLegacyReferenceBody, stripLegacyReferenceBodyCruft } from "./legacy-cleanup";
 import { archiveLibraryArtifact, listLibraryArtifactDetails, listLibrarySources } from "./library";
 import { parseOpenGraphHtml } from "./media-enrichment";
+import { markLibraryArtifactsRead } from "./read-state";
 import { getRecommendations } from "./recommendations";
 import { buildDurableReferenceMarkdown, listSavedReferences } from "./references";
 import { runIngestion } from "./runner";
 import { loadSources } from "./source-config";
 import type { LibrarySourceConfig, ProcessedArtifact } from "./types";
+
+process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-library-state-"));
 
 function tempVault(): string {
   const vault = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-library-"));
@@ -661,6 +664,31 @@ published: ${date}
   assert.deepEqual(first.artifacts.map((artifact) => artifact.created_at), ["2026-05-29", "2026-05-28"]);
   assert.equal(second.total, 3);
   assert.deepEqual(second.artifacts.map((artifact) => artifact.created_at), ["2026-05-27"]);
+});
+
+test("library read state baselines old stock and marks new artifacts read", () => {
+  const vault = tempVault();
+  const initial = listLibraryArtifactDetails(vault, { includeCandidates: true });
+  assert.equal(initial.total, 0);
+  assert.equal(initial.unread_total, 0);
+
+  const filePath = path.join(vault, "references", "new-reference.md");
+  fs.writeFileSync(filePath, buildDurableReferenceMarkdown(processedYouTubeArtifact(), "manual_save"), "utf-8");
+  const artifactTime = new Date(Date.now() + 5_000);
+  fs.utimesSync(filePath, artifactTime, artifactTime);
+
+  const withUnread = listLibraryArtifactDetails(vault, { includeCandidates: true });
+  assert.equal(withUnread.total, 1);
+  assert.equal(withUnread.unread_total, 1);
+  assert.equal(withUnread.artifacts[0].is_unread, true);
+
+  const result = markLibraryArtifactsRead(vault, [withUnread.artifacts[0].id], new Date(Date.now() + 10_000).toISOString());
+  assert.equal(result.marked, 1);
+
+  const afterRead = listLibraryArtifactDetails(vault, { includeCandidates: true });
+  assert.equal(afterRead.unread_total, 0);
+  assert.equal(afterRead.artifacts[0].is_unread, false);
+  assert.ok(afterRead.artifacts[0].read_at);
 });
 
 test("legacy saved references without source ids appear as manual captures", () => {

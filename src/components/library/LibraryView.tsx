@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { FileText, List, PanelLeft } from "lucide-react";
+import { useSWRConfig } from "swr";
 import type { LibraryArtifact, RecommendedArtifact } from "@/lib/library/types";
-import { useInfiniteLibrary, useRecommendations } from "@/hooks/useLibrary";
+import { markLibraryArtifactsRead, useInfiniteLibrary, useRecommendations } from "@/hooks/useLibrary";
 import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import { SecondarySegmentedButton, SecondarySegmentedControl, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
 import { ArtifactList, SourceNav } from "./BrowseView";
@@ -58,7 +59,15 @@ function artifactMatchesFilter(artifact: LibraryArtifact, {
   return haystack.includes(query);
 }
 
+function applyLocalReadState<T extends LibraryArtifact | RecommendedArtifact>(items: T[], localReadIds: Set<string>): T[] {
+  if (!localReadIds.size) return items;
+  return items.map((artifact) => localReadIds.has(artifact.id)
+    ? { ...artifact, is_unread: false, read_at: artifact.read_at || new Date().toISOString() }
+    : artifact);
+}
+
 export function LibraryView({ searchQuery }: { searchQuery: string }) {
+  const { mutate: mutateGlobal } = useSWRConfig();
   const [density, setDensity] = useState<LibraryDensity>("feed");
   const [ranking, setRanking] = useState<LibraryRanking>("recent");
   const [statusFilter, setStatusFilter] = useState<LibraryStatusFilter>("all");
@@ -69,7 +78,12 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   const [sourceWidth, setSourceWidth] = useState(() => storedWidth(SOURCE_WIDTH_KEY, DEFAULT_SOURCE_WIDTH, MIN_SOURCE_WIDTH, MAX_SOURCE_WIDTH));
   const [contentWidth, setContentWidth] = useState(() => storedWidth(CONTENT_WIDTH_KEY, DEFAULT_CONTENT_WIDTH, MIN_CONTENT_WIDTH, MAX_CONTENT_WIDTH));
   const [resizing, setResizing] = useState<"source" | "content" | null>(null);
+  const [localReadIds, setLocalReadIds] = useState<Set<string>>(() => new Set());
   const feedScrollRef = useRef<HTMLDivElement>(null);
+  const feedItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const seenFeedIdsRef = useRef<Set<string>>(new Set());
+  const pendingReadIdsRef = useRef<Set<string>>(new Set());
+  const readFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -88,8 +102,13 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
     [normalizedQuery, recommendations.items, selectedSource, statusFilter],
   );
 
-  const items: LibraryArtifact[] = ranking === "recent" ? recent.artifacts : filteredRecommendations;
+  const rawItems: LibraryArtifact[] = ranking === "recent" ? recent.artifacts : filteredRecommendations;
+  const items = useMemo(() => applyLocalReadState(rawItems, localReadIds), [rawItems, localReadIds]);
   const total = ranking === "recent" ? recent.total : filteredRecommendations.length;
+  const localUnreadReads = rawItems.filter((artifact) => artifact.is_unread && localReadIds.has(artifact.id)).length;
+  const unreadTotal = Math.max(0, ranking === "recent"
+    ? recent.unreadTotal - localUnreadReads
+    : filteredRecommendations.filter((artifact) => artifact.is_unread && !localReadIds.has(artifact.id)).length);
   const loading = ranking === "recent" ? recent.isLoading : recommendations.isLoading;
   const hasMore = ranking === "recent" && recent.hasMore;
   const isLoadingMore = ranking === "recent" && recent.isLoadingMore;
@@ -97,6 +116,47 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   const desktopReaderVisible = density === "list" || selectedId !== null;
   const mobileReaderVisible = selectedId !== null && mobileDetailOpen;
   useMobileChromeVisibilityLock(sourcesOpen);
+
+  const refreshReadAwareData = useCallback(() => {
+    void recent.mutate();
+    void recommendations.mutate();
+    void mutateGlobal((key) => typeof key === "string" && (
+      key.startsWith("/api/library?") ||
+      key.startsWith("/api/library/sources") ||
+      key.startsWith("/api/library/recommendations") ||
+      /^\/api\/library\/[^/]+$/.test(key)
+    ));
+  }, [mutateGlobal, recent, recommendations]);
+
+  const flushPendingReadIds = useCallback(() => {
+    const ids = Array.from(pendingReadIdsRef.current);
+    pendingReadIdsRef.current.clear();
+    readFlushTimerRef.current = null;
+    if (!ids.length) return;
+    void markLibraryArtifactsRead(ids)
+      .then(refreshReadAwareData)
+      .catch((error) => {
+        console.warn("[library] failed to mark artifacts read", error);
+      });
+  }, [refreshReadAwareData]);
+
+  const markRead = useCallback((ids: string[]) => {
+    const nextIds = ids.filter((id) => id && !localReadIds.has(id));
+    if (!nextIds.length) return;
+    setLocalReadIds((previous) => {
+      const next = new Set(previous);
+      for (const id of nextIds) next.add(id);
+      return next;
+    });
+    for (const id of nextIds) pendingReadIdsRef.current.add(id);
+    if (readFlushTimerRef.current) clearTimeout(readFlushTimerRef.current);
+    readFlushTimerRef.current = setTimeout(flushPendingReadIds, 250);
+  }, [flushPendingReadIds, localReadIds]);
+
+  useEffect(() => () => {
+    if (readFlushTimerRef.current) clearTimeout(readFlushTimerRef.current);
+    if (pendingReadIdsRef.current.size) flushPendingReadIds();
+  }, [flushPendingReadIds]);
 
   useEffect(() => {
     if (!selectedId || loading) return;
@@ -166,6 +226,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   }, [recent, recommendations]);
 
   const openArtifact = useCallback((artifact: LibraryArtifact | RecommendedArtifact) => {
+    if (artifact.is_unread) markRead([artifact.id]);
     if (density === "feed" && selectedId === artifact.id) {
       setSelectedId(null);
       setMobileDetailOpen(false);
@@ -173,19 +234,52 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
     }
     setSelectedId(artifact.id);
     setMobileDetailOpen(true);
-  }, [density, selectedId]);
+  }, [density, markRead, selectedId]);
 
   const selectSource = (source: string | null) => {
     setSelectedSource(source);
     if (typeof window !== "undefined" && window.innerWidth < 1024) setSourcesOpen(false);
   };
 
-  const handleFeedScroll = useCallback(() => {
-    if (ranking !== "recent" || !recent.hasMore || recent.isLoadingMore) return;
+  const registerFeedItem = useCallback((id: string) => (node: HTMLDivElement | null) => {
+    if (node) feedItemRefs.current.set(id, node);
+    else feedItemRefs.current.delete(id);
+  }, []);
+
+  const updateFeedReadProgress = useCallback(() => {
+    if (density !== "feed") return;
     const node = feedScrollRef.current;
     if (!node) return;
-    if (node.scrollHeight - node.scrollTop - node.clientHeight < 900) recent.loadMore();
-  }, [ranking, recent]);
+    const containerRect = node.getBoundingClientRect();
+    const scrolledPastUnreadIds: string[] = [];
+    for (const artifact of items) {
+      if (!artifact.is_unread) continue;
+      const element = feedItemRefs.current.get(artifact.id);
+      if (!element) continue;
+      const rect = element.getBoundingClientRect();
+      const isVisible = rect.bottom > containerRect.top + 24 && rect.top < containerRect.bottom - 24;
+      if (isVisible) seenFeedIdsRef.current.add(artifact.id);
+      if (seenFeedIdsRef.current.has(artifact.id) && rect.bottom < containerRect.top + 2) {
+        scrolledPastUnreadIds.push(artifact.id);
+      }
+    }
+    if (scrolledPastUnreadIds.length) markRead(scrolledPastUnreadIds);
+  }, [density, items, markRead]);
+
+  const handleFeedScroll = useCallback(() => {
+    const node = feedScrollRef.current;
+    if (!node) return;
+    if (ranking === "recent" && recent.hasMore && !recent.isLoadingMore && node.scrollHeight - node.scrollTop - node.clientHeight < 900) {
+      recent.loadMore();
+    }
+    updateFeedReadProgress();
+  }, [ranking, recent, updateFeedReadProgress]);
+
+  useEffect(() => {
+    if (density !== "feed") return;
+    const frame = requestAnimationFrame(updateFeedReadProgress);
+    return () => cancelAnimationFrame(frame);
+  }, [density, items, updateFeedReadProgress]);
 
   const startResize = useCallback((kind: "source" | "content", width: number) => (event: React.MouseEvent) => {
     event.preventDefault();
@@ -237,7 +331,10 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
                 <SecondarySegmentedButton onClick={() => setRanking("for-you")} active={ranking === "for-you"}>For You</SecondarySegmentedButton>
               </SecondarySegmentedControl>
               <div className="hidden shrink-0 text-xs text-[var(--text-tertiary)] md:block">
-                {ranking === "for-you" ? `${total} picks` : `${total} items`}
+                <span>{ranking === "for-you" ? `${total} picks` : `${total} items`}</span>
+                {unreadTotal > 0 && (
+                  <span className="ml-2 rounded-full bg-blue-500/10 px-2 py-0.5 font-medium text-blue-500">{unreadTotal} new</span>
+                )}
               </div>
               <LibraryHealthPanel />
             </>
@@ -292,16 +389,17 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
                     </div>
                   )}
                   {items.map((artifact) => (
-                    <FeedCard
-                      key={artifact.id}
-                      artifact={artifact}
-                      why={"why" in artifact && typeof artifact.why === "string" ? artifact.why : undefined}
-                      priority={"priority" in artifact && (artifact.priority === "must_read" || artifact.priority === "recommended" || artifact.priority === "interesting") ? artifact.priority : undefined}
-                      promoteReason={ranking === "for-you" ? "for_you_selected" : "manual_save"}
-                      onChanged={refresh}
-                      onOpen={openArtifact}
-                      active={artifact.id === selectedId}
-                    />
+                    <div key={artifact.id} ref={registerFeedItem(artifact.id)}>
+                      <FeedCard
+                        artifact={artifact}
+                        why={"why" in artifact && typeof artifact.why === "string" ? artifact.why : undefined}
+                        priority={"priority" in artifact && (artifact.priority === "must_read" || artifact.priority === "recommended" || artifact.priority === "interesting") ? artifact.priority : undefined}
+                        promoteReason={ranking === "for-you" ? "for_you_selected" : "manual_save"}
+                        onChanged={refresh}
+                        onOpen={openArtifact}
+                        active={artifact.id === selectedId}
+                      />
+                    </div>
                   ))}
                   {ranking === "recent" && items.length > 0 && (
                     <div className="py-2 text-center text-xs text-[var(--text-tertiary)]">

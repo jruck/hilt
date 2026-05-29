@@ -525,6 +525,9 @@ interface LibrarySourceSummary {
   intent: LibrarySourceConfig["intent"];
   artifact_count: number;  // Saved refs after any active source-list filters
   candidate_count: number; // Candidates after any active source-list filters
+  unread_count: number;    // Unread refs/candidates after any active source-list filters
+  saved_unread_count: number;
+  candidate_unread_count: number;
   last_fetched: string | null;
   blocked: string | null;
 }
@@ -606,6 +609,8 @@ interface LibraryArtifact {
   score: number;
   save_recommendation: "file" | "review" | "skip";
   destination?: string;
+  is_unread: boolean;      // Hilt-local read state, not markdown frontmatter
+  read_at: string | null;  // ISO timestamp when the current user last marked it read
   connections: string[];
   raw_frontmatter?: {
     thumbnail?: string;
@@ -613,6 +618,8 @@ interface LibraryArtifact {
   };
 }
 ```
+
+Library read state is stored outside the bridge vault in `${DATA_DIR}/library-read-state/<vault-hash>.json`. The first Library API read creates a baseline timestamp so historical stock is treated as already seen; newly ingested or later-modified artifacts become unread until marked read by the UI.
 
 ### RecommendedArtifact
 

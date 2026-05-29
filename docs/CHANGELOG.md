@@ -8,6 +8,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
+- **Reference Library unread indicators** — Added Hilt-local Library read state under `${DATA_DIR}/library-read-state`, plus quiet blue-dot unread markers on Feed cards and List rows. `/api/library` now returns `unread_total`, `/api/library/sources` returns per-source/per-status unread counts, and `POST /api/library/read` marks artifacts read without mutating reference markdown. Feed marks read only after an unread item has been visible and scrolled past, while List marks read only on explicit open.
+
 - **Reference Library legacy body cleanup** — Added `npm run library:repair-body-cruft` for report-first cleanup of old manual captures that embedded `← References` navigation, bold source/author/date metadata clusters, or `## Media` before the title. The Library reader also strips that legacy chrome defensively before rendering summaries, and Library Markdown table styling now matches the Docs read-mode header treatment.
 
 - **Primary navigation order** — Moved Briefing to the first top-level tab while keeping app startup/default routing on Bridge. Keyboard shortcuts now follow the visible order: `⌘1` Briefing, `⌘2` Bridge, `⌘3` People, `⌘4` Library, `⌘5` Docs, and `⌘6` System.

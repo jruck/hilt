@@ -1173,9 +1173,33 @@ Lists saved references and, by default, unexpired candidates.
 | `offset` | number | Offset for incremental loading |
 | `limit` | number | Maximum rows for this page |
 
+**Response**
+
+```typescript
+{
+  artifacts: LibraryArtifact[];
+  total: number;
+  unread_total: number; // Count for the active filter/search slice
+  offset: number;
+  limit: number;
+}
+```
+
 ### GET /api/library/:id
 
 Returns a single saved reference or candidate with full summary, key points, assessment, metadata, and body content.
+
+### POST /api/library/read
+
+Marks one or more Library artifacts read in local Hilt read-state storage. This does not mutate reference markdown or candidate files.
+
+```typescript
+{
+  ids: string | string[];
+}
+```
+
+Returns `{ marked, ids, read_at }`.
 
 ### POST /api/library/:id/archive
 

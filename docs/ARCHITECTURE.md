@@ -619,6 +619,7 @@ Board.tsx (274 lines)
 │   │       ├── Unified controls (Sources, Feed/List, Recent/For You, count, health)
 │   │       ├── SourceNav (optional filter rail: Status + Sources)
 │   │       ├── FeedCard stream or ArtifactList density
+│   │       ├── Library read state (${DATA_DIR}/library-read-state, baseline + per-id read_at)
 │   │       ├── Persisted source/content resize handles on desktop
 │   │       ├── LibraryArtifactDetailPane (rendered summary/cache/source reader; selection-driven)
 │   │       ├── LibraryHealthPanel (/api/library/health scheduler/source/dead-letter state)

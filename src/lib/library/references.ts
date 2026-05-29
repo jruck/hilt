@@ -63,6 +63,8 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
     created_at: created,
     updated_at: updated,
     lifecycle_status: "saved",
+    is_unread: false,
+    read_at: null,
     content: body.trim(),
     key_points: keyPoints,
     connections: extractConnections(body),

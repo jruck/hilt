@@ -194,6 +194,7 @@ This section tracks design decisions and refinements over time. Each entry shoul
 - List density gives the old Browse/inbox feel. It implies a reader slot: desktop should always reserve detail space, auto-select a visible item when possible, and show a quiet placeholder instead of expanding the list to full width when no item is selected.
 - Opening a Library item should preserve the current Library context. Desktop can compress the current Feed/List into a left pane with detail on the right; mobile should open detail over the current list with a Back control and restore scroll position when returning.
 - Library detail rendering should use Docs read-mode as the gold master for Markdown typography, links, bullets, tables, and rich text. Reference bodies should not carry navigation chrome or repeated source metadata; source/author/date/format live in frontmatter, while the visible document starts with title, optional media, summary, key points, connections, and raw content.
+- Unread state in Library should feel like an inbox hint, not an obligation. Use the same small blue-dot language as top-level unread nav, keep count badges compact, and avoid marking a dense list read just because it rendered. Feed can mark read after an item has been visible and scrolled past; List should require an explicit open.
 
 ### 2026-05-19: Map View — Controls as Operational Chrome
 

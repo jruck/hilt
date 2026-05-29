@@ -60,6 +60,7 @@ export function FeedCard({
       <div className="relative z-10 space-y-3 p-4 pointer-events-none">
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-tertiary)]">
           <div className="flex min-w-0 items-center gap-2">
+            {artifact.is_unread && <span aria-label="Unread" title="Unread" className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />}
             <ChannelIcon channel={artifact.channel} />
             <span className="truncate">{artifact.source_name || artifact.channel || "Reference"}</span>
             <span className="shrink-0">{artifact.created_at?.slice(0, 10)}</span>

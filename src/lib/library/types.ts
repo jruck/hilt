@@ -178,6 +178,8 @@ export interface LibraryArtifact {
   save_recommendation?: SaveRecommendation;
   proposed_destination?: string | null;
   expires_at?: string | null;
+  is_unread: boolean;
+  read_at: string | null;
 }
 
 export interface LibraryArtifactDetail extends LibraryArtifact {
@@ -201,6 +203,9 @@ export interface LibrarySourceSummary {
   intent: SourceIntent;
   artifact_count: number;
   candidate_count: number;
+  unread_count: number;
+  saved_unread_count: number;
+  candidate_unread_count: number;
   last_fetched: string | null;
   blocked?: string | null;
 }

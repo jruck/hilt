@@ -6,6 +6,7 @@ cd /Users/jruck/work/engineering/me/hilt
 export HOME="${HOME:-/Users/jruck}"
 export DATA_DIR="${DATA_DIR:-$HOME/.hilt/data}"
 export WS_PORT="${WS_PORT:-3100}"
+export HILT_GRANOLA_SYNC_DAEMON="${HILT_GRANOLA_SYNC_DAEMON:-1}"
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 
 is_hilt_up() {

@@ -24,6 +24,8 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    ".next-graph-dev/**",
+    ".next-graph-live/**",
     "out/**",
     "build/**",
     "dist/**",

@@ -65,3 +65,7 @@ local/
 dist/
 /.obsidian
 docs/.claude/settings.local.json
+
+# Isolated dist dir for graph visual-iteration dev server
+.next-graph-dev/
+.next-graph-live/

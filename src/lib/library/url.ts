@@ -1,21 +1,42 @@
 import { buildViewUrl } from "@/lib/url-utils";
 
 export type LibraryDensity = "feed" | "list";
-export type LibraryRanking = "recent" | "for-you" | "new";
+export type LibraryRanking = "recent" | "for-you" | "new" | "updated";
 export type LibraryStatusFilter = "all" | "saved" | "candidate";
+export type LibraryModeControl = "study" | "keep";
+
+export const LIBRARY_CHANNEL_SOURCE_PREFIX = "channel:";
+
+export function libraryChannelSource(channel: string): string {
+  return `${LIBRARY_CHANNEL_SOURCE_PREFIX}${channel}`;
+}
+
+export function librarySourceChannel(source: string | null | undefined): string | null {
+  return source?.startsWith(LIBRARY_CHANNEL_SOURCE_PREFIX)
+    ? source.slice(LIBRARY_CHANNEL_SOURCE_PREFIX.length) || null
+    : null;
+}
+
+export function libraryConcreteSource(source: string | null | undefined): string | null {
+  return librarySourceChannel(source) ? null : source || null;
+}
 
 export interface LibraryUrlControls {
   density: LibraryDensity;
   ranking: LibraryRanking;
   status: LibraryStatusFilter;
+  mode: LibraryModeControl;
   source: string | null;
+  tag: string | null;
 }
 
 export const defaultLibraryUrlControls: LibraryUrlControls = {
   density: "feed",
   ranking: "recent",
   status: "all",
+  mode: "study",
   source: null,
+  tag: null,
 };
 
 function validDensity(value: string | null): LibraryDensity {
@@ -23,7 +44,7 @@ function validDensity(value: string | null): LibraryDensity {
 }
 
 function validRanking(value: string | null): LibraryRanking {
-  if (value === "for-you" || value === "new") return value;
+  if (value === "for-you" || value === "new" || value === "updated") return value;
   return "recent";
 }
 
@@ -32,13 +53,20 @@ function validStatus(value: string | null): LibraryStatusFilter {
   return "all";
 }
 
+function validMode(value: string | null): LibraryModeControl {
+  if (value === "keep") return value;
+  return "study";
+}
+
 export function parseLibraryControls(search: string): LibraryUrlControls {
   const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
   return {
     density: validDensity(params.get("view")),
     ranking: validRanking(params.get("rank")),
     status: validStatus(params.get("status")),
+    mode: validMode(params.get("mode")),
     source: params.get("source") || null,
+    tag: params.get("tag") || null,
   };
 }
 
@@ -47,7 +75,9 @@ export function buildLibrarySearch(controls: LibraryUrlControls): string {
   if (controls.density !== defaultLibraryUrlControls.density) params.set("view", controls.density);
   if (controls.ranking !== defaultLibraryUrlControls.ranking) params.set("rank", controls.ranking);
   if (controls.status !== defaultLibraryUrlControls.status) params.set("status", controls.status);
+  if (controls.mode !== defaultLibraryUrlControls.mode) params.set("mode", controls.mode);
   if (controls.source) params.set("source", controls.source);
+  if (controls.tag) params.set("tag", controls.tag);
   const search = params.toString();
   return search ? `?${search}` : "";
 }

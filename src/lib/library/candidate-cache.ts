@@ -4,8 +4,16 @@ import type { CandidateStatus, ReferenceCandidate, ProcessedArtifact, PromotionR
 import { addDays, atomicWriteFile, canonicalUrl, dateOnly, ensureDir, hashId, isoNow, slugify, walkMarkdown } from "./utils";
 import { extractBullets, extractSection, parseMarkdownFile, relativeVaultPath, stringifyMarkdown } from "./markdown";
 import { buildMediaMarkdown, cachedSourceContent, stripDetailsWrapper } from "./media";
+import { PIPELINE_VERSION } from "./pipeline";
+import { friendlyNewsletterSender, semanticTags, uniqueTags, validLibraryMode } from "./taxonomy";
 
 export const CANDIDATE_CACHE_DIR = path.join("references", ".cache", "library-candidates");
+const NEWSLETTERS_SOURCE_ID = "superhuman-news";
+const NEWSLETTERS_SOURCE_NAME = "Newsletters";
+const BOOK_CAPTURE_SOURCE_ID = "book-capture";
+const BOOK_CAPTURE_SOURCE_NAME = "Books";
+const MANUAL_SOURCE_ID = "manual";
+const MANUAL_SOURCE_NAME = "Manual";
 
 export function candidateCacheDir(vaultPath: string): string {
   return path.join(vaultPath, CANDIDATE_CACHE_DIR);
@@ -19,18 +27,42 @@ export function parseCandidateFile(vaultPath: string, filePath: string): Referen
   const promotion = typeof data.promotion === "object" && data.promotion !== null ? data.promotion as Record<string, unknown> : {};
   const keyPoints = extractBullets(extractSection(body, "Key Points"));
   const cachedSource = stripDetailsWrapper(extractSection(body, "Raw Content"));
+  const sourceTags = uniqueTags(Array.isArray(data.source_tags) ? data.source_tags : []);
+  const channel = String(data.channel || "manual") as ReferenceCandidate["channel"];
+  const author = typeof data.author === "string" ? data.author : null;
+  const rawSourceFolder = typeof data.source_folder === "string" && data.source_folder.trim()
+    ? data.source_folder.trim()
+    : channel === "email" && author
+      ? author
+      : null;
+  const sourceFolder = channel === "email"
+    ? friendlyNewsletterSender(rawSourceFolder) || rawSourceFolder
+    : rawSourceFolder;
+  const sourceFolderId = typeof data.source_folder_id === "string" || typeof data.source_folder_id === "number"
+    ? String(data.source_folder_id)
+    : channel === "email" && author
+      ? author.toLowerCase()
+      : null;
+  const sourceId = String(data.source_id || "");
+  const sourceName = sourceId === NEWSLETTERS_SOURCE_ID
+    ? NEWSLETTERS_SOURCE_NAME
+    : sourceId === BOOK_CAPTURE_SOURCE_ID
+      ? BOOK_CAPTURE_SOURCE_NAME
+      : sourceId === MANUAL_SOURCE_ID
+        ? MANUAL_SOURCE_NAME
+        : String(data.source_name || "");
   return {
     id: hashId(relativeVaultPath(vaultPath, filePath)),
     path: relativeVaultPath(vaultPath, filePath),
     title,
     url: String(data.url || ""),
     format: String(data.format || "article"),
-    author: typeof data.author === "string" ? data.author : null,
+    author,
     published: typeof data.published === "string" ? data.published : null,
     digested: String(data.digested || dateOnly()),
-    channel: String(data.channel || "manual") as ReferenceCandidate["channel"],
-    source_id: String(data.source_id || ""),
-    source_name: String(data.source_name || ""),
+    channel,
+    source_id: sourceId,
+    source_name: sourceName,
     thumbnail: typeof data.thumbnail === "string" ? data.thumbnail : null,
     intent: String(data.intent || "discovery") as ReferenceCandidate["intent"],
     status: String(data.status || "candidate") as CandidateStatus,
@@ -44,6 +76,13 @@ export function parseCandidateFile(vaultPath: string, filePath: string): Referen
     save_recommendation: String(data.save_recommendation || "review") as ReferenceCandidate["save_recommendation"],
     proposed_destination: typeof data.proposed_destination === "string" ? data.proposed_destination : null,
     connected_projects: Array.isArray(data.connected_projects) ? data.connected_projects.map(String) : [],
+    tags: semanticTags(Array.isArray(data.tags) ? data.tags : []),
+    source_tags: sourceTags,
+    source_collection: typeof data.source_collection === "string" && data.source_collection.trim() ? data.source_collection.trim() : null,
+    source_collection_id: typeof data.source_collection_id === "string" || typeof data.source_collection_id === "number" ? String(data.source_collection_id) : null,
+    source_folder: sourceFolder,
+    source_folder_id: sourceFolderId,
+    library_mode: validLibraryMode(data.library_mode),
     promotion: {
       promoted_to: typeof promotion.promoted_to === "string" ? promotion.promoted_to : null,
       promoted_at: typeof promotion.promoted_at === "string" ? promotion.promoted_at : null,
@@ -82,8 +121,9 @@ export function findCandidateByUrl(vaultPath: string, url: string): ReferenceCan
 function connectionLines(processed: ProcessedArtifact): string {
   if (processed.connection_suggestions?.length) {
     return processed.connection_suggestions.map((suggestion) => {
-      const target = suggestion.target ? `[[${suggestion.target}]]` : suggestion.label;
-      return `- ${target} — ${suggestion.relationship}`;
+      // Mirror the durable reference rendering: human title as the wikilink alias.
+      const link = suggestion.target ? `[[${suggestion.target}|${suggestion.label}]]` : suggestion.label;
+      return `- ${link} - ${suggestion.relationship}`;
     }).join("\n");
   }
   if (processed.connected_projects.length) {
@@ -104,6 +144,7 @@ export function buildCandidateMarkdown(processed: ProcessedArtifact): string {
   const now = dateOnly();
   const frontmatter: Record<string, unknown> = {
     type: "reference-candidate",
+    pipeline_version: PIPELINE_VERSION,
     url: processed.raw.url,
     format: processed.format,
     title: processed.raw.title,
@@ -120,7 +161,15 @@ export function buildCandidateMarkdown(processed: ProcessedArtifact): string {
     extracted_chars: processed.digestion?.extracted_chars,
     cached_source_chars: processed.digestion?.cached_source_chars,
     cached_source_extractor: processed.digestion?.cached_source_extractor,
+    video_duration_seconds: processed.video_duration_seconds,
     thumbnail: processed.raw.thumbnail || undefined,
+    tags: processed.tags.length ? semanticTags(processed.tags) : undefined,
+    source_tags: processed.source_tags.length ? processed.source_tags : undefined,
+    source_collection: processed.source_collection || undefined,
+    source_collection_id: processed.source_collection_id || undefined,
+    source_folder: processed.source_folder || undefined,
+    source_folder_id: processed.source_folder_id || undefined,
+    library_mode: processed.library_mode,
     status: "candidate",
     expires: addDays(now, processed.source.retention.candidate_ttl_days),
     score: processed.score,

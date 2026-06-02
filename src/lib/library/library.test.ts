@@ -14,13 +14,17 @@ import { parseConnectionJudgment } from "./connection-prompt";
 import * as digestion from "./digestion";
 import { digestArtifact } from "./digestion";
 import { getLibraryOperationalHealth } from "./health";
+import { buildKbIndex } from "./kb-index";
 import { cleanupLegacyReferenceBody, stripLegacyReferenceBodyCruft } from "./legacy-cleanup";
 import { archiveLibraryArtifact, getLibraryArtifact, getLibraryArtifactByPath, hasUnreadLibraryArtifacts, listLibraryArtifactDetails, listLibrarySources } from "./library";
 import { buildMediaMarkdown } from "./media";
 import { parseOpenGraphHtml } from "./media-enrichment";
 import { markLibraryArtifactsRead } from "./read-state";
+import { PIPELINE_VERSION } from "./pipeline";
 import { getRecommendations } from "./recommendations";
-import { buildDurableReferenceMarkdown, listSavedReferences } from "./references";
+import { buildDurableReferenceMarkdown, listSavedReferences, parseReferenceFile } from "./references";
+import { addToReviewQueue, getActiveBatchNotes, readReviewQueue, setReviewStatus } from "./review-queue";
+import { parseReweaveOutput } from "./reweave-prompt";
 import { runIngestion } from "./runner";
 import { loadSources } from "./source-config";
 import { parseTimedTranscript } from "./transcript";
@@ -79,6 +83,12 @@ function processedYouTubeArtifact(): ProcessedArtifact {
     assessment: { save_recommendation: "review", why: "Discovery source." },
     score: { relevance: 0.8, novelty: 0.7, confidence: 0.9, total: 0.82 },
     tags: ["youtube"],
+    source_tags: [],
+    source_collection: null,
+    source_collection_id: null,
+    source_folder: null,
+    source_folder_id: null,
+    library_mode: "study",
     proposed_destination: "references/process",
     connected_projects: ["reference-library"],
     reasoning: "Fixture",
@@ -137,13 +147,17 @@ test("library URL helpers encode item links and view controls", () => {
     density: "list",
     ranking: "new",
     status: "candidate",
+    mode: "study",
     source: "twitter-bookmarks",
+    tag: null,
   }), "/library/item/abc123?view=list&rank=new&status=candidate&source=twitter-bookmarks");
   assert.deepEqual(parseLibraryControls("?view=list&rank=for-you&status=saved&source=manual"), {
     density: "list",
     ranking: "for-you",
     status: "saved",
+    mode: "study",
     source: "manual",
+    tag: null,
   });
 });
 
@@ -934,33 +948,61 @@ test("library read state baselines old stock and marks new artifacts read", () =
   assert.equal(initial.unread_total, 0);
   assert.equal(hasUnreadLibraryArtifacts(vault), false);
 
+  const legacyPath = path.join(vault, "references", "legacy-maintenance.md");
+  fs.writeFileSync(legacyPath, `---
+type: reference
+description: Legacy item that should not become unread when repaired.
+url: https://example.com/legacy
+published: '2026-05-01'
+captured: '2026-05-01'
+---
+# Legacy Maintenance
+
+## Summary
+
+Old stock.
+`, "utf-8");
+  const maintenanceTime = new Date(Date.now() + 5_000);
+  fs.utimesSync(legacyPath, maintenanceTime, maintenanceTime);
+
+  const afterMaintenance = listLibraryArtifactDetails(vault, { includeCandidates: true });
+  assert.equal(afterMaintenance.total, 1);
+  assert.equal(afterMaintenance.unread_total, 0);
+  assert.equal(afterMaintenance.artifacts[0].is_unread, false);
+  assert.equal(hasUnreadLibraryArtifacts(vault), false);
+
   const filePath = path.join(vault, "references", "new-reference.md");
-  fs.writeFileSync(filePath, buildDurableReferenceMarkdown(processedYouTubeArtifact(), "manual_save"), "utf-8");
-  const artifactTime = new Date(Date.now() + 5_000);
-  fs.utimesSync(filePath, artifactTime, artifactTime);
+  const captureTime = new Date(Date.now() + 5_000).toISOString();
+  const newReferenceMarkdown = buildDurableReferenceMarkdown(processedYouTubeArtifact(), "manual_save")
+    .replace(/captured_at: .+/, `captured_at: '${captureTime}'`);
+  fs.writeFileSync(filePath, newReferenceMarkdown, "utf-8");
 
   const withUnread = listLibraryArtifactDetails(vault, { includeCandidates: true });
-  assert.equal(withUnread.total, 1);
+  assert.equal(withUnread.total, 2);
   assert.equal(withUnread.unread_total, 1);
-  assert.equal(withUnread.artifacts[0].is_unread, true);
+  const unreadArtifact = withUnread.artifacts.find((artifact) => artifact.is_unread);
+  assert.ok(unreadArtifact);
+  assert.equal(unreadArtifact.path, "references/new-reference.md");
   assert.equal(hasUnreadLibraryArtifacts(vault), true);
   const unreadOnly = listLibraryArtifactDetails(vault, { includeCandidates: true, unread: true });
   assert.equal(unreadOnly.total, 1);
-  assert.equal(unreadOnly.artifacts[0].id, withUnread.artifacts[0].id);
+  assert.equal(unreadOnly.artifacts[0].id, unreadArtifact.id);
 
-  const result = markLibraryArtifactsRead(vault, [withUnread.artifacts[0].id], new Date(Date.now() + 10_000).toISOString());
+  const result = markLibraryArtifactsRead(vault, [unreadArtifact.id], new Date(Date.now() + 10_000).toISOString());
   assert.equal(result.marked, 1);
 
   const afterRead = listLibraryArtifactDetails(vault, { includeCandidates: true });
   assert.equal(afterRead.unread_total, 0);
-  assert.equal(afterRead.artifacts[0].is_unread, false);
   assert.equal(hasUnreadLibraryArtifacts(vault), false);
-  assert.ok(afterRead.artifacts[0].read_at);
+  const readArtifact = afterRead.artifacts.find((artifact) => artifact.id === unreadArtifact.id);
+  assert.ok(readArtifact);
+  assert.equal(readArtifact.is_unread, false);
+  assert.ok(readArtifact.read_at);
   const unreadAfterRead = listLibraryArtifactDetails(vault, { includeCandidates: true, unread: true });
   assert.equal(unreadAfterRead.total, 0);
 });
 
-test("legacy saved references without source ids appear as manual captures", () => {
+test("legacy saved references without source ids appear as Manual", () => {
   const vault = tempVault();
   fs.writeFileSync(path.join(vault, "references", "manual.md"), `---
 type: reference
@@ -973,12 +1015,12 @@ published: 2026-05-29
 
   const [artifact] = listLibraryArtifactDetails(vault, { source: "manual" }).artifacts;
   assert.equal(artifact.source_id, "manual");
-  assert.equal(artifact.source_name, "Manual captures");
+  assert.equal(artifact.source_name, "Manual");
   assert.equal(artifact.channel, "manual");
 
   const sources = listLibrarySources(vault);
   assert.equal(sources[0].id, "manual");
-  assert.equal(sources[0].name, "Manual captures");
+  assert.equal(sources[0].name, "Manual");
   assert.equal(sources[0].artifact_count, 1);
 });
 
@@ -1272,6 +1314,76 @@ fixtures:
   assert.equal(listed.artifacts[0].created_at, "2026-05-26");
 });
 
+test("source taxonomy is preserved separately from display tags", async () => {
+  process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  const vault = tempVault();
+  writeSource(vault, "raindrop.yaml", `
+id: raindrop-bookmarks
+name: Raindrop bookmarks
+channel: fixture
+url: fixture://raindrop
+enabled: true
+intent: explicit_save
+signal: raindrop_bookmark
+tags: [bookmark, raindrop]
+fixtures:
+  - url: https://example.com/centaurs
+    title: Centaurs and Cyborgs
+    date: 2026-05-26
+    content: This saved article should keep Raindrop source tags as taxonomy rather than card source labels.
+    metadata:
+      tags: [ai-consulting, future-of-work]
+      source_collection: AI Reading
+      source_collection_id: 42
+`);
+  await runIngestion(vault, { useSummarize: false });
+
+  const [artifact] = listLibraryArtifactDetails(vault, { includeCandidates: true }).artifacts;
+  assert.deepEqual(artifact.tags, []);
+  assert.deepEqual(artifact.source_tags, ["ai-consulting", "future-of-work"]);
+  assert.equal(artifact.source_collection, "AI Reading");
+
+  const byTag = listLibraryArtifactDetails(vault, { tag: "future-of-work", includeCandidates: true });
+  assert.equal(byTag.total, 1);
+
+  const source = listLibrarySources(vault).find((item) => item.id === "raindrop-bookmarks");
+  assert.equal(source?.facets.some((facet) => facet.kind === "collection" && facet.label === "AI Reading"), true);
+  assert.equal(source?.facets.some((facet) => facet.kind === "tag" && facet.label === "ai-consulting"), true);
+});
+
+test("keep-mode saved references are durable but hidden from the default study list", async () => {
+  process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  const vault = tempVault();
+  writeSource(vault, "raindrop.yaml", `
+id: raindrop-bookmarks
+name: Raindrop bookmarks
+channel: fixture
+url: fixture://raindrop
+enabled: true
+intent: explicit_save
+signal: raindrop_bookmark
+fixtures:
+  - url: https://shop.example.com/zander-ottoman
+    title: Zander Ottoman
+    date: 2026-05-26
+    content: A product bookmark to keep for later, not a study item to weave.
+    metadata:
+      tags: [shopping, furniture]
+`);
+  await runIngestion(vault, { useSummarize: false });
+
+  assert.equal(listSavedReferences(vault).length, 1);
+  assert.equal(listLibraryArtifactDetails(vault, { includeCandidates: true }).total, 0);
+
+  const keep = listLibraryArtifactDetails(vault, { mode: "keep", includeCandidates: true });
+  assert.equal(keep.total, 1);
+  assert.equal(keep.artifacts[0].library_mode, "keep");
+  assert.deepEqual(keep.artifacts[0].source_tags, ["shopping", "furniture"]);
+
+  const all = listLibraryArtifactDetails(vault, { mode: "all", includeCandidates: true });
+  assert.equal(all.total, 1);
+});
+
 test("library source counts respect lifecycle filters", async () => {
   process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
   const vault = tempVault();
@@ -1511,7 +1623,7 @@ test("digestion abstains from fabricating connections when the LLM judge is disa
   fs.writeFileSync(path.join(vault, "projects", "agentic-product", "index.md"), "# Agentic Product\n\nActive work on agentic product discovery loops and surfaced insights.\n", "utf-8");
   const source: LibrarySourceConfig = {
     id: "manual",
-    name: "Manual captures",
+    name: "Manual",
     channel: "manual",
     url: "manual://capture",
     enabled: true,
@@ -1549,8 +1661,10 @@ test("digestion abstains from fabricating connections when the LLM judge is disa
     assert.doesNotMatch(candidateMarkdown, /## Suggested Connections\n\n- /);
 
     const referenceMarkdown = buildDurableReferenceMarkdown(processed);
-    assert.match(referenceMarkdown, /## Connections\n\n\n\n## Raw Content/);
-    assert.doesNotMatch(referenceMarkdown, /## Connections\n\n- /);
+    // With no connections, the durable reference omits the Connections heading entirely —
+    // it goes straight from the digest (Key Points here) to Raw Content.
+    assert.doesNotMatch(referenceMarkdown, /## Connections/);
+    assert.match(referenceMarkdown, /## Key Points[\s\S]*## Raw Content/);
     // No connection frontmatter keys are emitted on abstention.
     assert.doesNotMatch(referenceMarkdown, /connection_suggestions:/);
     assert.doesNotMatch(referenceMarkdown, /connection_reasoning:/);
@@ -1648,20 +1762,220 @@ test("connection rendering formats target, null-target, and empty cases", () => 
   assert.match(emptyMd, /## Suggested Connections\n\n\n\n## Raw Content/);
   assert.doesNotMatch(emptyMd, /## Suggested Connections\n\n- /);
 
-  // A targeted connection renders "[[target]] — relationship".
+  // A targeted connection renders "[[target|label]] - relationship".
   const targeted = buildProcessedArtifactWithConnections([
     { target: "personal-orchestrator", label: "Personal Orchestrator", relationship: "Extends the orchestrator with a delivery-rate counterexample." },
   ]);
-  assert.match(buildCandidateMarkdown(targeted), /- \[\[personal-orchestrator\]\] — Extends the orchestrator with a delivery-rate counterexample\./);
-  assert.match(buildDurableReferenceMarkdown(targeted), /- \[\[personal-orchestrator\]\] — Extends the orchestrator with a delivery-rate counterexample\./);
+  assert.match(buildCandidateMarkdown(targeted), /- \[\[personal-orchestrator\|Personal Orchestrator\]\] - Extends the orchestrator with a delivery-rate counterexample\./);
+  assert.match(buildDurableReferenceMarkdown(targeted), /- \[\[personal-orchestrator\|Personal Orchestrator\]\] - Extends the orchestrator with a delivery-rate counterexample\./);
 
-  // A null-target (theme-level) connection renders "label — relationship", no wiki link.
+  // A null-target (theme-level) connection renders "label - relationship", no wiki link.
   const nullTarget = buildProcessedArtifactWithConnections([
     { target: null, label: "Type foundry references", relationship: "Is a peer/alternative of the type-foundry cluster." },
   ]);
   const nullMd = buildCandidateMarkdown(nullTarget);
-  assert.match(nullMd, /- Type foundry references — Is a peer\/alternative of the type-foundry cluster\./);
+  assert.match(nullMd, /- Type foundry references - Is a peer\/alternative of the type-foundry cluster\./);
   assert.doesNotMatch(nullMd, /\[\[Type foundry references\]\]/);
+});
+
+test("parseReweaveOutput parses clean JSON", () => {
+  const result = parseReweaveOutput(JSON.stringify({
+    description: "A practitioner take on weaving references into a personal KB.",
+    proposed_title: "Weaving References Into a Personal KB",
+    digest_markdown: "## The core idea\n\nMatch depth to the source.",
+    connections_first_party: [
+      { target: "projects/personal-orchestrator/index", title: "Personal Orchestrator", relationship: "extends the orchestrator with a routing data point" },
+    ],
+    connections_library: [
+      { target: "references/2026-05-10-type-foundries", title: "Type foundries", relationship: "offers a surprising contrast on durable value" },
+    ],
+    reweave_candidates: [
+      { target: "areas/knowledge-base", why: "Adds a connection-discipline heuristic worth folding in." },
+    ],
+  }));
+  assert.equal(result.description, "A practitioner take on weaving references into a personal KB.");
+  assert.equal(result.proposed_title, "Weaving References Into a Personal KB");
+  assert.match(result.digest_markdown, /## The core idea/);
+  assert.equal(result.connections_first_party.length, 1);
+  assert.equal(result.connections_first_party[0].target, "projects/personal-orchestrator/index");
+  assert.equal(result.connections_first_party[0].title, "Personal Orchestrator");
+  assert.match(result.connections_first_party[0].relationship, /routing data point/);
+  assert.equal(result.connections_library.length, 1);
+  assert.equal(result.connections_library[0].target, "references/2026-05-10-type-foundries");
+  assert.equal(result.reweave_candidates?.length, 1);
+  assert.equal(result.reweave_candidates?.[0].target, "areas/knowledge-base");
+});
+
+test("parseReweaveOutput parses JSON inside ```json fences", () => {
+  const raw = "Here is the weave:\n```json\n" + JSON.stringify({
+    description: "Short feed card line.",
+    proposed_title: "Fenced Title",
+    digest_markdown: "## Summary\n\nFenced body.",
+    connections_first_party: [
+      { target: "thoughts/memory-and-search", title: "Memory and Search", relationship: "builds on the retrieval design" },
+    ],
+    connections_library: [],
+  }) + "\n```\nLet me know if you want changes.";
+  const result = parseReweaveOutput(raw);
+  assert.equal(result.proposed_title, "Fenced Title");
+  assert.equal(result.connections_first_party.length, 1);
+  assert.equal(result.connections_first_party[0].target, "thoughts/memory-and-search");
+  assert.deepEqual(result.connections_library, []);
+});
+
+test("parseReweaveOutput parses JSON embedded in prose", () => {
+  const raw = "After exploring the vault, my answer is " + JSON.stringify({
+    description: "Embedded description.",
+    proposed_title: "Embedded Title",
+    digest_markdown: "## Notes\n\nEmbedded body.",
+    connections_first_party: [
+      { target: "areas/writing", title: "Writing", relationship: "informs the writing area" },
+    ],
+    connections_library: [],
+  }) + " and nothing else applies.";
+  const result = parseReweaveOutput(raw);
+  assert.equal(result.description, "Embedded description.");
+  assert.equal(result.connections_first_party[0].target, "areas/writing");
+});
+
+test("parseReweaveOutput drops connections pointing into references/.cache/", () => {
+  const result = parseReweaveOutput(JSON.stringify({
+    description: "d",
+    proposed_title: "t",
+    digest_markdown: "## x\n\ny",
+    connections_first_party: [
+      { target: "references/.cache/library-candidates/temp", title: "Temp candidate", relationship: "should be dropped" },
+      { target: "projects/real/index", title: "Real Project", relationship: "is kept" },
+    ],
+    connections_library: [
+      { target: "references/.cache/foo", title: "Cache foo", relationship: "should also be dropped" },
+    ],
+  }));
+  assert.equal(result.connections_first_party.length, 1);
+  assert.equal(result.connections_first_party[0].target, "projects/real/index");
+  assert.deepEqual(result.connections_library, []);
+});
+
+test("parseReweaveOutput strips a trailing .md from connection targets", () => {
+  const result = parseReweaveOutput(JSON.stringify({
+    description: "d",
+    proposed_title: "t",
+    digest_markdown: "## x\n\ny",
+    connections_first_party: [
+      { target: "projects/personal-orchestrator/index.md", title: "Personal Orchestrator", relationship: "extends it" },
+    ],
+    connections_library: [],
+  }));
+  assert.equal(result.connections_first_party[0].target, "projects/personal-orchestrator/index");
+});
+
+test("parseReweaveOutput requires a relationship and a non-cache target", () => {
+  const result = parseReweaveOutput(JSON.stringify({
+    description: "d",
+    proposed_title: "t",
+    digest_markdown: "## x\n\ny",
+    connections_first_party: [
+      { target: "projects/no-rel/index", title: "No Relationship" },
+      { target: "", title: "Empty target", relationship: "claims a tie but names no target" },
+      { target: "projects/kept/index", title: "Kept", relationship: "has both a target and a relationship" },
+    ],
+    connections_library: [],
+  }));
+  // The entry with no relationship and the entry with an empty target are both dropped.
+  assert.equal(result.connections_first_party.length, 1);
+  assert.equal(result.connections_first_party[0].target, "projects/kept/index");
+});
+
+test("parseReweaveOutput allows empty connection arrays and coerces missing fields", () => {
+  const empty = parseReweaveOutput(JSON.stringify({
+    description: "Just a digest, no ties.",
+    proposed_title: "Standalone",
+    digest_markdown: "## Body\n\nNo connections earned.",
+    connections_first_party: [],
+    connections_library: [],
+  }));
+  assert.deepEqual(empty.connections_first_party, []);
+  assert.deepEqual(empty.connections_library, []);
+  assert.deepEqual(empty.reweave_candidates, []);
+
+  // Unparseable / empty input coerces every field to a safe default.
+  const blank = parseReweaveOutput("not json at all");
+  assert.equal(blank.description, "");
+  assert.equal(blank.proposed_title, "");
+  assert.equal(blank.digest_markdown, "");
+  assert.deepEqual(blank.connections_first_party, []);
+  assert.deepEqual(blank.connections_library, []);
+  assert.deepEqual(blank.reweave_candidates, []);
+});
+
+test("buildDurableReferenceMarkdown emits a free-form body when digest_markdown is set", () => {
+  const base = processedYouTubeArtifact();
+  const processed: ProcessedArtifact = {
+    ...base,
+    description: "A reweaved feed-card description that is more specific than the legacy summary.",
+    digest_markdown: "## What it is\n\nA reweaved free-form digest body.\n\n## Why it matters\n\nIt ties into active work.",
+    connection_suggestions: [
+      { target: "projects/personal-orchestrator/index", label: "Personal Orchestrator", relationship: "extends the orchestrator" },
+    ],
+    connected_projects: ["personal-orchestrator"],
+  };
+  const markdown = buildDurableReferenceMarkdown(processed, "manual_save");
+
+  // The reweave digest replaces the fixed Summary/Key Points sections.
+  assert.match(markdown, /## What it is/);
+  assert.match(markdown, /## Why it matters/);
+  assert.doesNotMatch(markdown, /## Summary/);
+  assert.doesNotMatch(markdown, /## Key Points/);
+  // The reweave description (not the summary) drives the frontmatter description. The long value
+  // is emitted as a YAML folded block, so assert on the text rather than an inline `key: value`.
+  assert.match(markdown, /A reweaved feed-card description that is more specific than the legacy/);
+  assert.doesNotMatch(markdown, /A useful video summary with enough detail/);
+  // Connections render in the new [[target|label]] - relationship form.
+  assert.match(markdown, /## Connections/);
+  assert.match(markdown, /- \[\[projects\/personal-orchestrator\/index\|Personal Orchestrator\]\] - extends the orchestrator/);
+  // Raw Content is still appended for the source cache.
+  assert.match(markdown, /## Raw Content/);
+  assert.match(markdown, /00:30 A full transcript line/);
+});
+
+test("buildDurableReferenceMarkdown keeps the legacy Summary/Key Points body without digest_markdown", () => {
+  const processed = processedYouTubeArtifact();
+  assert.equal(processed.digest_markdown, undefined);
+  const markdown = buildDurableReferenceMarkdown(processed, "manual_save");
+  assert.match(markdown, /## Summary/);
+  assert.match(markdown, /A useful video summary with enough detail/);
+  assert.match(markdown, /## Key Points/);
+  assert.match(markdown, /- First useful point\./);
+  assert.match(markdown, /## Raw Content/);
+});
+
+test("a reweaved durable reference round-trips through parseReferenceFile", () => {
+  const vault = tempVault();
+  const base = processedYouTubeArtifact();
+  const processed: ProcessedArtifact = {
+    ...base,
+    raw: { ...base.raw, title: "Reweaved Reference Title" },
+    description: "Round-trip feed-card description.",
+    digest_markdown: "## The argument\n\nThe digest body survives the round trip intact.",
+    connection_suggestions: [
+      { target: "projects/personal-orchestrator/index", label: "Personal Orchestrator", relationship: "extends the orchestrator" },
+    ],
+    connected_projects: ["personal-orchestrator"],
+  };
+  const filePath = path.join(vault, "references", "reweaved.md");
+  fs.writeFileSync(filePath, buildDurableReferenceMarkdown(processed, "manual_save"), "utf-8");
+
+  const parsed = parseReferenceFile(vault, filePath);
+  assert.ok(parsed);
+  // Title comes from the H1.
+  assert.equal(parsed.title, "Reweaved Reference Title");
+  // Description comes from frontmatter (the reweave description, not a "## Summary" section).
+  assert.equal(parsed.summary, "Round-trip feed-card description.");
+  // The free-form digest body is preserved verbatim.
+  assert.match(parsed.content, /## The argument/);
+  assert.match(parsed.content, /The digest body survives the round trip intact\./);
+  // Connections are extracted from the body.
+  assert.ok(parsed.connections.some((line) => line.includes("Personal Orchestrator")));
 });
 
 test("library health summarizes scheduler, source, and dead-letter state", () => {
@@ -1683,7 +1997,36 @@ fixtures: []
   assert.equal(health.scheduler.loaded, 5);
   assert.equal(health.sources[0].status, "ok");
   assert.equal(health.dead_letters.total, 0);
+  assert.equal(health.dead_letters.unresolved, 0);
   assert.equal(health.ok, true);
+});
+
+test("library health treats dead letters as resolved once the source succeeds again", () => {
+  const vault = tempVault();
+  writeSource(vault, "health.yaml", `
+id: health-source
+name: Health Source
+channel: fixture
+url: fixture://health
+enabled: true
+intent: discovery
+fixtures: []
+`);
+  // A failure at 10:00, then a successful run at 11:00 → that failure is self-healed.
+  // A second failure at 12:00 (after the last success) → still unresolved.
+  fs.mkdirSync(path.join(vault, "references", ".cache"), { recursive: true });
+  fs.writeFileSync(path.join(vault, "references", ".cache", "library-dead-letter.json"), JSON.stringify([
+    { source_id: "health-source", error: "fetch failed", at: "2026-05-28T10:00:00.000Z" },
+    { source_id: "health-source", error: "fetch failed", at: "2026-05-28T12:00:00.000Z" },
+  ]), "utf-8");
+  fs.writeFileSync(path.join(vault, "meta", "sources", ".source-state.json"), JSON.stringify({
+    "health-source": { last_checked_at: "2026-05-28T11:00:00.000Z", last_success_at: "2026-05-28T11:00:00.000Z" },
+  }, null, 2), "utf-8");
+
+  const health = getLibraryOperationalHealth(vault, { launchctl: () => "last exit code = 0" });
+  assert.equal(health.dead_letters.total, 2);
+  // Only the post-success failure remains unresolved; the pre-success one is treated as healed.
+  assert.equal(health.dead_letters.unresolved, 1);
 });
 
 test("library health treats known scheduler deprecation stderr as a notice, not a failure", () => {
@@ -1818,4 +2161,108 @@ fixtures:
   const [candidate] = listCandidates(vault);
   assert.equal(candidate.status, "skipped");
   assert.equal(candidate.save_recommendation, "skip");
+});
+
+test("review queue read/write round-trips through setReviewStatus", () => {
+  const vault = tempVault();
+
+  // Fresh queue starts empty.
+  assert.deepEqual(readReviewQueue(vault), { version: 1, items: {}, batches: {} });
+
+  const { added } = addToReviewQueue(
+    vault,
+    [
+      { id: "ref-alpha", path: "references/alpha.md", pipeline_version: PIPELINE_VERSION },
+      { id: "ref-beta", path: "references/beta.md", pipeline_version: PIPELINE_VERSION },
+    ],
+    { batch: "batch-1" },
+  );
+  assert.equal(added, 2);
+
+  // Added entries read back as pending with the batch + pipeline version preserved.
+  const afterAdd = readReviewQueue(vault);
+  assert.equal(afterAdd.items["ref-alpha"].status, "pending");
+  assert.equal(afterAdd.items["ref-alpha"].batch, "batch-1");
+  assert.equal(afterAdd.items["ref-alpha"].pipeline_version, PIPELINE_VERSION);
+  assert.equal(afterAdd.items["ref-alpha"].path, "references/alpha.md");
+  assert.equal(afterAdd.items["ref-alpha"].reviewed_at, undefined);
+
+  // setReviewStatus returns the updated entry and persists it to disk.
+  const updated = setReviewStatus(vault, "ref-alpha", "approved", "looks good");
+  assert.ok(updated);
+  assert.equal(updated.status, "approved");
+  assert.equal(updated.note, "looks good");
+  assert.ok(typeof updated.reviewed_at === "string");
+
+  const afterReview = readReviewQueue(vault);
+  assert.equal(afterReview.items["ref-alpha"].status, "approved");
+  assert.equal(afterReview.items["ref-alpha"].note, "looks good");
+  assert.equal(afterReview.items["ref-alpha"].reviewed_at, updated.reviewed_at);
+  // Untouched siblings stay pending.
+  assert.equal(afterReview.items["ref-beta"].status, "pending");
+
+  // Updating an unknown id is a no-op that returns null.
+  assert.equal(setReviewStatus(vault, "missing", "rejected"), null);
+});
+
+test("getActiveBatchNotes surfaces a batch note only while it has pending items", () => {
+  const vault = tempVault();
+
+  // A batch with no note contributes nothing to the active notes.
+  addToReviewQueue(vault, [{ id: "a", path: "references/a.md", pipeline_version: "v1.3" }], { batch: "noteless" });
+  assert.deepEqual(getActiveBatchNotes(vault), []);
+
+  // A batch with a note surfaces it, annotated with its pending count.
+  addToReviewQueue(
+    vault,
+    [
+      { id: "b", path: "references/b.md", pipeline_version: "v1.3" },
+      { id: "c", path: "references/c.md", pipeline_version: "v1.3" },
+    ],
+    { batch: "noted", note: { version: "v1.3", title: "Concision pass", markdown: "- check length" } },
+  );
+  const notes = getActiveBatchNotes(vault);
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].batch, "noted");
+  assert.equal(notes[0].title, "Concision pass");
+  assert.equal(notes[0].pending_count, 2);
+
+  // Once every item in the batch is reviewed, its note drops out of the active set.
+  setReviewStatus(vault, "b", "approved");
+  setReviewStatus(vault, "c", "rejected");
+  assert.deepEqual(getActiveBatchNotes(vault), []);
+});
+
+test("buildDurableReferenceMarkdown emits pipeline_version that parseReferenceFile reads back", () => {
+  const vault = tempVault();
+  const filePath = path.join(vault, "references", "pipeline-version.md");
+  fs.writeFileSync(filePath, buildDurableReferenceMarkdown(processedYouTubeArtifact(), "manual_save"), "utf-8");
+
+  // The emitted frontmatter carries the current pipeline version...
+  assert.match(fs.readFileSync(filePath, "utf-8"), new RegExp(`pipeline_version:\\s*${PIPELINE_VERSION}`));
+
+  // ...and parseReferenceFile surfaces it onto the LibraryArtifact.
+  const parsed = parseReferenceFile(vault, filePath);
+  assert.ok(parsed);
+  assert.equal(parsed.pipeline_version, PIPELINE_VERSION);
+});
+
+test("KB index includes collaborative library projects for reweave discovery", () => {
+  const vault = tempVault();
+  const projectDir = path.join(vault, "libraries", "priceless-misc", "projects", "ai-consultancy");
+  fs.mkdirSync(projectDir, { recursive: true });
+  fs.writeFileSync(path.join(projectDir, "index.md"), `---
+description: AI consultancy venture concept for managed AI employees.
+---
+
+# AI Consultancy
+
+Managed AI employees, de-SaaS replacement tools, and AI-native operating systems for small businesses.
+`, "utf-8");
+
+  const index = buildKbIndex(vault, { noWrite: true, recentReferenceLimit: 0 });
+
+  assert.match(index, /## LIBRARY PROJECTS/);
+  assert.match(index, /AI Consultancy \(libraries\/priceless-misc\/projects\/ai-consultancy\)/);
+  assert.match(index, /Managed AI employees/);
 });

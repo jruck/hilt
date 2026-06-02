@@ -18,6 +18,17 @@ export function getXPostId(url: string | null | undefined): string | null {
   return url.match(/^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/[^/]+\/status\/(\d+)/i)?.[1] || null;
 }
 
+// Heuristic: does this tweet text read like the opening post of a multi-tweet thread? Combined with
+// conversation_id === tweet id (the tweet is the root of its own conversation), this signals a thread
+// whose continuation lives in reply tweets we can't fetch without X API search access.
+export function looksLikeThreadRoot(text: string): boolean {
+  return /(^|\n)\s*1[.)\/]\s/.test(text)
+    || /\b(?:here are|🧵)\s*\d*\s*(?:timeless\s+)?(?:lessons|things|reasons|tips|rules|steps|ways|takeaways|points|threads?)\b/i.test(text)
+    || /🧵/.test(text)
+    || /\bthread\b\s*(?:below|👇|:)/i.test(text)
+    || /\b1\s*\/\s*\d+\b/.test(text);
+}
+
 export function isXVideoUrl(url: string | null | undefined): boolean {
   return Boolean(url && getXPostId(url) && /\/video(?:\/\d+)?(?:[?#].*)?$/i.test(url));
 }
@@ -79,7 +90,13 @@ export function buildMediaMarkdown(raw: RawArtifact): string {
   }
 
   const xMediaUrl = typeof raw.metadata.video_url === "string" ? raw.metadata.video_url : typeof raw.metadata.expanded_url === "string" ? raw.metadata.expanded_url : raw.url;
-  const xEmbedUrl = isXVideoUrl(xMediaUrl) ? getXEmbedUrl(xMediaUrl) : null;
+  // Embed any X post, not just video ones — a bookmarked tweet (text, thread root, or video) should
+  // show its embed at the top. Prefer a linked video URL when present, else embed the post itself.
+  const xEmbedUrl = isXVideoUrl(xMediaUrl)
+    ? getXEmbedUrl(xMediaUrl)
+    : getXPostId(raw.url)
+      ? getXEmbedUrl(raw.url)
+      : null;
   if (xEmbedUrl) {
     return `## Media
 
@@ -108,4 +125,18 @@ export function stripDetailsWrapper(markdown: string): string {
   const trimmed = markdown.trim();
   const match = trimmed.match(/^<details>\s*<summary>[\s\S]*?<\/summary>\s*([\s\S]*?)\s*<\/details>$/i);
   return (match?.[1] || trimmed).trim();
+}
+
+/**
+ * Format a video duration (in whole seconds) as a compact timestamp: "m:ss", or "h:mm:ss" past an
+ * hour. Returns "" for missing/invalid values so callers can render nothing.
+ */
+export function formatVideoDuration(totalSeconds: number | null | undefined): string {
+  if (typeof totalSeconds !== "number" || !Number.isFinite(totalSeconds) || totalSeconds <= 0) return "";
+  const s = Math.round(totalSeconds);
+  const hours = Math.floor(s / 3600);
+  const minutes = Math.floor((s % 3600) / 60);
+  const seconds = s % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
 }

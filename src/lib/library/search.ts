@@ -26,10 +26,18 @@ function score(content: string, query: string): number {
 export function searchLibrary(vaultPath: string, query: string, options: LibraryListOptions = {}): LibrarySearchResult[] {
   const normalized = query.trim();
   if (!normalized) return [];
-  const all = listLibraryArtifactDetails(vaultPath, { ...options, limit: 10000, includeCandidates: true }).artifacts;
+  const all = listLibraryArtifactDetails(vaultPath, { mode: "all", ...options, limit: 10000, includeCandidates: true }).artifacts;
   return all
     .map((artifact) => {
-      const content = [artifact.title, artifact.summary, artifact.tags.join(" "), artifact.content].filter(Boolean).join("\n");
+      const content = [
+        artifact.title,
+        artifact.summary,
+        artifact.tags.join(" "),
+        artifact.source_tags.join(" "),
+        artifact.source_collection,
+        artifact.source_folder,
+        artifact.content,
+      ].filter(Boolean).join("\n");
       const matchScore = score(content, normalized);
       return {
         ...artifact,
@@ -41,4 +49,3 @@ export function searchLibrary(vaultPath: string, query: string, options: Library
     .filter((result) => result.score > 0)
     .sort((a, b) => b.score - a.score);
 }
-

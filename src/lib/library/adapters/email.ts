@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { ArtifactFetchBatch, FetchArtifactsOptions, LibrarySourceConfig, RawArtifact } from "../types";
 import { LibrarySourceBlockedError, MissingCredentialError } from "../errors";
+import { friendlyNewsletterSender } from "../taxonomy";
 import { isoNow } from "../utils";
 
 const SUPERHUMAN_MCP_URL = "https://mcp.mail.superhuman.com/mcp";
@@ -198,6 +199,7 @@ function threadToArtifact(source: LibrarySourceConfig, thread: SuperhumanThread)
   const date = compactText(thread.last_message_at || primaryMessage.sent_at) || isoNow();
   const labels = stringList(thread.labels);
   const splits = stringList(thread.splits);
+  const senderLabel = friendlyNewsletterSender(author) || author || undefined;
 
   const content = [
     contentBody,
@@ -218,6 +220,8 @@ function threadToArtifact(source: LibrarySourceConfig, thread: SuperhumanThread)
       thread_id: threadId,
       message_id: compactText(primaryMessage.message_id || thread.last_message_id) || undefined,
       split: superhumanSplit(source),
+      source_folder: senderLabel,
+      source_folder_id: author ? author.toLowerCase() : undefined,
       labels,
       splits,
       participants: stringList(thread.participants),

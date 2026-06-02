@@ -32,6 +32,10 @@ const vaultPath = argValue("--vault")
 
 const MAX_SOURCE_EXCERPT_CHARS = 5_000;
 
+// Gentle pacing between judge calls so a large backfill doesn't slam subscription rate limits.
+const sleepMs = Number(argValue("--sleep") || 0);
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 interface RejudgeTarget {
   filePath: string;
   isCandidate: boolean;
@@ -108,7 +112,26 @@ async function main(): Promise<void> {
       summary,
       keyPoints,
       sourceExcerpt: sourceExcerpt || summary,
-    });
+    }, { vaultPath });
+
+    // Distinguish a genuine "no connection" (the model always returns a one-line reasoning) from a
+    // failure-abstain (CLI missing, timeout, rate limit — empty reasoning, no connections). Never
+    // overwrite a file's connections on a failure: that would silently blank good data on a
+    // transient error during backfill. Skip + report so it can be retried.
+    const failed = !judgment.connects && !judgment.connections.length && !judgment.reasoning.trim();
+    if (failed) {
+      results.push({
+        path: target.filePath,
+        connects: false,
+        connection_verdict: "error_skipped",
+        connections: [],
+        reweave_candidates: [],
+        reasoning: "judge call failed or returned nothing (likely timeout/rate-limit); file left untouched",
+        status: "skipped_error",
+      });
+      if (sleepMs) await sleep(sleepMs);
+      continue;
+    }
 
     if (write) {
       const nextBody = replaceSectionBody(body, target.sectionHeading, connectionBody(judgment));
@@ -140,6 +163,7 @@ async function main(): Promise<void> {
       reasoning: judgment.reasoning,
       status: write ? "updated" : "dry_run",
     });
+    if (sleepMs) await sleep(sleepMs);
   }
 
   console.log(JSON.stringify({ write, vault: vaultPath, checked: files.length, results }, null, 2));

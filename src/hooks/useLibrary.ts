@@ -3,6 +3,15 @@
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import type { IngestionReport, LibraryArtifact, LibraryArtifactDetail, LibraryOperationalHealth, LibrarySourceConfig, LibrarySourceSummary, PromotionReason, RecommendedArtifact } from "@/lib/library/types";
+import type { ActiveBatchNote, ReviewQueueEntry, ReviewQueueStatus } from "@/lib/library/review-queue";
+
+export type ReviewQueueArtifact = LibraryArtifact & { review: ReviewQueueEntry };
+
+interface ReviewQueueResponse {
+  items: ReviewQueueArtifact[];
+  total: number;
+  notes: ActiveBatchNote[];
+}
 
 const fetcher = (url: string) => fetch(url, { cache: "no-store" }).then((res) => {
   if (!res.ok) throw new Error(`Request failed: ${res.status}`);
@@ -12,6 +21,8 @@ const fetcher = (url: string) => fetch(url, { cache: "no-store" }).then((res) =>
 export interface UseLibraryOptions {
   source?: string | null;
   channel?: string | null;
+  tag?: string | null;
+  mode?: string | null;
   status?: string | null;
   unread?: boolean | null;
   q?: string | null;
@@ -30,6 +41,8 @@ function libraryParams(options: UseLibraryOptions, offset?: number, limit?: numb
   const params = new URLSearchParams();
   if (options.source) params.set("source", options.source);
   if (options.channel) params.set("channel", options.channel);
+  if (options.tag) params.set("tag", options.tag);
+  if (options.mode) params.set("mode", options.mode);
   if (options.status) params.set("status", options.status);
   if (options.unread) params.set("unread", "true");
   if (options.q) params.set("q", options.q);
@@ -68,9 +81,11 @@ export function useInfiniteLibrary(options: UseLibraryOptions = {}, pageSize = 8
   return { artifacts, total, unreadTotal, error, isLoading, isLoadingMore, isValidating, hasMore, loadMore, mutate, size, setSize };
 }
 
-export function useLibrarySources(options: Pick<UseLibraryOptions, "channel" | "status" | "q"> = {}) {
+export function useLibrarySources(options: Pick<UseLibraryOptions, "channel" | "tag" | "mode" | "status" | "q"> = {}) {
   const params = new URLSearchParams();
   if (options.channel) params.set("channel", options.channel);
+  if (options.tag) params.set("tag", options.tag);
+  if (options.mode) params.set("mode", options.mode);
   if (options.status) params.set("status", options.status);
   if (options.q) params.set("q", options.q);
   const key = `/api/library/sources${params.toString() ? `?${params.toString()}` : ""}`;
@@ -105,6 +120,21 @@ export function useLibraryUnread() {
     refreshInterval: 60_000,
   });
   return { hasUnread: Boolean(data?.has_unread), error, isLoading, mutate };
+}
+
+export function useReviewQueue() {
+  const { data, error, isLoading, mutate } = useSWR<ReviewQueueResponse>("/api/library/review", fetcher);
+  return { items: data?.items || [], total: data?.total || 0, notes: data?.notes || [], error, isLoading, mutate };
+}
+
+export async function setReviewStatus(id: string, status: ReviewQueueStatus, note?: string) {
+  const res = await fetch("/api/library/review", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, status, note }),
+  });
+  if (!res.ok) throw new Error(`Failed to set review status: ${res.status}`);
+  return res.json() as Promise<ReviewQueueEntry>;
 }
 
 export async function promoteCandidate(id: string, reason: PromotionReason = "manual_save") {
@@ -176,5 +206,15 @@ export async function markLibraryArtifactsRead(ids: string[]) {
     body: JSON.stringify({ ids }),
   });
   if (!res.ok) throw new Error(`Failed to mark library artifacts read: ${res.status}`);
+  return res.json();
+}
+
+export async function markLibraryArtifactsUnread(ids: string[]) {
+  const res = await fetch("/api/library/read", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids, unread: true }),
+  });
+  if (!res.ok) throw new Error(`Failed to mark library artifacts unread: ${res.status}`);
   return res.json();
 }

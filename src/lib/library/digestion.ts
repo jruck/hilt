@@ -5,21 +5,39 @@ import path from "path";
 import { promisify } from "util";
 import type { LibrarySourceConfig, ProcessedArtifact, RawArtifact, SaveRecommendation } from "./types";
 import { isoNow, scoreClamp } from "./utils";
-import { isXVideoUrl, isYouTubeUrl } from "./media";
+import { isXVideoUrl, isYouTubeUrl, looksLikeThreadRoot } from "./media";
 import { enrichRawArtifactMedia } from "./media-enrichment";
-import { buildKbIndex, judgeConnections } from "./connections";
+import { buildKbIndex, judgeConnections, reweaveArtifact } from "./connections";
 import { extractBullets } from "./markdown";
+import { DIGEST_PROMPT } from "./pipeline";
+import { artifactTaxonomy } from "./taxonomy";
+import { getVideoDurationSeconds, isLikelyVideoUrl } from "./video-duration";
 
 const execFileAsync = promisify(execFile);
 
-const DIGEST_PROMPT = [
-  "Write a 2-4 sentence narrative summary of this source for a personal reference library.",
-  "Then a blank line.",
-  "Then a line that is EXACTLY \"Key takeaways:\" on its own.",
-  "Then 3-6 distinct markdown bullets, where each bullet is a standalone insight that does NOT restate the narrative summary.",
-  "Ignore newsletter/site chrome, navigation, invisible tracking text, subscription/forwarding/unsubscribe boilerplate, and email metadata.",
-  "Extract the actual argument, claims, examples, and implications.",
-].join(" ");
+// External dependency: the summarize CLI (https://summarize.sh, `npm i -g @steipete/summarize`).
+// Hilt references it rather than vendoring it. Resolve the binary per call (mirrors XURL_BIN) so
+// non-PATH installs and remote machines can point at an explicit path, and degrade gracefully with
+// install guidance when it is missing instead of failing opaquely.
+let warnedMissingSummarize = false;
+
+async function runSummarize(args: string[], options: { timeout: number; maxBuffer: number }): Promise<string | null> {
+  const bin = process.env.SUMMARIZE_BIN || "summarize";
+  try {
+    const { stdout } = await execFileAsync(bin, args, options);
+    return stdout.trim() || null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT" && !warnedMissingSummarize) {
+      warnedMissingSummarize = true;
+      console.warn(
+        `[library] summarize CLI not found (tried "${bin}"). Install it with ` +
+        `\`npm i -g @steipete/summarize\` (https://summarize.sh), set SUMMARIZE_BIN to its path, ` +
+        `or set LIBRARY_SUMMARIZE_DISABLED=1 to skip digestion summaries.`,
+      );
+    }
+    return null;
+  }
+}
 
 function isUrlOnlyText(text: string): boolean {
   const compact = text.trim();
@@ -174,35 +192,52 @@ async function resolveLinkedUrl(raw: RawArtifact): Promise<string | null> {
   return inline;
 }
 
-async function fetchXPostText(url: string, source: LibrarySourceConfig): Promise<string | null> {
+// We can fetch the root tweet and any long-form note_tweet, but the X API plan in use has no search
+// access, so a thread's continuation tweets can't be retrieved — we flag the capture as partial
+// rather than silently presenting tweet 1 of N.
+interface XPostFetch {
+  text: string;
+  partialThread: boolean;
+}
+
+async function fetchXPostText(url: string, source: LibrarySourceConfig): Promise<XPostFetch | null> {
   const id = xStatusId(url);
   if (!id) return null;
   const xurlBin = String(source.metadata.xurl_path || process.env.XURL_BIN || "");
   if (!xurlBin) return null;
+  const apiPath = `/2/tweets/${id}?tweet.fields=note_tweet,conversation_id,created_at,entities&expansions=author_id&user.fields=username,name`;
   try {
-    const { stdout } = await execFileAsync(xurlBin, ["read", id, "--auth", "oauth2"], { timeout: 30000, maxBuffer: 1024 * 1024 * 4 });
-    const parsed = JSON.parse(stdout) as {
+    const { stdout } = await execFileAsync(xurlBin, ["-X", "GET", apiPath, "--auth", "oauth2"], { timeout: 30000, maxBuffer: 1024 * 1024 * 4 });
+    const parsed = JSON.parse(stripInvisibleTracking(stdout)) as {
       data?: {
+        id?: string;
         text?: string;
         created_at?: string;
-        public_metrics?: Record<string, unknown>;
+        conversation_id?: string;
+        note_tweet?: { text?: string };
         entities?: { urls?: Array<{ expanded_url?: string; display_url?: string; url?: string }> };
       };
       includes?: { users?: Array<{ username?: string; name?: string }> };
     };
-    const text = stripInvisibleTracking(parsed.data?.text || "");
-    if (!text) return null;
+    // Prefer the long-form note_tweet body (up to 25k chars) over the 280-char truncation.
+    const fullText = stripInvisibleTracking(parsed.data?.note_tweet?.text || parsed.data?.text || "");
+    if (!fullText) return null;
+    const isThreadRoot = Boolean(parsed.data?.conversation_id && parsed.data.conversation_id === parsed.data.id);
+    // A long-form note_tweet usually carries the whole thread inline; a short root tweet that looks
+    // like a thread means the rest is in unreachable reply tweets.
+    const partialThread = isThreadRoot && !parsed.data?.note_tweet?.text && looksLikeThreadRoot(fullText);
     const user = parsed.includes?.users?.[0];
     const links = (parsed.data?.entities?.urls || [])
       .map((item) => item.expanded_url || item.display_url || item.url)
       .filter(Boolean)
       .join("\n");
-    return [
-      text,
+    const text = [
+      fullText,
       user?.name || user?.username ? `Author: ${user.name || user.username}` : "",
       parsed.data?.created_at ? `Published: ${parsed.data.created_at}` : "",
       links ? `Links:\n${links}` : "",
     ].filter(Boolean).join("\n\n");
+    return { text, partialThread };
   } catch {
     return null;
   }
@@ -242,12 +277,7 @@ async function summarizeUrl(url: string): Promise<string | null> {
   if (process.env.LIBRARY_SUMMARIZE_MODEL) {
     args.push("--model", process.env.LIBRARY_SUMMARIZE_MODEL);
   }
-  try {
-    const { stdout } = await execFileAsync("summarize", args, { timeout: durationToMs(timeoutValue, 210000) + 5000, maxBuffer: 1024 * 1024 * 4 });
-    return stdout.trim() || null;
-  } catch {
-    return null;
-  }
+  return runSummarize(args, { timeout: durationToMs(timeoutValue, 210000) + 5000, maxBuffer: 1024 * 1024 * 4 });
 }
 
 async function summarizeText(title: string, content: string): Promise<string | null> {
@@ -274,8 +304,7 @@ async function summarizeText(title: string, content: string): Promise<string | n
   }
   try {
     await fs.promises.writeFile(filePath, `# ${title}\n\n${trimmed}`, "utf-8");
-    const { stdout } = await execFileAsync("summarize", args, { timeout: durationToMs(timeoutValue, 210000) + 5000, maxBuffer: 1024 * 1024 * 4 });
-    return stdout.trim() || null;
+    return await runSummarize(args, { timeout: durationToMs(timeoutValue, 210000) + 5000, maxBuffer: 1024 * 1024 * 4 });
   } catch {
     return null;
   } finally {
@@ -312,20 +341,15 @@ async function extractSourceContent(raw: RawArtifact, source: LibrarySourceConfi
     }
   }
 
-  try {
-    const { stdout } = await execFileAsync("summarize", args, { timeout: durationToMs(timeoutValue, 240000) + 5000, maxBuffer: 1024 * 1024 * 12 });
-    const content = stdout.trim();
-    if (!content || content.length < 40) return null;
-    return {
-      kind: source.channel === "youtube" || isYouTubeUrl(raw.url) ? "transcript" : source.channel === "raindrop" || source.channel === "rss" ? "article" : "source",
-      extractor: "summarize-cli",
-      captured_at: isoNow(),
-      content,
-      chars: content.length,
-    };
-  } catch {
-    return null;
-  }
+  const content = await runSummarize(args, { timeout: durationToMs(timeoutValue, 240000) + 5000, maxBuffer: 1024 * 1024 * 12 });
+  if (!content || content.length < 40) return null;
+  return {
+    kind: source.channel === "youtube" || isYouTubeUrl(raw.url) ? "transcript" : source.channel === "raindrop" || source.channel === "rss" ? "article" : "source",
+    extractor: "summarize-cli",
+    captured_at: isoNow(),
+    content,
+    chars: content.length,
+  };
 }
 
 function decodeHtmlEntities(value: string): string {
@@ -442,6 +466,19 @@ function projectSlugSet(vaultPath: string): Set<string> {
   }
 }
 
+/**
+ * Map a reweave connection target to a project slug when the note lives under projects/. The
+ * reweave returns full vault-relative paths (e.g. "projects/foo/index" or "projects/foo"), so we
+ * extract the leading segment after "projects/" and keep it only if it is an active project slug.
+ */
+function projectSlugFromTarget(target: string | null, projectSlugs: Set<string>): string | null {
+  if (!target) return null;
+  const normalized = target.replace(/^\/+/, "");
+  const match = normalized.match(/^projects\/([^/]+)/);
+  const slug = match ? match[1] : normalized;
+  return projectSlugs.has(slug) ? slug : null;
+}
+
 export async function digestArtifact(
   raw: RawArtifact,
   source: LibrarySourceConfig,
@@ -457,7 +494,8 @@ export async function digestArtifact(
   const requestedSummarize = options.useSummarize ?? true;
   const xSource = source.channel === "twitter" || isXUrl(raw.url);
   const linkedUrl = xSource ? await resolveLinkedUrl(raw) : null;
-  const linkedXContent = linkedUrl && isXUrl(linkedUrl) ? await fetchXPostText(linkedUrl, source) : null;
+  const linkedX = linkedUrl && isXUrl(linkedUrl) ? await fetchXPostText(linkedUrl, source) : null;
+  const linkedXContent = linkedX?.text ?? null;
   const summarizeTarget = linkedUrl && /^https?:\/\//.test(linkedUrl) && !isXUrl(linkedUrl)
     ? linkedUrl
     : raw.url;
@@ -466,8 +504,14 @@ export async function digestArtifact(
   }
   if (linkedXContent) {
     extractionNotes.push("Fetched linked X post text for digest context.");
+    if (linkedX?.partialThread) {
+      extractionNotes.push("Linked X post is the root of a multi-tweet thread; only the opening post was captured (current X API plan has no thread/search access).");
+    }
   } else if (xSource && linkedUrl && isXUrl(linkedUrl) && !xStatusId(linkedUrl)) {
     extractionNotes.push("Linked X URL is not a standard post URL; source text remains metadata-limited.");
+  }
+  if (xSource && raw.metadata.partial_thread && !linkedX?.partialThread) {
+    extractionNotes.push("X bookmark is the root of a multi-tweet thread; only the opening post was captured (current X API plan has no thread/search access).");
   }
   if (xSource) {
     const normalizedTitle = normalizeXTitle(raw, linkedXContent);
@@ -598,10 +642,8 @@ export async function digestArtifact(
   );
   const score = scoreArtifact(raw, source, summary);
   const saveRecommendation = recommendation(score, source);
-  const tags = Array.from(new Set([
-    ...source.tags,
-    ...(Array.isArray(raw.metadata.tags) ? raw.metadata.tags.map(String) : []),
-  ].map((tag) => tag.trim()).filter(Boolean)));
+  const taxonomy = artifactTaxonomy(raw, source);
+  const tags = taxonomy.semantic_tags;
   const proposedDestination = typeof raw.metadata.proposed_destination === "string"
     ? raw.metadata.proposed_destination
     : source.channel === "youtube" || source.channel === "twitter"
@@ -611,37 +653,91 @@ export async function digestArtifact(
   // sources, or discovery items the policy recommends filing. Candidates that stay in the review
   // cache get no connections (no LLM spend) until they are promoted/re-judged.
   const willBeDurablySaved = source.intent === "explicit_save" || saveRecommendation === "file";
+  const shouldWeaveConnections = willBeDurablySaved && taxonomy.library_mode === "study";
   let connectionSuggestions: ProcessedArtifact["connection_suggestions"] = [];
   let connectedProjects: string[] = [];
   let connectionReasoning = "";
   let reweaveCandidates: ProcessedArtifact["reweave_candidates"] = [];
+  let digestMarkdown: string | undefined;
+  let description: string | undefined;
   const vaultPath = options.vaultPath || process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER;
-  if (willBeDurablySaved && process.env.LIBRARY_CONNECTIONS_DISABLED !== "1" && vaultPath) {
-    const kbIndex = buildKbIndex(vaultPath);
-    const judgment = await judgeConnections(kbIndex, {
-      title: raw.title,
-      summary,
-      keyPoints,
-      sourceExcerpt: sourceCache?.content || raw.content || metadataExcerpt || summary,
-    });
-    connectionSuggestions = judgment.connections;
-    connectionReasoning = judgment.reasoning;
-    reweaveCandidates = judgment.reweave_candidates || [];
+  if (shouldWeaveConnections && process.env.LIBRARY_CONNECTIONS_DISABLED !== "1" && vaultPath) {
     const projectSlugs = projectSlugSet(vaultPath);
-    connectedProjects = Array.from(new Set(
-      judgment.connections
-        .map((suggestion) => suggestion.target)
-        .filter((target): target is string => Boolean(target) && projectSlugs.has(target as string)),
-    ));
+    const kbIndex = buildKbIndex(vaultPath);
+    // Durable saves get the single-pass reweave: a free-form digest plus disciplined first-party
+    // and library connections, replacing the old buildKbIndex+judgeConnections split.
+    const sourceContent = sourceCache?.content || cleanedRawContent || raw.content || summary;
+    // Intent signal: WHY he saved it (product vs idea vs aesthetic) so the reweave picks the mode.
+    const intentTags = taxonomy.source_tags.length ? taxonomy.source_tags.join(", ") : "";
+    const intent = [
+      `format: ${format}`,
+      `saved via: ${source.channel}`,
+      raw.url ? `url: ${raw.url}` : "",
+      intentTags ? `tags: ${intentTags}` : "",
+      taxonomy.source_collection ? `collection: ${taxonomy.source_collection}` : "",
+      taxonomy.source_folder ? `folder: ${taxonomy.source_folder}` : "",
+      taxonomy.library_mode === "keep" ? "mode: keep / quiet durable memory" : "mode: study / weave into knowledge work",
+    ].filter(Boolean).join("; ");
+    const reweave = await reweaveArtifact(kbIndex, { title: raw.title, sourceContent, intent }, { vaultPath });
+    if (reweave) {
+      digestMarkdown = reweave.digest_markdown || undefined;
+      description = reweave.description || undefined;
+      // Keep first-party ties ahead of library cross-references so rendering reflects priority.
+      const orderedConnections = [...reweave.connections_first_party, ...reweave.connections_library];
+      connectionSuggestions = orderedConnections.map((connection) => ({
+        target: connection.target,
+        label: connection.title,
+        relationship: connection.relationship,
+      }));
+      connectionReasoning = connectionSuggestions.length
+        ? `Woven into ${connectionSuggestions.length} note${connectionSuggestions.length === 1 ? "" : "s"} across Justin's work.`
+        : "";
+      reweaveCandidates = reweave.reweave_candidates || [];
+      // connected_projects are the first-party targets whose path lives under projects/<slug>/.
+      connectedProjects = Array.from(new Set(
+        reweave.connections_first_party
+          .map((connection) => projectSlugFromTarget(connection.target, projectSlugs))
+          .filter((slug): slug is string => Boolean(slug)),
+      ));
+      // We never auto-rename files; raw.title is kept as the H1 and filename basis. The reweave's
+      // proposed_title is a suggestion only and is not persisted from this path.
+    } else {
+      // Reweave failed/disabled — fall back to the prior judgeConnections behavior so durable
+      // saves keep getting connection suggestions, and the parseDigestOutput summary/key_points
+      // above remain the body.
+      const judgment = await judgeConnections(kbIndex, {
+        title: raw.title,
+        summary,
+        keyPoints,
+        sourceExcerpt: sourceCache?.content || raw.content || metadataExcerpt || summary,
+      }, { vaultPath });
+      connectionSuggestions = judgment.connections;
+      connectionReasoning = judgment.reasoning;
+      reweaveCandidates = judgment.reweave_candidates || [];
+      connectedProjects = Array.from(new Set(
+        judgment.connections
+          .map((suggestion) => suggestion.target)
+          .filter((target): target is string => Boolean(target) && projectSlugs.has(target as string)),
+      ));
+    }
   }
   const connectionWhy = connectionReasoning ? ` ${connectionReasoning}` : "";
+
+  // For video sources, capture total duration (via yt-dlp) so the feed/list can badge it.
+  let videoDurationSeconds: number | undefined;
+  if (format === "video" || isLikelyVideoUrl(raw.url)) {
+    videoDurationSeconds = (await getVideoDurationSeconds(raw.url)) ?? undefined;
+  }
 
   return {
     raw,
     source,
     format,
     summary,
+    video_duration_seconds: videoDurationSeconds,
     key_points: keyPoints.length ? keyPoints : [raw.title],
+    digest_markdown: digestMarkdown,
+    description,
     assessment: {
       save_recommendation: saveRecommendation,
       why: source.intent === "explicit_save"
@@ -652,6 +748,12 @@ export async function digestArtifact(
     },
     score,
     tags,
+    source_tags: taxonomy.source_tags,
+    source_collection: taxonomy.source_collection,
+    source_collection_id: taxonomy.source_collection_id,
+    source_folder: taxonomy.source_folder,
+    source_folder_id: taxonomy.source_folder_id,
+    library_mode: taxonomy.library_mode,
     proposed_destination: proposedDestination,
     connected_projects: connectedProjects,
     connection_suggestions: connectionSuggestions,

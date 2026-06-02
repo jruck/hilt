@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Archive, ArrowLeft, Check, Copy, Link2, MoreHorizontal, X } from "lucide-react";
+import { Archive, ArrowLeft, Check, CircleDot, Copy, Link2, MoreHorizontal, Network, ThumbsDown, X } from "lucide-react";
+import type { ReviewQueueStatus } from "@/lib/library/review-queue";
+import { useScope } from "@/contexts/ScopeContext";
+import { isGraphEnabled } from "@/lib/graph/config";
+import { buildGraphScope } from "@/components/graph/graph-deeplink";
 import { archiveArtifact, promoteCandidate, skipCandidate, useLibraryArtifact } from "@/hooks/useLibrary";
 import { stripLegacyReferenceBodyCruft } from "@/lib/library/legacy-cleanup";
 import { getYouTubeVideoId } from "@/lib/library/media";
@@ -160,7 +164,9 @@ export function LibraryArtifactDetailPane({
   showBack = false,
   showClose = false,
   onChanged,
+  onMarkUnread,
   onCandidateDismissed,
+  onReviewStatus,
   className = "",
   controlsClassName = "",
   backClassName = "",
@@ -173,13 +179,17 @@ export function LibraryArtifactDetailPane({
   showBack?: boolean;
   showClose?: boolean;
   onChanged?: () => void;
+  onMarkUnread?: (id: string) => void | Promise<void>;
   onCandidateDismissed?: (artifact: NonNullable<ReturnType<typeof useLibraryArtifact>["artifact"]>) => void | Promise<void>;
+  onReviewStatus?: (id: string, status: ReviewQueueStatus, note?: string) => void | Promise<void>;
   className?: string;
   controlsClassName?: string;
   backClassName?: string;
   closeClassName?: string;
 }) {
   const { artifact, isLoading, mutate } = useLibraryArtifact(id, artifactPath);
+  const { navigateTo } = useScope();
+  const graphEnabled = isGraphEnabled();
   const [mode, setMode] = useState<"summary" | "cache">("summary");
   const [actionsOpen, setActionsOpen] = useState(false);
   const [videoSeconds, setVideoSeconds] = useState<number | null>(null);
@@ -264,9 +274,14 @@ export function LibraryArtifactDetailPane({
 
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-tertiary)]">
           <span>{artifact.source_name || artifact.channel} · {artifact.created_at?.slice(0, 10)}</span>
-          <span className={`rounded-full px-2 py-0.5 ${artifact.lifecycle_status === "candidate" ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-[var(--bg-secondary)] text-[var(--text-secondary)]"}`}>
-            {artifact.lifecycle_status === "candidate" ? "Candidate" : "Saved"}
-          </span>
+          <div className="flex items-center gap-2">
+            {artifact.pipeline_version && (
+              <span title={`Pipeline ${artifact.pipeline_version}`} className="rounded-full bg-[var(--bg-secondary)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">{artifact.pipeline_version}</span>
+            )}
+            <span className={`rounded-full px-2 py-0.5 ${artifact.lifecycle_status === "candidate" ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-[var(--bg-secondary)] text-[var(--text-secondary)]"}`}>
+              {artifact.lifecycle_status === "candidate" ? "Candidate" : "Saved"}
+            </span>
+          </div>
         </div>
         <h1 className="text-xl font-semibold leading-tight text-[var(--text-primary)] sm:text-2xl">{artifact.title}</h1>
 
@@ -323,6 +338,17 @@ export function LibraryArtifactDetailPane({
             >
               {copied === "path" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
             </button>
+            {graphEnabled ? (
+              <button
+                type="button"
+                onClick={() => navigateTo("system", buildGraphScope({ focus: artifact.id }))}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                aria-label="Show in graph"
+                title="Show in graph"
+              >
+                <Network className="h-4 w-4" />
+              </button>
+            ) : null}
             {isCandidate ? (
               <>
                 <button
@@ -356,6 +382,43 @@ export function LibraryArtifactDetailPane({
                 </button>
                 {actionsOpen && (
                   <div className="absolute right-0 z-10 mt-1 w-44 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] p-1 content-card-shadow">
+                    {onReviewStatus && (
+                      <>
+                        <button
+                          onClick={async () => {
+                            setActionsOpen(false);
+                            await onReviewStatus(artifact.id, "approved");
+                          }}
+                          className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                          Approve
+                        </button>
+                        <button
+                          onClick={async () => {
+                            setActionsOpen(false);
+                            const note = window.prompt("Reason for rejecting (optional):") ?? undefined;
+                            await onReviewStatus(artifact.id, "rejected", note || undefined);
+                          }}
+                          className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                        >
+                          <ThumbsDown className="h-3.5 w-3.5" />
+                          Reject
+                        </button>
+                      </>
+                    )}
+                    {onMarkUnread && !artifact.is_unread && (
+                      <button
+                        onClick={async () => {
+                          setActionsOpen(false);
+                          await onMarkUnread(artifact.id);
+                        }}
+                        className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                      >
+                        <CircleDot className="h-3.5 w-3.5" />
+                        Mark as unread
+                      </button>
+                    )}
                     <button
                       onClick={async () => {
                         if (!window.confirm("Archive this saved reference? It will move out of the active Library.")) return;

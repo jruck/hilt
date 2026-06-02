@@ -5,23 +5,27 @@ import { FileText, List, Loader2, PanelLeft, RefreshCw, X } from "lucide-react";
 import { useSWRConfig } from "swr";
 import { useScope } from "@/contexts/ScopeContext";
 import type { LibraryArtifact, RecommendedArtifact } from "@/lib/library/types";
-import { buildLibraryUrl, libraryItemIdFromScope, libraryItemScope, parseLibraryControls, type LibraryDensity, type LibraryRanking, type LibraryStatusFilter, type LibraryUrlControls } from "@/lib/library/url";
-import { ingestLibrarySources, markLibraryArtifactsRead, restoreCandidate, skipCandidate, useInfiniteLibrary, useRecommendations } from "@/hooks/useLibrary";
+import { artifactDisplayTags } from "@/lib/library/taxonomy";
+import { buildLibraryUrl, libraryConcreteSource, libraryItemIdFromScope, libraryItemScope, librarySourceChannel, parseLibraryControls, type LibraryDensity, type LibraryModeControl, type LibraryRanking, type LibraryStatusFilter, type LibraryUrlControls } from "@/lib/library/url";
+import { ingestLibrarySources, markLibraryArtifactsRead, markLibraryArtifactsUnread, restoreCandidate, setReviewStatus, skipCandidate, useInfiniteLibrary, useRecommendations, useReviewQueue } from "@/hooks/useLibrary";
+import type { ReviewQueueStatus } from "@/lib/library/review-queue";
 import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import { SecondarySegmentedButton, SecondarySegmentedControl, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
 import { ArtifactList, SourceNav } from "./BrowseView";
 import { FeedCard } from "./FeedCard";
+import { GenerationNoteCard } from "./GenerationNoteCard";
 import { LibraryArtifactDetailPane } from "./LibraryArtifactDetailPane";
 import { LibraryHealthPanel } from "./LibraryHealthPanel";
 
 const SOURCE_WIDTH_KEY = "hilt-library-source-width";
 const CONTENT_WIDTH_KEY = "hilt-library-content-width";
+const SOURCES_OPEN_KEY = "hilt-library-sources-open";
 const DEFAULT_SOURCE_WIDTH = 220;
 const MIN_SOURCE_WIDTH = 180;
 const MAX_SOURCE_WIDTH = 320;
 const DEFAULT_CONTENT_WIDTH = 380;
 const MIN_CONTENT_WIDTH = 300;
-const MAX_CONTENT_WIDTH = 560;
+const MAX_CONTENT_WIDTH = 1000;
 
 interface LibraryToast {
   id: string;
@@ -42,22 +46,39 @@ function storedWidth(key: string, fallback: number, min: number, max: number): n
   return Number.isFinite(parsed) ? clamp(parsed, min, max) : fallback;
 }
 
+function storedBoolean(key: string, fallback: boolean): boolean {
+  if (typeof window === "undefined") return fallback;
+  const stored = localStorage.getItem(key);
+  if (stored === "true") return true;
+  if (stored === "false") return false;
+  return fallback;
+}
+
 function initialLibraryControls(): LibraryUrlControls {
-  if (typeof window === "undefined") return { density: "feed", ranking: "recent", status: "all", source: null };
+  if (typeof window === "undefined") return { density: "feed", ranking: "recent", status: "all", mode: "study", source: null, tag: null };
   return parseLibraryControls(window.location.search);
 }
 
 function artifactMatchesFilter(artifact: LibraryArtifact, {
   source,
   status,
+  mode,
+  tag,
   query,
 }: {
   source: string | null;
   status: LibraryStatusFilter;
+  mode: LibraryModeControl;
+  tag: string | null;
   query: string;
 }) {
-  if (source && artifact.source_id !== source) return false;
+  const channel = librarySourceChannel(source);
+  const sourceId = libraryConcreteSource(source);
+  if (sourceId && artifact.source_id !== sourceId) return false;
+  if (channel && artifact.channel !== channel) return false;
   if (status !== "all" && artifact.lifecycle_status !== status) return false;
+  if (artifact.library_mode !== mode) return false;
+  if (tag && !artifactDisplayTags(artifact).some((item) => item.toLowerCase() === tag.toLowerCase())) return false;
   if (!query) return true;
   const haystack = [
     artifact.title,
@@ -65,6 +86,9 @@ function artifactMatchesFilter(artifact: LibraryArtifact, {
     artifact.source_name || "",
     artifact.channel || "",
     artifact.tags.join(" "),
+    artifact.source_tags.join(" "),
+    artifact.source_collection || "",
+    artifact.source_folder || "",
   ].join(" ").toLowerCase();
   return haystack.includes(query);
 }
@@ -82,8 +106,10 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   const [density, setDensityState] = useState<LibraryDensity>(() => initialLibraryControls().density);
   const [ranking, setRankingState] = useState<LibraryRanking>(() => initialLibraryControls().ranking);
   const [statusFilter, setStatusFilterState] = useState<LibraryStatusFilter>(() => initialLibraryControls().status);
-  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [modeFilter, setModeFilterState] = useState<LibraryModeControl>(() => initialLibraryControls().mode);
+  const [sourcesOpen, setSourcesOpen] = useState(() => storedBoolean(SOURCES_OPEN_KEY, false));
   const [selectedSource, setSelectedSourceState] = useState<string | null>(() => initialLibraryControls().source);
+  const [selectedTag, setSelectedTagState] = useState<string | null>(() => initialLibraryControls().tag);
   const [selectedId, setSelectedId] = useState<string | null>(() => libraryItemIdFromScope(scopePath));
   const [mobileDetailOpen, setMobileDetailOpen] = useState(() => Boolean(libraryItemIdFromScope(scopePath)));
   const [sourceWidth, setSourceWidth] = useState(() => storedWidth(SOURCE_WIDTH_KEY, DEFAULT_SOURCE_WIDTH, MIN_SOURCE_WIDTH, MAX_SOURCE_WIDTH));
@@ -98,51 +124,77 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   const seenFeedIdsRef = useRef<Set<string>>(new Set());
   const pendingReadIdsRef = useRef<Set<string>>(new Set());
   const readFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const resizeRef = useRef<{ startX: number; startWidth: number; moved: boolean } | null>(null);
+  const selectedChannel = librarySourceChannel(selectedSource);
+  const selectedSourceId = libraryConcreteSource(selectedSource);
   const libraryControls = useMemo<LibraryUrlControls>(() => ({
     density,
     ranking,
     status: statusFilter,
+    mode: modeFilter,
     source: selectedSource,
-  }), [density, ranking, selectedSource, statusFilter]);
+    tag: selectedTag,
+  }), [density, modeFilter, ranking, selectedSource, selectedTag, statusFilter]);
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const recent = useInfiniteLibrary({
-    source: selectedSource,
+    source: selectedSourceId,
+    channel: selectedChannel,
+    tag: selectedTag,
+    mode: modeFilter,
     status: statusFilter === "all" ? null : statusFilter,
     unread: ranking === "new",
     q: searchQuery || null,
   }, density === "list" ? 80 : 40);
   const recommendations = useRecommendations(20);
+  const reviewQueue = useReviewQueue();
   const filteredRecommendations = useMemo(
     () => recommendations.items.filter((artifact) => artifactMatchesFilter(artifact, {
       source: selectedSource,
       status: statusFilter,
+      mode: modeFilter,
+      tag: selectedTag,
       query: normalizedQuery,
     })),
-    [normalizedQuery, recommendations.items, selectedSource, statusFilter],
+    [modeFilter, normalizedQuery, recommendations.items, selectedSource, selectedTag, statusFilter],
   );
 
   const localRecentUnreadReads = recent.artifacts.filter((artifact) => artifact.is_unread && localReadIds.has(artifact.id)).length;
+  const localUnreadExcludedCount = recent.artifacts.filter((artifact) => (
+    artifact.is_unread && (localReadIds.has(artifact.id) || localHiddenIds.has(artifact.id))
+  )).length;
+  const localUpdatedHiddenCount = reviewQueue.items.filter((artifact) => localHiddenIds.has(artifact.id)).length;
   const rawItems: LibraryArtifact[] = ranking === "for-you"
     ? filteredRecommendations
-    : ranking === "new"
-      ? recent.artifacts.filter((artifact) => artifact.is_unread && !localReadIds.has(artifact.id))
-      : recent.artifacts;
+    : ranking === "updated"
+      ? reviewQueue.items
+      : ranking === "new"
+        ? recent.artifacts.filter((artifact) => (artifact.is_unread && !localReadIds.has(artifact.id)) || artifact.id === selectedId)
+        : recent.artifacts;
   const visibleRawItems = useMemo(() => rawItems.filter((artifact) => !localHiddenIds.has(artifact.id)), [localHiddenIds, rawItems]);
   const items = useMemo(() => applyLocalReadState(visibleRawItems, localReadIds), [visibleRawItems, localReadIds]);
   const localHiddenCount = rawItems.length - visibleRawItems.length;
   const total = ranking === "for-you"
     ? Math.max(0, filteredRecommendations.length - localHiddenCount)
-    : ranking === "new"
-      ? Math.max(0, recent.total - localRecentUnreadReads - localHiddenCount)
-      : Math.max(0, recent.total - localHiddenCount);
-  const unreadTotal = Math.max(0, ranking === "for-you"
-    ? filteredRecommendations.filter((artifact) => artifact.is_unread && !localReadIds.has(artifact.id)).length
-    : recent.unreadTotal - localRecentUnreadReads);
-  const loading = ranking === "for-you" ? recommendations.isLoading : recent.isLoading;
-  const hasMore = ranking !== "for-you" && recent.hasMore;
-  const isLoadingMore = ranking !== "for-you" && recent.isLoadingMore;
+    : ranking === "updated"
+      ? Math.max(0, reviewQueue.total - localHiddenCount)
+      : ranking === "new"
+        ? Math.max(0, recent.total - localRecentUnreadReads - localHiddenCount)
+        : Math.max(0, recent.total - localHiddenCount);
+  // Per-ranking counts shown inside each toggle (independent of which ranking is active), so the
+  // toggle itself carries its label + count — consolidating the separate count/unread chips.
+  const recentCount = recent.total;
+  const forYouCount = filteredRecommendations.length;
+  const newCount = Math.max(0, recent.unreadTotal - localUnreadExcludedCount);
+  const updatedCount = Math.max(0, reviewQueue.total - localUpdatedHiddenCount);
+  const loading = ranking === "for-you"
+    ? recommendations.isLoading
+    : ranking === "updated"
+      ? reviewQueue.isLoading
+      : recent.isLoading;
+  const usesRecentPaging = ranking === "recent" || ranking === "new";
+  const hasMore = usesRecentPaging && recent.hasMore;
+  const isLoadingMore = usesRecentPaging && recent.isLoadingMore;
   const selectedVisible = selectedId ? items.some((artifact) => artifact.id === selectedId) : false;
   const selectedArtifact = selectedId ? items.find((artifact) => artifact.id === selectedId) || null : null;
   const desktopReaderVisible = density === "list" || selectedId !== null;
@@ -190,6 +242,23 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
     if (pendingReadIdsRef.current.size) flushPendingReadIds();
   }, [flushPendingReadIds]);
 
+  const markUnread = useCallback(async (id: string) => {
+    // Drop any pending/local read mark so the item is unread locally, then persist to the server.
+    pendingReadIdsRef.current.delete(id);
+    setLocalReadIds((previous) => {
+      if (!previous.has(id)) return previous;
+      const next = new Set(previous);
+      next.delete(id);
+      return next;
+    });
+    try {
+      await markLibraryArtifactsUnread([id]);
+    } catch (error) {
+      console.warn("[library] failed to mark artifact unread", error);
+    }
+    refreshReadAwareData();
+  }, [refreshReadAwareData]);
+
   const replaceLibraryHistory = useCallback((scope: string, controls: LibraryUrlControls) => {
     if (typeof window === "undefined") return;
     window.history.replaceState({ scope }, "", buildLibraryUrl(scope, controls));
@@ -209,13 +278,42 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
     pushLibraryHistory(scopePath, controls);
   }, [pushLibraryHistory, scopePath]);
 
+  const handleReviewStatus = useCallback(async (id: string, status: ReviewQueueStatus, note?: string) => {
+    // Optimistically drop the item from the Updated lane, then persist + revalidate the queue.
+    setLocalHiddenIds((previous) => {
+      const next = new Set(previous);
+      next.add(id);
+      return next;
+    });
+    if (selectedId === id) {
+      setSelectedId(null);
+      setMobileDetailOpen(false);
+      navigateLibrary("", libraryControls);
+    }
+    try {
+      await setReviewStatus(id, status, note);
+    } catch (error) {
+      setLocalHiddenIds((previous) => {
+        const next = new Set(previous);
+        next.delete(id);
+        return next;
+      });
+      console.warn("[library] failed to set review status", error);
+      return;
+    }
+    void reviewQueue.mutate();
+    refreshReadAwareData();
+  }, [libraryControls, navigateLibrary, refreshReadAwareData, reviewQueue, selectedId]);
+
   useEffect(() => {
     const handlePopState = () => {
       const controls = parseLibraryControls(window.location.search);
       setDensityState(controls.density);
       setRankingState(controls.ranking);
       setStatusFilterState(controls.status);
+      setModeFilterState(controls.mode);
       setSelectedSourceState(controls.source);
+      setSelectedTagState(controls.tag);
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -279,6 +377,16 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [density, libraryControls, navigateLibrary, selectedId]);
 
+  // Mark an item read only when you move OFF it (open another, or close the reader) — not on open.
+  // Combined with the unread filter retaining the selected item, an opened item stays visible while
+  // you read it and only drops out of the New/unread view once you click away.
+  const previousSelectedIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = previousSelectedIdRef.current;
+    if (previous && previous !== selectedId) markRead([previous]);
+    previousSelectedIdRef.current = selectedId;
+  }, [selectedId, markRead]);
+
   useEffect(() => {
     localStorage.setItem(SOURCE_WIDTH_KEY, String(sourceWidth));
   }, [sourceWidth]);
@@ -288,11 +396,16 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   }, [contentWidth]);
 
   useEffect(() => {
+    localStorage.setItem(SOURCES_OPEN_KEY, String(sourcesOpen));
+  }, [sourcesOpen]);
+
+  useEffect(() => {
     if (!resizing) return;
 
     const handleMouseMove = (event: MouseEvent) => {
       if (!resizeRef.current) return;
       const delta = event.clientX - resizeRef.current.startX;
+      if (delta !== 0) resizeRef.current.moved = true;
       if (resizing === "source") {
         setSourceWidth(clamp(resizeRef.current.startWidth + delta, MIN_SOURCE_WIDTH, MAX_SOURCE_WIDTH));
       } else {
@@ -300,7 +413,12 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
       }
     };
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (event: MouseEvent) => {
+      const gesture = resizeRef.current;
+      const moved = Boolean(gesture && (gesture.moved || event.clientX !== gesture.startX));
+      if (resizing === "source" && gesture && !moved) {
+        setSourcesOpen(false);
+      }
       setResizing(null);
       resizeRef.current = null;
     };
@@ -321,7 +439,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   const checkSourcesNow = useCallback(async () => {
     if (isCheckingSources) return;
     setIsCheckingSources(true);
-    const checkedSourceIds = selectedSource && selectedSource !== "manual" ? [selectedSource] : undefined;
+    const checkedSourceIds = selectedSourceId && selectedSourceId !== "manual" ? [selectedSourceId] : undefined;
     try {
       const report = await ingestLibrarySources({
         sourceIds: checkedSourceIds,
@@ -330,7 +448,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
       });
       const added = report.saved + report.candidates + report.promoted;
       const issueCount = report.errors.length + report.blocked.length;
-      const sourceLabel = checkedSourceIds ? selectedSource : "hourly sources";
+      const sourceLabel = checkedSourceIds ? selectedSourceId : "hourly sources";
       setToast({
         id: `source-check:${Date.now()}`,
         title: issueCount
@@ -358,7 +476,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
     } finally {
       setIsCheckingSources(false);
     }
-  }, [isCheckingSources, mutateGlobal, refreshReadAwareData, selectedSource]);
+  }, [isCheckingSources, mutateGlobal, refreshReadAwareData, selectedSourceId]);
 
   const dismissCandidate = useCallback(async (artifact: LibraryArtifact | RecommendedArtifact) => {
     setLocalHiddenIds((previous) => {
@@ -410,7 +528,8 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   }, [libraryControls, navigateLibrary, refreshReadAwareData, selectedId]);
 
   const openArtifact = useCallback((artifact: LibraryArtifact | RecommendedArtifact) => {
-    if (artifact.is_unread) markRead([artifact.id]);
+    // Do NOT mark read on open — an opened item stays in the unread view while you read it. It's
+    // marked read only when you move off it (see the deselect effect below), so it doesn't vanish.
     if (density === "feed" && selectedId === artifact.id) {
       setSelectedId(null);
       setMobileDetailOpen(false);
@@ -420,7 +539,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
     setSelectedId(artifact.id);
     setMobileDetailOpen(true);
     navigateLibrary(libraryItemScope(artifact.id), libraryControls);
-  }, [density, libraryControls, markRead, navigateLibrary, selectedId]);
+  }, [density, libraryControls, navigateLibrary, selectedId]);
 
   const selectDensity = useCallback((nextDensity: LibraryDensity) => {
     const nextControls = { ...libraryControls, density: nextDensity };
@@ -434,15 +553,45 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
     pushControlChange(nextControls);
   }, [libraryControls, pushControlChange]);
 
+  useEffect(() => {
+    if (ranking === "new" && !recent.isLoading && newCount === 0) {
+      const nextControls = { ...libraryControls, ranking: "recent" as const };
+      setRankingState("recent");
+      replaceLibraryHistory(scopePath, nextControls);
+      return;
+    }
+
+    if (ranking === "updated" && !reviewQueue.isLoading && updatedCount === 0) {
+      const nextControls = { ...libraryControls, ranking: "recent" as const };
+      setRankingState("recent");
+      replaceLibraryHistory(scopePath, nextControls);
+    }
+  }, [libraryControls, newCount, ranking, recent.isLoading, replaceLibraryHistory, reviewQueue.isLoading, scopePath, updatedCount]);
+
   const selectStatusFilter = useCallback((nextStatus: LibraryStatusFilter) => {
     const nextControls = { ...libraryControls, status: nextStatus };
     setStatusFilterState(nextStatus);
     pushControlChange(nextControls);
   }, [libraryControls, pushControlChange]);
 
+  const selectModeFilter = useCallback((nextMode: LibraryModeControl) => {
+    const nextControls = { ...libraryControls, mode: nextMode };
+    setModeFilterState(nextMode);
+    pushControlChange(nextControls);
+  }, [libraryControls, pushControlChange]);
+
   const selectSource = (source: string | null) => {
-    const nextControls = { ...libraryControls, source };
+    const nextControls = { ...libraryControls, source, tag: null };
     setSelectedSourceState(source);
+    setSelectedTagState(null);
+    pushControlChange(nextControls);
+    if (typeof window !== "undefined" && window.innerWidth < 1024) setSourcesOpen(false);
+  };
+
+  const selectTag = (source: string | null, tag: string | null) => {
+    const nextControls = { ...libraryControls, source, tag };
+    setSelectedSourceState(source);
+    setSelectedTagState(tag);
     pushControlChange(nextControls);
     if (typeof window !== "undefined" && window.innerWidth < 1024) setSourcesOpen(false);
   };
@@ -475,11 +624,11 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   const handleFeedScroll = useCallback(() => {
     const node = feedScrollRef.current;
     if (!node) return;
-    if (ranking !== "for-you" && recent.hasMore && !recent.isLoadingMore && node.scrollHeight - node.scrollTop - node.clientHeight < 900) {
+    if (usesRecentPaging && recent.hasMore && !recent.isLoadingMore && node.scrollHeight - node.scrollTop - node.clientHeight < 900) {
       recent.loadMore();
     }
     updateFeedReadProgress();
-  }, [ranking, recent, updateFeedReadProgress]);
+  }, [recent, updateFeedReadProgress, usesRecentPaging]);
 
   useEffect(() => {
     if (density !== "feed") return;
@@ -490,7 +639,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   const startResize = useCallback((kind: "source" | "content", width: number) => (event: React.MouseEvent) => {
     event.preventDefault();
     setResizing(kind);
-    resizeRef.current = { startX: event.clientX, startWidth: width };
+    resizeRef.current = { startX: event.clientX, startWidth: width, moved: false };
   }, []);
 
   return (
@@ -533,24 +682,33 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
             <>
               {searchQuery && <div className="max-w-[180px] truncate text-xs text-[var(--text-tertiary)] sm:max-w-[260px]">Search: {searchQuery}</div>}
               <SecondarySegmentedControl>
-                <SecondarySegmentedButton onClick={() => selectRanking("recent")} active={ranking === "recent"}>Recent</SecondarySegmentedButton>
-                <SecondarySegmentedButton onClick={() => selectRanking("for-you")} active={ranking === "for-you"}>For You</SecondarySegmentedButton>
-                <SecondarySegmentedButton onClick={() => selectRanking("new")} active={ranking === "new"}>New</SecondarySegmentedButton>
-              </SecondarySegmentedControl>
-              <div className="hidden shrink-0 text-xs text-[var(--text-tertiary)] md:block">
-                <span>{ranking === "for-you" ? `${total} picks` : ranking === "new" ? `${total} new` : `${total} items`}</span>
-                {ranking !== "new" && unreadTotal > 0 && (
-                  <span className="ml-2 rounded-full bg-blue-500/10 px-2 py-0.5 font-medium text-blue-500">{unreadTotal} new</span>
+                <SecondarySegmentedButton onClick={() => selectRanking("recent")} active={ranking === "recent"}>
+                  Recent<span className="ml-1.5 text-xs tabular-nums text-[var(--text-tertiary)]">{recentCount}</span>
+                </SecondarySegmentedButton>
+                <SecondarySegmentedButton onClick={() => selectRanking("for-you")} active={ranking === "for-you"}>
+                  For You<span className="ml-1.5 text-xs tabular-nums text-[var(--text-tertiary)]">{forYouCount}</span>
+                </SecondarySegmentedButton>
+                {newCount > 0 && (
+                  <SecondarySegmentedButton onClick={() => selectRanking("new")} active={ranking === "new"}>
+                    New
+                    <span className="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[11px] font-medium leading-none text-blue-500 tabular-nums">{newCount}</span>
+                  </SecondarySegmentedButton>
                 )}
-              </div>
+                {updatedCount > 0 && (
+                  <SecondarySegmentedButton onClick={() => selectRanking("updated")} active={ranking === "updated"}>
+                    Updated
+                    <span className="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium leading-none text-amber-600 tabular-nums">{updatedCount}</span>
+                  </SecondarySegmentedButton>
+                )}
+              </SecondarySegmentedControl>
               <button
                 type="button"
                 data-testid="library-check-sources-toolbar"
                 onClick={() => { void checkSourcesNow(); }}
                 disabled={isCheckingSources}
                 aria-busy={isCheckingSources}
-                title={selectedSource && selectedSource !== "manual" ? `Check ${selectedSource} now` : "Check hourly Library sources now"}
-                aria-label={selectedSource && selectedSource !== "manual" ? `Check ${selectedSource} now` : "Check hourly Library sources now"}
+                title={selectedSourceId && selectedSourceId !== "manual" ? `Check ${selectedSourceId} now` : "Check hourly Library sources now"}
+                aria-label={selectedSourceId && selectedSourceId !== "manual" ? `Check ${selectedSourceId} now` : "Check hourly Library sources now"}
                 className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:text-[var(--text-tertiary)] ${isCheckingSources ? "cursor-wait" : ""}`}
               >
                 {isCheckingSources ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
@@ -579,29 +737,50 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
           {sourcesOpen && (
             <SourceNav
               selectedSource={selectedSource}
+              selectedTag={selectedTag}
               statusFilter={statusFilter}
+              modeFilter={modeFilter}
               searchQuery={searchQuery}
               onSelect={selectSource}
+              onTagSelect={selectTag}
               onStatusSelect={selectStatusFilter}
-              className="absolute bottom-3 left-3 top-3 z-20 w-[min(82vw,320px)] rounded-lg border border-[var(--border-default)] content-card-shadow lg:static lg:bottom-auto lg:left-auto lg:top-auto lg:z-auto lg:block lg:w-[var(--library-source-width)] lg:flex-none lg:shrink-0 lg:rounded-none lg:border-0 lg:border-r lg:border-[var(--border-default)] lg:shadow-none"
+              onModeSelect={selectModeFilter}
+              className="absolute bottom-3 left-3 top-3 z-20 w-[min(82vw,320px)] rounded-lg border border-[var(--border-default)] content-card-shadow lg:static lg:bottom-auto lg:left-auto lg:top-auto lg:z-auto lg:block lg:w-[var(--library-source-width)] lg:flex-none lg:shrink-0 lg:rounded-none lg:border-0 lg:shadow-none"
               style={{ "--library-source-width": `${sourceWidth}px` } as CSSProperties}
             />
           )}
           {sourcesOpen && (
-            <div
-              data-testid="library-source-resizer"
-              className={`hidden w-1 cursor-col-resize transition-colors hover:bg-[var(--accent-primary)] lg:block ${resizing === "source" ? "bg-[var(--accent-primary)]" : "bg-transparent"}`}
-              onMouseDown={startResize("source", sourceWidth)}
-            />
+            <div className="relative hidden w-px shrink-0 self-stretch bg-[var(--border-default)] lg:block">
+              <div
+                aria-hidden
+                className="absolute inset-0 bg-[var(--border-default)]"
+              />
+              <button
+                type="button"
+                aria-label="Resize or collapse sources"
+                data-testid="library-source-resizer"
+                className="hilt-resize-separator-hit absolute inset-y-0 left-1/2 z-20 w-2 -translate-x-1/2 cursor-col-resize border-0 bg-transparent p-0"
+                onMouseDown={startResize("source", sourceWidth)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSourcesOpen(false);
+                  }
+                }}
+              />
+            </div>
           )}
 
           <div
-            className={`${mobileReaderVisible ? "hidden" : "flex"} ${desktopReaderVisible ? "lg:flex lg:w-[var(--library-content-width)] lg:flex-none lg:shrink-0 lg:border-r lg:border-[var(--border-default)]" : "lg:flex lg:flex-1"} min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-primary)]`}
+            className={`${mobileReaderVisible ? "hidden" : "flex"} ${desktopReaderVisible ? "lg:flex lg:w-[var(--library-content-width)] lg:flex-none lg:shrink-0" : "lg:flex lg:flex-1"} min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-primary)]`}
             style={{ "--library-content-width": `${contentWidth}px` } as CSSProperties}
           >
             {density === "feed" ? (
               <div ref={feedScrollRef} onScroll={handleFeedScroll} data-mobile-scroll-chrome="top-bottom" data-testid="library-feed-list" className="min-h-0 flex-1 overflow-y-auto">
                 <div className={`${desktopReaderVisible ? "max-w-none gap-3 px-3 py-3" : "mx-auto max-w-3xl gap-5 px-4 py-5"} flex w-full flex-col`}>
+                  {ranking === "updated" && reviewQueue.notes.map((note) => (
+                    <GenerationNoteCard key={note.batch} note={note} />
+                  ))}
                   {loading && <div className="rounded-lg border border-[var(--border-default)] bg-[var(--content-surface)] p-5 text-sm text-[var(--text-secondary)]">Loading library...</div>}
                   {!loading && items.length === 0 && (
                     <div className="rounded-lg border border-[var(--border-default)] bg-[var(--content-surface)] p-5 text-sm text-[var(--text-secondary)]">
@@ -617,12 +796,14 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
                         promoteReason={ranking === "for-you" ? "for_you_selected" : "manual_save"}
                         onChanged={refresh}
                         onOpen={openArtifact}
+                        onMarkUnread={markUnread}
                         onDismissCandidate={dismissCandidate}
+                        onReviewStatus={ranking === "updated" ? handleReviewStatus : undefined}
                         active={artifact.id === selectedId}
                       />
                     </div>
                   ))}
-                  {ranking !== "for-you" && items.length > 0 && (
+                  {usesRecentPaging && items.length > 0 && (
                     <div className="py-2 text-center text-xs text-[var(--text-tertiary)]">
                       {isLoadingMore ? "Loading more..." : hasMore ? `${items.length} of ${recent.total} loaded` : `${items.length} of ${recent.total} loaded`}
                     </div>
@@ -639,16 +820,29 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
                 hasMore={hasMore}
                 isLoadingMore={isLoadingMore}
                 onLoadMore={recent.loadMore}
+                header={ranking === "updated" && reviewQueue.notes.length > 0 ? (
+                  <div className="flex flex-col gap-3">
+                    {reviewQueue.notes.map((note) => (
+                      <GenerationNoteCard key={note.batch} note={note} stickyWhenCollapsed={false} />
+                    ))}
+                  </div>
+                ) : undefined}
                 className="min-h-0 w-full flex-1"
               />
             )}
           </div>
           {desktopReaderVisible && (
-            <div
-              data-testid="library-content-resizer"
-              className={`hidden w-1 cursor-col-resize transition-colors hover:bg-[var(--accent-primary)] lg:block ${resizing === "content" ? "bg-[var(--accent-primary)]" : "bg-transparent"}`}
-              onMouseDown={startResize("content", contentWidth)}
-            />
+            <div className="group relative hidden w-px shrink-0 self-stretch lg:block">
+              <div
+                aria-hidden
+                className="absolute inset-0 bg-[var(--border-default)]"
+              />
+              <div
+                data-testid="library-content-resizer"
+                className="absolute inset-y-0 left-1/2 z-20 w-2 -translate-x-1/2 cursor-col-resize"
+                onMouseDown={startResize("content", contentWidth)}
+              />
+            </div>
           )}
 
           {desktopReaderVisible && (
@@ -668,7 +862,9 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
                   }
                 }}
                 onChanged={refresh}
+                onMarkUnread={markUnread}
                 onCandidateDismissed={dismissCandidate}
+                onReviewStatus={ranking === "updated" ? handleReviewStatus : undefined}
               />
             </div>
           )}

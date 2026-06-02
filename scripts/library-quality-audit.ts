@@ -10,7 +10,7 @@ loadEnvConfig(process.cwd());
 const vaultPath = process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || process.cwd();
 const args = process.argv.slice(2);
 
-const durableSourceIds = new Set(["raindrop-bookmarks", "twitter-bookmarks", "youtube-bookmarks"]);
+const durableSourceIds = new Set(["raindrop-bookmarks", "twitter-bookmarks", "youtube-bookmarks", "book-capture"]);
 const candidateSourceIds = new Set(["youtube-liked-videos", "superhuman-news"]);
 
 function argValue(name: string): string | null {

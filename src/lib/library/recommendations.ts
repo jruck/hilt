@@ -72,7 +72,7 @@ function recentSaveSignals(artifacts: LibraryArtifactDetail[]): ContextSignal[] 
     .map((artifact) => ({
       kind: "recent_save" as const,
       label: artifact.title,
-      text: [artifact.title, artifact.summary, artifact.tags.join(" ")].filter(Boolean).join("\n"),
+      text: [artifact.title, artifact.summary, artifact.tags.join(" "), artifact.source_tags.join(" "), artifact.source_collection, artifact.source_folder].filter(Boolean).join("\n"),
       weight: artifact.source_id === "manual" ? 0.65 : 0.45,
     }));
 }
@@ -95,7 +95,15 @@ function tokenize(text: string): string[] {
 }
 
 function scoreAgainstSignals(artifact: LibraryArtifactDetail, signals: ContextSignal[]): { score: number; matches: Array<{ label: string; kind: ContextSignal["kind"]; terms: string[]; score: number }> } {
-  const artifactText = markdownToPlain([artifact.title, artifact.summary, artifact.tags.join(" "), artifact.content].join("\n"));
+  const artifactText = markdownToPlain([
+    artifact.title,
+    artifact.summary,
+    artifact.tags.join(" "),
+    artifact.source_tags.join(" "),
+    artifact.source_collection,
+    artifact.source_folder,
+    artifact.content,
+  ].join("\n"));
   const artifactTokens = new Set(tokenize(artifactText));
   if (!artifactTokens.size) return { score: 0, matches: [] };
 

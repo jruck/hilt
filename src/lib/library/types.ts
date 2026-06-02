@@ -3,6 +3,8 @@ export type SourceIntent = "discovery" | "explicit_save";
 export type SaveRecommendation = "file" | "review" | "skip";
 export type CandidateStatus = "candidate" | "promoted" | "skipped" | "expired";
 export type LibraryLifecycleStatus = "candidate" | "saved" | "skipped" | "expired" | "promoted";
+export type LibraryMode = "study" | "keep";
+export type LibraryModeFilter = LibraryMode | "all";
 export type PromotionReason = "explicit_signal" | "manual_save" | "for_you_selected" | "briefing_selected" | "auto_threshold";
 
 export interface LibrarySourceAuth {
@@ -40,6 +42,7 @@ export interface LibrarySourceConfig {
   enabled: boolean;
   cadence: "manual" | "hourly" | "daily" | "weekly";
   intent: SourceIntent;
+  library_mode?: LibraryMode;
   signal?: string;
   retention: LibraryRetentionPolicy;
   auth?: LibrarySourceAuth;
@@ -101,12 +104,30 @@ export interface ConnectionJudgment {
   reweave_candidates?: Array<{ target: string; why: string }>;
 }
 
+export interface ReweaveConnection {
+  target: string | null;
+  title: string;
+  relationship: string;
+}
+
+export interface ReweaveResult {
+  description: string;
+  proposed_title: string;
+  digest_markdown: string;
+  connections_first_party: ReweaveConnection[];
+  connections_library: ReweaveConnection[];
+  reweave_candidates?: Array<{ target: string; why: string }>;
+}
+
 export interface ProcessedArtifact {
   raw: RawArtifact;
   source: LibrarySourceConfig;
   format: string;
   summary: string;
   key_points: string[];
+  digest_markdown?: string;
+  description?: string;
+  video_duration_seconds?: number;
   assessment: {
     save_recommendation: SaveRecommendation;
     why: string;
@@ -115,6 +136,12 @@ export interface ProcessedArtifact {
   };
   score: ArtifactScore;
   tags: string[];
+  source_tags: string[];
+  source_collection: string | null;
+  source_collection_id: string | null;
+  source_folder: string | null;
+  source_folder_id: string | null;
+  library_mode: LibraryMode;
   proposed_destination: string;
   connected_projects: string[];
   connection_suggestions?: ConnectionSuggestion[];
@@ -153,6 +180,13 @@ export interface ReferenceCandidate {
   save_recommendation: SaveRecommendation;
   proposed_destination: string | null;
   connected_projects: string[];
+  tags: string[];
+  source_tags: string[];
+  source_collection: string | null;
+  source_collection_id: string | null;
+  source_folder: string | null;
+  source_folder_id: string | null;
+  library_mode: LibraryMode;
   promotion: {
     promoted_to?: string | null;
     promoted_at?: string | null;
@@ -175,6 +209,12 @@ export interface LibraryArtifact {
   source_id: string | null;
   source_name: string | null;
   tags: string[];
+  source_tags: string[];
+  source_collection: string | null;
+  source_collection_id: string | null;
+  source_folder: string | null;
+  source_folder_id: string | null;
+  library_mode: LibraryMode;
   thumbnail: string | null;
   author: string | null;
   url: string | null;
@@ -182,6 +222,8 @@ export interface LibraryArtifact {
   updated_at: string;
   relevance_score?: number;
   lifecycle_status: LibraryLifecycleStatus;
+  pipeline_version?: string;
+  video_duration_seconds?: number;
   save_recommendation?: SaveRecommendation;
   proposed_destination?: string | null;
   expires_at?: string | null;
@@ -213,8 +255,26 @@ export interface LibrarySourceSummary {
   unread_count: number;
   saved_unread_count: number;
   candidate_unread_count: number;
+  study_count: number;
+  keep_count: number;
+  study_unread_count: number;
+  keep_unread_count: number;
+  review_count: number;
+  saved_review_count: number;
+  candidate_review_count: number;
   last_fetched: string | null;
   blocked?: string | null;
+  facets: LibrarySourceFacetSummary[];
+}
+
+export interface LibrarySourceFacetSummary {
+  id: string;
+  kind: "tag" | "collection" | "folder";
+  label: string;
+  value: string;
+  count: number;
+  unread_count: number;
+  review_count: number;
 }
 
 export interface LibrarySchedulerJobSummary {
@@ -245,6 +305,8 @@ export interface LibrarySourceHealthSummary extends LibrarySourceSummary {
 export interface LibraryDeadLetterSummary {
   total: number;
   recent_24h: number;
+  /** Failures whose source has NOT had a successful run since — the still-actionable ones. */
+  unresolved: number;
   last_at: string | null;
   by_source: Array<{ source_id: string; count: number }>;
 }

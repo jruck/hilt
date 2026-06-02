@@ -25,6 +25,29 @@ function collectionId(source: LibrarySourceConfig): string {
   return match?.[1] || "0";
 }
 
+function collectionTitle(item: Record<string, unknown>, source: LibrarySourceConfig): string | undefined {
+  const metadataTitle = source.metadata.collection_title || source.metadata.collection_name;
+  if (typeof metadataTitle === "string" && metadataTitle.trim()) return metadataTitle.trim();
+  const collection = item.collection;
+  if (collection && typeof collection === "object") {
+    const record = collection as Record<string, unknown>;
+    if (typeof record.title === "string" && record.title.trim()) return record.title.trim();
+    if (typeof record.name === "string" && record.name.trim()) return record.name.trim();
+  }
+  return undefined;
+}
+
+function itemCollectionId(item: Record<string, unknown>, source: LibrarySourceConfig): string | undefined {
+  const collection = item.collection;
+  if (collection && typeof collection === "object") {
+    const record = collection as Record<string, unknown>;
+    const id = record.$id || record.id || record._id;
+    if (typeof id === "string" || typeof id === "number") return String(id);
+  }
+  const id = source.metadata.collection_id;
+  return typeof id === "string" || typeof id === "number" ? String(id) : undefined;
+}
+
 export async function fetchRaindropArtifacts(
   source: LibrarySourceConfig,
   options: FetchArtifactsOptions = {},
@@ -54,7 +77,10 @@ export async function fetchRaindropArtifacts(
       metadata: {
         raindrop_id: item._id,
         tags: Array.isArray(item.tags) ? item.tags : [],
+        source_tags: Array.isArray(item.tags) ? item.tags : [],
         collection: item.collection,
+        source_collection: collectionTitle(item, source),
+        source_collection_id: itemCollectionId(item, source),
         format: item.type || "bookmark",
         signal: "raindrop_bookmark",
         media,

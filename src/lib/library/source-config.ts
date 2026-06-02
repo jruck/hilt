@@ -12,6 +12,7 @@ const sourceConfigSchema = z.object({
   enabled: z.boolean().default(true),
   cadence: z.enum(["manual", "hourly", "daily", "weekly"]).default("hourly"),
   intent: z.enum(["discovery", "explicit_save"]).default("discovery"),
+  library_mode: z.enum(["study", "keep"]).optional(),
   signal: z.string().optional(),
   retention: z.object({
     mode: z.enum(["durable", "candidate"]).default("candidate"),

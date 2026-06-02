@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getVaultPath } from "@/lib/bridge/vault";
-import { markLibraryArtifactsRead } from "@/lib/library/read-state";
+import { markLibraryArtifactsRead, markLibraryArtifactsUnread } from "@/lib/library/read-state";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => ({})) as { ids?: unknown };
+    const body = await request.json().catch(() => ({})) as { ids?: unknown; unread?: unknown };
     const ids = Array.isArray(body.ids)
       ? body.ids.filter((id): id is string => typeof id === "string")
       : typeof body.ids === "string"
@@ -18,7 +18,10 @@ export async function POST(request: NextRequest) {
     }
 
     const vaultPath = await getVaultPath();
-    return NextResponse.json(markLibraryArtifactsRead(vaultPath, ids));
+    const result = body.unread === true
+      ? markLibraryArtifactsUnread(vaultPath, ids)
+      : markLibraryArtifactsRead(vaultPath, ids);
+    return NextResponse.json(result);
   } catch (error) {
     console.error("[library/read] mark failed:", error);
     return NextResponse.json({ error: "Failed to mark library artifacts read" }, { status: 500 });

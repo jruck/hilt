@@ -3,7 +3,7 @@ import { promisify } from "util";
 import type { ArtifactFetchBatch, FetchArtifactsOptions, LibrarySourceConfig, RawArtifact } from "../types";
 import { LibrarySourceBlockedError, MissingCredentialError } from "../errors";
 import { refreshXAccessToken } from "../oauth";
-import { isXVideoUrl } from "../media";
+import { isXVideoUrl, looksLikeThreadRoot } from "../media";
 
 const execFileAsync = promisify(execFile);
 
@@ -59,13 +59,14 @@ export function formatXurlFailureMessage(xurlBin: string, error: Error & { stder
 }
 
 export function parseTwitterBookmarks(source: LibrarySourceConfig, json: {
-  data?: Array<{ id: string; text?: string; created_at?: string; author_id?: string; attachments?: { media_keys?: string[] }; entities?: { urls?: Array<{ expanded_url?: string; url?: string }> } }>;
+  data?: Array<{ id: string; text?: string; created_at?: string; author_id?: string; conversation_id?: string; note_tweet?: { text?: string }; attachments?: { media_keys?: string[] }; entities?: { urls?: Array<{ expanded_url?: string; url?: string }> } }>;
   includes?: {
     users?: Array<{ id: string; username?: string; name?: string }>;
     media?: Array<{ media_key: string; type?: string; url?: string; preview_image_url?: string }>;
   };
 }): RawArtifact[] {
   const folderId = typeof source.metadata.folder_id === "string" ? source.metadata.folder_id : null;
+  const folderName = typeof source.metadata.folder_name === "string" ? source.metadata.folder_name : null;
   const users = new Map((json.includes?.users || []).map((user) => [user.id, user]));
   const mediaByKey = new Map((json.includes?.media || []).map((media) => [media.media_key, media]));
   return (json.data || []).map((tweet) => {
@@ -83,7 +84,13 @@ export function parseTwitterBookmarks(source: LibrarySourceConfig, json: {
       .filter((item) => typeof item.link === "string" && item.link.length > 0);
     const thumbnail = media.find((item) => item.type === "image")?.link || media.find((item) => item.type === "video")?.link;
     const videoUrl = expandedUrl && isXVideoUrl(expandedUrl) ? expandedUrl : undefined;
-    const text = sanitizeUnicode(tweet.text || `X bookmark ${tweet.id}`);
+    // Prefer the long-form note_tweet body (up to 25k chars) over the 280-char truncation.
+    const text = sanitizeUnicode(tweet.note_tweet?.text || tweet.text || `X bookmark ${tweet.id}`);
+    // conversation_id === id means the tweet is the root of its own thread; without a note_tweet body
+    // and with thread markers, its continuation is in reply tweets we can't fetch (no search access).
+    const partialThread = Boolean(
+      tweet.conversation_id && tweet.conversation_id === tweet.id && !tweet.note_tweet?.text && looksLikeThreadRoot(text),
+    );
     const author = user?.name ? sanitizeUnicode(user.name) : user?.username;
     return {
       url: `https://x.com/${user?.username || "i"}/status/${tweet.id}`,
@@ -92,7 +99,17 @@ export function parseTwitterBookmarks(source: LibrarySourceConfig, json: {
       date: tweet.created_at || new Date().toISOString(),
       thumbnail,
       content: text,
-      metadata: { tweet_id: tweet.id, expanded_url: expandedUrl, video_url: videoUrl, folder_id: folderId, signal: "twitter_bookmark", media },
+      metadata: {
+        tweet_id: tweet.id,
+        expanded_url: expandedUrl,
+        video_url: videoUrl,
+        folder_id: folderId,
+        source_folder_id: folderId,
+        source_folder: folderName,
+        signal: "twitter_bookmark",
+        media,
+        ...(partialThread ? { partial_thread: true } : {}),
+      },
     };
   });
 }
@@ -110,7 +127,7 @@ async function fetchTwitterArtifactsWithToken(
     : `https://api.x.com/2/users/${userId}/bookmarks`);
   url.searchParams.set("max_results", String(options.limit || source.metadata.max_results || 50));
   if (options.cursor) url.searchParams.set("pagination_token", options.cursor);
-  url.searchParams.set("tweet.fields", "created_at,author_id,entities,attachments");
+  url.searchParams.set("tweet.fields", "created_at,author_id,entities,attachments,note_tweet,conversation_id");
   url.searchParams.set("expansions", "author_id,attachments.media_keys");
   url.searchParams.set("user.fields", "username,name");
   url.searchParams.set("media.fields", "media_key,type,url,preview_image_url");

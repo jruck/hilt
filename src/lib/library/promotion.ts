@@ -36,6 +36,13 @@ export async function promoteCandidate(vaultPath: string, candidate: ReferenceCa
     metadata: {
       format: candidate.format,
       proposed_destination: candidate.proposed_destination || "references",
+      semantic_tags: candidate.tags,
+      source_tags: candidate.source_tags,
+      source_collection: candidate.source_collection || undefined,
+      source_collection_id: candidate.source_collection_id || undefined,
+      source_folder: candidate.source_folder || undefined,
+      source_folder_id: candidate.source_folder_id || undefined,
+      library_mode: candidate.library_mode,
     },
   };
   const processed = await digestArtifact(raw, sourceFromCandidate(candidate), { useSummarize: false, vaultPath });
@@ -44,6 +51,13 @@ export async function promoteCandidate(vaultPath: string, candidate: ReferenceCa
   processed.score = candidate.score;
   processed.proposed_destination = candidate.proposed_destination || "references";
   processed.connected_projects = candidate.connected_projects;
+  processed.tags = candidate.tags;
+  processed.source_tags = candidate.source_tags;
+  processed.source_collection = candidate.source_collection;
+  processed.source_collection_id = candidate.source_collection_id;
+  processed.source_folder = candidate.source_folder;
+  processed.source_folder_id = candidate.source_folder_id;
+  processed.library_mode = candidate.library_mode;
   const durablePath = writeDurableReference(vaultPath, processed, reason);
   updateCandidate(vaultPath, candidate, {
     status: "promoted",

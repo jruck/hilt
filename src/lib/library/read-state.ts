@@ -15,6 +15,38 @@ export interface MarkLibraryReadResult {
   read_at: string;
 }
 
+type ReadAwareArtifact = Pick<LibraryArtifact, "id" | "created_at" | "updated_at" | "lifecycle_status" | "source_type"> & {
+  raw_frontmatter?: Record<string, unknown>;
+};
+
+const savedArrivalKeys = ["captured_at", "saved_at"] as const;
+const savedFallbackKeys = ["captured", "saved", "created", "published"] as const;
+const candidateArrivalKeys = ["digested_at", "captured_at", "saved_at", "fetched_at"] as const;
+
+function frontmatterTimestamp(frontmatter: Record<string, unknown> | undefined, keys: readonly string[]): number {
+  if (!frontmatter) return 0;
+  for (const key of keys) {
+    const value = frontmatter[key];
+    const timestamp = value instanceof Date
+      ? value.getTime()
+      : dateTimestamp(typeof value === "string" ? value : null);
+    if (timestamp) return timestamp;
+  }
+  return 0;
+}
+
+function artifactArrivalTimestamp(artifact: ReadAwareArtifact): number {
+  const isCandidate = artifact.lifecycle_status === "candidate" || artifact.source_type === "reference-candidate";
+  if (isCandidate) {
+    return frontmatterTimestamp(artifact.raw_frontmatter, candidateArrivalKeys)
+      || dateTimestamp(artifact.created_at);
+  }
+
+  return frontmatterTimestamp(artifact.raw_frontmatter, savedArrivalKeys)
+    || frontmatterTimestamp(artifact.raw_frontmatter, savedFallbackKeys)
+    || dateTimestamp(artifact.created_at);
+}
+
 function libraryReadStateDir(): string {
   return path.join(process.env.DATA_DIR || path.join(process.cwd(), "data"), "library-read-state");
 }
@@ -65,8 +97,8 @@ export function readLibraryReadState(vaultPath: string, options: { initialize?: 
   return state;
 }
 
-export function isLibraryArtifactUnread(artifact: Pick<LibraryArtifact, "id" | "created_at" | "updated_at">, state: LibraryReadState): boolean {
-  const artifactTime = dateTimestamp(artifact.updated_at) || dateTimestamp(artifact.created_at);
+export function isLibraryArtifactUnread(artifact: ReadAwareArtifact, state: LibraryReadState): boolean {
+  const artifactTime = artifactArrivalTimestamp(artifact);
   const lastReadTime = dateTimestamp(state.read_at_by_id[artifact.id]) || dateTimestamp(state.initialized_at);
   return artifactTime > lastReadTime;
 }
@@ -89,4 +121,21 @@ export function markLibraryArtifactsRead(vaultPath: string, ids: string[], readA
   }
   writeLibraryReadState(vaultPath, state);
   return { marked: uniqueIds.length, ids: uniqueIds, read_at: readAt };
+}
+
+// A non-zero, far-past read timestamp: older than any real artifact's mtime so the item reads as
+// unread, while staying truthy (dateTimestamp("1970-...000Z") === 0 would fall through to the
+// baseline and could read as already-read for items older than the baseline).
+const UNREAD_SENTINEL = "1970-01-01T00:00:01.000Z";
+
+export function markLibraryArtifactsUnread(vaultPath: string, ids: string[]): MarkLibraryReadResult {
+  const uniqueIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  if (!uniqueIds.length) return { marked: 0, ids: [], read_at: UNREAD_SENTINEL };
+
+  const state = readLibraryReadState(vaultPath);
+  for (const id of uniqueIds) {
+    state.read_at_by_id[id] = UNREAD_SENTINEL;
+  }
+  writeLibraryReadState(vaultPath, state);
+  return { marked: uniqueIds.length, ids: uniqueIds, read_at: UNREAD_SENTINEL };
 }

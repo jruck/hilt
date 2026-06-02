@@ -138,6 +138,40 @@ function projectLines(vaultPath: string): string {
     .join("\n");
 }
 
+function libraryProjectLines(vaultPath: string, limit = 120): string {
+  const librariesDir = path.join(vaultPath, "libraries");
+  if (!fs.existsSync(librariesDir)) return "";
+  const lines: string[] = [];
+  for (const libraryEntry of fs.readdirSync(librariesDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+    .sort((a, b) => a.name.localeCompare(b.name))) {
+    const projectsDir = path.join(librariesDir, libraryEntry.name, "projects");
+    if (!fs.existsSync(projectsDir)) continue;
+    for (const projectEntry of fs.readdirSync(projectsDir, { withFileTypes: true })
+      .filter((entry) => !entry.name.startsWith("."))
+      .sort((a, b) => a.name.localeCompare(b.name))) {
+      if (lines.length >= limit) break;
+      const filePath = projectEntry.isDirectory()
+        ? path.join(projectsDir, projectEntry.name, "index.md")
+        : projectEntry.isFile() && projectEntry.name.endsWith(".md")
+          ? path.join(projectsDir, projectEntry.name)
+          : "";
+      if (!filePath) continue;
+      const text = readTextIfExists(filePath);
+      if (!text) continue;
+      const targetName = projectEntry.isDirectory() ? projectEntry.name : projectEntry.name.replace(/\.md$/, "");
+      const target = ["libraries", libraryEntry.name, "projects", targetName].join("/");
+      const label = titleForMarkdown(text, targetName);
+      const summary = oneLine(text, 140);
+      lines.push(summary
+        ? `- ${label} (${target}) — ${summary}`
+        : `- ${label} (${target})`);
+    }
+    if (lines.length >= limit) break;
+  }
+  return lines.join("\n");
+}
+
 function areaLines(vaultPath: string): string {
   return readFolderSignals(vaultPath, "areas", "area", 0.85, 60)
     .map((signal) => {
@@ -208,12 +242,14 @@ export function buildKbIndex(vaultPath: string, options: BuildKbIndexOptions = {
   const sections: string[] = [];
   const northStars = northStarLines(vaultPath);
   const projects = projectLines(vaultPath);
+  const libraryProjects = libraryProjectLines(vaultPath);
   const areas = areaLines(vaultPath);
   const people = peopleLines(vaultPath);
   const references = recentReferenceTitles(vaultPath, options.recentReferenceLimit ?? 20);
 
   if (northStars) sections.push(`## NORTH STARS\n${northStars}`);
   if (projects) sections.push(`## PROJECTS\n${projects}`);
+  if (libraryProjects) sections.push(`## LIBRARY PROJECTS\n${libraryProjects}`);
   if (areas) sections.push(`## AREAS\n${areas}`);
   if (people) sections.push(`## PEOPLE\n${people}`);
   if (references) sections.push(`## RECENT REFERENCES (titles)\n${references}`);

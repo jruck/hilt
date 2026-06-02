@@ -145,8 +145,7 @@ function schedulerStatus(job: ReturnType<typeof librarySchedulerJobs>[number], o
   };
 }
 
-function sourceHealth(vaultPath: string): LibrarySourceHealthSummary[] {
-  const state = readSourceState(vaultPath);
+function sourceHealth(vaultPath: string, state: ReturnType<typeof readSourceState>): LibrarySourceHealthSummary[] {
   return listLibrarySources(vaultPath).map((source) => {
     const entry = state[source.id] || {};
     const status: LibrarySourceHealthSummary["status"] = !source.enabled
@@ -165,12 +164,20 @@ function sourceHealth(vaultPath: string): LibrarySourceHealthSummary[] {
   });
 }
 
-function deadLetterSummary(vaultPath: string): LibraryDeadLetterSummary {
+function deadLetterSummary(vaultPath: string, state: ReturnType<typeof readSourceState>): LibraryDeadLetterSummary {
   const entries = readDeadLetters(vaultPath);
   const since = Date.now() - 24 * 60 * 60 * 1000;
   const bySource = new Map<string, number>();
+  let unresolved = 0;
   for (const entry of entries) {
     bySource.set(entry.source_id, (bySource.get(entry.source_id) || 0) + 1);
+    // A failure is "resolved" once its source has had a successful run after it — those are
+    // transient blips that self-healed, so they shouldn't read as standing warnings.
+    const entryTime = new Date(entry.at).getTime();
+    const successAt = state[entry.source_id]?.last_success_at;
+    const successTime = successAt ? new Date(successAt).getTime() : 0;
+    const healed = Number.isFinite(successTime) && successTime > entryTime;
+    if (!healed) unresolved += 1;
   }
   return {
     total: entries.length,
@@ -178,6 +185,7 @@ function deadLetterSummary(vaultPath: string): LibraryDeadLetterSummary {
       const time = new Date(entry.at).getTime();
       return Number.isFinite(time) && time >= since;
     }).length,
+    unresolved,
     last_at: entries.at(-1)?.at || null,
     by_source: Array.from(bySource.entries())
       .map(([source_id, count]) => ({ source_id, count }))
@@ -187,11 +195,12 @@ function deadLetterSummary(vaultPath: string): LibraryDeadLetterSummary {
 
 export function getLibraryOperationalHealth(vaultPath: string, options: HealthOptions = {}): LibraryOperationalHealth {
   const jobs = (options.schedulerJobs || librarySchedulerJobs()).map((job) => schedulerStatus(job, options));
-  const sources = sourceHealth(vaultPath);
-  const deadLetters = deadLetterSummary(vaultPath);
+  const state = readSourceState(vaultPath);
+  const sources = sourceHealth(vaultPath, state);
+  const deadLetters = deadLetterSummary(vaultPath, state);
   const ok = jobs.every((job) => job.status !== "blocked")
     && sources.every((source) => source.status !== "blocked")
-    && deadLetters.recent_24h === 0;
+    && deadLetters.unresolved === 0;
 
   return {
     checked_at: isoNow(),

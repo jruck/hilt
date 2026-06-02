@@ -1,17 +1,20 @@
 import fs from "fs";
 import path from "path";
-import type { CandidateStatus, LibraryArtifact, LibraryArtifactDetail, LibraryLifecycleStatus, LibrarySourceSummary, ReferenceCandidate } from "./types";
+import type { CandidateStatus, LibraryArtifact, LibraryArtifactDetail, LibraryLifecycleStatus, LibraryModeFilter, LibrarySourceFacetSummary, LibrarySourceSummary, ReferenceCandidate } from "./types";
 import { CANDIDATE_CACHE_DIR, candidateCacheDir, findCandidateById, listCandidates, parseCandidateFile } from "./candidate-cache";
 import { findSavedReferenceById, listSavedReferences, MANUAL_SOURCE_ID, MANUAL_SOURCE_NAME, parseReferenceFile, referencesDir } from "./references";
 import { applyLibraryReadState, isLibraryArtifactUnread, readLibraryReadState } from "./read-state";
+import { readReviewQueue } from "./review-queue";
 import { loadSources, readSourceState } from "./source-config";
 import { compareDatesDesc, dateTimestamp, ensureDir, hashId, walkMarkdown } from "./utils";
 import { relativeVaultPath } from "./markdown";
+import { artifactDisplayTags, validLibraryModeFilter } from "./taxonomy";
 
 export interface LibraryListOptions {
   source?: string | null;
   channel?: string | null;
   tag?: string | null;
+  mode?: LibraryModeFilter | null;
   status?: LibraryLifecycleStatus | "all" | null;
   unread?: boolean;
   q?: string | null;
@@ -77,7 +80,13 @@ function candidateToArtifact(vaultPath: string, candidate: ReferenceCandidate): 
     channel: candidate.channel,
     source_id: candidate.source_id,
     source_name: candidate.source_name,
-    tags: [],
+    tags: candidate.tags,
+    source_tags: candidate.source_tags,
+    source_collection: candidate.source_collection,
+    source_collection_id: candidate.source_collection_id,
+    source_folder: candidate.source_folder,
+    source_folder_id: candidate.source_folder_id,
+    library_mode: candidate.library_mode,
     thumbnail: candidate.thumbnail,
     author: candidate.author,
     url: candidate.url,
@@ -85,6 +94,8 @@ function candidateToArtifact(vaultPath: string, candidate: ReferenceCandidate): 
     updated_at: updatedAt,
     relevance_score: candidate.score.total,
     lifecycle_status: candidate.status,
+    pipeline_version: typeof candidate.raw_frontmatter.pipeline_version === "string" ? candidate.raw_frontmatter.pipeline_version : undefined,
+    video_duration_seconds: typeof candidate.raw_frontmatter.video_duration_seconds === "number" ? candidate.raw_frontmatter.video_duration_seconds : undefined,
     save_recommendation: candidate.save_recommendation,
     proposed_destination: candidate.proposed_destination,
     expires_at: candidate.expires,
@@ -104,6 +115,9 @@ function matchesText(artifact: LibraryArtifactDetail, q: string): boolean {
     artifact.url,
     artifact.source_name,
     artifact.tags.join(" "),
+    artifact.source_tags.join(" "),
+    artifact.source_collection,
+    artifact.source_folder,
     artifact.content,
   ].join(" ").toLowerCase();
   return haystack.includes(q.toLowerCase());
@@ -112,10 +126,12 @@ function matchesText(artifact: LibraryArtifactDetail, q: string): boolean {
 function filterArtifacts(artifacts: LibraryArtifactDetail[], options: LibraryListOptions): LibraryArtifactDetail[] {
   const after = dateTimestamp(options.after);
   const before = dateTimestamp(options.before);
+  const mode = validLibraryModeFilter(options.mode);
   return artifacts.filter((artifact) => {
     if (options.source && artifact.source_id !== options.source) return false;
     if (options.channel && artifact.channel !== options.channel) return false;
-    if (options.tag && !artifact.tags.includes(options.tag)) return false;
+    if (options.tag && !artifactDisplayTags(artifact).some((tag) => tag.toLowerCase() === options.tag?.toLowerCase())) return false;
+    if (mode !== "all" && artifact.library_mode !== mode) return false;
     if (options.status && options.status !== "all" && artifact.lifecycle_status !== options.status) return false;
     if (options.unread && !artifact.is_unread) return false;
     if (after && dateTimestamp(artifact.created_at) < after) return false;
@@ -155,6 +171,7 @@ export function hasUnreadLibraryArtifacts(vaultPath: string): boolean {
   for (const filePath of walkMarkdown(referencesDir(vaultPath))) {
     if (filePath.includes(`${path.sep}.cache${path.sep}`)) continue;
     const artifact = parseReferenceFile(vaultPath, filePath);
+    if (artifact?.library_mode === "keep") continue;
     if (artifact && isLibraryArtifactUnread(artifact, state)) return true;
   }
 
@@ -169,6 +186,7 @@ export function hasUnreadLibraryArtifacts(vaultPath: string): boolean {
     }
     if (!candidate || candidate.status !== "candidate") continue;
     const artifact = candidateToArtifact(vaultPath, candidate);
+    if (artifact.library_mode === "keep") continue;
     if (isLibraryArtifactUnread(artifact, state)) return true;
   }
 
@@ -217,6 +235,74 @@ export function summarizeArtifact(artifact: LibraryArtifactDetail): LibraryArtif
   return summary;
 }
 
+function facetId(kind: LibrarySourceFacetSummary["kind"], value: string): string {
+  return `${kind}:${value.toLowerCase()}`;
+}
+
+function artifactFacets(artifact: LibraryArtifactDetail): Array<{ kind: LibrarySourceFacetSummary["kind"]; label: string; value: string }> {
+  const entries: Array<{ kind: LibrarySourceFacetSummary["kind"]; label: string; value: string }> = [];
+  if (artifact.source_collection) entries.push({ kind: "collection", label: artifact.source_collection, value: artifact.source_collection });
+  if (artifact.source_folder) entries.push({ kind: "folder", label: artifact.source_folder, value: artifact.source_folder });
+  for (const tag of artifact.source_tags) entries.push({ kind: "tag", label: tag, value: tag });
+  return entries;
+}
+
+function sourceFacets(artifacts: LibraryArtifactDetail[], pendingReviewIds: Set<string>): LibrarySourceFacetSummary[] {
+  const facets = new Map<string, LibrarySourceFacetSummary>();
+  for (const artifact of artifacts) {
+    for (const entry of artifactFacets(artifact)) {
+      const id = facetId(entry.kind, entry.value);
+      const current = facets.get(id) || {
+        id,
+        kind: entry.kind,
+        label: entry.label,
+        value: entry.value,
+        count: 0,
+        unread_count: 0,
+        review_count: 0,
+      };
+      current.count += 1;
+      if (artifact.is_unread) current.unread_count += 1;
+      if (pendingReviewIds.has(artifact.id)) current.review_count += 1;
+      facets.set(id, current);
+    }
+  }
+  return Array.from(facets.values())
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    .slice(0, 40);
+}
+
+function summarizeSourceArtifacts(
+  source: { id: string; name: string; channel: LibrarySourceSummary["channel"]; enabled: boolean; intent: LibrarySourceSummary["intent"] },
+  artifacts: LibraryArtifactDetail[],
+  pendingReviewIds: Set<string>,
+  lastFetched: string | null,
+  blocked: string | null,
+): LibrarySourceSummary {
+  return {
+    id: source.id,
+    name: source.name,
+    channel: source.channel,
+    enabled: source.enabled,
+    intent: source.intent,
+    artifact_count: artifacts.filter((artifact) => artifact.lifecycle_status === "saved").length,
+    candidate_count: artifacts.filter((artifact) => artifact.lifecycle_status === "candidate").length,
+    unread_count: artifacts.filter((artifact) => artifact.is_unread).length,
+    saved_unread_count: artifacts.filter((artifact) => artifact.lifecycle_status === "saved" && artifact.is_unread).length,
+    candidate_unread_count: artifacts.filter((artifact) => artifact.lifecycle_status === "candidate" && artifact.is_unread).length,
+    study_count: artifacts.filter((artifact) => artifact.library_mode === "study").length,
+    keep_count: artifacts.filter((artifact) => artifact.library_mode === "keep").length,
+    study_unread_count: artifacts.filter((artifact) => artifact.library_mode === "study" && artifact.is_unread).length,
+    keep_unread_count: artifacts.filter((artifact) => artifact.library_mode === "keep" && artifact.is_unread).length,
+    review_count: artifacts.filter((artifact) => pendingReviewIds.has(artifact.id)).length,
+    saved_review_count: artifacts.filter((artifact) => artifact.lifecycle_status === "saved" && pendingReviewIds.has(artifact.id)).length,
+    candidate_review_count: artifacts.filter((artifact) => artifact.lifecycle_status === "candidate" && pendingReviewIds.has(artifact.id)).length,
+    last_fetched: lastFetched,
+    blocked,
+    facets: sourceFacets(artifacts, pendingReviewIds),
+  };
+}
+
 export function listLibrarySources(vaultPath: string, options: Omit<LibraryListOptions, "source" | "offset" | "limit" | "includeCandidates"> = {}): LibrarySourceSummary[] {
   const sources = loadSources(vaultPath);
   const state = readSourceState(vaultPath);
@@ -225,38 +311,35 @@ export function listLibrarySources(vaultPath: string, options: Omit<LibraryListO
     limit: 10000,
     includeCandidates: true,
   }).artifacts;
-  const summaries = sources.map((source) => ({
-    id: source.id,
-    name: source.name,
-    channel: source.channel,
-    enabled: source.enabled,
-    intent: source.intent,
-    artifact_count: all.filter((artifact) => artifact.source_id === source.id && artifact.lifecycle_status === "saved").length,
-    candidate_count: all.filter((artifact) => artifact.source_id === source.id && artifact.lifecycle_status === "candidate").length,
-    unread_count: all.filter((artifact) => artifact.source_id === source.id && artifact.is_unread).length,
-    saved_unread_count: all.filter((artifact) => artifact.source_id === source.id && artifact.lifecycle_status === "saved" && artifact.is_unread).length,
-    candidate_unread_count: all.filter((artifact) => artifact.source_id === source.id && artifact.lifecycle_status === "candidate" && artifact.is_unread).length,
-    last_fetched: state[source.id]?.last_success_at || null,
-    blocked: state[source.id]?.blocked_reason || null,
-  }));
+  // Pending-review item ids (review-queue keys ARE the artifact ids) — surfaced as a per-source
+  // review count alongside total/unread in the sidebar.
+  const reviewQueue = readReviewQueue(vaultPath);
+  const pendingReviewIds = new Set(
+    Object.entries(reviewQueue.items).filter(([, entry]) => entry.status === "pending").map(([id]) => id),
+  );
+  const summaries = sources.map((source) => summarizeSourceArtifacts(
+    source,
+    all.filter((artifact) => artifact.source_id === source.id),
+    pendingReviewIds,
+    state[source.id]?.last_success_at || null,
+    state[source.id]?.blocked_reason || null,
+  ));
   if (!summaries.some((source) => source.id === MANUAL_SOURCE_ID)) {
-    const artifactCount = all.filter((artifact) => artifact.source_id === MANUAL_SOURCE_ID && artifact.lifecycle_status === "saved").length;
-    const candidateCount = all.filter((artifact) => artifact.source_id === MANUAL_SOURCE_ID && artifact.lifecycle_status === "candidate").length;
-    if (artifactCount || candidateCount) {
-      summaries.unshift({
-        id: MANUAL_SOURCE_ID,
-        name: MANUAL_SOURCE_NAME,
-        channel: "manual",
-        enabled: true,
-        intent: "explicit_save",
-        artifact_count: artifactCount,
-        candidate_count: candidateCount,
-        unread_count: all.filter((artifact) => artifact.source_id === MANUAL_SOURCE_ID && artifact.is_unread).length,
-        saved_unread_count: all.filter((artifact) => artifact.source_id === MANUAL_SOURCE_ID && artifact.lifecycle_status === "saved" && artifact.is_unread).length,
-        candidate_unread_count: all.filter((artifact) => artifact.source_id === MANUAL_SOURCE_ID && artifact.lifecycle_status === "candidate" && artifact.is_unread).length,
-        last_fetched: null,
-        blocked: null,
-      });
+    const manualArtifacts = all.filter((artifact) => artifact.source_id === MANUAL_SOURCE_ID);
+    if (manualArtifacts.length) {
+      summaries.unshift(summarizeSourceArtifacts(
+        {
+          id: MANUAL_SOURCE_ID,
+          name: MANUAL_SOURCE_NAME,
+          channel: "manual",
+          enabled: true,
+          intent: "explicit_save",
+        },
+        manualArtifacts,
+        pendingReviewIds,
+        null,
+        null,
+      ));
     }
   }
   return summaries;

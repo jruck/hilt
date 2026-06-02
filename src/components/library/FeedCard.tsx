@@ -3,7 +3,10 @@
 import { useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { LibraryArtifact, RecommendedArtifact } from "@/lib/library/types";
 import type { PromotionReason } from "@/lib/library/types";
-import { Archive, Bookmark, ExternalLink, FileText, Mail, MoreHorizontal, Play, Rss, Sparkles, X } from "lucide-react";
+import type { ReviewQueueStatus } from "@/lib/library/review-queue";
+import { formatVideoDuration } from "@/lib/library/media";
+import { artifactDisplayTags } from "@/lib/library/taxonomy";
+import { Archive, Bookmark, Check, CircleDot, ExternalLink, FileText, Mail, MoreHorizontal, Play, Rss, Sparkles, ThumbsDown, X } from "lucide-react";
 import { archiveArtifact, promoteCandidate, skipCandidate } from "@/hooks/useLibrary";
 
 function ChannelIcon({ channel }: { channel: LibraryArtifact["channel"] }) {
@@ -23,7 +26,9 @@ export function FeedCard({
   promoteReason = "manual_save",
   onChanged,
   onOpen,
+  onMarkUnread,
   onDismissCandidate,
+  onReviewStatus,
   active = false,
 }: {
   artifact: LibraryArtifact | RecommendedArtifact;
@@ -32,7 +37,9 @@ export function FeedCard({
   promoteReason?: PromotionReason;
   onChanged?: () => void;
   onOpen?: (artifact: LibraryArtifact) => void;
+  onMarkUnread?: (id: string) => void | Promise<void>;
   onDismissCandidate?: (artifact: LibraryArtifact | RecommendedArtifact) => void | Promise<void>;
+  onReviewStatus?: (id: string, status: ReviewQueueStatus, note?: string) => void | Promise<void>;
   active?: boolean;
 }) {
   const isCandidate = artifact.lifecycle_status === "candidate";
@@ -64,6 +71,11 @@ export function FeedCard({
         <div className="relative z-10 block aspect-video w-full overflow-hidden bg-[var(--bg-secondary)] text-left">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={artifact.thumbnail} alt="" className="h-full w-full object-cover" />
+          {formatVideoDuration(artifact.video_duration_seconds) && (
+            <span className="absolute bottom-1.5 right-1.5 rounded bg-black/80 px-1.5 py-0.5 text-[11px] font-medium leading-none text-white tabular-nums">
+              {formatVideoDuration(artifact.video_duration_seconds)}
+            </span>
+          )}
         </div>
       )}
       <div className="relative z-10 space-y-3 p-4">
@@ -89,7 +101,7 @@ export function FeedCard({
           </p>
         )}
         <div className="flex flex-wrap items-center gap-2">
-          {artifact.tags.slice(0, 5).map((tag) => (
+          {artifactDisplayTags(artifact).slice(0, 5).map((tag) => (
             <span key={tag} className="rounded-full bg-[var(--bg-secondary)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">{tag}</span>
           ))}
         </div>
@@ -130,6 +142,45 @@ export function FeedCard({
                 </button>
                 {actionsOpen && (
                   <div className="absolute right-0 z-10 mt-1 w-44 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] p-1 content-card-shadow">
+                    {onReviewStatus && (
+                      <>
+                        <button
+                          onClick={async () => {
+                            setActionsOpen(false);
+                            await onReviewStatus(artifact.id, "approved");
+                            onChanged?.();
+                          }}
+                          className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                          Approve
+                        </button>
+                        <button
+                          onClick={async () => {
+                            setActionsOpen(false);
+                            const note = window.prompt("Reason for rejecting (optional):") ?? undefined;
+                            await onReviewStatus(artifact.id, "rejected", note || undefined);
+                            onChanged?.();
+                          }}
+                          className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                        >
+                          <ThumbsDown className="h-3.5 w-3.5" />
+                          Reject
+                        </button>
+                      </>
+                    )}
+                    {onMarkUnread && !artifact.is_unread && (
+                      <button
+                        onClick={async () => {
+                          setActionsOpen(false);
+                          await onMarkUnread(artifact.id);
+                        }}
+                        className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                      >
+                        <CircleDot className="h-3.5 w-3.5" />
+                        Mark as unread
+                      </button>
+                    )}
                     <button
                       onClick={async () => {
                         if (!window.confirm("Archive this saved reference? It will move out of the active Library.")) return;

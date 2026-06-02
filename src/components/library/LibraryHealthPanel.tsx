@@ -47,7 +47,7 @@ function healthCounts(health: LibraryOperationalHealth | null) {
   const notices = health.scheduler.jobs.filter((job) => job.stderr_bytes > 0 && job.status === "ok").length;
   return {
     blocked: blockedSources + blockedJobs,
-    warnings: warningSources + warningJobs + health.dead_letters.recent_24h,
+    warnings: warningSources + warningJobs + health.dead_letters.unresolved,
     notices,
   };
 }
@@ -262,7 +262,12 @@ export function LibraryHealthPanel({
               <section className="flex min-h-[360px] flex-col overflow-hidden rounded-md border border-[var(--border-default)]">
                 <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border-default)] px-3 py-2">
                   <span className="font-medium text-[var(--text-primary)]">Sources</span>
-                  <span className="text-[var(--text-tertiary)]">dead letters {health.dead_letters.total} / {health.dead_letters.recent_24h} recent</span>
+                  <span className="text-[var(--text-tertiary)]">
+                    dead letters {health.dead_letters.total} total
+                    {health.dead_letters.unresolved > 0
+                      ? ` · ${health.dead_letters.unresolved} unresolved`
+                      : " · all resolved"}
+                  </span>
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   {health.sources.map((source) => (

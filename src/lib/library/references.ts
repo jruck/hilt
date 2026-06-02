@@ -4,10 +4,16 @@ import type { LibraryArtifact, LibraryArtifactDetail, ProcessedArtifact, Promoti
 import { atomicWriteFile, canonicalUrl, compareDatesDesc, dateOnly, ensureDir, hashId, isoNow, slugify, toArray, walkMarkdown } from "./utils";
 import { extractBullets, extractConnections, extractHeading, extractSection, frontmatterTags, parseMarkdownFile, relativeVaultPath, stringifyMarkdown } from "./markdown";
 import { buildMediaMarkdown, cachedSourceContent, stripDetailsWrapper } from "./media";
+import { PIPELINE_VERSION } from "./pipeline";
+import { friendlyNewsletterSender, semanticTags, uniqueTags, validLibraryMode } from "./taxonomy";
 
 const REFERENCES_DIR = "references";
 export const MANUAL_SOURCE_ID = "manual";
-export const MANUAL_SOURCE_NAME = "Manual captures";
+export const MANUAL_SOURCE_NAME = "Manual";
+const NEWSLETTERS_SOURCE_ID = "superhuman-news";
+const NEWSLETTERS_SOURCE_NAME = "Newsletters";
+const BOOK_CAPTURE_SOURCE_ID = "book-capture";
+const BOOK_CAPTURE_SOURCE_NAME = "Books";
 
 export function referencesDir(vaultPath: string): string {
   return path.join(vaultPath, REFERENCES_DIR);
@@ -43,9 +49,38 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
   const channel = typeof data.channel === "string" ? data.channel : null;
   const explicitSourceId = typeof data.source_id === "string" ? data.source_id : null;
   const sourceId = explicitSourceId || MANUAL_SOURCE_ID;
+  const sourceName = sourceId === NEWSLETTERS_SOURCE_ID
+    ? NEWSLETTERS_SOURCE_NAME
+    : sourceId === BOOK_CAPTURE_SOURCE_ID
+      ? BOOK_CAPTURE_SOURCE_NAME
+      : sourceId === MANUAL_SOURCE_ID
+        ? MANUAL_SOURCE_NAME
+        : typeof data.source_name === "string"
+          ? data.source_name
+          : explicitSourceId
+            ? null
+            : MANUAL_SOURCE_NAME;
   const created = frontmatterDate(data.published) || frontmatterDate(data.created) || frontmatterDate(data.captured) || dateOnly(stat.birthtime);
   const updated = stat.mtime.toISOString();
   const keyPoints = extractBullets(extractSection(body, "Key Points"));
+  const sourceTags = uniqueTags(toArray(data.source_tags));
+  const sourceCollection = typeof data.source_collection === "string" && data.source_collection.trim() ? data.source_collection.trim() : null;
+  const sourceCollectionId = typeof data.source_collection_id === "string" || typeof data.source_collection_id === "number" ? String(data.source_collection_id) : null;
+  const author = typeof data.author === "string" ? data.author : null;
+  const rawSourceFolder = typeof data.source_folder === "string" && data.source_folder.trim()
+    ? data.source_folder.trim()
+    : channel === "email" && author
+      ? author
+      : null;
+  const sourceFolder = channel === "email"
+    ? friendlyNewsletterSender(rawSourceFolder) || rawSourceFolder
+    : rawSourceFolder;
+  const sourceFolderId = typeof data.source_folder_id === "string" || typeof data.source_folder_id === "number"
+    ? String(data.source_folder_id)
+    : channel === "email" && author
+      ? author.toLowerCase()
+      : null;
+  const tags = semanticTags(frontmatterTags(data));
 
   return {
     id: hashId(relPath),
@@ -55,14 +90,22 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
     source_type: "reference",
     channel: (channel || MANUAL_SOURCE_ID) as LibraryArtifactDetail["channel"],
     source_id: sourceId,
-    source_name: typeof data.source_name === "string" ? data.source_name : explicitSourceId ? null : MANUAL_SOURCE_NAME,
-    tags: frontmatterTags(data),
+    source_name: sourceName,
+    tags,
+    source_tags: sourceTags,
+    source_collection: sourceCollection,
+    source_collection_id: sourceCollectionId,
+    source_folder: sourceFolder,
+    source_folder_id: sourceFolderId,
+    library_mode: validLibraryMode(data.library_mode),
     thumbnail: typeof data.thumbnail === "string" ? data.thumbnail : null,
-    author: typeof data.author === "string" ? data.author : null,
+    author,
     url,
     created_at: created,
     updated_at: updated,
     lifecycle_status: "saved",
+    pipeline_version: typeof data.pipeline_version === "string" ? data.pipeline_version : undefined,
+    video_duration_seconds: typeof data.video_duration_seconds === "number" ? data.video_duration_seconds : undefined,
     is_unread: false,
     read_at: null,
     content: body.trim(),
@@ -118,8 +161,10 @@ function uniqueReferencePath(dir: string, title: string, date: string): string {
 function connectionLines(processed: ProcessedArtifact): string {
   if (processed.connection_suggestions?.length) {
     return processed.connection_suggestions.map((suggestion) => {
-      const target = suggestion.target ? `[[${suggestion.target}]]` : suggestion.label;
-      return `- ${target} — ${suggestion.relationship}`;
+      // Render the human title as the wikilink alias so the rendered text reads naturally while
+      // the link still resolves to the note's vault path.
+      const link = suggestion.target ? `[[${suggestion.target}|${suggestion.label}]]` : suggestion.label;
+      return `- ${link} - ${suggestion.relationship}`;
     }).join("\n");
   }
   if (processed.connected_projects.length) {
@@ -136,7 +181,10 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
   const captured = dateOnly(capturedAt);
   const frontmatter: Record<string, unknown> = {
     type: "reference",
-    description: processed.summary.slice(0, 180),
+    pipeline_version: PIPELINE_VERSION,
+    // Prefer the reweave's feed-card description when present, else the summary. The reweave
+    // description is allowed a touch more room (300) than the legacy summary slice.
+    description: (processed.description || processed.summary).slice(0, processed.digest_markdown ? 300 : 180),
     url: raw.url,
     format: processed.format,
     author: raw.author || undefined,
@@ -152,8 +200,15 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
     extracted_chars: processed.digestion?.extracted_chars,
     cached_source_chars: processed.digestion?.cached_source_chars,
     cached_source_extractor: processed.digestion?.cached_source_extractor,
+    video_duration_seconds: processed.video_duration_seconds,
     thumbnail: raw.thumbnail || undefined,
     tags: processed.tags,
+    source_tags: processed.source_tags.length ? processed.source_tags : undefined,
+    source_collection: processed.source_collection || undefined,
+    source_collection_id: processed.source_collection_id || undefined,
+    source_folder: processed.source_folder || undefined,
+    source_folder_id: processed.source_folder_id || undefined,
+    library_mode: processed.library_mode,
     connected_projects: processed.connected_projects.length ? processed.connected_projects : undefined,
     connection_suggestions: processed.connection_suggestions?.length ? processed.connection_suggestions : undefined,
     connection_reasoning: processed.connection_reasoning || undefined,
@@ -183,19 +238,24 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
     ? `\n\n## Source Notes\n\n${processed.extraction_notes.map((note) => `- ${note}`).join("\n")}`
     : "";
 
-  const body = `# ${raw.title}
-
-${media ? `${media}\n` : ""}## Summary
+  // When the reweave produced a free-form digest, it REPLACES the fixed ## Summary / ## Key Points
+  // sections — the model chose its own ## headings. Otherwise keep the legacy Summary/Key Points form.
+  const digestBlock = processed.digest_markdown
+    ? processed.digest_markdown.trim()
+    : `## Summary
 
 ${processed.summary}
 
 ## Key Points
 
-${keyPoints}
+${keyPoints}`;
 
-## Connections
+  // Omit the Connections section entirely when there are none — no empty heading.
+  const connectionsBlock = connections.trim() ? `\n\n## Connections\n\n${connections}` : "";
 
-${connections}
+  const body = `# ${raw.title}
+
+${media ? `${media}\n` : ""}${digestBlock}${connectionsBlock}
 
 ## Raw Content
 

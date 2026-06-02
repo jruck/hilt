@@ -74,6 +74,20 @@ interface LibraryArtifact {
 }
 ```
 
+## Reference Library Pipeline (versioning + review)
+
+The digest/connection/reweave logic is **one versioned skill**: `src/lib/library/pipeline.ts` + the
+prompts it re-exports. See `docs/PIPELINE-VERSIONS.md` for the full registry and protocol.
+
+- **Integers = published at scale** (full library backfill); **decimals = test iterations** reviewed on
+  a batch in the **Updated** lane. Blessing a decimal + backfilling promotes it to the next integer.
+- **Every pipeline change runs the generation cycle**: edit prompt → bump `PIPELINE_VERSION` (decimal
+  for a test) → add a `PIPELINE-VERSIONS.md` entry → write `docs/review-notes/<version>.md` (the brief
+  "what to review / why" card shown atop the Updated lane) → cut the batch with
+  `scripts/library-reweave.ts --write --review-batch <label>` (it stamps the version and carries the
+  note into the review queue).
+- Items are stamped `pipeline_version`; the review queue lives in `src/lib/library/review-queue.ts`.
+
 ## Custom Commands
 
 - `/track [type] [description]` - Track bugs, tasks, ideas, decisions

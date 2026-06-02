@@ -364,6 +364,38 @@ Returns conflict-copy files for the configured Syncthing folder. Parameters:
 | `scope=local` | string | Return only the serving machine's conflicts |
 | `force=true` | string | Bypass cached sync snapshot |
 
+### Knowledge Graph (System → Graph)
+
+Opt-in: every route below returns `404 { error: "Graph disabled" }` unless `HILT_GRAPH_ENABLED=true` (the `isGraphEnabled()` predicate). The graph index is a derived SQLite cache (`graph.sqlite` under `DATA_DIR`); markdown remains source of truth. `runtime = "nodejs"`, `dynamic = "force-dynamic"`.
+
+#### GET /api/system/graph
+
+Binary graph payload (`application/octet-stream`). The canonical wire format is a 32-byte header (magic `0x48474C31`, `TRANSPORT_FORMAT_VERSION`, node/edge counts, flag bits) followed by interleaved `Float32` positions, a `Uint8` color-key enum, `Float32` edge index-pairs (for cosmos.gl `setLinks`), and a JSON sidecar (`ids`, `labels`, interned `types` ordinals, `colorKeyTable`). `refPaths` is intentionally dropped from the sidecar and resolved lazily via `/node/:id` at click time. Response headers: `X-Graph-Format-Version`, `X-Graph-Layout-Version`, `X-Graph-Node-Count`, `X-Graph-Edge-Count`, `X-Graph-Truncated`.
+
+| Param | Type | Default | Notes |
+|-------|------|---------|-------|
+| `scope` | `global \| local` | `global` (desktop) | `local` BFS around an anchor (mobile default). |
+| `node` | encoded node id | — | Anchor for `scope=local`. Unresolvable → degrades to the highest-degree node, never 400. |
+| `hops` | int `1..3` | `2` | BFS depth, clamped. |
+| `limit` | int | device ceiling | Server enforces `HILT_GRAPH_MAX_NODES_MOBILE`/`_DESKTOP` regardless of request. |
+| `includeTags` | `0 \| 1` | `0` | Requires `HILT_GRAPH_TAGS=true`; default payload always filters tags by `type`. |
+| `includeIsolated` | `0 \| 1` | `0` | Degree-0 leaves are hidden by default (global only). |
+| `fmt` | `bin \| json` | `bin` | `json` returns the decoded selection (nodes/edges/byteLength) for debugging. |
+
+Local selection always keeps all 1-hop neighbors, fills 2-hop by ascending target degree until the cap, and caps per-node hub fan-out (`HILT_GRAPH_HUB_FANOUT_CAP`) so a person super-hub cannot swamp the set; `truncatedRings` reports which ring was clipped.
+
+#### GET /api/system/graph/meta
+
+JSON `GraphMeta`: counts, `builtAt`, `layoutVersion`/`layoutState`, first-run progress (`layoutPhase`/`nodesPlaced`/`totalNodes`), `dirty`/`stale`/`lastError`, reported `tagNodeCount` (never shipped in the default payload), and device `budgets`. The client polls this first to drive its first-run state machine and scope/limit choice.
+
+#### GET /api/system/graph/node/[id]
+
+JSON single node + its immediate edges (inspector/hover). Includes `refPath` (the lazy-resolved navigation target dropped from the bulk sidecar). `404` for an unknown id → the client treats it as a stale-focus case (graceful fallback).
+
+#### POST /api/system/graph/rebuild
+
+Operational, monitor-first: full rebuild + relayout. Body `{ fullLayout?, bumpLayoutVersion? }`; response `{ ok, blocked, nodeCount, edgeCount, layoutVersion, durationMs }`. `409 { blocked: true }` if a layout/rebuild pass is already running (single-flight). Never deletes vault content.
+
 ---
 
 ## Local Apps Routes
@@ -1154,7 +1186,7 @@ Fetch transcript for a YouTube video.
 
 The Library APIs expose the file-native reference system in the bridge vault. Durable references are markdown files under `references/`; discovery candidates are hidden markdown files under `references/.cache/library-candidates/`. All routes use the shared artifact contract from `src/lib/library/types.ts`.
 
-Saved references that predate source configs and have no `source_id:` are exposed as the synthetic source `manual` / `Manual captures`. This is a read-time grouping so older hand-filed references can be isolated without rewriting their frontmatter.
+Saved references that predate source configs and have no `source_id:` are exposed as the synthetic source `manual` / `Manual`. This is a read-time grouping so older hand-filed references can be isolated without rewriting their frontmatter.
 
 ### GET /api/library
 
@@ -1168,13 +1200,14 @@ Lists saved references and, by default, unexpired candidates.
 | `status` | string | `saved`, `candidate`, `promoted`, `skipped`, or `expired` |
 | `source` | string | Source config id |
 | `channel` | string | Source channel such as `youtube`, `raindrop`, `twitter`, `rss`, or `manual` |
-| `tag` | string | Tag filter |
+| `tag` | string | Tag/facet filter. Matches semantic tags plus source-native taxonomy such as Raindrop tags/collections and X bookmark folders. |
+| `mode` | string | `study`, `keep`, or `all`. Defaults to `study`; `keep` is quiet durable-save material such as products, clothing, recipes, restaurants, and other saved-for-later items. |
 | `unread` | boolean | When `true`, returns only artifacts that are still unread in local Hilt read state |
 | `includeCandidates` | boolean | Defaults to `true` |
 | `offset` | number | Offset for incremental loading |
 | `limit` | number | Maximum rows for this page |
 
-When no lifecycle `status` is requested, the list returns saved references plus active `candidate` review items. Skipped, expired, and promoted candidate-cache records stay hidden from the active Library feed unless requested explicitly with `status=skipped`, `status=expired`, or `status=promoted`.
+When no lifecycle `status` is requested, the list returns saved references plus active `candidate` review items. Skipped, expired, and promoted candidate-cache records stay hidden from the active Library feed unless requested explicitly with `status=skipped`, `status=expired`, or `status=promoted`. When no `mode` is requested, the list defaults to `study` so quiet keep-mode items remain durable and searchable without crowding the main review feed.
 
 **Response**
 
@@ -1253,7 +1286,10 @@ Returns loaded `meta/sources/*.yaml` source configs plus source-state status.
 | `q` | string | Keyword filter applied before source counts are calculated |
 | `status` | string | `saved`, `candidate`, or `all`; counts reflect the active lifecycle slice |
 | `channel` | string | Source channel such as `youtube`, `raindrop`, `twitter`, `rss`, or `manual` |
-| `tag` | string | Tag filter applied before source counts are calculated |
+| `tag` | string | Tag/facet filter applied before source counts are calculated |
+| `mode` | string | `study`, `keep`, or `all`; counts and source child facets reflect the active mode slice |
+
+Source summaries include source-native child facets under `facets`: Raindrop collections/tags when available, X bookmark folders when configured, and any other adapter-provided source taxonomy. They also include `study_count`, `keep_count`, and matching unread counts so the filter rail can separate the main study feed from the quiet keep archive.
 
 ### POST /api/sources/ingest
 
@@ -1328,6 +1364,8 @@ Returns the operational Reference Library dashboard contract: launchd scheduler 
 - `npm run library:backfill -- --limit 50 <source-id>` runs cursor-backed historical ingestion for checkpointed sources. Cursors are stored in `meta/sources/.source-state.json`; dry runs report `next_cursor` but do not advance it.
 - `npm run library:audit-quality -- --queue /path/to/queue.json` scans saved references and candidates for warm/cold digestion quality, source-policy mismatches, fallback notes, short summaries, and missing key points.
 - `npm run library:redigest -- --queue /path/to/queue.json --limit 5 --write` re-runs queued items through `summarize` and updates the existing note with `digestion_status`, `digested_with`, `digested_at`, and refreshed summary/key points. Omit `--write` for a dry run.
+- `npm run library:book:import -- --input /path/to/book-capture/output --raw-text-json /path/to/raw_text.json --title "Book" --author "Author" --thumbnail "/api/docs/raw?path=..."` imports generated book-capture markdown as a manual durable reference. It dry-runs by default; add `--write` to create `references/books/<book>/index.md`, copy generated topic markdown, add optional cover media, cache the full capture/OCR under `references/.cache/book-captures/`, and run the Bridge-aware reweave/connection pass. Use `--skip-reweave` only when intentionally importing without connection enrichment.
+- `npm run library:reweave -- --vault /path/to/bridge --path references/example.md --write` reruns the durable-reference reweave pass manually. It preserves existing Media/Raw Content blocks, rewrites the digest body, updates `connection_suggestions`, and registers optional review items with `--review-batch`.
 - `npm run library:repair-legacy -- --path references/example.md` performs a non-destructive legacy reference repair: it preserves existing summaries/connections, adds missing `published`, `thumbnail`, `video_url`, `## Media`, and `## Raw Content` where available, and only writes with `-- --write`. Source cache snippets shorter than 500 characters are ignored by default; use `-- --min-cache-chars <n>` only for an intentional source-limited repair.
 - `npm run library:repair-body-cruft` reports saved references with old manual-capture body chrome such as `← [[index|References]]`, bold source/author/date/format blocks, or `## Media` before `# Title`. Add `-- --write` to remove only that chrome, translate missing body metadata into frontmatter, and normalize the body section order.
 - `npm run library:repair-media -- --source manual --include-candidates` performs a report-first media repair for references/candidates missing representative images. It fetches Open Graph/Twitter card image metadata, adds `thumbnail:` plus `## Media` when safe, and only writes with `-- --write`.
@@ -1343,7 +1381,7 @@ X/Twitter bookmarks can use `xurl` instead of raw env tokens. Configure the sour
 
 X/Twitter bookmark titles are normalized before writing: trailing `t.co`/HTTP URLs are stripped, and URL-only wrappers fall back to `X bookmark by <author>` instead of using the shortlink as the title. If a linked X URL is an article route such as `/i/article/...` rather than a standard status URL, redigestion marks the item warm/metadata-limited unless recoverable source text exists.
 
-Superhuman News uses `mcp-remote` against `https://mcp.mail.superhuman.com/mcp`; OAuth is cached under `~/.mcp-auth` rather than `.env.local`. Run `npm run library:auth -- superhuman-news` to verify live access. The email adapter only calls `list_threads` and `get_thread`, filters mutating MCP tools at the proxy layer, and writes News split items as discovery candidates, not durable references. It does not fall back to Gmail.
+Newsletters use the `superhuman-news` source id and `mcp-remote` against `https://mcp.mail.superhuman.com/mcp`; OAuth is cached under `~/.mcp-auth` rather than `.env.local`. Run `npm run library:auth -- superhuman-news` to verify live access. The email adapter only calls `list_threads` and `get_thread`, filters mutating MCP tools at the proxy layer, and writes News split items as discovery candidates, not durable references. It does not fall back to Gmail.
 
 ### GET /api/library/recommendations
 

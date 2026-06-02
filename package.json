@@ -14,6 +14,7 @@
     "test:calendar": "tsx --test src/lib/calendar/**/*.test.ts",
     "test:granola": "tsx --test src/lib/granola/**/*.test.ts",
     "test:graph": "tsx --test src/lib/graph/**/*.test.ts",
+    "test:semantic": "tsx --test src/lib/semantic/**/*.test.ts",
     "test:graph:e2e": "tsx scripts/graph-e2e.ts",
     "test:calendar:e2e": "tsx scripts/calendar-e2e.ts",
     "calendar:import-fantastical-cache": "DATA_DIR=${DATA_DIR:-$HOME/.hilt/data} tsx scripts/calendar-import-fantastical-cache.ts",

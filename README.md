@@ -92,7 +92,7 @@ Views: `bridge`, `people`, `briefings`, `library`, `docs`, and `system`. The `pa
 
 ## Getting Started
 
-**Prerequisites:** Node.js 20+ and macOS for the full Electron/local-inspection experience.
+**Prerequisites:** Node.js 20+ and macOS for the full Electron/local-inspection experience. Reference Library digestion also uses the external [`summarize`](https://summarize.sh) CLI (`npm i -g @steipete/summarize`); it's optional — set `LIBRARY_SUMMARIZE_DISABLED=1` to skip summaries, or `SUMMARIZE_BIN` to point at a non-PATH install.
 
 ### Install
 

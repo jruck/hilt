@@ -116,6 +116,7 @@ Every action should have visible feedback:
 - Handle should lighten on hover (not thicken)
 - Content area adjusts padding dynamically
 - Tabs for multiple items within drawer
+- User-controlled drawer/sidebar/HUD visibility is a preference, not temporary render state. Persist open/collapsed state in localStorage so refreshes and tab switches preserve the user's workspace shape.
 
 ### Icons
 
@@ -166,6 +167,50 @@ Every action should have visible feedback:
 ## Evolution Log
 
 This section tracks design decisions and refinements over time. Each entry should note what was tried, what was rejected, and why.
+
+### 2026-05-30: Library Reweave — One Pass, Free-Form Digest, Disciplined Connections
+
+**Principle (durable)**: When a reference is durably saved, Hilt does ONE Claude pass that *weaves the reference into Justin's corpus* — the way Justin would ask a sharp friend to read something, distill it, and tell him how it bears on his work. That single pass produces both the digest and the connections; there is no separate summarize-then-judge handoff for durable saves.
+
+**Free-form digest — minimum structure, maximum room**:
+- **The model picks the form per source.** There is no fixed `## Summary` / `## Key Points` template for durable saves. Depending on what serves *this* content, the digest may be a short summary, bespoke thematic sections named after the actual ideas, key points, key insights, key quotes, a "why it matters to your work" weave, or a mix. Forcing every reference into the same skeleton was rejected — it flattened thin tweets and rich talks into the same shape.
+- **Depth matches the source.** A thin tweet gets a few lines; a rich talk gets more. Never pad to look thorough. This mirrors the connection discipline: honesty over volume.
+- **Honest about weaknesses.** The digest should name recycled material, thin/partial sources, and hype rather than dressing them up. The goal is a trustworthy distillation, not a flattering one.
+- **Practitioner voice.** Write as Justin's plain-spoken practitioner voice — a sharp friend distilling the idea, not an academic grader or a recommendation engine.
+- **This came from studying his manual captures.** Justin's own hand-filed references vary in structure — some are a paragraph, some are bullets, some are a single quote with a note. The fixed template fought that variety. The reweave model gives the model *minimum structure, maximum room* so generated notes read like the ones Justin writes himself.
+
+**Disciplined connections**:
+- **The gate for every tie is "would Justin be glad I surfaced this when looking at this note, or is it noise he'd scroll past?"** This is the same abstain-biased judgment as the earlier connections work, applied per candidate link.
+- **First-party ties are comprehensive.** Connections to Justin's own authored work (projects, areas, thoughts, his strategy docs) should surface *all* the genuine ones — they almost always earn attention.
+- **Library cross-references must earn a second look.** Ties to other external references he saved are held to a much higher bar: include one only if it genuinely *sharpens or surprises* (a real contrast, a lineage, an unexpected/illuminating parallel). A surprising-but-illuminating "weird" tie is wanted; mere same-topic neighbors are cut. Fewer, stronger; if none earn it, return none.
+- **The model decides the form of the relationship**, written as a short plain predicate that reads naturally after "Title — …", not an academic run-on or a similarity score.
+- **No candidate targets.** Connections never point into the temporary candidate cache (`references/.cache/`); only durable, real vault notes are valid targets.
+- **Titles are the labels.** Connections render with the neighbor note's human title as the wikilink label (`- [[target|Title]] - relationship`), so the body reads in plain language rather than exposing slugs.
+
+**Rationale**: Studying Justin's manual captures showed that a good knowledge note is shaped by its source, not by a form. The reweave pass trades the predictability of a template for notes that actually fit what they're about — while keeping the connection discipline that makes the Library trustworthy: comprehensive about his own work, stingy about everything else, and silent when there is nothing to say.
+
+### 2026-06-01: Library Source Taxonomy — Study vs Keep
+
+**Change**: Library source labels, source-native taxonomy, and user-facing tags are separated. The source rail can expand into Raindrop collections/tags or X bookmark-folder facets, while card chips hide plumbing tags like `bookmark`, `raindrop`, and `twitter`.
+
+**Principles**:
+- Source says where an item came from; taxonomy says how that source organized it; semantic tags say what the item is about. Do not blur those into one chip list.
+- The default Library surface is for study: material worth reading, evaluating, weaving, or filing into active context.
+- Keep-mode material is still useful durable memory, but it should be quiet by default. Products, clothing, furniture, recipes, restaurants, and similar saved-for-later items should remain searchable without crowding the review feed or forcing project connections.
+- Mode is lower-priority than status/source filtering, so it belongs at the bottom of the rail as a simple `Study` / `Keep` switch. The UI should not offer an `All` mode by default; mixing both modes weakens the distinction.
+- Source families should collapse noisy feeds before exposing detail. YouTube belongs under one parent with playlist/channel children; email newsletters belong under `Newsletters` with friendly sender facets instead of raw email addresses.
+
+**Rationale**: Justin uses bookmarks for both "this may change how I think/work" and "remember this object/place/product later." Treating every saved bookmark as a study item makes the feed noisy and connection prompts silly. A mode split keeps the Library useful for both behaviors without inventing a second archive.
+
+### 2026-05-30: Knowledge Graph — Freeze at Rest, Default Global, Show-in-Graph Everywhere
+
+- **Render-only, frozen at rest.** The graph view ships finished server-computed coordinates straight to the GPU and freezes (`render()` then `pause()`); it does not simulate physics in the browser. Idle is pure GPU render (~0 CPU). A live-jiggling hairball was rejected — it reads as noise, not structure, and burns battery on a laptop/phone.
+- **Default scope is GLOBAL on desktop, LOCAL on mobile.** Desktop wants the whole-vault "knowledge map"; a phone can't hold it (jetsam), so mobile defaults to the focused node's neighborhood and the server enforces a hard node cap regardless of what the client asks. Never ship the global buffer to a phone.
+- **Degree-0 leaves are hidden by default.** The primary vault has a long isolated-stub tail; showing it makes a dust cloud, not a graph. An opt-in reveals them.
+- **Contextual color, not a rainbow.** Nodes color by type, but references/notes/projects prefer their owning North-Star *area* bucket (extends the "Contextual Color Meaning" principle). North Stars get a permanent size floor + emphasis regardless of degree — the anchors of the map should always read as anchors.
+- **Hover greys the rest, never blanks it.** Hover-highlight selects a node + its neighbors; clearing must call `unselectPoints()` (passing `[]` would grey out *everything* — a cosmos.gl gotcha). Mobile uses tap-to-select (no hover layer).
+- **"Show in graph" is a peer affordance, not a separate destination.** Docs, Library (saved refs **and** candidates), and People each carry a small Lucide `Network` button that deep-links into the graph focused on that item via the one path-segment scope grammar (`buildGraphScope`). It appears only when the flag is on, sits beside the existing copy/reveal/settings controls rather than in a new toolbar, and an un-promoted candidate (no connections by design) lands centered with an honest "showing the full graph" fallback rather than an empty-feeling canvas.
+- **The whole feature is inert when off.** The Graph tab, the renderer (and its WebGL context), the cosmos.gl bundle, and the three Show-in-graph buttons all disappear when `HILT_GRAPH_ENABLED` is unset — protecting the live app while the feature is in flight.
 
 ### 2026-05-29: Library Connections — LLM Judgment, "Just File It" Is a Win
 

@@ -193,6 +193,8 @@ Reference Library workspace backed by markdown reference files and hidden candid
 - Uses one composable Library surface instead of separate Feed and Browse destinations.
 - Defaults to Feed density with `Recent` ranking, `All` lifecycle status, no source sidebar, and no reader pane until an item is opened.
 - Independent controls: `Sources` toggles the filter rail, `Feed/List` controls density, and `Recent/For You/New` controls ranking. `New` is the unread-only slice across saved references and candidates. Lifecycle status is filtered inside the `Sources` rail under `Status` (`All`, `Saved`, `Candidates`), not in the top toolbar.
+- The filter rail owns `Mode` at the bottom: `Study` is the default review/weaving surface, and `Keep` is the quiet durable archive for products, shopping, recipes, restaurants, clothing, furniture, and similar saved-for-later material. Keep-mode items remain searchable but do not light the top-level Library unread dot.
+- Selected sources can expose child facets from source-native taxonomy. Raindrop uses collection names and bookmark tags where available; X/Twitter can use bookmark-folder metadata when configured. YouTube sources are grouped under a single `YouTube` parent with Bookmarks, Watch Later, liked videos, and channel sources beneath it. Email sources are grouped under `Newsletters`, with sender facets such as `AI News` or `Lenny` beneath the group. These facets are distinct from the source label itself, so cards show useful chips like `AI`, `furniture`, or `agents` rather than plumbing labels like `bookmark` or `raindrop`.
 - `Recent` ranks by source publication/capture date first, then uses precise ingestion metadata such as `captured_at` and `digested_at` only as a same-day tie-breaker.
 - Feed density stays full-width until an item is selected. Selecting the active Feed card again clears the reader and restores the full-width feed.
 - List density gives the old Browse/inbox scanning behavior, always reserves the reader slot on desktop, auto-selects the first visible row when possible, and shows a placeholder when no item is selected.
@@ -226,6 +228,42 @@ Shared 44px toolbar chrome for secondary navigation rows.
 - Keeps narrow widths to a single non-wrapping horizontal row with hidden scrollbars instead of wrapping controls into a taller toolbar.
 - Provides shared segmented-control, segmented-button, and icon-button primitives for consistent active, hover, and compact-label states.
 - Exports `SECONDARY_TOOLBAR_BODY_GUTTER_CLASS` for the standard 13px space between the toolbar and attached full-bleed body panes.
+
+---
+
+## Graph Components
+
+All graph components live under `src/components/graph/` and are flag-gated: `GraphView` is loaded only via the `dynamic({ ssr: false })` branch in `SystemView` guarded by `isGraphEnabled()`, so nothing renders or imports when `HILT_GRAPH_ENABLED` is unset.
+
+### GraphView.tsx
+
+**File**: `src/components/graph/GraphView.tsx`
+
+The System → Graph sub-mode shell. Hosts the `SecondaryToolbar` with the System mode switcher (`left`) and the `GraphToolbar` (`right`), runs the first-run state machine off `/api/system/graph/meta` (disabled state with no WebGL context when the flag is off, a "Building graph index…" progress panel while `builtAt === null`, ready → mount canvas + freeze), owns the renderer instance across data refetches, maps click-throughs and hover off the parallel `meta[]` array (index-vs-id), focuses a deep-linked node two-phase once data arrives, and exposes `window.__hiltGraphStats` for e2e.
+
+### CosmosRenderer.ts / renderer.ts
+
+**Files**: `src/components/graph/CosmosRenderer.ts`, `src/components/graph/renderer.ts`
+
+`renderer.ts` defines the renderer-agnostic `GraphRenderer` interface so a WebGPU engine can swap in over the same binary buffers. `CosmosRenderer.ts` is the **only** file importing `@cosmos.gl/graph` (pinned 2.6.4): it owns one `Graph` on a container div, uploads precomputed coordinates into GPU buffers, freezes at rest via `render()` then `pause()` (`enableSimulation: false`), and wires hover/click. Note: cosmos.gl 2.6.4 mounts to a container `<div>` (it owns the `<canvas>`), so `mount` takes the container, not a bare canvas.
+
+### GraphToolbar.tsx
+
+**File**: `src/components/graph/GraphToolbar.tsx`
+
+Global/Local segmented control (Lucide `Globe`/`Locate`), a local-scope hop stepper, a flag-gated Show-tags toggle (`isGraphTagsEnabled()`), a legend popover, the read-only refresh button, and the "updated <relative> · updating" staleness chip.
+
+### decode.ts / device-budget.ts / graph-style.ts
+
+**Files**: `src/components/graph/{decode,device-budget,graph-style}.ts`
+
+`decode.ts` is the client-side `decodeGraphBinary` mirroring the wire contract (throws `GraphFormatError` on magic/version mismatch). `device-budget.ts` is a pure device-class → `GraphBudget` map (desktop GLOBAL default, mobile/tablet LOCAL, DPR clamped per class). `graph-style.ts` resolves the interned color-key table to RGBA per theme, derives `sqrt(degree)` sizes with a North-Star floor, and builds hover adjacency.
+
+### useGraphMeta.ts / useGraphData.ts / graph-deeplink.ts
+
+**Files**: `src/components/graph/{useGraphMeta,useGraphData,graph-deeplink}.ts`
+
+`useGraphMeta` drives the meta poll + WS `graph` channel subscription (10s `/meta` fallback when the socket is down). `useGraphData` fetches + decodes the binary payload (scope-aware). `graph-deeplink.ts` is the single source of the scope grammar (`buildGraphScope`/`parseGraphScope`, path-segment only) shared by `GraphView` and the three "Show in graph" surfaces.
 
 ---
 

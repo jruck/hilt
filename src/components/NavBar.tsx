@@ -6,7 +6,7 @@ import { useHaptics } from "@/hooks/useHaptics";
 import { ViewToggle, ViewMode } from "./ViewToggle";
 import { ThemeToggle } from "./ThemeToggle";
 import { SourceToggle } from "./SourceToggle";
-import { Search, X } from "lucide-react";
+import { PanelBottom, PanelTop, Search, X } from "lucide-react";
 import { useMobileChrome, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 
 const SHORTCUTS = [
@@ -68,6 +68,8 @@ interface NavBarProps {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   setAddTaskTrigger: React.Dispatch<React.SetStateAction<number>>;
+  hudVisible: boolean;
+  setHudVisible: React.Dispatch<React.SetStateAction<boolean>>;
   unreadTabs?: Set<string>;
 }
 
@@ -77,6 +79,8 @@ export function NavBar({
   searchQuery,
   setSearchQuery,
   setAddTaskTrigger,
+  hudVisible,
+  setHudVisible,
   unreadTabs,
 }: NavBarProps) {
   const isMobile = useIsMobile();
@@ -292,6 +296,27 @@ export function NavBar({
                 {/* View toggle (compact mode) */}
                 <ViewToggle view={viewMode} onChange={setViewMode} compact onDoubleTapActive={() => window.location.reload()} unreadTabs={unreadTabs} />
 
+                <button
+                  onClick={() => {
+                    haptics.selection();
+                    setHudVisible((visible) => !visible);
+                  }}
+                  className={`
+                    relative flex min-h-[48px] min-w-[48px] items-center justify-center rounded-full
+                    transition-colors
+                    ${
+                      hudVisible
+                        ? "bg-[var(--nav-mobile-active-bg)] text-[var(--nav-mobile-active)] shadow-sm"
+                        : "text-[var(--nav-mobile-muted)] hover:text-[var(--nav-mobile-hover)] active:bg-[var(--nav-mobile-press-bg)]"
+                    }
+                  `}
+                  style={NO_DRAG_REGION_STYLE}
+                  title={hudVisible ? "Hide HUD" : "Show HUD"}
+                  aria-pressed={hudVisible}
+                >
+                  <PanelTop className="h-6 w-6" />
+                </button>
+
               </div>
             )}
           </nav>
@@ -396,6 +421,22 @@ export function NavBar({
         </div>
 
         <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><ThemeToggle /></div>
+        <button
+          onClick={() => {
+            haptics.selection();
+            setHudVisible((visible) => !visible);
+          }}
+          className={`pointer-events-auto p-1.5 rounded transition-colors ${
+            hudVisible
+              ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]"
+              : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
+          }`}
+          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+          title={hudVisible ? "Hide HUD" : "Show HUD"}
+          aria-pressed={hudVisible}
+        >
+          <PanelBottom className="h-4 w-4" />
+        </button>
         <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><SourceToggle /></div>
       </div>
 

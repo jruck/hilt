@@ -4,11 +4,13 @@ import * as http from "http";
 import { EventServer } from "./event-server";
 import { getScopeWatcher, getInboxWatcher, getBridgeWatcher } from "./watchers";
 import { startGranolaSyncDaemon } from "../src/lib/granola/daemon";
+import { isGraphEnabled, getGraphMarkerPath } from "../src/lib/graph/config";
 import type {
   TreeChangedEvent,
   FileChangedEvent,
   InboxChangedEvent,
 } from "./watchers";
+import type { GraphRunner } from "../src/lib/graph/runner";
 
 const PREFERRED_PORT = parseInt(process.env.WS_PORT || "3001", 10);
 const PORT_FILE = path.join(process.env.HOME || "~", ".hilt-ws-port");
@@ -125,7 +127,7 @@ async function startServer() {
       req.on("end", () => {
         try {
           const { view, path } = JSON.parse(body);
-          const validViews = ["bridge", "docs", "stack", "briefings", "calendar", "people"];
+          const validViews = ["bridge", "docs", "stack", "briefings", "calendar", "people", "system"];
           if (!view || !validViews.includes(view)) {
             res.writeHead(400, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ error: "Invalid view. Must be one of: " + validViews.join(", ") }));
@@ -253,6 +255,53 @@ async function startServer() {
     }
   });
 
+  // --- System → Graph runner + marker watch (flag-gated; inert when off) ---
+  // ENTIRELY no-op unless HILT_GRAPH_ENABLED === "true". The runner module (which
+  // pulls in build/layout/db) is dynamically imported so the flag-off path never
+  // loads it. Mirrors the calendar marker watch above.
+  let graphRunner: GraphRunner | null = null;
+  let graphMarkerWatched = false;
+  if (isGraphEnabled()) {
+    const graphMarker = getGraphMarkerPath();
+    fs.watchFile(graphMarker, { interval: 1000 }, (curr, prev) => {
+      if (curr.mtimeMs > 0 && curr.mtimeMs !== prev.mtimeMs) {
+        eventServer.broadcast("graph", "changed", {});
+      }
+    });
+    graphMarkerWatched = true;
+
+    void (async () => {
+      try {
+        const { getGraphRunner, GRAPH_RUNNER_CLIENT_ID } = await import(
+          "../src/lib/graph/runner"
+        );
+        graphRunner = getGraphRunner();
+        const vaultRoot = graphRunner.getVaultRoot();
+
+        // BridgeWatcher: dir-rescan-by-mtime (do NOT trust the single collapsed path).
+        bridgeWatcher.on("projects-changed", () => graphRunner?.onDirChanged("projects"));
+        bridgeWatcher.on("people-changed", () => graphRunner?.onDirChanged("people")); // + meetings
+        bridgeWatcher.on("thoughts-changed", () => graphRunner?.onDirChanged("thoughts"));
+        bridgeWatcher.on("weekly-changed", () => graphRunner?.onDirChanged("weekly"));
+
+        // ScopeWatcher: persistent internal client at the vault root covers
+        // references/ + docs/ (BridgeWatcher does not). Ref-counted; survives UI subs.
+        scopeWatcher.watchScope(vaultRoot, GRAPH_RUNNER_CLIENT_ID);
+        scopeWatcher.on("file:changed", (e: FileChangedEvent) => graphRunner?.onFileChanged(e.path));
+        scopeWatcher.on("tree:changed", (e: TreeChangedEvent) =>
+          e.type === "unlink"
+            ? graphRunner?.onFileRemoved(e.path)
+            : graphRunner?.onFileChanged(e.path),
+        );
+
+        await graphRunner.start();
+        console.log("[GraphRunner] Started (graph feature enabled)");
+      } catch (err) {
+        console.error("[GraphRunner] Failed to start:", err);
+      }
+    })();
+  }
+
   console.log(`Scope, inbox, bridge, and calendar watchers configured`);
 
   // Manually handle WebSocket upgrades and route to appropriate server
@@ -277,6 +326,18 @@ async function startServer() {
     console.log("\nShutting down WebSocket server...");
     removePortFile();
     releaseLock();
+    if (graphRunner) {
+      graphRunner.stop();
+      try {
+        const { GRAPH_RUNNER_CLIENT_ID } = await import("../src/lib/graph/runner");
+        scopeWatcher.unwatchScope(graphRunner.getVaultRoot(), GRAPH_RUNNER_CLIENT_ID);
+      } catch {
+        // Ignore — teardown best-effort.
+      }
+    }
+    if (graphMarkerWatched) {
+      fs.unwatchFile(getGraphMarkerPath());
+    }
     scopeWatcher.stop();
     inboxWatcher.stop();
     bridgeWatcher.stop();

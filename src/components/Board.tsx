@@ -7,6 +7,7 @@ import dynamic from "next/dynamic";
 import type { ViewPrefix } from "@/lib/url-utils";
 import { ViewMode } from "./ViewToggle";
 import { NavBar } from "./NavBar";
+import { AppHud } from "./AppHud";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBriefingUnread } from "@/hooks/useBriefingUnread";
 import { useLibraryUnread } from "@/hooks/useLibrary";
@@ -24,6 +25,7 @@ const SystemView = dynamic(() => import("./system").then(m => ({ default: m.Syst
 
 const SYSTEM_MODE_STORAGE_KEY = "hilt-system-mode";
 const PEOPLE_SCOPE_STORAGE_KEY = "hilt-people-scope";
+const HUD_VISIBILITY_STORAGE_KEY = "hilt-app-hud-visible";
 
 function getStoredPeopleScope(): string {
   if (typeof window === "undefined") return "/__inbox__";
@@ -43,6 +45,7 @@ export function Board() {
 
   // Track if we've hydrated from localStorage (to prevent hydration mismatch)
   const [isHydrated, setIsHydrated] = useState(false);
+  const [hudVisible, setHudVisible] = useState(false);
 
   // Default scope for all views — fetched from server preferences
   // undefined = not yet loaded, string = resolved path (always has a value once loaded)
@@ -59,6 +62,9 @@ export function Board() {
     : "bridge"; // fallback
   const systemMode = systemModeFromUrl(urlViewMode, scopePath);
   const stackScopePath = stackScopeFromSystemUrl(urlViewMode, scopePath);
+  const graphScopePath = systemMode === "graph"
+    ? scopePath.split("/").filter(Boolean).slice(1).join("/") // remainder after "graph"
+    : "";
 
   // Unified setter
   const setViewMode = useCallback((mode: ViewMode) => {
@@ -99,9 +105,16 @@ export function Board() {
       replaceViewMode("bridge");
     }
 
+    setHudVisible(localStorage.getItem(HUD_VISIBILITY_STORAGE_KEY) === "true");
+
     const frame = window.requestAnimationFrame(() => setIsHydrated(true));
     return () => window.cancelAnimationFrame(frame);
   }, [replaceViewMode, urlViewMode]);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    localStorage.setItem(HUD_VISIBILITY_STORAGE_KEY, String(hudVisible));
+  }, [hudVisible, isHydrated]);
 
   // Persist view mode to server when it changes (skip during initial hydration)
   useEffect(() => {
@@ -209,11 +222,15 @@ export function Board() {
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         setAddTaskTrigger={setAddTaskTrigger}
+        hudVisible={hudVisible}
+        setHudVisible={setHudVisible}
         unreadTabs={unreadTabs}
       />
 
+      {hudVisible && isMobile && <AppHud placement="top" onCollapse={() => setHudVisible(false)} />}
+
       <div
-        className="flex flex-1 overflow-hidden"
+        className="flex min-h-0 flex-1 overflow-hidden"
         style={undefined}
       >
         {/* Main content column — wrapped in PullToRefresh on mobile */}
@@ -241,6 +258,7 @@ export function Board() {
             onModeChange={setSystemMode}
             searchQuery={searchQuery}
             workingFolder={stackScopePath || workingFolder || ""}
+            scopePath={graphScopePath}
           />
         ) : viewMode === "briefings" ? (
           <BriefingsView />
@@ -278,6 +296,7 @@ export function Board() {
             onModeChange={setSystemMode}
             searchQuery={searchQuery}
             workingFolder={stackScopePath || workingFolder || ""}
+            scopePath={graphScopePath}
           />
         ) : viewMode === "briefings" ? (
           <BriefingsView />
@@ -291,6 +310,7 @@ export function Board() {
         </div>
         </div>}
       </div>
+      {hudVisible && !isMobile && <AppHud placement="bottom" onCollapse={() => setHudVisible(false)} />}
     </div>
     </MobileChromeProvider>
   );

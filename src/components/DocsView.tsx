@@ -91,7 +91,7 @@ export function DocsView({ scopePath, focusedPath, onPathChange, searchQuery }: 
     return DEFAULT_SIDEBAR_WIDTH;
   });
   const [isResizing, setIsResizing] = useState(false);
-  const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const resizeRef = useRef<{ startX: number; startWidth: number; moved: boolean } | null>(null);
 
   // Persist sidebar width
   useEffect(() => {
@@ -102,7 +102,7 @@ export function DocsView({ scopePath, focusedPath, onPathChange, searchQuery }: 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     setIsResizing(true);
-    resizeRef.current = { startX: e.clientX, startWidth: sidebarWidth };
+    resizeRef.current = { startX: e.clientX, startWidth: sidebarWidth, moved: false };
   }, [sidebarWidth]);
 
   useEffect(() => {
@@ -111,6 +111,7 @@ export function DocsView({ scopePath, focusedPath, onPathChange, searchQuery }: 
     const handleMouseMove = (e: MouseEvent) => {
       if (!resizeRef.current) return;
       const delta = e.clientX - resizeRef.current.startX;
+      if (delta !== 0) resizeRef.current.moved = true;
       const newWidth = Math.min(
         MAX_SIDEBAR_WIDTH,
         Math.max(MIN_SIDEBAR_WIDTH, resizeRef.current.startWidth + delta)
@@ -118,7 +119,12 @@ export function DocsView({ scopePath, focusedPath, onPathChange, searchQuery }: 
       setSidebarWidth(newWidth);
     };
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (e: MouseEvent) => {
+      const gesture = resizeRef.current;
+      const moved = Boolean(gesture && (gesture.moved || e.clientX !== gesture.startX));
+      if (gesture && !moved) {
+        setSidebarOpen(false);
+      }
       setIsResizing(false);
       resizeRef.current = null;
     };
@@ -324,12 +330,22 @@ export function DocsView({ scopePath, focusedPath, onPathChange, searchQuery }: 
         </MobileChromeContent>
         {/* Resize handle — desktop only, when sidebar open */}
         {!isMobile && sidebarOpen && (
-          <div
-            className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-[var(--accent-primary)] transition-colors ${
-              isResizing ? "bg-[var(--accent-primary)]" : "bg-transparent"
-            }`}
-            onMouseDown={handleResizeStart}
-          />
+          <>
+            <div aria-hidden className="absolute bottom-0 right-0 top-0 w-px bg-[var(--border-default)]" />
+            <button
+              type="button"
+              aria-label="Resize or collapse sidebar"
+              data-testid="docs-sidebar-resizer"
+              className="hilt-resize-separator-hit absolute bottom-0 right-0 top-0 z-10 w-2 translate-x-1/2 cursor-col-resize border-0 bg-transparent p-0"
+              onMouseDown={handleResizeStart}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setSidebarOpen(false);
+                }
+              }}
+            />
+          </>
         )}
       </div>
 

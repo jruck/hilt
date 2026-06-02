@@ -4,10 +4,12 @@ import { useState, useCallback, useRef, useEffect, type ReactNode } from "react"
 import {
   AlertTriangle,
   CalendarClock,
-  CalendarDays,
+  Check,
   ChevronDown,
   ChevronRight,
   CheckCircle2,
+  Copy,
+  FolderOpen,
   Loader2,
   Lock,
   MoreVertical,
@@ -17,7 +19,7 @@ import {
   Trash2,
 } from "lucide-react";
 import dynamic from "next/dynamic";
-import type { PersonMeeting } from "@/lib/types";
+import type { PersonCalendarCandidate, PersonMeeting } from "@/lib/types";
 import { TranscriptView } from "./TranscriptView";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useScope } from "@/contexts/ScopeContext";
@@ -34,6 +36,7 @@ interface MeetingEntryProps {
   autoFocus?: boolean;
   onDelete?: () => void;
   onSaved?: () => void;
+  onSelectCalendarCandidate?: (candidate: PersonCalendarCandidate) => Promise<void>;
 }
 
 function formatDate(isoDate: string, isoTime?: string): string {
@@ -192,11 +195,71 @@ function NotesAccordionSection({
   );
 }
 
-export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, onSaved }: MeetingEntryProps) {
+function NextCalendarCandidateMenu({
+  candidates,
+  selectedSeriesKey,
+  onSelect,
+}: {
+  candidates: PersonCalendarCandidate[];
+  selectedSeriesKey: string | null;
+  onSelect: (candidate: PersonCalendarCandidate) => void;
+}) {
+  return (
+    <div className="border-b border-[var(--border-default)] bg-[var(--bg-secondary)] px-4 py-2">
+      <div className="space-y-1">
+        {candidates.map((candidate) => {
+          const selected = candidate.seriesKey === selectedSeriesKey;
+          return (
+            <button
+              key={candidate.seriesKey}
+              type="button"
+              onClick={() => onSelect(candidate)}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+              title={candidate.title}
+            >
+              <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center">
+                {selected ? <Check className="h-3.5 w-3.5 text-amber-500" /> : null}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium text-[var(--text-primary)]">{candidate.title}</span>
+                <span className="block truncate text-[11px] text-[var(--text-tertiary)]">
+                  {formatNextCandidateDate(candidate)} · {candidate.historicalCount} recording{candidate.historicalCount === 1 ? "" : "s"}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function formatNextCandidateShortDate(candidate: PersonCalendarCandidate): string {
+  const date = new Date(candidate.start);
+  if (Number.isNaN(date.getTime())) return "Calendar";
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function formatNextCandidateDate(candidate: PersonCalendarCandidate): string {
+  const date = new Date(candidate.start);
+  if (Number.isNaN(date.getTime())) return candidate.start;
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, onSaved, onSelectCalendarCandidate }: MeetingEntryProps) {
   const haptics = useHaptics();
   const { navigateTo } = useScope();
   const editorAreaRef = useRef<HTMLDivElement>(null);
   const isNext = meeting.source === "next";
+  const selectedCalendarCandidate = meeting.calendarCandidates?.find((candidate) =>
+    candidate.seriesKey === meeting.calendarSeriesKey || candidate.eventId === meeting.hiltCalendarEventId
+  ) ?? meeting.calendarCandidates?.[0] ?? null;
 
   // Calendar link evidence — only Granola meetings carry a matched Hilt calendar event.
   const calendarEventId = meeting.hiltCalendarEventId;
@@ -210,21 +273,6 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
     haptics.light();
     navigateTo("calendar", `/event/${encodeURIComponent(calendarEventId)}/${meeting.date}`);
   }, [calendarEventId, haptics, meeting.date, navigateTo]);
-  const calendarChip = calendarEventId ? (
-    <button
-      type="button"
-      onClick={handleOpenCalendarEvent}
-      title={calendarChipTitle}
-      className={`inline-flex h-6 items-center gap-1 rounded-md border px-1.5 text-[11px] font-medium transition-colors ${
-        isFuzzyCalendarMatch
-          ? "border-amber-500/30 text-amber-600 hover:bg-amber-500/10 dark:text-amber-400"
-          : "border-[var(--border-default)] text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-secondary)]"
-      }`}
-    >
-      <CalendarDays className="h-3 w-3" />
-      Calendar
-    </button>
-  ) : null;
   const hasNotes = !!meeting.notes;
   const hasSummary = !!meeting.summary;
   const hasNotesTab = hasNotes || hasSummary;
@@ -237,9 +285,13 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
   // Show menu for inline and next (never granola-only)
   const canDelete = meeting.source === "inline" || meeting.source === "next";
   const canChangeDate = meeting.source === "inline";
+  const primaryFilePath = meeting.filePath ?? meeting.transcriptPath ?? null;
+  const canCopyPath = Boolean(primaryFilePath);
+  const canRevealInFinder = Boolean(primaryFilePath);
 
   // Three-dot menu state
   const [showMenu, setShowMenu] = useState(false);
+  const [showNextCalendarMenu, setShowNextCalendarMenu] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const changeDateRef = useRef<HTMLInputElement>(null);
@@ -282,6 +334,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
   useEffect(() => {
     setShowMenu(false);
     setConfirmDelete(false);
+    setShowNextCalendarMenu(false);
   }, [meeting.date, meeting.source, meeting.time, meeting.title]);
 
   // Available tabs (not for "next" mode)
@@ -359,7 +412,11 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(
               isNext
-                ? { content: markdown }
+                ? {
+                  content: markdown,
+                  calendarCandidate: selectedCalendarCandidate,
+                  keepCalendarOnEmpty: Boolean(selectedCalendarCandidate),
+                }
                 : { date: meeting.date, notes: markdown, title: noteTitle }
             ),
           }
@@ -389,7 +446,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
         return false;
       }
     },
-    [isNext, meeting.date, noteTitle, onSaved, slug]
+    [isNext, meeting.date, noteTitle, onSaved, selectedCalendarCandidate, slug]
   );
 
   const handleNotesChange = useCallback(
@@ -478,6 +535,27 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
     }
   }, [clearSaveTimer, slug, meeting.source, meeting.date, noteTitle, isNext, onDelete, onSaved]);
 
+  const handleCopyPath = useCallback(() => {
+    if (!primaryFilePath) return;
+    void navigator.clipboard.writeText(primaryFilePath);
+    setShowMenu(false);
+  }, [primaryFilePath]);
+
+  const handleRevealInFinder = useCallback(() => {
+    if (!primaryFilePath) return;
+    setShowMenu(false);
+    void fetch("/api/reveal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: primaryFilePath }),
+    });
+  }, [primaryFilePath]);
+
+  const handleSelectNextCalendarCandidate = useCallback((candidate: PersonCalendarCandidate) => {
+    setShowNextCalendarMenu(false);
+    void onSelectCalendarCandidate?.(candidate);
+  }, [onSelectCalendarCandidate]);
+
   // Lazy-load transcript content when tab is selected
   const [transcriptContent, setTranscriptContent] = useState<string | null>(null);
   const [transcriptLoading, setTranscriptLoading] = useState(false);
@@ -515,17 +593,95 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
     </div>
   ) : null;
 
+  const dateTextClassName = `text-base font-medium transition-colors ${
+    isFuzzyCalendarMatch
+      ? "text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+      : "text-[var(--text-primary)] hover:text-[var(--text-accent)]"
+  }`;
+  const dateLabel = calendarEventId ? (
+    <button
+      type="button"
+      onClick={handleOpenCalendarEvent}
+      title={calendarChipTitle}
+      className={`${dateTextClassName} hover:underline underline-offset-2`}
+    >
+      {formatDate(meeting.date, meeting.time)}
+    </button>
+  ) : (
+    <span className="text-base font-medium text-[var(--text-primary)]">
+      {formatDate(meeting.date, meeting.time)}
+    </span>
+  );
+  const nextHeaderLabel = selectedCalendarCandidate
+    ? `Next · ${formatNextCandidateShortDate(selectedCalendarCandidate)}`
+    : "Next";
+  const nextSubtitle = selectedCalendarCandidate?.title ?? null;
+  const nextHeaderTitle = selectedCalendarCandidate ? (
+    meeting.calendarCandidates && meeting.calendarCandidates.length > 1 ? (
+      <button
+        type="button"
+        onClick={() => setShowNextCalendarMenu((value) => !value)}
+        className={`inline-flex min-w-0 items-center gap-1 text-base font-medium transition-colors ${
+          showNextCalendarMenu
+            ? "text-[var(--text-primary)]"
+            : "text-[var(--text-primary)] hover:text-[var(--text-accent)]"
+        }`}
+        title="Choose calendar series for Next"
+      >
+        <span className="truncate">{nextHeaderLabel}</span>
+        <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-tertiary)]" />
+      </button>
+    ) : calendarEventId ? (
+      <button
+        type="button"
+        onClick={handleOpenCalendarEvent}
+        title={calendarChipTitle ?? "Open calendar event"}
+        className="truncate text-base font-medium text-[var(--text-primary)] transition-colors hover:text-[var(--text-accent)] hover:underline underline-offset-2"
+      >
+        {nextHeaderLabel}
+      </button>
+    ) : (
+      <span className="truncate text-base font-medium text-[var(--text-primary)]">
+        {nextHeaderLabel}
+      </span>
+    )
+  ) : (
+    <span className="text-base font-medium text-[var(--text-primary)]">Next</span>
+  );
+
   // Menu button
-  const menuButton = (canDelete || canChangeDate) ? (
+  const menuButton = (canDelete || canChangeDate || canCopyPath || canRevealInFinder) ? (
     <div className="flex-shrink-0 relative" ref={menuRef}>
       <button
         onClick={() => setShowMenu(!showMenu)}
         className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors rounded"
+        title="More actions"
       >
         <MoreVertical className="w-4 h-4" />
       </button>
       {showMenu && (
         <div className="absolute right-0 top-full mt-1 w-44 z-50 rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] shadow-lg overflow-hidden py-1">
+          {canCopyPath && (
+            <button
+              onClick={handleCopyPath}
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
+            >
+              <Copy className="w-4 h-4 text-[var(--text-tertiary)]" />
+              Copy path
+            </button>
+          )}
+          {canRevealInFinder && (
+            <button
+              onClick={handleRevealInFinder}
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
+            >
+              <FolderOpen className="w-4 h-4 text-[var(--text-tertiary)]" />
+              Reveal in Finder
+            </button>
+          )}
+          {(canCopyPath || canRevealInFinder) && (canChangeDate || canDelete) && (
+            <div className="my-1 border-t border-[var(--border-default)]" />
+          )}
           {canChangeDate && (
             <button
               onClick={() => {
@@ -593,19 +749,33 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
   // "Next" mode — editor only, no tabs
   if (isNext) {
     return (
-      <div className="bg-[var(--content-surface)]">
+      <div className="flex min-h-full flex-col bg-[var(--content-surface)]">
         <div className="h-16 px-4 border-b border-[var(--border-default)] flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-base font-medium text-[var(--text-primary)]">Next</span>
-            <SaveIndicator state={saveState} error={saveError} />
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              {nextHeaderTitle}
+              <SaveIndicator state={saveState} error={saveError} />
+            </div>
+            {nextSubtitle && (
+              <div className="mt-1 truncate text-xs text-[var(--text-secondary)]">
+                {nextSubtitle}
+              </div>
+            )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="ml-3 flex flex-shrink-0 items-center gap-1">
             {menuButton}
           </div>
         </div>
+        {showNextCalendarMenu && meeting.calendarCandidates && meeting.calendarCandidates.length > 1 ? (
+          <NextCalendarCandidateMenu
+            candidates={meeting.calendarCandidates}
+            selectedSeriesKey={meeting.calendarSeriesKey ?? selectedCalendarCandidate?.seriesKey ?? null}
+            onSelect={handleSelectNextCalendarCandidate}
+          />
+        ) : null}
         {deleteBar}
         {saveErrorBar}
-        <div ref={editorAreaRef} className="px-4 py-3">
+        <div ref={editorAreaRef} className="min-h-[360px] flex-1 bg-[var(--bg-primary)] px-4 py-3">
           <div className="prose-compact">
             <BridgeTaskEditor
               markdown={meeting.notes || ""}
@@ -623,21 +793,18 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
   const title = meeting.source === "granola" && meeting.title ? meeting.title : null;
 
   return (
-    <div className="bg-[var(--content-surface)]">
+    <div className="min-h-full bg-[var(--content-surface)]">
       {/* Card header — date is primary, title is subtext */}
       <div className="h-16 px-4 border-b border-[var(--border-default)] flex items-center justify-between">
-        <div>
-          <span className="text-base font-medium text-[var(--text-primary)]">
-            {formatDate(meeting.date, meeting.time)}
-          </span>
+        <div className="min-w-0">
+          {dateLabel}
           {title && (
-            <div className="text-xs text-[var(--text-secondary)] mt-1">
+            <div className="truncate text-xs text-[var(--text-secondary)] mt-1">
               {title}
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          {calendarChip}
+        <div className="ml-3 flex flex-shrink-0 items-center gap-2">
           {hasNotes && <SaveIndicator state={saveState} error={saveError} />}
           {menuButton}
         </div>

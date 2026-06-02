@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { ArrowLeft, Check, EyeOff, Inbox, Settings, Copy, FolderOpen, NotebookPen } from "lucide-react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { ArrowLeft, CalendarDays, Check, Copy, EyeOff, FolderOpen, Inbox, MoreVertical, Network, Settings } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useScope } from "@/contexts/ScopeContext";
+import { isGraphEnabled } from "@/lib/graph/config";
+import { buildGraphScope } from "@/components/graph/graph-deeplink";
 import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import MeetingRow from "./MeetingRow";
-import type { PersonDetail, PersonMeeting, SuggestedMeeting } from "@/lib/types";
+import type { PersonCalendarCandidate, PersonDetail, PersonMeeting, SuggestedMeeting } from "@/lib/types";
 
 type MeetingFilter = "all" | "notes" | "granola";
 
@@ -23,7 +26,8 @@ interface PersonMeetingListProps {
   suggestedName?: string | null;
   suggestedMeeting?: SuggestedMeeting | null;
   totalCount?: number;
-  onCreateNext?: () => void;
+  onSelectCalendarCandidate?: (candidate: PersonCalendarCandidate) => Promise<void>;
+  onPersonUpdated?: () => Promise<void> | void;
   onPromoteSuggested?: (input: {
     name: string;
     type: "person" | "group";
@@ -44,20 +48,28 @@ export function PersonMeetingList({
   suggestedName,
   suggestedMeeting,
   totalCount,
-  onCreateNext,
+  onSelectCalendarCandidate,
+  onPersonUpdated,
   onPromoteSuggested,
   onHideSuggested,
 }: PersonMeetingListProps) {
+  const { navigateTo } = useScope();
+  const graphEnabled = isGraphEnabled();
   const [showConfig, setShowConfig] = useState(false);
   const [showSuggestedActions, setShowSuggestedActions] = useState(false);
   const [showPromoteForm, setShowPromoteForm] = useState(false);
+  const [showCalendarMenu, setShowCalendarMenu] = useState(false);
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [promoteType, setPromoteType] = useState<"person" | "group">("group");
   const [description, setDescription] = useState("");
   const [actionPending, setActionPending] = useState<"promote" | "hide" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const actionsMenuRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
-  useMobileChromeVisibilityLock(showConfig || showSuggestedActions || showPromoteForm || actionPending !== null);
-  const mobileHeaderChromeEnabled = !(showConfig || showSuggestedActions || showPromoteForm || actionPending !== null);
+  useMobileChromeVisibilityLock(showConfig || showSuggestedActions || showPromoteForm || showCalendarMenu || showActionsMenu || actionPending !== null);
+  const mobileHeaderChromeEnabled = !(showConfig || showSuggestedActions || showPromoteForm || showCalendarMenu || showActionsMenu || actionPending !== null);
+  const calendarCandidates = person?.calendarLinks.candidates ?? [];
+  const selectedCalendarKey = person?.calendarLinks.selectedSeriesKey ?? person?.calendarLinks.primary?.seriesKey ?? null;
 
   const notesCount = person
     ? person.meetings.filter((m) => !!m.notes).length
@@ -99,6 +111,49 @@ export function PersonMeetingList({
       setActionPending(null);
     }
   }, [onHideSuggested, suggestedMeeting]);
+
+  const handleOpenCalendarCandidate = useCallback((candidate: PersonCalendarCandidate) => {
+    void onSelectCalendarCandidate?.(candidate);
+    navigateTo("calendar", `/event/${encodeURIComponent(candidate.eventId)}/${candidate.start.slice(0, 10)}`);
+  }, [navigateTo, onSelectCalendarCandidate]);
+
+  const handleSelectCalendarCandidate = useCallback((candidate: PersonCalendarCandidate) => {
+    setShowCalendarMenu(false);
+    void onSelectCalendarCandidate?.(candidate);
+  }, [onSelectCalendarCandidate]);
+
+  const handleCopyPersonPath = useCallback(() => {
+    if (!person?.personFilePath) return;
+    void navigator.clipboard.writeText(person.personFilePath);
+    setShowActionsMenu(false);
+  }, [person?.personFilePath]);
+
+  const handleRevealPerson = useCallback(() => {
+    if (!person?.personFilePath) return;
+    setShowActionsMenu(false);
+    void fetch("/api/reveal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: person.personFilePath }),
+    });
+  }, [person?.personFilePath]);
+
+  useEffect(() => {
+    if (!showActionsMenu) return;
+    function handleClick(event: MouseEvent) {
+      if (actionsMenuRef.current && !actionsMenuRef.current.contains(event.target as Node)) {
+        setShowActionsMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showActionsMenu]);
+
+  useEffect(() => {
+    setShowActionsMenu(false);
+    setShowCalendarMenu(false);
+    setShowConfig(false);
+  }, [person?.slug, inboxMode, suggestedName]);
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
@@ -172,26 +227,94 @@ export function PersonMeetingList({
                       </div>
                     )}
                   </div>
-                  <div className="ml-auto flex flex-shrink-0 items-center gap-1">
-                    {onCreateNext && (
+                  <div className="ml-2 flex flex-shrink-0 items-center gap-1">
+                    {calendarCandidates.length === 1 && (
                       <button
-                        onClick={onCreateNext}
-                        className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                        title="Open prep note"
+                        onClick={() => handleOpenCalendarCandidate(calendarCandidates[0])}
+                        className="flex items-center gap-1 px-1.5 py-1 text-xs font-medium rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                        title={`Open ${formatCandidateDate(calendarCandidates[0])}`}
                       >
-                        <NotebookPen className="w-3.5 h-3.5" />
-                        Prep
+                        <CalendarDays className="w-3.5 h-3.5" />
+                        {formatCandidateShortDate(calendarCandidates[0])}
                       </button>
                     )}
-                    <button
-                      onClick={() => setShowConfig((v) => !v)}
-                      className={`p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ${
-                        showConfig ? "text-[var(--text-secondary)]" : ""
-                      }`}
-                      title="Show matching config"
-                    >
-                      <Settings className="w-3.5 h-3.5" />
-                    </button>
+                    {calendarCandidates.length > 1 && (
+                      <button
+                        onClick={() => {
+                          setShowActionsMenu(false);
+                          setShowCalendarMenu((value) => !value);
+                        }}
+                        className={`flex items-center gap-1 px-1.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                          showCalendarMenu
+                            ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]"
+                            : "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                        }`}
+                        title="Choose calendar series"
+                      >
+                        <CalendarDays className="w-3.5 h-3.5" />
+                        {person.calendarLinks.primary ? formatCandidateShortDate(person.calendarLinks.primary) : "Calendar"}
+                      </button>
+                    )}
+                    <div className="relative" ref={actionsMenuRef}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCalendarMenu(false);
+                          setShowActionsMenu((value) => !value);
+                        }}
+                        className={`p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors rounded-md ${
+                          showActionsMenu ? "bg-[var(--bg-secondary)] text-[var(--text-secondary)]" : ""
+                        }`}
+                        title="More actions"
+                      >
+                        <MoreVertical className="w-4 h-4" />
+                      </button>
+                      {showActionsMenu && (
+                        <div className="absolute right-0 top-full z-50 mt-1 w-48 overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] py-1 shadow-lg">
+                          {graphEnabled && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowActionsMenu(false);
+                                navigateTo("system", buildGraphScope({ focus: person.slug }));
+                              }}
+                              className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)]"
+                            >
+                              <Network className="h-4 w-4 text-[var(--text-tertiary)]" />
+                              Show in Graph
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowActionsMenu(false);
+                              setShowConfig((value) => !value);
+                            }}
+                            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)]"
+                          >
+                            <Settings className="h-4 w-4 text-[var(--text-tertiary)]" />
+                            Matching settings
+                          </button>
+                          <div className="my-1 border-t border-[var(--border-default)]" />
+                          <button
+                            type="button"
+                            onClick={handleCopyPersonPath}
+                            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)]"
+                          >
+                            <Copy className="h-4 w-4 text-[var(--text-tertiary)]" />
+                            Copy path
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleRevealPerson}
+                            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)]"
+                          >
+                            <FolderOpen className="h-4 w-4 text-[var(--text-tertiary)]" />
+                            Reveal in Finder
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </>
               ) : null}
@@ -201,7 +324,16 @@ export function PersonMeetingList({
 
         {/* Config Panel (person mode only) */}
         {showConfig && person && !inboxMode && (
-          <ConfigPanel person={person} />
+          <ConfigPanel person={person} onSaved={onPersonUpdated} />
+        )}
+
+        {showCalendarMenu && person && !inboxMode && (
+          <CalendarCandidateMenu
+            candidates={calendarCandidates}
+            selectedSeriesKey={selectedCalendarKey}
+            onSelect={handleSelectCalendarCandidate}
+            onOpen={handleOpenCalendarCandidate}
+          />
         )}
 
       {showSuggestedActions && suggestedName && (
@@ -372,43 +504,169 @@ export function PersonMeetingList({
   );
 }
 
+function CalendarCandidateMenu({
+  candidates,
+  selectedSeriesKey,
+  onSelect,
+  onOpen,
+}: {
+  candidates: PersonCalendarCandidate[];
+  selectedSeriesKey: string | null;
+  onSelect: (candidate: PersonCalendarCandidate) => void;
+  onOpen: (candidate: PersonCalendarCandidate) => void;
+}) {
+  return (
+    <div className="flex-shrink-0 border-b border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-2">
+      <div className="space-y-1">
+        {candidates.map((candidate) => {
+          const selected = candidate.seriesKey === selectedSeriesKey;
+          return (
+            <div key={candidate.seriesKey} className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => onSelect(candidate)}
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                title={candidate.title}
+              >
+                <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center">
+                  {selected ? <Check className="h-3.5 w-3.5 text-amber-500" /> : null}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium text-[var(--text-primary)]">{candidate.title}</span>
+                  <span className="block truncate text-[11px] text-[var(--text-tertiary)]">
+                    {formatCandidateDate(candidate)} · {candidate.historicalCount} recording{candidate.historicalCount === 1 ? "" : "s"}
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpen(candidate)}
+                className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-secondary)]"
+                title="Open calendar event"
+              >
+                <CalendarDays className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function formatCandidateShortDate(candidate: PersonCalendarCandidate): string {
+  const date = new Date(candidate.start);
+  if (Number.isNaN(date.getTime())) return "Calendar";
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function formatCandidateDate(candidate: PersonCalendarCandidate): string {
+  const date = new Date(candidate.start);
+  if (Number.isNaN(date.getTime())) return candidate.start;
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
 // ─── Config Panel ───
 
-function ConfigPanel({ person }: { person: PersonDetail }) {
+function ConfigPanel({ person, onSaved }: { person: PersonDetail; onSaved?: () => Promise<void> | void }) {
   const filename = person.personFilePath.split("/").pop() || "";
   const matchingTerms = [person.slug, person.name, ...person.aliases].join(", ");
+  const [name, setName] = useState(person.name);
+  const [description, setDescription] = useState(person.description);
+  const [aliases, setAliases] = useState(person.aliases.join(", "));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleCopyPath = useCallback(() => {
-    navigator.clipboard.writeText(person.personFilePath);
-  }, [person.personFilePath]);
+  useEffect(() => {
+    setName(person.name);
+    setDescription(person.description);
+    setAliases(person.aliases.join(", "));
+    setError(null);
+  }, [person.aliases, person.description, person.name, person.slug]);
 
-  const handleOpenFinder = useCallback(() => {
-    fetch("/api/reveal", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: person.personFilePath }),
-    });
-  }, [person.personFilePath]);
+  const handleSave = useCallback(async () => {
+    const nextName = name.trim();
+    if (!nextName) {
+      setError("Name is required");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/bridge/people/${person.slug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: nextName,
+          description,
+          aliases: aliases.split(",").map((alias) => alias.trim()).filter(Boolean),
+        }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || `Save failed with HTTP ${response.status}`);
+      }
+
+      await onSaved?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }, [aliases, description, name, onSaved, person.slug]);
 
   return (
-    <div className="flex-shrink-0 px-4 py-3 border-b border-[var(--border-default)] bg-[var(--bg-secondary)] text-xs space-y-2">
+    <div className="flex-shrink-0 space-y-3 border-b border-[var(--border-default)] bg-[var(--bg-secondary)] px-4 py-3 text-xs">
+      <div className="grid gap-2">
+        <label className="grid gap-1">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Title</span>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            className="h-8 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--interactive-default)]"
+          />
+        </label>
+        <label className="grid gap-1">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Description</span>
+          <input
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            className="h-8 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--interactive-default)]"
+          />
+        </label>
+        <label className="grid gap-1">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Aliases</span>
+          <input
+            value={aliases}
+            onChange={(event) => setAliases(event.target.value)}
+            className="h-8 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--interactive-default)]"
+          />
+        </label>
+        {error && (
+          <div className="text-red-500">{error}</div>
+        )}
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={saving}
+            className="rounded-md bg-[var(--interactive-default)] px-2.5 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </div>
       <div className="flex items-center gap-2">
         <span className="text-[var(--text-tertiary)]">File: </span>
         <span className="font-mono text-[var(--text-primary)]">{filename}</span>
-        <button
-          onClick={handleCopyPath}
-          className="p-0.5 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
-          title="Copy full path"
-        >
-          <Copy className="w-3 h-3" />
-        </button>
-        <button
-          onClick={handleOpenFinder}
-          className="p-0.5 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
-          title="Open in Finder"
-        >
-          <FolderOpen className="w-3 h-3" />
-        </button>
       </div>
       <div>
         <span className="text-[var(--text-tertiary)]">Aliases: </span>

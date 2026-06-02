@@ -127,6 +127,25 @@ export interface BridgePerson {
   updated: string;           // From frontmatter
 }
 
+export interface PersonCalendarCandidate {
+  eventId: string;
+  title: string;
+  start: string;
+  end: string;
+  uid: string | null;
+  seriesKey: string;
+  method: "icaluid" | "title";
+  confidence: number;
+  historicalCount: number;
+  lastSeenAt: string | null;
+}
+
+export interface PersonCalendarLinks {
+  primary: PersonCalendarCandidate | null;
+  candidates: PersonCalendarCandidate[];
+  selectedSeriesKey: string | null;
+}
+
 export interface PersonMeeting {
   source: "inline" | "granola" | "next";  // Where it came from
   date: string;                    // ISO date (YYYY-MM-DD)
@@ -145,6 +164,8 @@ export interface PersonMeeting {
   hiltCalendarEventId?: string;    // Linked Hilt calendar event id
   hiltCalendarMatchMethod?: string;// How the calendar link was made
   hiltCalendarMatchConfidence?: number;
+  calendarCandidates?: PersonCalendarCandidate[]; // For synthetic Next meetings
+  calendarSeriesKey?: string;       // Selected calendar series for synthetic Next
   // For inbox mode (all meetings view):
   matchedPeople?: string[];        // Person names this meeting matched to
 }
@@ -159,6 +180,7 @@ export interface PersonDetail extends BridgePerson {
   nextRaw: string;                 // Raw markdown of ## Next section
   meetings: PersonMeeting[];       // Sorted timeline (newest first), not merged
   personFilePath: string;          // Absolute path to person .md file (for editing)
+  calendarLinks: PersonCalendarLinks;
 }
 
 export interface SuggestedMeeting {

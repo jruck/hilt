@@ -7,7 +7,7 @@ import { NextRequest } from "next/server";
 import { CALENDAR_SOURCE_CONFIGS } from "./config";
 import { CALENDAR_FIXTURE_ICS } from "./fixtures";
 import { parseIcsFeed } from "./ics";
-import { extractJoinLinks } from "./links";
+import { extractCalendarJoinLinks, extractJoinLinks } from "./links";
 import { closeCalendarDbForTests, listCalendarSources, listCalendars, queryCalendarAvailabilityBlocks, queryCalendarEvents, queryCalendarHolidayEvents, replaceSourceEvents, upsertCalendar } from "./db";
 import { calendarSetupStatus, syncCalendarSources } from "./sync";
 
@@ -161,10 +161,10 @@ END:VCALENDAR`, {
       "https://teams.microsoft.com/l/meetup-join/example",
       "https://meet.google.com/abc-defg-hij",
       "https://zoom.us/j/123",
-      "https://example.com/room",
     );
 
-    assert.deepEqual(links.map((link) => link.kind), ["teams", "meet", "zoom", "web"]);
+    assert.deepEqual(links.map((link) => link.kind), ["teams", "meet", "zoom"]);
+    assert.deepEqual(extractJoinLinks("https://example.com/room").map((link) => link.kind), ["web"]);
   });
 
   test("deduplicates equivalent meeting URLs and keeps the richest join link", () => {
@@ -181,7 +181,7 @@ END:VCALENDAR`, {
     assert.match(links[0].url, /context=/);
   });
 
-  test("deduplicates Zoom and Google Meet variants without dropping distinct web links", () => {
+  test("deduplicates Zoom and Google Meet variants and suppresses generic web noise", () => {
     const links = extractJoinLinks(
       "https://zoom.us/j/123456789",
       "https://zoom.us/j/123456789?pwd=secret",
@@ -192,9 +192,36 @@ END:VCALENDAR`, {
       "https://example.com/agenda",
     );
 
-    assert.deepEqual(links.map((link) => link.kind), ["zoom", "meet", "web", "web"]);
+    assert.deepEqual(links.map((link) => link.kind), ["zoom", "meet"]);
     assert.match(links[0].url, /pwd=secret/);
-    assert.deepEqual(links.slice(2).map((link) => link.url), ["https://example.com/room", "https://example.com/agenda"]);
+  });
+
+  test("keeps distinct generic web links when no provider meeting link is present", () => {
+    const links = extractJoinLinks(
+      "https://example.com/room",
+      "https://example.com/room",
+      "https://example.com/agenda",
+    );
+
+    assert.deepEqual(links.map((link) => link.kind), ["web", "web"]);
+    assert.deepEqual(links.map((link) => link.url), ["https://example.com/room", "https://example.com/agenda"]);
+  });
+
+  test("prefers location meeting links over noisy description links", () => {
+    const links = extractCalendarJoinLinks({
+      location: "Microsoft Teams Meeting https://teams.microsoft.com/l/meetup-join/19%3ameeting_PRIMARY%40thread.v2/0?context=%7B%22Tid%22%3A%22tenant%22%7D",
+      description: [
+        "Join the meeting now https://teams.microsoft.com/l/meetup-join/19%3ameeting_DESCRIPTION%40thread.v2/0",
+        "Meeting options https://teams.microsoft.com/meetingOptions/?threadId=19%3ameeting_DESCRIPTION%40thread.v2",
+        "Microsoft Teams Need help? https://aka.ms/JoinTeamsMeeting",
+        "Agenda https://example.com/agenda",
+        "Duplicate https://teams.microsoft.com/l/meetup-join/19%3ameeting_PRIMARY%40thread.v2/0",
+      ].join("\n"),
+    });
+
+    assert.equal(links.length, 1);
+    assert.equal(links[0].kind, "teams");
+    assert.match(links[0].url, /meeting_PRIMARY/);
   });
 
   test("keeps only public holidays from the US holidays source", () => {
@@ -417,7 +444,7 @@ END:VCALENDAR`, {
     });
   });
 
-  test("query hides Walt blocks from EverCommerce only", async () => {
+  test("query hides exact Walt blocks from EverCommerce only", async () => {
     await withTempCalendar(() => {
       const evercommerce = CALENDAR_SOURCE_CONFIGS.find((item) => item.id === "evercommerce")!;
       const personal = CALENDAR_SOURCE_CONFIGS.find((item) => item.id === "personal")!;
@@ -432,6 +459,20 @@ UID:ever-walt@example.com
 DTSTAMP:20260520T120000Z
 DTSTART:20260529T130000Z
 DTEND:20260529T140000Z
+SUMMARY:👦🏼 Walt
+END:VEVENT
+BEGIN:VEVENT
+UID:ever-walt-timed@example.com
+DTSTAMP:20260520T120000Z
+DTSTART:20260529T133000Z
+DTEND:20260529T143000Z
+SUMMARY:👦🏼 Walt (7:45-8:15)
+END:VEVENT
+BEGIN:VEVENT
+UID:ever-walt-details@example.com
+DTSTAMP:20260520T120000Z
+DTSTART:20260529T143000Z
+DTEND:20260529T153000Z
 SUMMARY:👦🏼 Walt with dad
 END:VEVENT
 END:VCALENDAR`, window);
@@ -442,7 +483,14 @@ UID:personal-walt@example.com
 DTSTAMP:20260520T120000Z
 DTSTART:20260529T150000Z
 DTEND:20260529T160000Z
-SUMMARY:👦🏼 Walt with dad
+SUMMARY:👦🏼 Walt
+END:VEVENT
+BEGIN:VEVENT
+UID:personal-visible-family@example.com
+DTSTAMP:20260520T120000Z
+DTSTART:20260529T170000Z
+DTEND:20260529T180000Z
+SUMMARY:Family logistics
 END:VEVENT
 END:VCALENDAR`, window);
       upsertCalendar(evercommerce.id, everParsed.calendarName, evercommerce.color);
@@ -455,7 +503,11 @@ END:VCALENDAR`, window);
         end: new Date("2026-05-29T23:59:59.999Z"),
       });
 
-      assert.deepEqual(events.map((event) => [event.sourceId, event.title]), [["personal", "👦🏼 Walt with dad"]]);
+      assert.deepEqual(events.map((event) => [event.sourceId, event.title]), [
+        ["evercommerce", "👦🏼 Walt with dad"],
+        ["personal", "👦🏼 Walt"],
+        ["personal", "Family logistics"],
+      ]);
     });
   });
 

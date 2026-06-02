@@ -45,6 +45,8 @@ interface EventRow {
   id: string;
   source_id: string;
   calendar_id: string;
+  uid: string | null;
+  recurrence_id: string | null;
   dedupe_key: string;
   title: string;
   start_at: string;
@@ -314,9 +316,9 @@ export function queryCalendarEvents(filters: {
     "TRIM(e.title) NOT IN ('!', '-')",
     "LOWER(TRIM(e.title)) NOT LIKE 'canceled: %'",
     "LOWER(TRIM(e.title)) NOT LIKE 'canceled - %'",
-    "NOT (e.source_id = 'evercommerce' AND TRIM(e.title) LIKE ?)",
+    "NOT (e.source_id = 'evercommerce' AND (TRIM(e.title) = ? OR TRIM(e.title) LIKE ?))",
   ];
-  params.push("👦🏼 Walt %");
+  params.push("👦🏼 Walt", "👦🏼 Walt (%");
   if (filters.sourceIds?.length) {
     where.push(`e.source_id IN (${filters.sourceIds.map(() => "?").join(",")})`);
     params.push(...filters.sourceIds);
@@ -331,6 +333,45 @@ export function queryCalendarEvents(filters: {
     WHERE ${where.join(" AND ")}
     ORDER BY e.sort_start ASC, e.title ASC
   `).all(...params) as EventRow[];
+  return rows.map(rowToEvent);
+}
+
+export function queryFutureCalendarSeriesEvents(input: {
+  uid?: string | null;
+  title?: string | null;
+  start?: Date;
+  limit?: number;
+}): CalendarEvent[] {
+  const params: SqlValue[] = [input.start?.getTime() ?? Date.now()];
+  const where = [
+    "e.visible = 1",
+    "e.sort_start >= ?",
+    "c.selected = 1",
+    "TRIM(e.title) NOT IN ('!', '-')",
+    "LOWER(TRIM(e.title)) NOT LIKE 'canceled: %'",
+    "LOWER(TRIM(e.title)) NOT LIKE 'canceled - %'",
+    "NOT (e.source_id = 'evercommerce' AND (TRIM(e.title) = ? OR TRIM(e.title) LIKE ?))",
+  ];
+  params.push("👦🏼 Walt", "👦🏼 Walt (%");
+  const uid = input.uid?.trim();
+  const title = input.title?.trim();
+  if (uid) {
+    where.push("LOWER(e.uid) = LOWER(?)");
+    params.push(uid);
+  } else if (title) {
+    where.push("LOWER(TRIM(e.title)) = LOWER(TRIM(?))");
+    params.push(title);
+  } else {
+    return [];
+  }
+
+  const rows = getCalendarDb().prepare(`
+    SELECT e.* FROM calendar_events e
+    JOIN calendar_calendars c ON c.id = e.calendar_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY e.sort_start ASC, e.title ASC
+    LIMIT ?
+  `).all(...params, input.limit ?? 10) as EventRow[];
   return rows.map(rowToEvent);
 }
 
@@ -433,6 +474,7 @@ function rowToEvent(row: EventRow): CalendarEvent {
     sourceIds,
     calendarId: row.calendar_id,
     sourceId: row.source_id,
+    uid: row.uid,
     title: row.title,
     start: row.start_at,
     end: row.end_at,

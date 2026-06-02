@@ -16,19 +16,11 @@ import {
   CloudSnow,
   CloudSun,
   Clock,
-  ExternalLink,
   LayoutList,
-  Link as LinkIcon,
   Loader2,
-  MapPin,
   MoreHorizontal,
-  NotebookPen,
   RefreshCw,
   Sun,
-  UserRound,
-  UsersRound,
-  Video,
-  X,
 } from "lucide-react";
 import { ScheduleXCalendar, useNextCalendarApp } from "@schedule-x/react";
 import {
@@ -47,6 +39,7 @@ import { createScrollControllerPlugin } from "@schedule-x/scroll-controller";
 import { createEventModalPlugin } from "@schedule-x/event-modal";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
 import { useScope } from "@/contexts/ScopeContext";
+import { CalendarEventPopoverContent } from "./CalendarEventPopover";
 import {
   mutateCalendarCaches,
   setCalendarSelected,
@@ -55,10 +48,17 @@ import {
   useCalendarSources,
 } from "@/hooks/useCalendar";
 import { useWeatherForecast } from "@/hooks/useWeather";
+import {
+  CALENDAR_EVENT_OPEN_EVENT,
+  PENDING_CALENDAR_EVENT_STORAGE_KEY,
+  type CalendarEventOpenDetail,
+} from "@/lib/calendar/deeplink";
 import type { CalendarDefinition, CalendarEvent, CalendarSource } from "@/lib/calendar/types";
+import { isVisibleCalendarForegroundEvent } from "@/lib/calendar/visibility";
 import type { WeatherForecastDay, WeatherIconKey } from "@/lib/weather/types";
 
 type CalendarMode = "day" | "week" | "month" | "agenda";
+type CalendarPeriodPosition = "before" | "today" | "after";
 type HiltScheduleEvent = CalendarEventExternal & {
   hiltEvent?: CalendarEvent;
   joinLabel?: string | null;
@@ -74,6 +74,12 @@ type HiltEventModalProps = {
 
 type HiltWeekGridDateProps = {
   date?: string;
+};
+
+type EventPopoverPosition = {
+  eventId: string;
+  top: number;
+  left: number;
 };
 
 const MODE_TO_VIEW: Record<CalendarMode, string> = {
@@ -96,18 +102,6 @@ const JOIN_LABELS: Record<CalendarEvent["joinLinks"][number]["kind"], string> = 
   zoom: "Zoom",
   web: "Link",
 };
-
-// Name the external destination so "open in provider" reads differently from an in-app jump.
-function providerLinkLabel(url: string, sourceLabel?: string | null): string {
-  try {
-    const host = new URL(url).hostname;
-    if (/(^|\.)google\./.test(host)) return "Open in Google";
-    if (/(^|\.)(outlook|office|live|microsoft)\./.test(host)) return "Open in Outlook";
-  } catch {
-    // Fall through to the source label.
-  }
-  return sourceLabel ? `Open in ${sourceLabel}` : "Open link";
-}
 
 // Deep link from a meeting note back to its calendar event: /event/<encoded id>/<YYYY-MM-DD>.
 function parseCalendarEventDeepLink(scopePath: string): { id: string; date: string } | null {
@@ -179,8 +173,19 @@ function plainDateRangeAround(mode: CalendarMode, date: string): { start: string
   if (mode === "week") {
     start = start.subtract({ days: start.dayOfWeek % 7 });
     end = start.add({ days: 6 });
+  } else if (mode === "month" || mode === "agenda") {
+    start = start.with({ day: 1 });
+    end = start.add({ months: 1 }).subtract({ days: 1 });
   }
   return { start: start.toString(), end: end.toString() };
+}
+
+function periodPositionForDate(mode: CalendarMode, date: string, today = todayPlainDate()): CalendarPeriodPosition {
+  const range = plainDateRangeAround(mode, date);
+  const todayDate = Temporal.PlainDate.from(today);
+  if (Temporal.PlainDate.compare(todayDate, Temporal.PlainDate.from(range.start)) < 0) return "after";
+  if (Temporal.PlainDate.compare(todayDate, Temporal.PlainDate.from(range.end)) > 0) return "before";
+  return "today";
 }
 
 function scheduleDateFromEventStart(event: CalendarEvent): Temporal.ZonedDateTime | Temporal.PlainDate {
@@ -344,6 +349,38 @@ function rangeFromScheduleX(range: { start: Temporal.ZonedDateTime; end: Tempora
   };
 }
 
+function popoverPositionForEvent(anchorRect: DOMRect, frameRect?: DOMRect | null): Omit<EventPopoverPosition, "eventId"> {
+  const margin = 12;
+  const gap = 10;
+  const width = Math.min(400, window.innerWidth - margin * 2);
+  const estimatedHeight = 320;
+  let left = anchorRect.right + gap;
+  if (left + width > window.innerWidth - margin) left = anchorRect.left - width - gap;
+  if (left < margin) {
+    left = frameRect ? Math.max(margin, Math.min(frameRect.left, window.innerWidth - width - margin)) : margin;
+  }
+  const top = Math.min(
+    Math.max(anchorRect.top, margin),
+    Math.max(margin, window.innerHeight - estimatedHeight - margin),
+  );
+  return { top: Math.round(top), left: Math.round(left) };
+}
+
+function fallbackPopoverPosition(frameRect?: DOMRect | null): Omit<EventPopoverPosition, "eventId"> {
+  const margin = 12;
+  const width = Math.min(400, window.innerWidth - margin * 2);
+  const estimatedHeight = 320;
+  const left = Math.min(
+    Math.max((frameRect?.right ?? window.innerWidth) - width - margin, margin),
+    Math.max(margin, window.innerWidth - width - margin),
+  );
+  const top = Math.min(
+    Math.max((frameRect?.top ?? 72) + 24, margin),
+    Math.max(margin, window.innerHeight - estimatedHeight - margin),
+  );
+  return { top: Math.round(top), left: Math.round(left) };
+}
+
 function shiftPlainDate(date: string, mode: CalendarMode, direction: -1 | 1): string {
   const duration = MODE_STEPS[mode];
   const plain = Temporal.PlainDate.from(date);
@@ -361,15 +398,6 @@ function formatCalendarTitle(mode: CalendarMode, selectedDate: string): string {
     return `${formatter.format(range.start)} - ${formatter.format(range.end)}`;
   }
   return new Intl.DateTimeFormat(undefined, { timeZone: TIME_ZONE, month: "long", year: "numeric" }).format(date);
-}
-
-function formatEventTime(event: CalendarEvent): string {
-  if (event.allDay) return "All day";
-  const start = new Date(event.start);
-  const end = new Date(event.end);
-  const day = new Intl.DateTimeFormat(undefined, { timeZone: TIME_ZONE, weekday: "short", month: "short", day: "numeric" }).format(start);
-  const time = new Intl.DateTimeFormat(undefined, { timeZone: TIME_ZONE, hour: "numeric", minute: "2-digit" });
-  return `${day}, ${time.format(start)} - ${time.format(end)}`;
 }
 
 function formatHourLabel(hour: number): string {
@@ -414,12 +442,10 @@ function WeekGridDateHeader({
   return (
     <div className="hilt-week-grid-date-header">
       <div className="sx__week-grid__day-name">{weekday}</div>
-      <div className="hilt-week-grid-date-row">
-        <div className="sx__week-grid__date-number">{plainDate.day}</div>
-        {forecast ? (
-          <WeatherForecastLink forecast={forecast} fullDate={fullDate} locationLabel={locationLabel} />
-        ) : null}
-      </div>
+      {forecast ? (
+        <WeatherForecastLink forecast={forecast} fullDate={fullDate} locationLabel={locationLabel} />
+      ) : null}
+      <div className="sx__week-grid__date-number">{plainDate.day}</div>
     </div>
   );
 }
@@ -452,8 +478,8 @@ function WeatherForecastLink({
       data-testid={`calendar-weather-${forecast.date}`}
       data-weather-icon={forecast.icon}
     >
-      <WeatherConditionIcon icon={forecast.icon} />
       <span className="hilt-weather-temp">{high}&deg;/{low}&deg;</span>
+      <WeatherConditionIcon icon={forecast.icon} />
       <span className="hilt-weather-condition">{forecast.shortCondition}</span>
     </a>
   );
@@ -521,7 +547,6 @@ export function CalendarView() {
   const [focusedEventId, setFocusedEventId] = useState<string | null>(null);
   const steeredDeepLinkRef = useRef<string | null>(null);
   const openedDeepLinkRef = useRef<string | null>(null);
-  const [calendarMenuOpen, setCalendarMenuOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -529,7 +554,6 @@ export function CalendarView() {
   const appliedMobileDefaultRef = useRef(false);
   const periodGestureCooldownRef = useRef(0);
   const calendarFrameRef = useRef<HTMLDivElement>(null);
-  const calendarMenuRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const isDarkTheme = useResolvedDarkTheme();
   const weekGridHeight = useResponsiveWeekGridHeight(calendarFrameRef);
@@ -555,6 +579,7 @@ export function CalendarView() {
   const weatherRange = useMemo(() => (
     mode === "day" || mode === "week" ? plainDateRangeAround(mode, selectedDate) : null
   ), [mode, selectedDate]);
+  const periodPosition = useMemo(() => periodPositionForDate(mode, selectedDate), [mode, selectedDate]);
   const weatherQuery = useWeatherForecast(weatherRange);
   const sources = sourcesQuery.data?.sources ?? EMPTY_SOURCES;
   const calendars = sourcesQuery.data?.calendars ?? EMPTY_CALENDARS;
@@ -573,21 +598,27 @@ export function CalendarView() {
     ...availabilityBlocks,
     ...events.filter((event) => event.sourceId === "evercommerce"),
   ], [availabilityBlocks, events]);
-  const scheduleEvents = useMemo(() => events.map((event) => calendarEventToScheduleEvent(event, {
+  const visibleForegroundEvents = useMemo(() => events.filter(isVisibleCalendarForegroundEvent), [events]);
+  const scheduleEvents = useMemo(() => visibleForegroundEvents.map((event) => calendarEventToScheduleEvent(event, {
     focused: event.id === focusedEventId,
     availabilityWarning: evercommerceSelected
       && overlapsEverCommerceWorkday(event, holidayDates)
       && !isCoveredByEverCommerce(event, evercommerceCoverageEvents),
     calendar: calendarsById.get(event.calendarId) ?? null,
     source: sourcesById.get(event.sourceId) ?? null,
-  })), [calendarsById, evercommerceCoverageEvents, evercommerceSelected, events, focusedEventId, holidayDates, sourcesById]);
+  })), [calendarsById, evercommerceCoverageEvents, evercommerceSelected, focusedEventId, holidayDates, sourcesById, visibleForegroundEvents]);
   const backgroundEvents = useMemo(() => availabilityBlocks
     .filter((event) => occursOnEverCommerceBusinessDay(event, holidayDates))
     .map(calendarEventToBackgroundEvent), [availabilityBlocks, holidayDates]);
   const scheduleCalendars = useMemo(() => calendarsForScheduleX(calendars), [calendars]);
+  const [requestedPopover, setRequestedPopover] = useState<EventPopoverPosition | null>(null);
+  const requestedScheduleEvent = useMemo(() => (
+    requestedPopover ? scheduleEvents.find((event) => String(event.id) === requestedPopover.eventId) ?? null : null
+  ), [requestedPopover, scheduleEvents]);
   const closeEventModal = useCallback(() => {
     eventModal.close();
     setFocusedEventId(null);
+    setRequestedPopover(null);
   }, [eventModal]);
   const customComponents = useMemo(() => ({
     weekGridHour: WeekGridHourLabel,
@@ -613,14 +644,15 @@ export function CalendarView() {
     events: scheduleEvents,
     isDark: isDarkTheme,
     isResponsive: false,
+    skipAnimations: true,
     firstDayOfWeek: 7,
     timezone: TIME_ZONE,
     dayBoundaries: DAY_BOUNDARIES,
     weekOptions: {
       gridHeight: weekGridHeight,
       gridStep: 30,
-      eventWidth: 95,
-      eventOverlap: true,
+      eventWidth: 100,
+      eventOverlap: false,
       timeAxisFormatOptions: { hour: "numeric" },
     },
     monthGridOptions: { nEventsPerDay: 4 },
@@ -628,10 +660,46 @@ export function CalendarView() {
     callbacks: {
       onRangeUpdate: (range) => setVisibleRange(rangeFromScheduleX(range)),
       onSelectedDateUpdate: (date) => setSelectedDate(date.toString()),
-      onEventClick: (event) => setFocusedEventId(String(event.id)),
+      onEventClick: (event) => {
+        setRequestedPopover(null);
+        setFocusedEventId(String(event.id));
+      },
       onBeforeEventUpdate: () => false,
     },
   }, [eventsService, calendarControls, currentTimePlugin, scrollController, eventModal]);
+
+  const openFocusedEventPopover = useCallback((eventId: string) => {
+    setFocusedEventId(eventId);
+    setRequestedPopover({
+      eventId,
+      ...fallbackPopoverPosition(calendarFrameRef.current?.getBoundingClientRect()),
+    });
+    let attempts = 0;
+    let frame = requestAnimationFrame(function open() {
+      const element = calendarFrameRef.current?.querySelector(".hilt-calendar-event-focused");
+      if (element instanceof HTMLElement) {
+        element.scrollIntoView({ block: "center" });
+        const position = popoverPositionForEvent(
+          element.getBoundingClientRect(),
+          calendarFrameRef.current?.getBoundingClientRect(),
+        );
+        setRequestedPopover({ eventId, ...position });
+        return;
+      }
+      if (++attempts < 30) frame = requestAnimationFrame(open);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  const openCalendarEventDetail = useCallback((detail: CalendarEventOpenDetail) => {
+    openedDeepLinkRef.current = null;
+    sessionStorage.removeItem(PENDING_CALENDAR_EVENT_STORAGE_KEY);
+    if (selectedDate !== detail.date) {
+      setSelectedDate(detail.date);
+      setVisibleRange(rangeAround(mode, detail.date));
+    }
+    openFocusedEventPopover(detail.id);
+  }, [mode, openFocusedEventPopover, selectedDate]);
 
   useEffect(() => {
     if (!calendarApp) return;
@@ -655,36 +723,31 @@ export function CalendarView() {
     calendarControls.setCalendars(scheduleCalendars);
   }, [calendarApp, calendarControls, isDarkTheme, scheduleCalendars]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!calendarApp) return;
     calendarControls.setWeekOptions({
       gridHeight: weekGridHeight,
       gridStep: 30,
-      eventWidth: 95,
-      eventOverlap: true,
+      eventWidth: 100,
+      eventOverlap: false,
       timeAxisFormatOptions: { hour: "numeric" },
     });
-  }, [calendarApp, calendarControls, weekGridHeight]);
-
-  useEffect(() => {
-    if (!calendarApp || (mode !== "day" && mode !== "week")) return;
-    const frame = requestAnimationFrame(() => {
+    if (mode === "day" || mode === "week") {
       try {
         scrollController.scrollTo(`${String(INITIAL_TIME_GRID_HOUR).padStart(2, "0")}:00`);
       } catch {
         // The plugin also owns initialScroll; this call only re-applies it after local layout changes.
       }
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [calendarApp, mode, scrollController, selectedDate, weekGridHeight]);
+    }
+  }, [calendarApp, calendarControls, mode, scrollController, weekGridHeight]);
 
   useEffect(() => {
     if (!calendarApp) return;
     calendarControls.setView(MODE_TO_VIEW[mode]);
     calendarControls.setDate(Temporal.PlainDate.from(selectedDate));
     setVisibleRange(rangeAround(mode, selectedDate));
-    closeEventModal();
-  }, [calendarApp, calendarControls, closeEventModal, mode, selectedDate]);
+    if (!deepLink || deepLink.date !== selectedDate) closeEventModal();
+  }, [calendarApp, calendarControls, closeEventModal, deepLink, mode, selectedDate]);
 
   // Arriving from a meeting note (/event/<id>/<date>): land on the date, then focus and
   // open that event's popover once it loads. Steering the date happens once per deep link so
@@ -702,19 +765,34 @@ export function CalendarView() {
     if (selectedDate !== deepLink.date) return;
     if (!events.some((event) => event.id === deepLink.id)) return;
     openedDeepLinkRef.current = deepLink.id;
-    setFocusedEventId(deepLink.id);
-    let attempts = 0;
-    let frame = requestAnimationFrame(function open() {
-      const element = calendarFrameRef.current?.querySelector(".hilt-calendar-event-focused");
-      if (element instanceof HTMLElement) {
-        element.scrollIntoView({ block: "center" });
-        element.click();
-        return;
+    return openFocusedEventPopover(deepLink.id);
+  }, [deepLink, events, mode, openFocusedEventPopover, selectedDate]);
+
+  useEffect(() => {
+    function openCalendarEvent(event: Event) {
+      const detail = (event as CustomEvent<{ id?: unknown; date?: unknown }>).detail;
+      if (!detail || typeof detail.id !== "string" || typeof detail.date !== "string") return;
+      openCalendarEventDetail({ id: detail.id, date: detail.date });
+    }
+
+    window.addEventListener(CALENDAR_EVENT_OPEN_EVENT, openCalendarEvent);
+    return () => window.removeEventListener(CALENDAR_EVENT_OPEN_EVENT, openCalendarEvent);
+  }, [openCalendarEventDetail]);
+
+  useEffect(() => {
+    const raw = sessionStorage.getItem(PENDING_CALENDAR_EVENT_STORAGE_KEY);
+    if (!raw) return;
+    try {
+      const detail = JSON.parse(raw) as Partial<CalendarEventOpenDetail>;
+      if (typeof detail.id === "string" && typeof detail.date === "string") {
+        openCalendarEventDetail({ id: detail.id, date: detail.date });
+      } else {
+        sessionStorage.removeItem(PENDING_CALENDAR_EVENT_STORAGE_KEY);
       }
-      if (++attempts < 30) frame = requestAnimationFrame(open);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [deepLink, events, mode, selectedDate]);
+    } catch {
+      sessionStorage.removeItem(PENDING_CALENDAR_EVENT_STORAGE_KEY);
+    }
+  }, [openCalendarEventDetail]);
 
   useEffect(() => {
     if (!connected) return;
@@ -732,11 +810,11 @@ export function CalendarView() {
     function closeMenus(event: MouseEvent) {
       const target = event.target;
       if (target instanceof Node) {
-        if (!calendarMenuRef.current?.contains(target)) setCalendarMenuOpen(false);
         if (!moreMenuRef.current?.contains(target)) setMoreMenuOpen(false);
       }
-      if (target instanceof Element && !target.closest(".sx__event-modal") && !target.closest(".sx__event")) {
+      if (target instanceof Element && !target.closest(".sx__event-modal, .hilt-calendar-event-popover-wrapper") && !target.closest(".sx__event")) {
         setFocusedEventId(null);
+        setRequestedPopover(null);
       }
     }
     document.addEventListener("mousedown", closeMenus);
@@ -876,21 +954,51 @@ export function CalendarView() {
       <div className="flex h-full min-h-0 flex-col">
         <div className="relative z-30 shrink-0 px-3 py-2 sm:px-5">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="min-w-[128px] flex-1">
-              <div className="truncate text-sm font-semibold sm:text-base" data-testid="calendar-title">{formatCalendarTitle(mode, selectedDate)}</div>
+            <div className="order-1 flex min-w-0 flex-1 items-center gap-2 sm:order-none">
+              <div className="min-w-[128px] max-w-full shrink truncate text-sm font-semibold sm:text-base" data-testid="calendar-title">{formatCalendarTitle(mode, selectedDate)}</div>
+
+              <div
+                className="calendar-mode-control min-w-0 shrink-0"
+                data-period-position={periodPosition}
+                data-testid="calendar-period-navigation"
+              >
+                <button
+                  aria-label="Previous period"
+                  aria-pressed={periodPosition === "before"}
+                  className={`calendar-mode-button calendar-period-button ${periodPosition === "before" ? "calendar-mode-button-active" : ""}`}
+                  data-period-position="before"
+                  data-testid="calendar-period-previous"
+                  type="button"
+                  onClick={() => move(-1)}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  aria-label="Today"
+                  aria-pressed={periodPosition === "today"}
+                  className={`calendar-mode-button calendar-period-button ${periodPosition === "today" ? "calendar-mode-button-active" : ""}`}
+                  data-period-position="today"
+                  data-testid="calendar-period-today"
+                  type="button"
+                  onClick={goToday}
+                >
+                  Today
+                </button>
+                <button
+                  aria-label="Next period"
+                  aria-pressed={periodPosition === "after"}
+                  className={`calendar-mode-button calendar-period-button ${periodPosition === "after" ? "calendar-mode-button-active" : ""}`}
+                  data-period-position="after"
+                  data-testid="calendar-period-next"
+                  type="button"
+                  onClick={() => move(1)}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
-            <div className="order-3 flex min-w-0 shrink-0 items-center gap-1 sm:order-none">
-              <button aria-label="Previous" type="button" className="calendar-icon-button" onClick={() => move(-1)}>
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <button type="button" className="calendar-text-button" onClick={goToday}>Today</button>
-              <button aria-label="Next" type="button" className="calendar-icon-button" onClick={() => move(1)}>
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="calendar-mode-control order-4 ml-auto sm:order-none sm:ml-0" data-testid="calendar-mode-control">
+            <div className="calendar-mode-control order-3 ml-auto sm:order-none" data-testid="calendar-mode-control">
               <ModeButton mode="day" active={mode === "day"} onClick={handleMode} icon={<Clock className="h-4 w-4" />} />
               <ModeButton mode="week" active={mode === "week"} onClick={handleMode} icon={<CalendarDays className="h-4 w-4" />} />
               <ModeButton mode="month" active={mode === "month"} onClick={handleMode} icon={<CalendarDays className="h-4 w-4" />} />
@@ -898,19 +1006,14 @@ export function CalendarView() {
             </div>
 
             <div className="order-2 ml-auto flex shrink-0 items-center gap-1 sm:order-none sm:ml-0">
-              <CalendarSourceMenu
-                menuRef={calendarMenuRef}
-                open={calendarMenuOpen}
-                sources={sources}
-                calendars={calendars}
-                onOpenChange={setCalendarMenuOpen}
-                onToggleSource={toggleSource}
-              />
               <CalendarMoreMenu
                 menuRef={moreMenuRef}
                 open={moreMenuOpen}
+                sources={sources}
+                calendars={calendars}
                 syncing={syncing}
                 onOpenChange={setMoreMenuOpen}
+                onToggleSource={toggleSource}
                 onSync={() => runSync(false)}
               />
             </div>
@@ -941,6 +1044,14 @@ export function CalendarView() {
               </div>
             </div>
           </main>
+          {requestedScheduleEvent ? (
+            <div
+              className="hilt-calendar-event-popover-wrapper fixed z-[90] w-[min(400px,calc(100vw-24px))]"
+              style={{ top: requestedPopover?.top ?? 12, left: requestedPopover?.left ?? 12 }}
+            >
+              <EventModalContent scheduleEvent={requestedScheduleEvent} onClose={closeEventModal} />
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -973,44 +1084,42 @@ function ModeButton({
   );
 }
 
-function CalendarSourceMenu({
+function CalendarMoreMenu({
   menuRef,
+  open,
   sources,
   calendars,
-  open,
+  syncing,
   onOpenChange,
   onToggleSource,
+  onSync,
 }: {
   menuRef: React.RefObject<HTMLDivElement | null>;
+  open: boolean;
   sources: CalendarSource[];
   calendars: CalendarDefinition[];
-  open: boolean;
+  syncing: boolean;
   onOpenChange: (open: boolean) => void;
   onToggleSource: (sourceId: string, selected: boolean) => void;
+  onSync: () => void;
 }) {
-  const selectedCount = sources.filter((source) => {
-    const sourceCalendars = calendars.filter((calendar) => calendar.sourceId === source.id);
-    return sourceCalendars.length > 0 && sourceCalendars.some((calendar) => calendar.selected);
-  }).length;
-
   return (
     <div ref={menuRef} className="relative">
       <button
         type="button"
-        className="calendar-text-button"
+        aria-label="Calendar actions"
+        className="calendar-icon-button"
         onClick={() => onOpenChange(!open)}
-        data-testid="calendar-source-menu"
+        data-testid="calendar-actions-menu"
       >
-        <CalendarDays className="h-4 w-4" />
-        <span className="hidden sm:inline">Calendars</span>
-        <span className="sm:hidden">{selectedCount || sources.length}</span>
+        <MoreHorizontal className="h-4 w-4" />
       </button>
       {open ? (
-        <div className="absolute right-0 top-full z-[80] mt-1 w-60 overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-xl">
-          <div className="border-b border-[var(--border-subtle)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
+        <div className="absolute right-0 top-full z-[80] mt-1 w-64 overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-xl">
+          <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
             Calendars
           </div>
-          <div className="p-1">
+          <div className="px-1 pb-1">
             {sources.map((source) => {
               const sourceCalendars = calendars.filter((calendar) => calendar.sourceId === source.id);
               const selected = sourceCalendars.length > 0 && sourceCalendars.every((calendar) => calendar.selected);
@@ -1034,38 +1143,7 @@ function CalendarSourceMenu({
               );
             })}
           </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function CalendarMoreMenu({
-  menuRef,
-  open,
-  syncing,
-  onOpenChange,
-  onSync,
-}: {
-  menuRef: React.RefObject<HTMLDivElement | null>;
-  open: boolean;
-  syncing: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSync: () => void;
-}) {
-  return (
-    <div ref={menuRef} className="relative">
-      <button
-        type="button"
-        aria-label="Calendar actions"
-        className="calendar-icon-button"
-        onClick={() => onOpenChange(!open)}
-        data-testid="calendar-actions-menu"
-      >
-        <MoreHorizontal className="h-4 w-4" />
-      </button>
-      {open ? (
-        <div className="absolute right-0 top-full z-[80] mt-1 w-44 overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-xl">
+          <div className="border-t border-[var(--border-subtle)]" />
           <button
             type="button"
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
@@ -1092,144 +1170,13 @@ function EventModalContent({
   scheduleEvent: HiltScheduleEvent | null;
   onClose: () => void;
 }) {
-  const { navigateTo } = useScope();
-  const contentRef = useRef<HTMLDivElement>(null);
-  const event = scheduleEvent?.hiltEvent ?? null;
-  useLayoutEffect(() => {
-    const wrapper = contentRef.current?.closest(".sx__event-modal");
-    if (!(wrapper instanceof HTMLElement)) return;
-    const margin = 12;
-    const clamp = () => {
-      wrapper.style.maxHeight = `${Math.min(520, window.innerHeight - margin * 2)}px`;
-      const rect = wrapper.getBoundingClientRect();
-      const top = Math.min(Math.max(rect.top, margin), Math.max(margin, window.innerHeight - rect.height - margin));
-      const left = Math.min(Math.max(rect.left, margin), Math.max(margin, window.innerWidth - rect.width - margin));
-      wrapper.style.top = `${Math.round(top)}px`;
-      wrapper.style.left = `${Math.round(left)}px`;
-    };
-    const frame = requestAnimationFrame(clamp);
-    window.addEventListener("resize", clamp);
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener("resize", clamp);
-    };
-  }, [scheduleEvent?.id]);
-
-  if (!event) return null;
   return (
-    <div
-      ref={contentRef}
-      className="flex max-h-[inherit] min-h-0 flex-col overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-2xl"
-      data-testid="calendar-event-popover"
-    >
-      <div className="flex min-h-[52px] shrink-0 items-start gap-2 border-b border-[var(--border-default)] px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <div className="break-words text-sm font-semibold leading-5">
-            {scheduleEvent?.availabilityWarning ? (
-              <span className="mr-1.5 inline-flex h-4 w-4 translate-y-0.5 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white" title="Not blocked on EverCommerce">!</span>
-            ) : null}
-            {event.title}
-          </div>
-        </div>
-        <button type="button" aria-label="Close event details" className="calendar-icon-button h-8 w-8" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        <div className="space-y-4">
-          {(event.joinLinks.length > 0 || event.meetingNotes?.length || event.providerUrl) ? (
-            <div className="flex flex-wrap gap-2" data-testid="calendar-event-actions">
-              {event.joinLinks.map((link, index) => (
-                <a
-                  key={`${link.kind}:${link.url}`}
-                  href={link.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={
-                    index === 0
-                      ? "inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--interactive-default)] px-3 text-sm font-medium text-[var(--text-inverted)] hover:bg-[var(--interactive-hover)]"
-                      : "inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                  }
-                >
-                  {link.kind === "web" ? <LinkIcon className="h-3.5 w-3.5" /> : <Video className="h-3.5 w-3.5" />}
-                  {link.kind === "web" ? "Join" : `Join ${JOIN_LABELS[link.kind]}`}
-                </a>
-              ))}
-              {event.meetingNotes?.map((note) => (
-                <button
-                  key={note.granolaId}
-                  type="button"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                  onClick={() => {
-                    navigateTo("people", `/__inbox__/meeting/${encodeURIComponent(note.granolaId)}`);
-                    onClose();
-                  }}
-                  title={note.calendarMatchMethod
-                    ? `Linked notes · ${note.calendarMatchMethod}${note.calendarMatchConfidence != null ? ` · ${Math.round(note.calendarMatchConfidence * 100)}%` : ""}`
-                    : "Linked meeting notes"}
-                >
-                  <NotebookPen className="h-3.5 w-3.5" />
-                  Notes
-                </button>
-              ))}
-              {event.providerUrl ? (
-                <a
-                  href={event.providerUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  {providerLinkLabel(event.providerUrl, scheduleEvent?.sourceLabel)}
-                </a>
-              ) : null}
-            </div>
-          ) : null}
-
-          <DetailRow
-            icon={<Clock className="h-4 w-4" />}
-            label={(
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <span>{formatEventTime(event)}</span>
-                {event.recurrence.recurring ? (
-                  <span
-                    className="rounded-md border border-[var(--border-default)] px-2 py-0.5 text-xs text-[var(--text-secondary)]"
-                    data-testid="calendar-event-recurring"
-                  >
-                    Recurring
-                  </span>
-                ) : null}
-              </div>
-            )}
-          />
-          <DetailRow icon={<CalendarDays className="h-4 w-4" />} label={scheduleEvent?.calendarLabel || scheduleEvent?.sourceLabel || "Calendar"} />
-          {scheduleEvent?.availabilityWarning ? (
-            <DetailRow icon={<Clock className="h-4 w-4" />} label="Not blocked on EverCommerce" />
-          ) : null}
-          {event.location ? <DetailRow icon={<MapPin className="h-4 w-4" />} label={event.location} /> : null}
-          {event.organizer ? <DetailRow icon={<UserRound className="h-4 w-4" />} label={event.organizer.name || event.organizer.email || "Organizer"} /> : null}
-          {event.attendees.length ? <DetailRow icon={<UsersRound className="h-4 w-4" />} label={`${event.attendees.length} attendees`} /> : null}
-          {event.duplicateSourceCount > 1 ? <DetailRow icon={<Check className="h-4 w-4" />} label={`${event.duplicateSourceCount} sources`} /> : null}
-
-          {event.description ? (
-            <div className="space-y-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">Description</div>
-              <div className="whitespace-pre-wrap break-words rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-3 text-sm leading-6 text-[var(--text-secondary)]">
-                {event.description}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DetailRow({ icon, label }: { icon: React.ReactNode; label: React.ReactNode }) {
-  return (
-    <div className="flex gap-3 text-sm">
-      <div className="mt-0.5 shrink-0 text-[var(--text-tertiary)]">{icon}</div>
-      <div className="min-w-0 flex-1 break-words text-[var(--text-secondary)]">{label}</div>
-    </div>
+    <CalendarEventPopoverContent
+      availabilityWarning={scheduleEvent?.availabilityWarning}
+      calendarLabel={scheduleEvent?.calendarLabel}
+      event={scheduleEvent?.hiltEvent ?? null}
+      onClose={onClose}
+      sourceLabel={scheduleEvent?.sourceLabel}
+    />
   );
 }

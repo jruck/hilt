@@ -35,9 +35,13 @@ let activeRun: Promise<GranolaSyncRunReport> | null = null;
 
 export async function getGranolaSyncStatus(): Promise<GranolaSyncStatus> {
   const handoff = await getObsidianHandoffStatus();
+  const daemonConfigured = granolaDaemonEnabled();
+  const daemonHeartbeat = getDaemonHeartbeatStatus();
   return getGranolaSyncDbStatus({
     configured: true,
-    daemonEnabled: granolaDaemonEnabled() || hasActiveDaemonHeartbeat(),
+    daemonEnabled: daemonConfigured || daemonHeartbeat.active,
+    daemonConfigured,
+    daemonHeartbeat,
     remoteHost: getGranolaRemoteHost(),
     handoff,
   });
@@ -198,20 +202,33 @@ function incrementalDaysBack(): number {
   return Math.max(2, elapsedDays + 2);
 }
 
-function hasActiveDaemonHeartbeat(): boolean {
+function getDaemonHeartbeatStatus(): GranolaSyncStatus["daemonHeartbeat"] {
   try {
     const raw = fs.readFileSync(getGranolaDaemonStatePath(), "utf-8");
     const state = JSON.parse(raw) as { enabled?: unknown; updatedAt?: unknown; pid?: unknown };
-    if (state.enabled !== true || typeof state.updatedAt !== "string") return false;
+    const updatedAt = typeof state.updatedAt === "string" ? state.updatedAt : null;
+    const pid = typeof state.pid === "number" ? state.pid : null;
+    if (state.enabled !== true || !updatedAt) {
+      return { active: false, updatedAt, pid, stale: false, error: null };
+    }
+    let processAlive = true;
     if (typeof state.pid === "number") {
       try {
         process.kill(state.pid, 0);
       } catch {
-        return false;
+        processAlive = false;
       }
     }
-    return Date.now() - Date.parse(state.updatedAt) < 5 * 60_000;
+    const parsed = Date.parse(updatedAt);
+    const stale = !Number.isFinite(parsed) || Date.now() - parsed >= 5 * 60_000;
+    return {
+      active: processAlive && !stale,
+      updatedAt,
+      pid,
+      stale,
+      error: processAlive ? null : "Daemon process is not running",
+    };
   } catch {
-    return false;
+    return { active: false, updatedAt: null, pid: null, stale: false, error: null };
   }
 }

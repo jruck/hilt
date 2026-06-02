@@ -5,6 +5,10 @@ button, [role="button"] {
   cursor: pointer;
 }
 
+.hilt-resize-separator-hit {
+  cursor: col-resize !important;
+}
+
 /* Prevent all browser zoom behavior — this is an app, not a web form */
 html {
   touch-action: manipulation;
@@ -2199,6 +2203,7 @@ body[data-dev-focus="inspector"] [data-feedback-toolbar] {
   background: var(--bg-elevated);
   height: 100%;
   min-height: 0;
+  scroll-behavior: auto;
 }
 
 .hilt-calendar .sx__view-container > * {
@@ -2221,6 +2226,24 @@ body[data-dev-focus="inspector"] [data-feedback-toolbar] {
 
 .hilt-calendar .sx__week-grid__date {
   min-width: 0;
+  align-items: stretch;
+  border-left: 1px solid var(--border-default);
+}
+
+.hilt-calendar .sx__date-grid-day {
+  position: relative;
+}
+
+.hilt-calendar .sx__date-grid-day::before {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  background: var(--border-default);
+  content: "";
+  pointer-events: none;
 }
 
 .hilt-calendar .sx__week-grid__date--is-today {
@@ -2228,42 +2251,67 @@ body[data-dev-focus="inspector"] [data-feedback-toolbar] {
 }
 
 .hilt-week-grid-date-header {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.125rem;
-  padding: 0 0.25rem;
-}
-
-.hilt-week-grid-date-row {
   display: grid;
   width: 100%;
   min-width: 0;
-  min-height: 2.5rem;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  --hilt-calendar-header-label-row: 0.75rem;
+  --hilt-calendar-header-date-row: 2.5rem;
+  --hilt-calendar-header-row-gap: 0.125rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: var(--hilt-calendar-header-label-row) var(--hilt-calendar-header-date-row);
   align-items: center;
-  gap: 0.25rem;
+  column-gap: 0.25rem;
+  row-gap: var(--hilt-calendar-header-row-gap);
+  padding: 0 0.75rem;
 }
 
-.hilt-week-grid-date-row .sx__week-grid__date-number {
-  grid-column: 2;
+.hilt-week-grid-date-header .sx__week-grid__day-name {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  justify-self: start;
+  align-self: center;
+  line-height: 1;
+  text-align: left;
+}
+
+.hilt-week-grid-date-header .sx__week-grid__date-number {
+  grid-column: 1;
+  grid-row: 2;
+  justify-self: start;
+  align-self: center;
+  line-height: 1;
+}
+
+.hilt-calendar .sx__week-grid__date:not(.sx__week-grid__date--is-today) .sx__week-grid__date-number {
+  width: auto;
+  height: auto;
+  min-width: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.hilt-calendar .sx__week-grid__date--is-today .sx__week-grid__date-number {
+  margin-left: 0;
 }
 
 .hilt-weather-chip {
-  grid-column: 3;
-  display: inline-flex;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: grid;
   min-width: 0;
   max-width: 100%;
+  grid-template-rows: var(--hilt-calendar-header-label-row) var(--hilt-calendar-header-date-row);
   align-items: center;
-  justify-self: start;
-  gap: 0.1875rem;
+  justify-items: end;
+  justify-self: end;
+  row-gap: var(--hilt-calendar-header-row-gap);
   overflow: hidden;
   border-radius: 0.25rem;
-  padding: 0.125rem 0.1875rem;
+  padding: 0.0625rem 0;
   color: var(--text-secondary);
-  font-size: 0.6875rem;
+  font-size: 0.625rem;
   font-weight: 600;
   line-height: 1;
   text-decoration: none;
@@ -2276,9 +2324,10 @@ body[data-dev-focus="inspector"] [data-feedback-toolbar] {
 }
 
 .hilt-weather-icon {
-  height: 0.9375rem;
-  width: 0.9375rem;
+  height: 1.25rem;
+  width: 1.25rem;
   flex-shrink: 0;
+  grid-row: 2;
   color: var(--hilt-calendar-accent);
 }
 
@@ -2297,7 +2346,9 @@ body[data-dev-focus="inspector"] [data-feedback-toolbar] {
 }
 
 .hilt-weather-temp {
+  grid-row: 1;
   flex-shrink: 0;
+  align-self: center;
   white-space: nowrap;
 }
 
@@ -2533,37 +2584,30 @@ body[data-dev-focus="inspector"] [data-feedback-toolbar] {
   }
 
   .hilt-week-grid-date-header {
-    gap: 0.0625rem;
-    padding: 0 0.0625rem;
+    --hilt-calendar-header-label-row: 0.6875rem;
+    --hilt-calendar-header-date-row: 2.25rem;
+    --hilt-calendar-header-row-gap: 0.0625rem;
+    column-gap: 0.1875rem;
+    padding: 0 0.5rem;
   }
 
-  .hilt-week-grid-date-row {
-    display: flex;
-    min-height: 3.25rem;
-    flex-direction: column;
-    justify-content: flex-start;
-    gap: 0.0625rem;
-  }
-
-  .hilt-week-grid-date-row .sx__week-grid__date-number {
+  .hilt-calendar .sx__week-grid__date--is-today .sx__week-grid__date-number {
     height: 1.85em;
     width: 1.85em;
     font-size: 1.375rem;
+    margin-left: 0;
   }
 
   .hilt-weather-chip {
-    grid-column: auto;
-    flex-direction: column;
-    justify-self: center;
-    gap: 0;
-    padding: 0;
+    justify-self: end;
+    padding: 0.0625rem 0;
     font-size: 0.5625rem;
     line-height: 1;
   }
 
   .hilt-weather-icon {
-    height: 0.75rem;
-    width: 0.75rem;
+    height: 1.125rem;
+    width: 1.125rem;
   }
 
   .hilt-weather-temp {

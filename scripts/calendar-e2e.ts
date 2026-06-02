@@ -7,6 +7,7 @@ import net from "node:net";
 import { chromium, type Page } from "playwright";
 
 const HOST = "127.0.0.1";
+const FIXTURE_CALENDAR_PATH = "/calendar/event/fixture-date/2026-05-29";
 const VIEWPORTS = [
   { width: 1440, height: 1000 },
   { width: 1280, height: 800 },
@@ -69,7 +70,7 @@ async function main() {
 
 async function verifyCalendarFlow(page: Page, baseUrl: string) {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(`${baseUrl}/calendar`, { waitUntil: "networkidle" });
+  await page.goto(`${baseUrl}${FIXTURE_CALENDAR_PATH}`, { waitUntil: "networkidle" });
   await page.getByTestId("calendar-view").waitFor();
   await page.getByText("Platform standup").first().waitFor({ timeout: 20_000 });
   await page.getByText("Memorial Day").first().waitFor({ timeout: 20_000 });
@@ -81,10 +82,13 @@ async function verifyCalendarFlow(page: Page, baseUrl: string) {
     await verifyActiveDayHighlight(page, mode);
     if (mode === "day" || mode === "week") {
       await verifyHourlyTimeAxis(page, mode);
-      await verifyCurrentTimeIndicator(page, mode);
+      if (await isViewingToday(page)) await verifyCurrentTimeIndicator(page, mode);
       await verifyWeatherHeader(page);
     }
-    if (mode === "week") await verifyAvailabilityHints(page);
+    if (mode === "week") {
+      await verifyAvailabilityHints(page);
+      await verifyOverlappingEventsUseSeparateLanes(page);
+    }
     if (mode === "week" || mode === "month" || mode === "agenda") {
       await verifySundayFirstCalendar(page, mode);
     }
@@ -102,7 +106,7 @@ async function verifyCalendarFlow(page: Page, baseUrl: string) {
   await page.getByText("Meet").first().waitFor();
   assert.equal((await eventPopover.textContent())?.includes("Read-only"), false);
 
-  await page.getByTestId("calendar-source-menu").filter({ visible: true }).click();
+  await page.getByTestId("calendar-actions-menu").filter({ visible: true }).click();
   await page.getByTestId("calendar-source-toggle-us-holidays").waitFor();
   const evercommerceToggle = page.getByTestId("calendar-source-toggle-evercommerce");
   await evercommerceToggle.click();
@@ -111,7 +115,6 @@ async function verifyCalendarFlow(page: Page, baseUrl: string) {
   await page.getByText("Platform standup").first().waitFor();
 
   const syncResponse = page.waitForResponse((response) => response.url().includes("/api/calendar/sync") && response.request().method() === "POST");
-  await page.getByTestId("calendar-actions-menu").filter({ visible: true }).click();
   await page.getByTestId("calendar-sync-button").click();
   assert.equal((await syncResponse).ok(), true);
 }
@@ -183,6 +186,41 @@ async function verifyAvailabilityHints(page: Page) {
   assert.equal(warningText?.includes("Holiday advisory"), false);
 }
 
+async function verifyOverlappingEventsUseSeparateLanes(page: Page) {
+  await page.getByText("Overlap Alpha").first().waitFor({ timeout: 20_000 });
+  const events = await page.evaluate(() => {
+    const titles = ["Overlap Alpha", "Overlap Beta", "Overlap Gamma"];
+    return titles.map((title) => {
+      const element = Array.from(document.querySelectorAll(".sx__time-grid-event"))
+        .find((node) => node.textContent?.includes(title));
+      if (!(element instanceof HTMLElement)) return null;
+      const rect = element.getBoundingClientRect();
+      return {
+        title,
+        className: element.className,
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+      };
+    });
+  });
+
+  assert.equal(events.every(Boolean), true, "overlap fixture events should render");
+  const renderedEvents = events.filter((event): event is NonNullable<typeof event> => Boolean(event));
+  assert.equal(renderedEvents.every((event) => event.className.includes("is-event-overlap")), true, "overlap events should use Schedule-X non-overlap lane mode");
+
+  for (let i = 0; i < renderedEvents.length; i++) {
+    for (let j = i + 1; j < renderedEvents.length; j++) {
+      const a = renderedEvents[i];
+      const b = renderedEvents[j];
+      const verticallyOverlap = a.top < b.bottom - 1 && b.top < a.bottom - 1;
+      const horizontallyOverlap = a.left < b.right - 1 && b.left < a.right - 1;
+      assert.equal(!verticallyOverlap || !horizontallyOverlap, true, `${a.title} and ${b.title} should not visually overlap`);
+    }
+  }
+}
+
 async function verifyCurrentTimeIndicator(page: Page, mode: string) {
   await page.waitForFunction(() => {
     const indicator = document.querySelector(".sx__current-time-indicator");
@@ -196,13 +234,19 @@ async function verifyCurrentTimeIndicator(page: Page, mode: string) {
   }
 }
 
+async function isViewingToday(page: Page): Promise<boolean> {
+  return page.evaluate(() => document.querySelector(".sx__week-grid__date--is-today") instanceof HTMLElement);
+}
+
 async function verifyActiveDayHighlight(page: Page, mode: string) {
   const result = await page.waitForFunction((activeMode) => {
     if (activeMode === "day") {
-      const column = document.querySelector(".sx__time-grid-day.is-selected");
+      const selectedColumn = document.querySelector(".sx__time-grid-day.is-selected");
       const dateMarker = document.querySelector(".sx__week-grid__date--is-today .sx__week-grid__date-number");
-      if (!(dateMarker instanceof HTMLElement)) return false;
-      const columnBg = column instanceof HTMLElement ? getComputedStyle(column).backgroundColor : "transparent";
+      if (!(dateMarker instanceof HTMLElement)) {
+        return selectedColumn instanceof HTMLElement && selectedColumn.offsetHeight > 0;
+      }
+      const columnBg = selectedColumn instanceof HTMLElement ? getComputedStyle(selectedColumn).backgroundColor : "transparent";
       const markerBg = getComputedStyle(dateMarker).backgroundColor;
       return (columnBg === "rgba(0, 0, 0, 0)" || columnBg === "transparent")
         && markerBg !== "rgba(0, 0, 0, 0)"
@@ -243,7 +287,7 @@ async function verifyWeatherHeader(page: Page) {
 
 async function verifyViewport(page: Page, baseUrl: string, width: number, height: number) {
   await page.setViewportSize({ width, height });
-  await page.goto(`${baseUrl}/calendar`, { waitUntil: "networkidle" });
+  await page.goto(`${baseUrl}${FIXTURE_CALENDAR_PATH}`, { waitUntil: "networkidle" });
   await page.getByTestId("calendar-view").waitFor();
   await page.getByTestId("schedule-x-calendar").waitFor();
   await page.getByText("Platform standup").first().waitFor({ timeout: 20_000 });
@@ -252,8 +296,49 @@ async function verifyViewport(page: Page, baseUrl: string, width: number, height
   const metrics = await page.evaluate((mobileViewport) => {
     const frameRect = document.querySelector('[data-testid="calendar-frame"]')?.getBoundingClientRect();
     const navRect = document.querySelector("[data-mobile-chrome-bottom] nav")?.getBoundingClientRect();
-    const dateRect = document.querySelector(".hilt-week-grid-date-row .sx__week-grid__date-number")?.getBoundingClientRect();
-    const weatherRect = document.querySelector('[data-testid^="calendar-weather-"]')?.getBoundingClientRect();
+    const periodNavigation = document.querySelector('[data-testid="calendar-period-navigation"]');
+    const titleRect = document.querySelector('[data-testid="calendar-title"]')?.getBoundingClientRect();
+    const periodNavRect = periodNavigation?.getBoundingClientRect();
+    const periodNavigationState = periodNavigation?.getAttribute("data-period-position") ?? null;
+    const pressedPeriodButtons = Array.from(document.querySelectorAll('[data-testid^="calendar-period-"]'))
+      .filter((element) => element.getAttribute("aria-pressed") === "true")
+      .map((element) => element.getAttribute("data-period-position"));
+    const timeGridLefts = Array.from(document.querySelectorAll(".sx__time-grid-day")).map((element) => element.getBoundingClientRect().left);
+    const headerDividerMetrics = Array.from(document.querySelectorAll(".sx__week-grid__date")).map((element, index) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        aligned: timeGridLefts[index] == null || Math.abs(rect.left - timeGridLefts[index]) <= 1,
+        visible: parseFloat(getComputedStyle(element).borderLeftWidth) >= 1,
+      };
+    });
+    const allDayDividerMetrics = Array.from(document.querySelectorAll(".sx__date-grid-day")).map((element, index) => {
+      const rect = element.getBoundingClientRect();
+      const beforeStyle = getComputedStyle(element, "::before");
+      return {
+        aligned: timeGridLefts[index] == null || Math.abs(rect.left - timeGridLefts[index]) <= 1,
+        visible: parseFloat(beforeStyle.width) >= 1 && beforeStyle.backgroundColor !== "rgba(0, 0, 0, 0)",
+      };
+    });
+    const headerMetrics = Array.from(document.querySelectorAll(".hilt-week-grid-date-header")).map((header) => {
+      const headerRect = header.getBoundingClientRect();
+      const cellRect = header.closest(".sx__week-grid__date")?.getBoundingClientRect();
+      const headerStyle = getComputedStyle(header);
+      const cellStyle = cellRect ? getComputedStyle(header.closest(".sx__week-grid__date") as Element) : null;
+      const horizontalInset = parseFloat(headerStyle.paddingLeft);
+      const verticalInset = cellStyle ? parseFloat(cellStyle.paddingTop) : horizontalInset;
+      const dayRect = header.querySelector(".sx__week-grid__day-name")?.getBoundingClientRect();
+      const dateRect = header.querySelector(".sx__week-grid__date-number")?.getBoundingClientRect();
+      const weatherRect = header.querySelector('[data-testid^="calendar-weather-"]')?.getBoundingClientRect();
+      return {
+        headerFillsColumn: !cellRect || headerRect.width >= cellRect.width - 1,
+        dateLeftAligned: !dateRect || Math.abs(dateRect.left - (headerRect.left + horizontalInset)) <= 1,
+        dayLeftAligned: !dayRect || Math.abs(dayRect.left - (headerRect.left + horizontalInset)) <= 1,
+        weatherRightAligned: !weatherRect || Math.abs(weatherRect.right - (headerRect.right - horizontalInset)) <= 1,
+        balancedInset: Number.isFinite(horizontalInset)
+          && Number.isFinite(verticalInset)
+          && Math.abs(horizontalInset - verticalInset) <= 1,
+      };
+    });
     const activeMode = Array.from(document.querySelectorAll('[data-testid^="calendar-mode-"]'))
       .find((element) => element.getAttribute("aria-pressed") === "true")
       ?.getAttribute("data-testid")
@@ -269,18 +354,42 @@ async function verifyViewport(page: Page, baseUrl: string, width: number, height
         .map((element) => element.getBoundingClientRect())
         .find((rect) => rect.width > 0 && rect.height > 0)
         ?.toJSON(),
-      weatherBelowDate: !mobileViewport || !dateRect || !weatherRect ? true : weatherRect.top >= dateRect.bottom - 1,
+      periodNavigationNextToTitle: !titleRect || !periodNavRect ? false : (
+        periodNavRect.left >= titleRect.right
+        && periodNavRect.left - titleRect.right <= 12
+        && Math.abs(periodNavRect.top - titleRect.top) <= 12
+      ),
+      periodNavigationActiveMatchesState: periodNavigationState !== null
+        && pressedPeriodButtons.length === 1
+        && pressedPeriodButtons[0] === periodNavigationState,
+      periodNavigationSegmented: periodNavigation ? getComputedStyle(periodNavigation).backgroundColor !== "rgba(0, 0, 0, 0)" : false,
+      headerFillsColumn: headerMetrics.every((item) => item.headerFillsColumn),
+      dateLeftAligned: headerMetrics.every((item) => item.dateLeftAligned),
+      dayLeftAligned: headerMetrics.every((item) => item.dayLeftAligned),
+      weatherRightAligned: headerMetrics.every((item) => item.weatherRightAligned),
+      balancedInset: headerMetrics.every((item) => item.balancedInset),
+      headerDividersVisible: headerDividerMetrics.length > 0 && headerDividerMetrics.every((item) => item.visible && item.aligned),
+      allDayDividersVisible: allDayDividerMetrics.length > 0 && allDayDividerMetrics.every((item) => item.visible && item.aligned),
       frameClearsMobileNav: !mobileViewport || !frameRect || !navRect ? true : frameRect.bottom <= navRect.top - 6,
     };
   }, isMobile);
   assert.ok(metrics.calendarRect, `calendar missing at ${width}x${height}`);
   assert.ok(metrics.toolbarRect, `toolbar missing at ${width}x${height}`);
   assert.ok(metrics.horizontalOverflow <= 4, `horizontal overflow at ${width}x${height}: ${metrics.horizontalOverflow}`);
+  assert.equal(metrics.periodNavigationNextToTitle, true, `period navigation should sit directly beside the date title at ${width}x${height}`);
+  assert.equal(metrics.periodNavigationActiveMatchesState, true, `period navigation should highlight exactly one temporal state at ${width}x${height}`);
+  assert.equal(metrics.periodNavigationSegmented, true, `period navigation should use segmented styling at ${width}x${height}`);
+  assert.equal(metrics.headerFillsColumn, true, `date header should fill the day column at ${width}x${height}`);
+  assert.equal(metrics.dayLeftAligned, true, `day label should align with the date at ${width}x${height}`);
+  assert.equal(metrics.dateLeftAligned, true, `date should align left in its header at ${width}x${height}`);
+  assert.equal(metrics.weatherRightAligned, true, `weather should align right in its header at ${width}x${height}`);
+  assert.equal(metrics.balancedInset, true, `date header horizontal inset should match vertical inset at ${width}x${height}`);
+  assert.equal(metrics.headerDividersVisible, true, `date header dividers should align with time-grid columns at ${width}x${height}`);
+  assert.equal(metrics.allDayDividersVisible, true, `all-day dividers should align with time-grid columns at ${width}x${height}`);
 
   if (isMobile) {
     assert.equal(metrics.activeMode, "day", `mobile should open in day mode at ${width}x${height}`);
     assert.equal(metrics.renderedDateHeaders, 1, `mobile day mode should render one date column at ${width}x${height}`);
-    assert.equal(metrics.weatherBelowDate, true, `mobile weather should sit below the date at ${width}x${height}`);
     assert.equal(metrics.frameClearsMobileNav, true, `calendar frame should clear the mobile nav at ${width}x${height}`);
 
     const titleBeforeWheel = await page.getByTestId("calendar-title").textContent();

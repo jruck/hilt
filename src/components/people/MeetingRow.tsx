@@ -35,9 +35,17 @@ function formatDateTime(meeting: PersonMeeting): string {
   return datePart;
 }
 
+function selectedCalendarTitle(meeting: PersonMeeting): string | null {
+  const candidate = meeting.calendarCandidates?.find((item) =>
+    item.seriesKey === meeting.calendarSeriesKey || item.eventId === meeting.hiltCalendarEventId
+  ) ?? meeting.calendarCandidates?.[0] ?? null;
+  return candidate?.title ?? null;
+}
+
 export default function MeetingRow({ meeting, selected, onClick, inboxMode }: MeetingRowProps) {
   const haptics = useHaptics();
   const isNext = meeting.source === "next";
+  const nextSubtitle = isNext ? selectedCalendarTitle(meeting) : null;
 
   const formattedDate = isNext
     ? meeting.date
@@ -46,7 +54,8 @@ export default function MeetingRow({ meeting, selected, onClick, inboxMode }: Me
     : formatDateTime(meeting);
 
   // Only show title for granola meetings with a real title (not generic "Notes")
-  const showTitle = !isNext && meeting.source === "granola" && !!meeting.title;
+  const subtitle = isNext ? nextSubtitle : meeting.title;
+  const showTitle = Boolean((isNext && nextSubtitle) || (!isNext && meeting.source === "granola" && meeting.title));
   const hasMatchedPeople = meeting.matchedPeople && meeting.matchedPeople.length > 0;
   const hasWrittenNotes = !!meeting.notes;
 
@@ -84,7 +93,7 @@ export default function MeetingRow({ meeting, selected, onClick, inboxMode }: Me
               )}
             </div>
             {showTitle && (
-              <div className="text-xs truncate text-[var(--text-tertiary)]">{meeting.title}</div>
+              <div className="text-xs truncate text-[var(--text-tertiary)]">{subtitle}</div>
             )}
           </>
         )}

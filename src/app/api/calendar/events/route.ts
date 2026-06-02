@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { queryCalendarAvailabilityBlocks, queryCalendarEvents, queryCalendarHolidayEvents } from "@/lib/calendar/db";
+import type { CalendarEvent } from "@/lib/calendar/types";
+import { attachPeopleNoteTargetsToCalendarEvents } from "@/lib/bridge/people-parser";
+import { getVaultPath } from "@/lib/bridge/vault";
 import { attachGranolaMeetingNotes } from "@/lib/granola/calendar-links";
 
 export const dynamic = "force-dynamic";
@@ -22,11 +25,23 @@ export async function GET(request: NextRequest) {
     calendarIds: csv(search.get("calendarIds")),
   };
 
+  const events = await attachCalendarNotes(queryCalendarEvents(filters));
+
   return NextResponse.json({
-    events: attachGranolaMeetingNotes(queryCalendarEvents(filters)),
+    events,
     availabilityBlocks: queryCalendarAvailabilityBlocks(filters),
     holidayEvents: queryCalendarHolidayEvents({ start, end }),
   });
+}
+
+async function attachCalendarNotes(events: CalendarEvent[]): Promise<CalendarEvent[]> {
+  const withGranolaNotes = attachGranolaMeetingNotes(events);
+  try {
+    return attachPeopleNoteTargetsToCalendarEvents(withGranolaNotes, await getVaultPath());
+  } catch (error) {
+    console.warn("[calendar/events] Failed to attach People note targets", error);
+    return withGranolaNotes;
+  }
 }
 
 function parseDate(value: string | null): Date | null {

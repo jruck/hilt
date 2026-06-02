@@ -1,3 +1,5 @@
+import type { PersonCalendarCandidate } from "../types";
+
 export type CalendarSourceId = "personal" | "priceless" | "evercommerce" | string;
 
 export interface CalendarParticipant {
@@ -10,6 +12,18 @@ export interface CalendarJoinLink {
   kind: "teams" | "meet" | "zoom" | "web";
   url: string;
   label: string;
+}
+
+export interface CalendarEventNoteTarget {
+  kind: "person-next";
+  slug: string;
+  name: string;
+  personType: "person" | "group";
+  candidate: PersonCalendarCandidate;
+  confidence: number;
+  historicalCount: number;
+  lastSeenAt: string | null;
+  reason: string;
 }
 
 export interface CalendarFieldCoverage {
@@ -72,6 +86,7 @@ export interface CalendarEvent {
   sourceIds: CalendarSourceId[];
   calendarId: string;
   sourceId: CalendarSourceId;
+  uid: string | null;
   title: string;
   start: string;
   end: string;
@@ -101,6 +116,7 @@ export interface CalendarEvent {
     calendarMatchMethod: string | null;
     calendarMatchConfidence: number | null;
   }>;
+  noteTargets?: CalendarEventNoteTarget[];
 }
 
 export interface CalendarSyncSourceResult {

@@ -6,8 +6,11 @@ import type {
   PersonMeeting,
   PersonDetail,
   InboxDetail,
+  PersonCalendarCandidate,
   SuggestedMeeting,
 } from "../types";
+import type { CalendarEvent, CalendarEventNoteTarget } from "../calendar/types";
+import { resolvePersonCalendarLinks } from "./person-calendar";
 
 interface InlineNoteMeeting extends PersonMeeting {
   noteTitle?: string;
@@ -20,6 +23,16 @@ interface MeetingFileEntry {
 }
 
 const NEXT_SAVED_AT_FIELD = "next_saved_at";
+const NEXT_CALENDAR_SERIES_KEY_FIELD = "next_calendar_series_key";
+const NEXT_CALENDAR_EVENT_ID_FIELD = "next_calendar_event_id";
+const NEXT_CALENDAR_EVENT_START_FIELD = "next_calendar_event_start";
+const NEXT_CALENDAR_TITLE_FIELD = "next_calendar_title";
+const NEXT_CALENDAR_FIELDS = [
+  NEXT_CALENDAR_SERIES_KEY_FIELD,
+  NEXT_CALENDAR_EVENT_ID_FIELD,
+  NEXT_CALENDAR_EVENT_START_FIELD,
+  NEXT_CALENDAR_TITLE_FIELD,
+];
 const BRIDGE_PREFS_FILE = ".hilt-preferences.json";
 const HIDDEN_SUGGESTIONS_KEY = "people.hiddenSuggestions";
 
@@ -29,6 +42,26 @@ interface HiddenSuggestionSnapshot {
   count: number;
   lastDate: string;
   hiddenAt: string;
+}
+
+interface NextCalendarContext {
+  seriesKey: string | null;
+  eventId: string | null;
+  eventStart: string | null;
+  title: string | null;
+}
+
+interface PersonSeriesHistory {
+  slug: string;
+  name: string;
+  personType: "person" | "group";
+  seriesKey: string;
+  method: PersonCalendarCandidate["method"];
+  uid: string | null;
+  title: string;
+  normalizedTitle: string;
+  historicalCount: number;
+  lastSeenAt: string | null;
 }
 
 function readBridgePrefs(vaultPath: string): Record<string, unknown> {
@@ -128,6 +161,89 @@ function insertPersonIndexEntry(
   const after = indexContent.slice(insertAt).replace(/^\n*/, "");
 
   return `${before}${entry}${after ? `\n${after}` : ""}`;
+}
+
+function updatePersonIndexEntry(
+  indexContent: string,
+  slug: string,
+  type: SuggestedPersonType,
+  description: string,
+): string {
+  const sanitizedDescription = sanitizeIndexDescription(description);
+  const entry = sanitizedDescription
+    ? `- [[${slug}]] — ${sanitizedDescription}`
+    : `- [[${slug}]]`;
+  const escapedSlug = slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const entryRegex = new RegExp(`^\\s*-\\s*\\[\\[${escapedSlug}\\]\\]\\s*(?:(?:—|--)\\s*.*)?$`, "m");
+
+  if (entryRegex.test(indexContent)) {
+    return indexContent.replace(entryRegex, entry);
+  }
+
+  return insertPersonIndexEntry(indexContent, slug, type, sanitizedDescription);
+}
+
+function normalizeAliasesForWrite(aliases: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const alias of aliases) {
+    const trimmed = alias.replace(/\s+/g, " ").trim();
+    const key = trimmed.toLowerCase();
+    if (!trimmed || seen.has(key)) continue;
+    seen.add(key);
+    result.push(trimmed);
+  }
+  return result;
+}
+
+function updateFrontmatterField(content: string, key: string, value: string): string {
+  const fieldLine = `${key}: ${value}`;
+
+  if (!content.startsWith("---")) {
+    return `---\n${fieldLine}\n---\n\n${content.replace(/^\s+/, "")}`;
+  }
+
+  const endIdx = content.indexOf("\n---", 3);
+  if (endIdx === -1) {
+    return `---\n${fieldLine}\n---\n\n${content}`;
+  }
+
+  const frontmatter = content.slice(4, endIdx);
+  const body = content.slice(endIdx);
+  const lines = frontmatter.split("\n");
+  const fieldIndex = lines.findIndex((line) => {
+    const colonIdx = line.indexOf(":");
+    return colonIdx > 0 && line.slice(0, colonIdx).trim() === key;
+  });
+
+  if (fieldIndex === -1) {
+    lines.push(fieldLine);
+  } else {
+    lines[fieldIndex] = fieldLine;
+  }
+
+  return `---\n${lines.join("\n")}${body}`;
+}
+
+function updatePersonHeading(content: string, name: string): string {
+  const normalizedName = name.replace(/\s+/g, " ").trim();
+  if (!normalizedName) return content;
+
+  if (/^#\s+.+$/m.test(content)) {
+    return content.replace(/^#\s+.+$/m, `# ${normalizedName}`);
+  }
+
+  if (content.startsWith("---")) {
+    const endIdx = content.indexOf("\n---", 3);
+    if (endIdx !== -1) {
+      const frontmatterEnd = endIdx + 4;
+      const before = content.slice(0, frontmatterEnd).replace(/\s*$/, "\n\n");
+      const after = content.slice(frontmatterEnd).replace(/^\s*/, "");
+      return `${before}# ${normalizedName}\n\n${after}`;
+    }
+  }
+
+  return `# ${normalizedName}\n\n${content.replace(/^\s+/, "")}`;
 }
 
 /**
@@ -369,6 +485,195 @@ function normalizeTranscriptTitle(title: string): string {
 function getMeetingTitle(meta: ReturnType<typeof parseMeetingFrontmatter>, entry: MeetingFileEntry): string {
   const title = meta.title || entry.filename.replace(/\.md$/, "");
   return entry.transcriptOnly ? normalizeTranscriptTitle(title) || title : title;
+}
+
+const CALENDAR_NOTE_TARGET_GRACE_MS = 12 * 60 * 60 * 1000;
+
+export function attachPeopleNoteTargetsToCalendarEvents<T extends CalendarEvent>(
+  events: T[],
+  vaultPath: string,
+  now = new Date(),
+): T[] {
+  if (!events.length) return events;
+  const histories = buildPersonSeriesHistories(vaultPath);
+  if (!histories.length) return events;
+
+  return events.map((event) => {
+    const noteTargets = resolveCalendarEventNoteTargetsFromHistories(event, histories, now);
+    return noteTargets.length ? { ...event, noteTargets } : event;
+  });
+}
+
+export function resolveCalendarEventNoteTargets(
+  vaultPath: string,
+  event: CalendarEvent,
+  now = new Date(),
+): CalendarEventNoteTarget[] {
+  return resolveCalendarEventNoteTargetsFromHistories(event, buildPersonSeriesHistories(vaultPath), now);
+}
+
+function buildPersonSeriesHistories(vaultPath: string): PersonSeriesHistory[] {
+  const peopleDir = path.join(vaultPath, "people");
+  const meetingsDir = path.join(vaultPath, "meetings");
+  if (!fs.existsSync(peopleDir) || !fs.existsSync(meetingsDir)) return [];
+
+  const meetingFileEntries = collectMeetingFiles(meetingsDir);
+  const meetingFilenames = meetingFileEntries.map((entry) => entry.filename);
+  const meetingFileMap = new Map(meetingFileEntries.map((entry) => [entry.filename, entry]));
+  const meetingMetaCache = new Map<string, ReturnType<typeof parseMeetingFrontmatter>>();
+  for (const entry of meetingFileEntries) {
+    try {
+      meetingMetaCache.set(entry.filename, parseMeetingFrontmatter(fs.readFileSync(entry.fullPath, "utf-8"), entry.filename));
+    } catch {
+      // Skip unreadable meetings.
+    }
+  }
+
+  const histories: PersonSeriesHistory[] = [];
+  const peopleFiles = fs.readdirSync(peopleDir)
+    .filter((filename) => filename.endsWith(".md") && filename !== "index.md" && !filename.startsWith("."));
+
+  for (const filename of peopleFiles) {
+    const slug = filename.replace(/\.md$/, "");
+    try {
+      const content = fs.readFileSync(path.join(peopleDir, filename), "utf-8");
+      const person = parsePersonFile(content, slug, "");
+      const matchedMeetings = matchMeetingsToSlug(slug, person.name, meetingFilenames, person.aliases);
+      const bySeries = new Map<string, PersonSeriesHistory>();
+
+      for (const meetingFilename of matchedMeetings) {
+        const entry = meetingFileMap.get(meetingFilename);
+        const meta = meetingMetaCache.get(meetingFilename);
+        if (!entry || !meta) continue;
+
+        const title = getMeetingTitle(meta, entry).trim();
+        const normalizedTitle = normalizeTitle(title);
+        if (!title || !normalizedTitle) continue;
+
+        const seenAt = meta.created || null;
+        const uid = meta.calendarIcalUid?.trim() || null;
+        if (uid) {
+          addSeriesHistory(bySeries, {
+            slug,
+            name: person.name,
+            personType: person.type,
+            seriesKey: `icaluid:${uid.toLowerCase()}`,
+            method: "icaluid",
+            uid,
+            title,
+            normalizedTitle,
+            historicalCount: 1,
+            lastSeenAt: seenAt,
+          });
+        }
+
+        addSeriesHistory(bySeries, {
+          slug,
+          name: person.name,
+          personType: person.type,
+          seriesKey: `title:${normalizedTitle}`,
+          method: "title",
+          uid,
+          title,
+          normalizedTitle,
+          historicalCount: 1,
+          lastSeenAt: seenAt,
+        });
+      }
+
+      histories.push(...bySeries.values());
+    } catch {
+      // Skip unreadable people files.
+    }
+  }
+
+  return histories;
+}
+
+function addSeriesHistory(map: Map<string, PersonSeriesHistory>, next: PersonSeriesHistory): void {
+  const existing = map.get(next.seriesKey);
+  if (!existing) {
+    map.set(next.seriesKey, next);
+    return;
+  }
+
+  existing.historicalCount += next.historicalCount;
+  if (next.lastSeenAt && (!existing.lastSeenAt || next.lastSeenAt > existing.lastSeenAt)) {
+    existing.lastSeenAt = next.lastSeenAt;
+    existing.title = next.title;
+    existing.normalizedTitle = next.normalizedTitle;
+    existing.uid = next.uid ?? existing.uid;
+  }
+}
+
+function resolveCalendarEventNoteTargetsFromHistories(
+  event: CalendarEvent,
+  histories: PersonSeriesHistory[],
+  now: Date,
+): CalendarEventNoteTarget[] {
+  if (!isCalendarEventEligibleForPeoplePrep(event, now)) return [];
+
+  const normalizedTitle = normalizeTitle(event.title);
+  if (!normalizedTitle) return [];
+
+  const uid = event.uid?.trim() || null;
+  const uidSeriesKey = uid ? `icaluid:${uid.toLowerCase()}` : null;
+  const titleSeriesKey = `title:${normalizedTitle}`;
+  const bestBySlug = new Map<string, { target: CalendarEventNoteTarget; score: number }>();
+
+  for (const history of histories) {
+    const exactUidMatch = Boolean(uidSeriesKey && history.seriesKey === uidSeriesKey);
+    const exactTitleSeriesMatch = history.seriesKey === titleSeriesKey;
+    const titleMatch = history.normalizedTitle === normalizedTitle || exactTitleSeriesMatch;
+    if (!exactUidMatch && !titleMatch) continue;
+    if (!exactUidMatch && !event.recurrence.recurring && history.historicalCount < 2) continue;
+
+    const method: PersonCalendarCandidate["method"] = exactUidMatch ? "icaluid" : "title";
+    const seriesKey = uid ? `icaluid:${uid.toLowerCase()}` : titleSeriesKey;
+    const confidence = method === "icaluid"
+      ? 1
+      : Math.min(0.92, 0.66 + history.historicalCount * 0.06 + (event.recurrence.recurring ? 0.08 : 0));
+    const target: CalendarEventNoteTarget = {
+      kind: "person-next",
+      slug: history.slug,
+      name: history.name,
+      personType: history.personType,
+      candidate: {
+        eventId: event.id,
+        title: event.title,
+        start: event.start,
+        end: event.end,
+        uid: uid ?? history.uid,
+        seriesKey,
+        method,
+        confidence,
+        historicalCount: history.historicalCount,
+        lastSeenAt: history.lastSeenAt,
+      },
+      confidence,
+      historicalCount: history.historicalCount,
+      lastSeenAt: history.lastSeenAt,
+      reason: exactUidMatch ? "Matched saved People history by iCal UID" : "Matched saved People history by recurring title",
+    };
+    const score = (exactUidMatch ? 10_000 : 1_000)
+      + history.historicalCount * 50
+      + (event.recurrence.recurring ? 25 : 0)
+      + (history.lastSeenAt ? Math.min(25, Math.max(0, Date.parse(history.lastSeenAt) / 8.64e13)) : 0);
+    const existing = bestBySlug.get(history.slug);
+    if (!existing || score > existing.score) bestBySlug.set(history.slug, { target, score });
+  }
+
+  return Array.from(bestBySlug.values())
+    .sort((a, b) => b.score - a.score)
+    .map(({ target }) => target);
+}
+
+function isCalendarEventEligibleForPeoplePrep(event: CalendarEvent, now: Date): boolean {
+  if (event.meetingNotes?.length) return false;
+  if (event.allDay) return false;
+  if (event.status?.toUpperCase() === "CANCELLED") return false;
+  if (!event.title.trim() || event.title.trim() === "!" || event.title.trim() === "-") return false;
+  return event.sortEnd >= now.getTime() - CALENDAR_NOTE_TARGET_GRACE_MS;
 }
 
 function resolveTranscriptPath(
@@ -694,6 +999,49 @@ aliases: ${JSON.stringify([name])}
   return parsePersonFile(fileContent, slug, sanitizeIndexDescription(input.description || ""));
 }
 
+export function updatePersonMetadata(
+  vaultPath: string,
+  slug: string,
+  input: {
+    name?: string;
+    description?: string;
+    aliases?: string[];
+  },
+): BridgePerson {
+  const peopleDir = path.join(vaultPath, "people");
+  const filePath = path.join(peopleDir, `${slug}.md`);
+
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Person not found: ${slug}`);
+  }
+
+  const indexPath = path.join(peopleDir, "index.md");
+  const existingIndex = fs.existsSync(indexPath)
+    ? fs.readFileSync(indexPath, "utf-8")
+    : "# People\n";
+  const indexMap = parsePeopleIndex(existingIndex);
+  const currentDescription = indexMap[slug] || "";
+  const originalContent = fs.readFileSync(filePath, "utf-8");
+  const currentPerson = parsePersonFile(originalContent, slug, currentDescription);
+
+  const name = input.name?.trim() || currentPerson.name;
+  const description = input.description != null
+    ? sanitizeIndexDescription(input.description)
+    : currentPerson.description;
+  const aliases = input.aliases
+    ? normalizeAliasesForWrite(input.aliases)
+    : currentPerson.aliases;
+
+  let updatedContent = updatePersonHeading(originalContent, name);
+  updatedContent = updateFrontmatterField(updatedContent, "aliases", JSON.stringify(aliases));
+  fs.writeFileSync(filePath, updatedContent, "utf-8");
+
+  const updatedIndex = updatePersonIndexEntry(existingIndex, slug, currentPerson.type, description);
+  fs.writeFileSync(indexPath, updatedIndex, "utf-8");
+
+  return parsePersonFile(updatedContent, slug, description);
+}
+
 /**
  * Get ALL meetings from the vault with person-match tags.
  * Returns every meeting file, sorted newest-first, with matchedPeople populated.
@@ -821,10 +1169,36 @@ function parseNextSavedAt(fileContent: string): Date | null {
   return Number.isNaN(savedAt.getTime()) ? null : savedAt;
 }
 
+function parseNextCalendarContext(fileContent: string): NextCalendarContext {
+  const { fm } = parseFrontmatter(fileContent);
+  return {
+    seriesKey: fm[NEXT_CALENDAR_SERIES_KEY_FIELD] || null,
+    eventId: fm[NEXT_CALENDAR_EVENT_ID_FIELD] || null,
+    eventStart: fm[NEXT_CALENDAR_EVENT_START_FIELD] || null,
+    title: fm[NEXT_CALENDAR_TITLE_FIELD] || null,
+  };
+}
+
+function applyNextCalendarFields(
+  fm: Record<string, string>,
+  candidate: PersonCalendarCandidate | null | undefined,
+): void {
+  for (const field of NEXT_CALENDAR_FIELDS) delete fm[field];
+  if (!candidate) return;
+  fm[NEXT_CALENDAR_SERIES_KEY_FIELD] = candidate.seriesKey;
+  fm[NEXT_CALENDAR_EVENT_ID_FIELD] = candidate.eventId;
+  fm[NEXT_CALENDAR_EVENT_START_FIELD] = candidate.start;
+  fm[NEXT_CALENDAR_TITLE_FIELD] = candidate.title;
+}
+
 function extractNextRaw(fileContent: string): string {
   const { body } = parseFrontmatter(fileContent);
   const nextRawMatch = body.match(/^##[ \t]+Next[ \t]*\n([\s\S]*?)(?=^##[ \t]+Notes[ \t]*$|(?![\s\S]))/m);
   return nextRawMatch ? nextRawMatch[1].trim() : "";
+}
+
+export function extractPersonNextRaw(fileContent: string): string {
+  return extractNextRaw(fileContent);
 }
 
 function parseInlineMeetings(fileContent: string): InlineNoteMeeting[] {
@@ -871,7 +1245,7 @@ function findMatchingInlineNote(
     .map((meeting, index) => ({ meeting, index }))
     .filter(({ meeting, index }) => !usedIndexes.has(index) && meeting.date === granolaMeeting.date);
 
-  if (sameDateIndexes.length === 1) return sameDateIndexes[0].index;
+  if (sameDateIndexes.length === 1 && !sameDateIndexes[0].meeting.noteTitle) return sameDateIndexes[0].index;
 
   const untitledSameDate = sameDateIndexes.find(({ meeting }) => !meeting.noteTitle);
   return untitledSameDate?.index ?? null;
@@ -922,10 +1296,28 @@ function findPromotionTarget(
   next: { date: string | null; content: string },
   meetings: PersonMeeting[],
   nextSavedAt?: Date,
+  calendarContext?: NextCalendarContext,
 ): PersonMeeting | undefined {
-  return meetings
+  const eligible = meetings
     .filter((meeting) => shouldPromoteNextToMeeting(next, meeting, nextSavedAt))
-    .sort((a, b) => meetingSortKey(a).localeCompare(meetingSortKey(b)))[0];
+    .sort((a, b) => meetingSortKey(a).localeCompare(meetingSortKey(b)));
+  const firstKey = eligible[0] ? meetingSortKey(eligible[0]) : null;
+  if (!firstKey) return undefined;
+
+  const firstActualMeetings = eligible.filter((meeting) => meetingSortKey(meeting) === firstKey);
+  return firstActualMeetings
+    .sort((a, b) => promotionCalendarRank(a, calendarContext) - promotionCalendarRank(b, calendarContext))[0];
+}
+
+function promotionCalendarRank(meeting: PersonMeeting, calendarContext?: NextCalendarContext): number {
+  if (!calendarContext?.seriesKey && !calendarContext?.eventId) return 0;
+  if (calendarContext.eventId && meeting.hiltCalendarEventId === calendarContext.eventId) return 0;
+  if (calendarContext.seriesKey) {
+    if (meeting.calendarIcalUid && calendarContext.seriesKey === `icaluid:${meeting.calendarIcalUid.toLowerCase()}`) return 0;
+    if (calendarContext.seriesKey === `title:${normalizeTitle(meeting.title)}`) return 0;
+  }
+  if (calendarContext.title && normalizeTitle(calendarContext.title) === normalizeTitle(meeting.title)) return 0;
+  return 1;
 }
 
 function findDatedNotesSection(
@@ -1068,13 +1460,17 @@ export function updatePersonNotes(
 export function updatePersonNext(
   fileContent: string,
   newNext: string,
+  options: { calendarCandidate?: PersonCalendarCandidate | null; keepCalendarOnEmpty?: boolean } = {},
 ): string {
   const { fm, body } = parseFrontmatter(fileContent);
+  const hasCalendarCandidateOption = Object.prototype.hasOwnProperty.call(options, "calendarCandidate");
 
   if (newNext.trim()) {
-    fm[NEXT_SAVED_AT_FIELD] = new Date().toISOString();
+    fm[NEXT_SAVED_AT_FIELD] = fm[NEXT_SAVED_AT_FIELD] || new Date().toISOString();
+    if (hasCalendarCandidateOption) applyNextCalendarFields(fm, options.calendarCandidate);
   } else {
     delete fm[NEXT_SAVED_AT_FIELD];
+    applyNextCalendarFields(fm, options.keepCalendarOnEmpty && hasCalendarCandidateOption ? options.calendarCandidate : null);
   }
 
   // Reconstruct frontmatter
@@ -1150,6 +1546,7 @@ export async function getPersonDetail(
   let nextRaw = extractNextRaw(content);
   let parsedNext = { date: null as string | null, content: nextRaw.trim() };
   const nextSavedAt = parseNextSavedAt(content) ?? personFileStat.mtime;
+  let nextCalendarContext = parseNextCalendarContext(content);
 
   // Match Granola meetings (supports nested date folders)
   const meetingFileEntries = collectMeetingFiles(meetingsDir);
@@ -1191,7 +1588,7 @@ export async function getPersonDetail(
   granolaMeetings.sort((a, b) => meetingSortKey(b).localeCompare(meetingSortKey(a)));
 
   let inlineMeetings = parseInlineMeetings(content);
-  const promotionTarget = findPromotionTarget(parsedNext, granolaMeetings, nextSavedAt);
+  const promotionTarget = findPromotionTarget(parsedNext, granolaMeetings, nextSavedAt, nextCalendarContext);
 
   if (promotionTarget && parsedNext.content) {
     const matchingIndex = findMatchingInlineNote(inlineMeetings, promotionTarget, new Set());
@@ -1218,12 +1615,14 @@ export async function getPersonDetail(
       person = parsePersonFile(content, slug, description);
       nextRaw = extractNextRaw(content);
       parsedNext = { date: null, content: nextRaw.trim() };
+      nextCalendarContext = parseNextCalendarContext(content);
       inlineMeetings = parseInlineMeetings(content);
     }
   }
 
   const meetings = mergeInlineNotesIntoGranola(granolaMeetings, inlineMeetings);
   meetings.sort((a, b) => meetingSortKey(b).localeCompare(meetingSortKey(a)));
+  const calendarLinks = resolvePersonCalendarLinks(meetings, nextCalendarContext.seriesKey);
 
   // Update counts to reflect total
   const totalMeetings = meetings.length;
@@ -1236,5 +1635,6 @@ export async function getPersonDetail(
     nextRaw,
     meetings,
     personFilePath: filePath,
+    calendarLinks,
   };
 }

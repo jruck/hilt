@@ -1,43 +1,80 @@
 import type { CalendarJoinLink } from "./types";
 
 const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/gi;
+type JoinLinkSource = "description" | "generic" | "location" | "url";
+type JoinLinkCandidate = CalendarJoinLink & {
+  source: JoinLinkSource;
+  sourceScore: number;
+};
+
+interface CalendarJoinLinkFields {
+  description?: string | null;
+  location?: string | null;
+  url?: string | null;
+}
 
 export function extractJoinLinks(...values: Array<string | null | undefined>): CalendarJoinLink[] {
-  const links: CalendarJoinLink[] = [];
+  const candidates: JoinLinkCandidate[] = [];
   for (const value of values) {
-    if (!value) continue;
-    const matches = value.match(URL_PATTERN) || [];
-    for (const raw of matches) {
-      const url = normalizeRawUrl(raw);
-      if (!url) continue;
-      links.push({ url, ...classifyUrl(url) });
-    }
+    candidates.push(...extractJoinLinkCandidates(value, "generic"));
   }
-  return dedupeJoinLinks(links);
+  return dedupeJoinLinkCandidates(candidates);
+}
+
+export function extractCalendarJoinLinks(fields: CalendarJoinLinkFields): CalendarJoinLink[] {
+  return dedupeJoinLinkCandidates([
+    ...extractJoinLinkCandidates(fields.location, "location"),
+    ...extractJoinLinkCandidates(fields.url, "url"),
+    ...extractJoinLinkCandidates(fields.description, "description"),
+  ]);
 }
 
 export function dedupeJoinLinks(links: CalendarJoinLink[]): CalendarJoinLink[] {
-  const linksByKey = new Map<string, { link: CalendarJoinLink; score: number }>();
+  return dedupeJoinLinkCandidates(links.map((link) => ({ ...link, source: "generic", sourceScore: 0 })));
+}
+
+function extractJoinLinkCandidates(value: string | null | undefined, source: JoinLinkSource): JoinLinkCandidate[] {
+  if (!value) return [];
+  const candidates: JoinLinkCandidate[] = [];
+  for (const match of value.matchAll(URL_PATTERN)) {
+    const raw = match[0];
+    const url = normalizeRawUrl(raw);
+    if (!url) continue;
+    const classification = classifyUrl(url);
+    const context = contextAroundMatch(value, match.index ?? 0, raw.length);
+    if (classification.kind === "web" && !shouldIncludeWebJoinLink(url, value, context, raw, source)) continue;
+    candidates.push({
+      url,
+      ...classification,
+      source,
+      sourceScore: joinLinkSourceScore(source),
+    });
+  }
+  return candidates;
+}
+
+function dedupeJoinLinkCandidates(links: JoinLinkCandidate[]): CalendarJoinLink[] {
+  const linksByKey = new Map<string, { index: number; link: CalendarJoinLink; score: number }>();
   const orderedKeys: string[] = [];
-  for (const link of links) {
+  for (const [index, link] of links.entries()) {
     const url = normalizeRawUrl(link.url);
     if (!url) continue;
     const classification = classifyUrl(url);
     if (isKnownMeetingBoilerplateUrl(url, classification.kind)) continue;
-    const normalizedLink = { ...link, url, ...classification };
+    const normalizedLink: CalendarJoinLink = { url, ...classification };
     const key = canonicalJoinLinkKey(url, classification.kind);
-    const score = joinLinkScore(url, classification.kind);
+    const score = link.sourceScore + joinLinkScore(url, classification.kind);
     const existing = linksByKey.get(key);
     if (!existing) {
-      linksByKey.set(key, { link: normalizedLink, score });
+      linksByKey.set(key, { index, link: normalizedLink, score });
       orderedKeys.push(key);
       continue;
     }
     if (score > existing.score) {
-      linksByKey.set(key, { link: normalizedLink, score });
+      linksByKey.set(key, { ...existing, link: normalizedLink, score });
     }
   }
-  return orderedKeys.map((key) => linksByKey.get(key)!.link);
+  return collapseJoinLinkRecords(orderedKeys.map((key) => linksByKey.get(key)!)).map((record) => record.link);
 }
 
 export function htmlToText(value: string | null | undefined): string | null {
@@ -67,6 +104,10 @@ function normalizeRawUrl(value: string): string {
   const url = trimUrl(value);
   if (!url) return "";
   return trimUrl(unwrapRedirectUrl(url));
+}
+
+function contextAroundMatch(value: string, index: number, length: number): string {
+  return value.slice(Math.max(0, index - 80), Math.min(value.length, index + length + 80));
 }
 
 function unwrapRedirectUrl(url: string): string {
@@ -106,6 +147,50 @@ function classifyUrl(url: string): Pick<CalendarJoinLink, "kind" | "label"> {
     return { kind: "zoom", label: "Zoom" };
   }
   return { kind: "web", label: "Web link" };
+}
+
+function joinLinkSourceScore(source: JoinLinkSource): number {
+  if (source === "location") return 20_000;
+  if (source === "url") return 12_000;
+  if (source === "description") return 0;
+  return 0;
+}
+
+function shouldIncludeWebJoinLink(url: string, fullValue: string, context: string, raw: string, source: JoinLinkSource): boolean {
+  if (source === "generic" && isBareUrlValue(fullValue, raw)) return true;
+  if (isLikelyGenericMeetingUrl(url)) return true;
+  return /\b(join|meeting|meet|video|conference|call|room|webinar)\b/i.test(context);
+}
+
+function isBareUrlValue(value: string, raw: string): boolean {
+  return trimUrl(value.trim()) === trimUrl(raw.trim());
+}
+
+function isLikelyGenericMeetingUrl(url: string): boolean {
+  const parsed = parseUrl(url);
+  if (!parsed) return false;
+  const host = normalizedHost(parsed.hostname);
+  const path = normalizedPathname(parsed).toLowerCase();
+  if (/(^|\.)whereby\.com$/.test(host)) return true;
+  if (/(^|\.)(webex|gotomeeting|bluejeans|ringcentral|chime\.aws)\./.test(host)) return true;
+  return /\/(join|meet|meeting|room|conference|call|webinar)(\/|$)/.test(path);
+}
+
+function collapseJoinLinkRecords<T extends { index: number; link: CalendarJoinLink; score: number }>(records: T[]): T[] {
+  const bestByKnownKind = new Map<CalendarJoinLink["kind"], T>();
+  for (const record of records) {
+    if (!isKnownMeetingKind(record.link.kind)) continue;
+    const existing = bestByKnownKind.get(record.link.kind);
+    if (!existing || record.score > existing.score) bestByKnownKind.set(record.link.kind, record);
+  }
+
+  if (bestByKnownKind.size === 0) return records;
+  const selected = new Set(bestByKnownKind.values());
+  return records.filter((record) => selected.has(record) || !isKnownMeetingKind(record.link.kind) && record.link.kind !== "web");
+}
+
+function isKnownMeetingKind(kind: CalendarJoinLink["kind"]): boolean {
+  return kind === "teams" || kind === "meet" || kind === "zoom";
 }
 
 function canonicalJoinLinkKey(url: string, kind: CalendarJoinLink["kind"]): string {

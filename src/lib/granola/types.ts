@@ -91,6 +91,14 @@ export interface GranolaSyncRunReport {
 export interface GranolaSyncStatus {
   configured: boolean;
   daemonEnabled: boolean;
+  daemonConfigured: boolean;
+  daemonHeartbeat: {
+    active: boolean;
+    updatedAt: string | null;
+    pid: number | null;
+    stale: boolean;
+    error: string | null;
+  };
   remoteHost: string;
   lastRun: {
     mode: GranolaSyncMode | string;

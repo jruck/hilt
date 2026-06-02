@@ -13,7 +13,7 @@ import { PersonMeetingList } from "./PersonMeetingList";
 import { MeetingEntry } from "./MeetingEntry";
 import { GranolaSyncControl } from "./GranolaSyncControl";
 import type { MeetingFilter } from "./PersonMeetingList";
-import type { BridgePerson, PersonMeeting, SuggestedMeeting } from "@/lib/types";
+import type { BridgePerson, PersonCalendarCandidate, PersonMeeting, SuggestedMeeting } from "@/lib/types";
 
 const INBOX_SLUG = "__inbox__";
 const SUGGESTED_PREFIX = "__suggested__/";
@@ -49,8 +49,10 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
       ? scopePath.slice(1) || null
       : scopePath || null;
   const meetingDeepLink = rawSelectedSlug?.match(/^([^/]+)\/meeting\/(.+)$/) ?? null;
-  const selectedSlug = meetingDeepLink ? meetingDeepLink[1] : rawSelectedSlug;
+  const nextDeepLink = meetingDeepLink ? null : rawSelectedSlug?.match(/^([^/]+)\/next$/) ?? null;
+  const selectedSlug = meetingDeepLink ? meetingDeepLink[1] : nextDeepLink ? nextDeepLink[1] : rawSelectedSlug;
   const targetGranolaId = meetingDeepLink ? decodeURIComponent(meetingDeepLink[2]) : null;
+  const targetNext = Boolean(nextDeepLink);
 
   const isInboxMode = selectedSlug === INBOX_SLUG;
   const isSuggestedMode = selectedSlug?.startsWith(SUGGESTED_PREFIX) ?? false;
@@ -133,6 +135,30 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
     return data.suggestedMeetings.find((meeting) => meeting.name === suggestedName) ?? null;
   }, [data, suggestedName]);
 
+  const handleSelectCalendarCandidate = useCallback(async (candidate: PersonCalendarCandidate) => {
+    if (!supportsNext || !selectedSlug || !activePersonDetail) return;
+    const response = await fetch(`/api/bridge/people/${selectedSlug}/next`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: activePersonDetail.nextRaw || "",
+        calendarCandidate: candidate,
+        keepCalendarOnEmpty: true,
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      throw new Error(body?.error || `Calendar selection failed with HTTP ${response.status}`);
+    }
+
+    await mutatePersonDetail();
+  }, [activePersonDetail, mutatePersonDetail, selectedSlug, supportsNext]);
+
+  const handlePersonUpdated = useCallback(async () => {
+    await Promise.all([mutatePeople(), mutatePersonDetail()]);
+  }, [mutatePeople, mutatePersonDetail]);
+
   // Meeting filter
   const [filterState, setFilterState] = useState<{ slug: string | null; value: MeetingFilter }>({
     slug: null,
@@ -155,12 +181,20 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
   // Build the synthetic "Next" entry (person mode only)
   const nextEntry = useMemo((): PersonMeeting | null => {
     if (!supportsNext || !activePersonDetail) return null;
+    const candidate = activePersonDetail.calendarLinks.primary;
 
     return {
       source: "next",
-      date: "",
+      date: candidate ? candidate.start.slice(0, 10) : "",
+      time: candidate?.start,
       title: "Next",
       notes: activePersonDetail.nextRaw,
+      hiltCalendarEventId: candidate?.eventId,
+      hiltCalendarMatchMethod: candidate?.method ? `next-${candidate.method}` : undefined,
+      hiltCalendarMatchConfidence: candidate?.confidence,
+      calendarIcalUid: candidate?.uid ?? undefined,
+      calendarCandidates: activePersonDetail.calendarLinks.candidates,
+      calendarSeriesKey: activePersonDetail.calendarLinks.selectedSeriesKey ?? candidate?.seriesKey,
     };
   }, [supportsNext, activePersonDetail]);
 
@@ -308,12 +342,13 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
     if (isMobile) setMobileShowMeeting(true);
   }, [displayMeetings, isMobile, selectedSlug, targetGranolaId]);
 
-  const handleCreateNext = useCallback(() => {
-    if (!supportsNext) return;
-    setFilterState({ slug: selectedSlug, value: "all" });
-    setMeetingSelection({ slug: selectedSlug, index: 0 });
+  useEffect(() => {
+    if (!targetNext || !selectedSlug || displayMeetings.length === 0) return;
+    const index = displayMeetings.findIndex((meeting) => meeting.source === "next");
+    if (index === -1) return;
+    setMeetingSelection({ slug: selectedSlug, index });
     if (isMobile) setMobileShowMeeting(true);
-  }, [isMobile, selectedSlug, supportsNext]);
+  }, [displayMeetings, isMobile, selectedSlug, targetNext]);
 
   const handleMobileSelectMeeting = useCallback((idx: number) => {
     setMeetingSelection({ slug: selectedSlug, index: idx });
@@ -378,6 +413,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
                 autoFocus={shouldAutoFocus}
                 onDelete={isInboxMode || isSuggestedMode ? undefined : handleDeleteMeeting}
                 onSaved={isInboxMode || isSuggestedMode ? undefined : mutatePersonDetail}
+                onSelectCalendarCandidate={isInboxMode || isSuggestedMode ? undefined : handleSelectCalendarCandidate}
               />
             </div>
           </MobileChromeContent>
@@ -404,7 +440,8 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
               suggestedName={suggestedName}
               suggestedMeeting={selectedSuggestedMeeting}
               totalCount={inboxData?.totalCount}
-              onCreateNext={supportsNext ? handleCreateNext : undefined}
+              onSelectCalendarCandidate={supportsNext ? handleSelectCalendarCandidate : undefined}
+              onPersonUpdated={supportsNext ? handlePersonUpdated : undefined}
               onPromoteSuggested={isSuggestedMode ? handlePromoteSuggested : undefined}
               onHideSuggested={isSuggestedMode ? handleHideSuggested : undefined}
             />
@@ -476,7 +513,8 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
             suggestedName={suggestedName}
             suggestedMeeting={selectedSuggestedMeeting}
             totalCount={inboxData?.totalCount}
-            onCreateNext={supportsNext ? handleCreateNext : undefined}
+            onSelectCalendarCandidate={supportsNext ? handleSelectCalendarCandidate : undefined}
+            onPersonUpdated={supportsNext ? handlePersonUpdated : undefined}
             onPromoteSuggested={isSuggestedMode ? handlePromoteSuggested : undefined}
             onHideSuggested={isSuggestedMode ? handleHideSuggested : undefined}
           />
@@ -498,6 +536,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
               autoFocus={shouldAutoFocus}
               onDelete={isInboxMode || isSuggestedMode ? undefined : handleDeleteMeeting}
               onSaved={isInboxMode || isSuggestedMode ? undefined : mutatePersonDetail}
+              onSelectCalendarCandidate={isInboxMode || isSuggestedMode ? undefined : handleSelectCalendarCandidate}
             />
           ) : (
             <div className="flex items-center justify-center h-full text-[var(--text-tertiary)]">
@@ -545,8 +584,8 @@ function PeopleListSections({
 
   return (
     <>
-      <InboxCard compact={compact} selected={isInboxMode} onClick={onInboxSelect} stats={inboxStats} />
       <GranolaSyncControl compact={compact} />
+      <InboxCard compact={compact} selected={isInboxMode} onClick={onInboxSelect} stats={inboxStats} />
 
       {suggestedMeetings.length > 0 && (
         <>

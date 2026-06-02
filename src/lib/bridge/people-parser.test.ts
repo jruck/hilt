@@ -3,18 +3,33 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import {
+  closeCalendarDbForTests,
+  queryCalendarEvents,
+  replaceSourceEvents,
+  upsertCalendar,
+} from "../calendar/db";
+import type { CalendarEventInput } from "../calendar/types";
+import {
   getAllPeople,
   getPersonDetail,
+  resolveCalendarEventNoteTargets,
   hideSuggestedMeeting,
   promoteSuggestedMeeting,
+  attachPeopleNoteTargetsToCalendarEvents,
+  updatePersonMetadata,
   updatePersonNext,
 } from "./people-parser";
 
 const tempDirs: string[] = [];
+const originalCalendarDbPath = process.env.HILT_CALENDAR_DB_PATH;
+const originalDataDir = process.env.DATA_DIR;
 
 function makeVault(): string {
   const vaultPath = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-people-"));
   tempDirs.push(vaultPath);
+  closeCalendarDbForTests();
+  process.env.DATA_DIR = vaultPath;
+  process.env.HILT_CALENDAR_DB_PATH = path.join(vaultPath, ".calendar-test.sqlite");
   fs.mkdirSync(path.join(vaultPath, "people"), { recursive: true });
   fs.mkdirSync(path.join(vaultPath, "meetings"), { recursive: true });
   fs.writeFileSync(path.join(vaultPath, "people", "index.md"), "# People\n", "utf-8");
@@ -38,10 +53,46 @@ Recorded summary.
 }
 
 afterEach(() => {
+  closeCalendarDbForTests();
+  if (originalCalendarDbPath === undefined) delete process.env.HILT_CALENDAR_DB_PATH;
+  else process.env.HILT_CALENDAR_DB_PATH = originalCalendarDbPath;
+  if (originalDataDir === undefined) delete process.env.DATA_DIR;
+  else process.env.DATA_DIR = originalDataDir;
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+function seedFutureCalendarEvent(input: Partial<CalendarEventInput> = {}) {
+  upsertCalendar("personal", "Personal", "#dc2626");
+  const start = input.start ?? "2099-01-30T15:00:00.000Z";
+  const end = input.end ?? "2099-01-30T15:30:00.000Z";
+  const uid = input.uid ?? "alex-weekly@example.com";
+  replaceSourceEvents("personal", [{
+    id: input.id ?? "cal_alex_weekly_next",
+    sourceId: "personal",
+    calendarId: "personal:primary",
+    uid,
+    recurrenceId: input.recurrenceId ?? "20990130T150000Z",
+    dedupeKey: input.dedupeKey ?? `uid:${uid}:${start}`,
+    title: input.title ?? "Alex Weekly",
+    start,
+    end,
+    sortStart: Date.parse(start),
+    sortEnd: Date.parse(end),
+    allDay: false,
+    description: null,
+    location: null,
+    joinLinks: [],
+    attendees: [],
+    organizer: null,
+    recurrence: input.recurrence ?? { recurring: true, recurrenceId: "20990130T150000Z", rules: ["FREQ=WEEKLY"] },
+    status: null,
+    providerUrl: null,
+    raw: {},
+    ...input,
+  }]);
+}
 
 describe("people parser meeting notes", () => {
   it("matches transcript-only recordings to saved people", async () => {
@@ -304,6 +355,196 @@ type: person
     expect(cleared).not.toContain("next_saved_at:");
   });
 
+  it("returns future calendar links for a saved person's recurring meeting history", async () => {
+    const vaultPath = makeVault();
+    seedFutureCalendarEvent();
+    fs.writeFileSync(
+      path.join(vaultPath, "people", "alex.md"),
+      `---
+type: person
+---
+
+# Alex
+
+## Next
+
+## Notes
+`,
+      "utf-8"
+    );
+    fs.writeFileSync(
+      path.join(vaultPath, "meetings", "Alex Weekly-2026-05-26 @ 11-32-08.md"),
+      `---
+title: Alex Weekly
+created: 2026-05-26T15:32:08.316Z
+calendar_ical_uid: alex-weekly@example.com
+hilt_calendar_event_id: cal_alex_weekly_history
+---
+
+# Alex Weekly
+
+Recorded summary.
+`,
+      "utf-8"
+    );
+
+    const detail = await getPersonDetail(vaultPath, "alex");
+
+    expect(detail?.calendarLinks.primary).toMatchObject({
+      eventId: "cal_alex_weekly_next",
+      title: "Alex Weekly",
+      uid: "alex-weekly@example.com",
+      seriesKey: "icaluid:alex-weekly@example.com",
+      method: "icaluid",
+      historicalCount: 1,
+    });
+  });
+
+  it("resolves People Next note targets for future calendar events with saved meeting history", () => {
+    const vaultPath = makeVault();
+    seedFutureCalendarEvent();
+    fs.writeFileSync(
+      path.join(vaultPath, "people", "alex.md"),
+      `---
+type: person
+---
+
+# Alex
+
+## Next
+
+## Notes
+`,
+      "utf-8"
+    );
+    fs.writeFileSync(
+      path.join(vaultPath, "meetings", "Alex Weekly-2026-05-26 @ 11-32-08.md"),
+      `---
+title: Alex Weekly
+created: 2026-05-26T15:32:08.316Z
+calendar_ical_uid: alex-weekly@example.com
+hilt_calendar_event_id: cal_alex_weekly_history
+---
+
+# Alex Weekly
+
+Recorded summary.
+`,
+      "utf-8"
+    );
+    const [event] = queryCalendarEvents({
+      start: new Date("2099-01-30T00:00:00.000Z"),
+      end: new Date("2099-01-31T00:00:00.000Z"),
+    });
+
+    const targets = resolveCalendarEventNoteTargets(vaultPath, event, new Date("2099-01-01T00:00:00.000Z"));
+
+    expect(targets).toHaveLength(1);
+    expect(targets[0]).toMatchObject({
+      kind: "person-next",
+      slug: "alex",
+      name: "Alex",
+      personType: "person",
+      candidate: {
+        eventId: "cal_alex_weekly_next",
+        title: "Alex Weekly",
+        uid: "alex-weekly@example.com",
+        seriesKey: "icaluid:alex-weekly@example.com",
+        method: "icaluid",
+      },
+    });
+  });
+
+  it("does not add a People prep target when the event already has recorded meeting notes", () => {
+    const vaultPath = makeVault();
+    seedFutureCalendarEvent();
+    fs.writeFileSync(
+      path.join(vaultPath, "people", "alex.md"),
+      `---
+type: person
+---
+
+# Alex
+
+## Next
+
+## Notes
+`,
+      "utf-8"
+    );
+    fs.writeFileSync(
+      path.join(vaultPath, "meetings", "Alex Weekly-2026-05-26 @ 11-32-08.md"),
+      `---
+title: Alex Weekly
+created: 2026-05-26T15:32:08.316Z
+calendar_ical_uid: alex-weekly@example.com
+---
+
+# Alex Weekly
+
+Recorded summary.
+`,
+      "utf-8"
+    );
+    const [event] = queryCalendarEvents({
+      start: new Date("2099-01-30T00:00:00.000Z"),
+      end: new Date("2099-01-31T00:00:00.000Z"),
+    });
+
+    const [annotated] = attachPeopleNoteTargetsToCalendarEvents([{
+      ...event,
+      meetingNotes: [{
+        granolaId: "granola-alex-weekly",
+        title: "Alex Weekly",
+        notePath: "meetings/Alex Weekly.md",
+        transcriptPath: null,
+        granolaUrl: null,
+        calendarMatchMethod: "icaluid",
+        calendarMatchConfidence: 1,
+      }],
+    }], vaultPath, new Date("2099-01-01T00:00:00.000Z"));
+
+    expect(annotated.noteTargets).toBeUndefined();
+  });
+
+  it("persists and clears Next calendar context", () => {
+    const initial = `---
+type: person
+---
+
+# Alex
+
+## Next
+
+## Notes
+`;
+    const saved = updatePersonNext(initial, "- Ask about launch risks", {
+      calendarCandidate: {
+        eventId: "cal_alex_weekly_next",
+        title: "Alex Weekly",
+        start: "2099-01-30T15:00:00.000Z",
+        end: "2099-01-30T15:30:00.000Z",
+        uid: "alex-weekly@example.com",
+        seriesKey: "icaluid:alex-weekly@example.com",
+        method: "icaluid",
+        confidence: 1,
+        historicalCount: 3,
+        lastSeenAt: "2026-05-26T15:32:08.316Z",
+      },
+    });
+
+    expect(saved).toContain("next_calendar_series_key: icaluid:alex-weekly@example.com");
+    expect(saved).toContain("next_calendar_event_id: cal_alex_weekly_next");
+    expect(saved).toContain("next_calendar_event_start: 2099-01-30T15:00:00.000Z");
+    expect(saved).toContain("next_calendar_title: Alex Weekly");
+
+    const cleared = updatePersonNext(saved, "");
+    expect(cleared).not.toContain("next_calendar_series_key:");
+    expect(cleared).not.toContain("next_calendar_event_id:");
+    expect(cleared).not.toContain("next_calendar_event_start:");
+    expect(cleared).not.toContain("next_calendar_title:");
+  });
+
   it("keeps markdown headings inside the Next scratchpad", async () => {
     const vaultPath = makeVault();
     const nextContent = `## 1. First ask
@@ -395,6 +636,115 @@ Recorded summary.
     expect(personFile).toContain("### " + today + " - Weekly Sync");
   });
 
+  it("promotes Next into the first actual recording even when calendar context points later", async () => {
+    const vaultPath = makeVault();
+    const today = new Date().toISOString().slice(0, 10);
+    const personPath = path.join(vaultPath, "people", "alex.md");
+    fs.writeFileSync(
+      personPath,
+      `---
+type: person
+next_saved_at: ${today}T08:00:00
+next_calendar_series_key: icaluid:alex-weekly@example.com
+next_calendar_event_id: cal_future
+next_calendar_event_start: 2099-01-30T15:00:00.000Z
+next_calendar_title: Alex Weekly
+---
+
+# Alex
+
+## Next
+
+- Bring roadmap question
+
+## Notes
+`,
+      "utf-8"
+    );
+    fs.writeFileSync(
+      path.join(vaultPath, "meetings", "Alex Weekly-2026-05-26 @ 11-32-08.md"),
+      `---
+title: Alex Weekly
+created: ${today}T10:00:00
+calendar_ical_uid: alex-weekly@example.com
+hilt_calendar_event_id: cal_actual
+---
+
+# Alex Weekly
+
+Recorded summary.
+`,
+      "utf-8"
+    );
+
+    const detail = await getPersonDetail(vaultPath, "alex");
+    const personFile = fs.readFileSync(personPath, "utf-8");
+
+    expect(detail?.nextRaw).toBe("");
+    expect(detail?.meetings[0].notes).toContain("Bring roadmap question");
+    expect(personFile).toContain(`### ${today} - Alex Weekly`);
+    expect(personFile).not.toContain("next_calendar_event_id:");
+  });
+
+  it("uses selected calendar context as a tie-breaker between simultaneous recordings", async () => {
+    const vaultPath = makeVault();
+    const today = new Date().toISOString().slice(0, 10);
+    fs.writeFileSync(
+      path.join(vaultPath, "people", "alex.md"),
+      `---
+type: person
+next_saved_at: ${today}T08:00:00
+next_calendar_series_key: title:alex weekly
+next_calendar_event_id: cal_future
+next_calendar_event_start: 2099-01-30T15:00:00.000Z
+next_calendar_title: Alex Weekly
+---
+
+# Alex
+
+## Next
+
+- Ask about launch risks
+
+## Notes
+`,
+      "utf-8"
+    );
+    fs.writeFileSync(
+      path.join(vaultPath, "meetings", "Alex Other-2026-05-26 @ 10-00-00.md"),
+      `---
+title: Alex Other
+created: ${today}T10:00:00
+---
+
+# Alex Other
+
+Recorded summary.
+`,
+      "utf-8"
+    );
+    fs.writeFileSync(
+      path.join(vaultPath, "meetings", "Alex Weekly-2026-05-26 @ 10-00-00.md"),
+      `---
+title: Alex Weekly
+created: ${today}T10:00:00
+---
+
+# Alex Weekly
+
+Recorded summary.
+`,
+      "utf-8"
+    );
+
+    const detail = await getPersonDetail(vaultPath, "alex");
+    const weekly = detail?.meetings.find((meeting) => meeting.title === "Alex Weekly");
+    const other = detail?.meetings.find((meeting) => meeting.title === "Alex Other");
+
+    expect(weekly?.notes).toContain("Ask about launch risks");
+    expect(other?.notes).toBeUndefined();
+  });
+
   it("hides a suggested meeting until new unmatched activity appears", async () => {
     const vaultPath = makeVault();
     writeMeeting(vaultPath, "Design review", "2026-05-01");
@@ -460,5 +810,47 @@ Recorded summary.
     expect(indexContent).toContain("- [[insights-architecture]]");
     expect(indexContent).not.toContain("Promoted from suggested meetings");
     expect(people.people.find((person) => person.slug === "insights-architecture")?.description).toBe("");
+  });
+
+  it("updates saved person metadata across the person file and people index", async () => {
+    const vaultPath = makeVault();
+    fs.writeFileSync(
+      path.join(vaultPath, "people", "index.md"),
+      "# People\n\n## People\n\n- [[alex]] — Original description\n",
+      "utf-8"
+    );
+    fs.writeFileSync(
+      path.join(vaultPath, "people", "alex.md"),
+      `---
+type: person
+aliases: ["Alex"]
+---
+
+# Alex
+
+## Next
+
+## Notes
+`,
+      "utf-8"
+    );
+
+    const updated = updatePersonMetadata(vaultPath, "alex", {
+      name: "Alex Rivera",
+      description: "Product lead",
+      aliases: ["Alex", "AR", "Alex"],
+    });
+    const fileContent = fs.readFileSync(path.join(vaultPath, "people", "alex.md"), "utf-8");
+    const indexContent = fs.readFileSync(path.join(vaultPath, "people", "index.md"), "utf-8");
+    const detail = await getPersonDetail(vaultPath, "alex");
+
+    expect(updated.name).toBe("Alex Rivera");
+    expect(updated.description).toBe("Product lead");
+    expect(updated.aliases).toEqual(["Alex", "AR"]);
+    expect(fileContent).toContain("# Alex Rivera");
+    expect(fileContent).toContain('aliases: ["Alex","AR"]');
+    expect(indexContent).toContain("- [[alex]] — Product lead");
+    expect(detail?.name).toBe("Alex Rivera");
+    expect(detail?.description).toBe("Product lead");
   });
 });

@@ -152,6 +152,36 @@ export async function fetchOpenGraphMetadata(url: string, options: FetchOpenGrap
   }
 }
 
+/**
+ * Cheap liveness check for a remote image URL — HEAD (falling back to a 1-byte ranged GET for servers
+ * that reject HEAD). Returns false on any non-2xx/206, a non-image content-type, or network failure,
+ * so a broken hero (e.g. a screenshot-render service that now 500s) can be replaced by OpenGraph media.
+ */
+async function isReachableImage(url: string, options: FetchOpenGraphOptions = {}): Promise<boolean> {
+  if (!/^https?:\/\//i.test(url)) return true; // local/relative — leave it alone
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  const timeoutMs = options.timeoutMs || Number(process.env.LIBRARY_MEDIA_FETCH_TIMEOUT_MS || 8000);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const headers = { "user-agent": "Hilt Reference Library media enricher" };
+  try {
+    let response = await fetchImpl(url, { method: "HEAD", redirect: "follow", headers, signal: controller.signal });
+    if (response.status === 405 || response.status === 501) {
+      response = await fetchImpl(url, { method: "GET", redirect: "follow", headers: { ...headers, range: "bytes=0-0" }, signal: controller.signal });
+    }
+    if (!response.ok && response.status !== 206) return false;
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    if (contentType.startsWith("image/")) return true;
+    // No content-type header: trust only if the URL itself looks like an image file.
+    if (!contentType) return isUsableImageUrl(url);
+    return false;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function metadataMedia(raw: RawArtifact): Array<Record<string, unknown>> {
   return Array.isArray(raw.metadata.media)
     ? raw.metadata.media.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object")) as Array<Record<string, unknown>>
@@ -182,24 +212,34 @@ export async function enrichRawArtifactMedia(
   }
 
   const notes: string[] = [];
-  const mediaImage = firstMetadataImage(raw);
-  if (!raw.thumbnail && mediaImage) {
+  let working = raw;
+
+  // A present-but-broken thumbnail used to short-circuit the OpenGraph fallback below. Validate a
+  // remote thumbnail first and drop it if it's unreachable / not an image, so the fallbacks can
+  // supply a real hero (e.g. a Raindrop screenshot-render URL that now 500s on a 360-viewer page).
+  if (working.thumbnail && shouldFetchOpenGraph(working) && !(await isReachableImage(working.thumbnail, options))) {
+    notes.push("Captured thumbnail was unreachable; replacing with Open Graph media if available.");
+    working = { ...working, thumbnail: undefined };
+  }
+
+  const mediaImage = firstMetadataImage(working);
+  if (!working.thumbnail && mediaImage) {
     notes.push("Used source-provided media image as thumbnail.");
-    return { raw: { ...raw, thumbnail: mediaImage }, notes };
+    return { raw: { ...working, thumbnail: mediaImage }, notes };
   }
-  if (raw.thumbnail || !shouldFetchOpenGraph(raw)) {
-    return { raw, notes };
+  if (working.thumbnail || !shouldFetchOpenGraph(working)) {
+    return { raw: working, notes };
   }
 
-  const metadata = await fetchOpenGraphMetadata(raw.url, options);
-  if (!metadata?.image) return { raw, notes };
+  const metadata = await fetchOpenGraphMetadata(working.url, options);
+  if (!metadata?.image) return { raw: working, notes };
 
-  const media = metadataMedia(raw);
+  const media = metadataMedia(working);
   const nextRaw: RawArtifact = {
-    ...raw,
+    ...working,
     thumbnail: metadata.image,
     metadata: {
-      ...raw.metadata,
+      ...working.metadata,
       canonical_url: typeof raw.metadata.canonical_url === "string" ? raw.metadata.canonical_url : metadata.canonicalUrl,
       og_description: typeof raw.metadata.og_description === "string" ? raw.metadata.og_description : metadata.description,
       og_image: metadata.image,

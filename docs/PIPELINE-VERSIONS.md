@@ -53,8 +53,10 @@ Old versions are **never** kept as parallel runnable files. When the logic chang
 in place and the previous behavior is recovered from git. Mapping each version to a git ref (below) is
 how you "run" an old version: check out the ref.
 
-**Current = `v1.3` (a test iteration in the Updated lane). `v1.4` is PENDING (concision). No reweave
-generation has been published at scale yet — the first full backfill will publish `v2`.**
+**Current = `v2` — the PUBLISHED baseline.** `v2` is the `v1.4` protocol verbatim (concision & density),
+promoted to an integer because it is being rolled out across the whole library via a full backfill
+(`scripts/library-backfill.ts`). The `v1.1 → v1.4` decimals were the review iterations that led here;
+every durable reference not yet stamped `v2` is a backfill target.
 
 ## Version history
 
@@ -63,9 +65,9 @@ generation has been published at scale yet — the first full backfill will publ
 | v1 | **published baseline** | Digest era: `summarize`-CLI `DIGEST_PROMPT` (+ heuristic origin) + chrome stripping + cached-source reuse; token-overlap (later partly LLM-rejudged) connections. What the bulk of the ~600 refs carry. | `a19cb02`, `739c58f`, `d3b27f3` (2026-05-27 → 05-29) |
 | v1.1 | test | LLM-judgment connections (`judgeConnections`), token overlap removed | `d3b27f3` (2026-05-29) |
 | v1.2 | test | Unified **reweave**: one Claude pass → free-form digest + disciplined connections | uncommitted working tree (this session) |
-| **v1.3 (current)** | test | Intent-aware reweave: ideas-first voice, treatment modes, X long-form/thread/embed, self-reference filter, omit-empty-connections | uncommitted working tree (this session) |
-| v1.4 (PENDING) | test | Concision nudge — bias toward the tightest version that carries the substance | not yet applied |
-| v2 (FUTURE) | published baseline | First full-library backfill with the blessed reweave protocol = promotion to the published standard | not yet cut |
+| v1.3 | test | Intent-aware reweave: ideas-first voice, treatment modes, X long-form/thread/embed, self-reference filter, omit-empty-connections | uncommitted working tree (this session) |
+| v1.4 | test | Concision & density: executive-brief discipline (bullets/tables over prose walls), newsletter synthesis, connections lean first-party + deduped | uncommitted working tree (this session) |
+| **v2 (current)** | **published baseline** | The `v1.4` protocol verbatim, promoted on full-library backfill. Every durable reference is being reanalyzed to v2 (`scripts/library-backfill.ts`); v1.4 items re-stamped without reweave | uncommitted working tree (this session) |
 
 > **Re-base note (2026-06-01):** earlier this work was numbered v1–v5 as if each step shipped. It
 > didn't — only the *digest era* (now folded into **v1**) was ever applied across the whole library.
@@ -150,19 +152,46 @@ generation has been published at scale yet — the first full backfill will publ
   - **Reweave timeout** raised and made configurable via `LIBRARY_REWEAVE_TIMEOUT_MS`.
 - **Why:** early reweave kept narrating the medium and grading its own work; treatment modes stop
   over-processing a product page or aesthetic save as if it were an essay.
-- **Open feedback:** substantively good but **occasionally long** → motivates `v1.4` (concision).
-- **Git ref:** uncommitted working tree (this session). `PIPELINE_VERSION = "v1.3"` in `pipeline.ts`.
+- **Open feedback:** substantively good but **too prose-heavy** → motivates `v1.4` (concision & density).
+- **Git ref:** uncommitted working tree (this session).
 
-### v1.4 — Concision nudge (PENDING, not yet applied)
+### v1.4 — Concision & density (current)
 
-- **Summary:** Bias the digest toward the **tightest version that still carries the substance**.
-- **What will change:** a concision instruction in `REWEAVE_PROMPT` — when two phrasings carry the same
-  substance, prefer the shorter; cut runway and restatement.
-- **Why:** `v1.3` output is honest and on-voice but still occasionally long; the goal is the smallest
-  note that loses nothing.
-- **Status:** **PENDING.** Not in `reweave-prompt.ts` yet; `PIPELINE_VERSION` is still `v1.3`. When
-  applied, bump to `v1.4`, write `docs/review-notes/v1.4.md`, and move this entry above the line.
+- **Summary:** Same one-pass reweave, pushed toward **executive-brief density** and away from
+  paragraph-heavy output. Targeted additions only (the prompt's structure/voice from v1.3 is kept).
+- **What changed (three targeted rules added to `REWEAVE_PROMPT`):**
+  - **DENSITY directive:** write like a daily executive brief — lead with the takeaway, deliver substance
+    at the highest signal-per-word, prefer tight bullets and small tables over paragraph walls, reserve
+    prose for where it carries an argument, cut floral runway/restatement. Length tracks substance.
+  - **Newsletter / roundup treatment mode:** for a multi-topic digest, synthesize the 1-3 salient threads
+    rather than mirroring its table of contents as a heading-then-paragraph per item.
+  - **Connections lean first-party + dedupe:** library cross-refs default to none-or-one (two is a lot),
+    first-party ties always lead, and the Connections list must not repeat a point the digest body
+    already drew.
+- **Why:** v1.3 read well but too many notes were walls of prose (Centaurs, Dax, Vibe-Code), the AI News
+  newsletter reproduced its whole TOC, and library cross-refs crowded/duplicated the first-party ties.
+  The model is Justin's own manual captures (e.g. `references/process/2026-05-22-roadmap-defense-collapsing`):
+  tight Summary → dense Key-Insight bullets → Implications-for-his-work with first-party links.
+- **Separate (non-prompt) fix to ship with this batch:** broken hero images (e.g. a 360-viewer asset)
+  fall back to the page's OpenGraph `og:image`.
+- **Git ref:** uncommitted working tree (this session). `PIPELINE_VERSION = "v1.4"` in `pipeline.ts`.
+
+### v2 — Published baseline (current)
+
+- **Summary:** The `v1.4` protocol **verbatim** (no prompt change), promoted from a decimal test
+  iteration to the integer **published baseline** because it is being applied across the whole library.
+- **What "promotion" means:** after iterating `v1.1 → v1.4` on a small review batch and blessing the
+  result, every durable reference is reanalyzed to `v2`. Items already at `v1.4` are **re-stamped**
+  `v2` without a reweave (identical protocol); everything else is reweaved. New organic ingestion
+  stamps `v2` automatically.
+- **The backfill runner:** `scripts/library-backfill.ts` — a parallel, resumable, rate-limit-aware
+  orchestrator. Worklist = every `type: reference` not yet `v2` (recomputed from disk each pass, so it
+  is idempotent and resumes after interruption). A worker pool of N reweave processes shares one
+  prebuilt KB index; on a Claude usage limit a worker exits `75`, the pool pauses with exponential
+  backoff and drops concurrency, then climbs back after a clean streak. Read-state baseline is advanced
+  at the end so the mass rewrite does not flood the New lane.
+- **Git ref:** uncommitted working tree (this session). `PIPELINE_VERSION = "v2"` in `pipeline.ts`.
 
 ---
 
-*Last updated: 2026-06-01*
+*Last updated: 2026-06-02*

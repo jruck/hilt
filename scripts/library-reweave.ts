@@ -1,10 +1,11 @@
 import fs from "fs";
 import path from "path";
 import { loadEnvConfig } from "@next/env";
-import { reweaveArtifact } from "../src/lib/library/connections";
+import { reweaveArtifact, RateLimitError } from "../src/lib/library/connections";
 import { buildKbIndex } from "../src/lib/library/kb-index";
 import { extractHeading, extractSection, markdownToPlain, parseMarkdownFile, stringifyMarkdown } from "../src/lib/library/markdown";
 import { buildMediaMarkdown, stripDetailsWrapper } from "../src/lib/library/media";
+import { enrichRawArtifactMedia } from "../src/lib/library/media-enrichment";
 import { PIPELINE_VERSION } from "../src/lib/library/pipeline";
 import { addToReviewQueue } from "../src/lib/library/review-queue";
 import { hashId } from "../src/lib/library/utils";
@@ -135,8 +136,13 @@ async function main(): Promise<void> {
   if (outDir && !write) {
     fs.mkdirSync(outDir, { recursive: true });
   }
-  // Build the KB index ONCE and reuse it across every file in this run.
-  const kbIndex = buildKbIndex(vaultPath, { noWrite: true });
+  // Build the KB index ONCE and reuse it across every file in this run. A backfill orchestrator can
+  // build it once and pass --kb-index-file so parallel workers don't each rebuild it.
+  const kbIndexFile = argValue("--kb-index-file");
+  const kbIndex = kbIndexFile && fs.existsSync(kbIndexFile)
+    ? fs.readFileSync(kbIndexFile, "utf-8")
+    : buildKbIndex(vaultPath, { noWrite: true });
+  const rethrowRateLimit = process.env.LIBRARY_REWEAVE_RETHROW_RATELIMIT === "1";
   const results: unknown[] = [];
   // Review-queue entries collected across the run, registered once at the end.
   const reviewEntries: Array<{ id: string; path: string; pipeline_version: string }> = [];
@@ -171,7 +177,17 @@ async function main(): Promise<void> {
       tags ? `tags: ${tags}` : "",
     ].filter(Boolean).join("; ");
 
-    const reweave = await reweaveArtifact(kbIndex, { title, sourceContent, intent }, { vaultPath });
+    let reweave: Awaited<ReturnType<typeof reweaveArtifact>>;
+    try {
+      reweave = await reweaveArtifact(kbIndex, { title, sourceContent, intent }, { vaultPath, rethrowRateLimit });
+    } catch (error) {
+      if (error instanceof RateLimitError) {
+        // Signal the backfill orchestrator to pause + back off (exit 75 = EX_TEMPFAIL).
+        console.error(`RATE_LIMITED${error.resetAt ? ` RESET_AT=${error.resetAt}` : ""}`);
+        process.exit(75);
+      }
+      throw error;
+    }
 
     // SKIP-ON-FAILURE: a null result (CLI missing/timeout/rate-limit/disabled) or an empty digest
     // means we cannot responsibly rewrite the body. Leave the file untouched and report it.
@@ -203,14 +219,33 @@ async function main(): Promise<void> {
 
     const proposedTitle = reweave.proposed_title.trim() || title;
     const digest = reweave.digest_markdown.trim();
-    // Preserve the existing Media section verbatim; if there isn't one, build it from frontmatter
-    // (e.g. an X post or YouTube link that was captured without an embed) so the post shows at top.
-    let media = extractSectionWithHeading(body, "Media");
+    // Repair a broken/missing hero before (re)building Media: validate the captured thumbnail and fall
+    // back to the page's OpenGraph image when it's unreachable (e.g. a Raindrop screenshot-render URL
+    // that 500s on a 360-viewer product page). When the thumbnail changes, rebuild Media so the dead
+    // image is dropped rather than preserved.
+    const originalThumb = typeof data.thumbnail === "string" ? data.thumbnail : undefined;
+    const enriched = await enrichRawArtifactMedia({
+      url: String(data.url || ""),
+      title,
+      thumbnail: originalThumb,
+      date: String(data.published || data.captured || ""),
+      metadata: { media: Array.isArray(data.media) ? data.media : [] },
+    } as RawArtifact);
+    const repairedThumb = typeof enriched.raw.thumbnail === "string" ? enriched.raw.thumbnail : undefined;
+    const thumbChanged = repairedThumb !== originalThumb;
+    if (thumbChanged) {
+      if (repairedThumb) data.thumbnail = repairedThumb;
+      else delete data.thumbnail;
+    }
+
+    // Preserve the existing Media section verbatim; if there isn't one (or we just repaired the hero),
+    // build it from frontmatter so the post/image shows at top.
+    let media = thumbChanged ? "" : extractSectionWithHeading(body, "Media");
     if (!media.trim()) {
       const built = buildMediaMarkdown({
         url: String(data.url || ""),
         title,
-        thumbnail: typeof data.thumbnail === "string" ? data.thumbnail : undefined,
+        thumbnail: repairedThumb,
         date: String(data.published || data.captured || ""),
         metadata: {
           video_url: typeof data.video_url === "string" ? data.video_url : undefined,

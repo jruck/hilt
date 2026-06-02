@@ -340,7 +340,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
 
   useEffect(() => {
     if (!selectedId || loading) return;
-    if (libraryItemIdFromScope(scopePath) === selectedId) return;
+    if (libraryItemIdFromScope(scopePath)) return;
     if (!selectedVisible) {
       if (ranking === "new" && localReadIds.has(selectedId)) return;
       if (density === "list" && items[0]) {

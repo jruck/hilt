@@ -20,7 +20,7 @@
  * Never keep runnable copies of old versions — git history is the archive.
  */
 
-export const PIPELINE_VERSION = "v1.3";
+export const PIPELINE_VERSION = "v2";
 
 export const DIGEST_PROMPT = [
   "Write a 2-4 sentence narrative summary of this source for a personal reference library.",

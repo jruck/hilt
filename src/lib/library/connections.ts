@@ -34,6 +34,42 @@ function resolveClaudeBin(): string {
 }
 
 /**
+ * Thrown by reweaveArtifact (only when `rethrowRateLimit` is set) when the Claude CLI signals a
+ * subscription/usage limit, so a backfill orchestrator can pause + back off instead of treating it
+ * as a content failure. `resetAt` is the parsed reset time when the CLI provides one.
+ */
+export class RateLimitError extends Error {
+  resetAt: string | null;
+  constructor(message: string, resetAt: string | null = null) {
+    super(message);
+    this.name = "RateLimitError";
+    this.resetAt = resetAt;
+  }
+}
+
+const RATE_LIMIT_RE = /usage limit|rate.?limit|rate.?limited|429|too many requests|over_?loaded|quota|limit (?:reached|exceeded|will reset)|resets? at|try again (?:later|in)/i;
+
+/**
+ * Sniff CLI stdout/stderr/error text for a usage-limit signal. Returns whether it looks rate-limited
+ * and, when present, an ISO reset time parsed from common phrasings ("resets at 3pm", an epoch, an ISO).
+ */
+function detectRateLimit(...texts: Array<string | undefined>): { limited: boolean; resetAt: string | null } {
+  const blob = texts.filter(Boolean).join("\n");
+  if (!blob || !RATE_LIMIT_RE.test(blob)) return { limited: false, resetAt: null };
+  let resetAt: string | null = null;
+  const iso = blob.match(/\b(\d{4}-\d{2}-\d{2}T[\d:.]+Z?)\b/);
+  if (iso) resetAt = iso[1];
+  else {
+    const epoch = blob.match(/reset[^0-9]{0,20}(\d{10,13})/i);
+    if (epoch) {
+      const n = Number(epoch[1]);
+      resetAt = new Date(n < 1e12 ? n * 1000 : n).toISOString();
+    }
+  }
+  return { limited: true, resetAt };
+}
+
+/**
  * Run the Claude CLI headlessly and capture stdout. Mirrors the execFile/timeout/maxBuffer
  * plumbing used elsewhere in the library. We close stdin immediately (the whole task is passed
  * via -p) so the CLI does not wait on stdin. `cwd` points the run at the vault so the judge's
@@ -215,7 +251,7 @@ function buildReweaveTask(
 export async function reweaveArtifact(
   kbIndex: string,
   artifact: { title: string; sourceContent: string; intent?: string },
-  opts: { timeoutMs?: number; model?: string; vaultPath?: string } = {},
+  opts: { timeoutMs?: number; model?: string; vaultPath?: string; rethrowRateLimit?: boolean } = {},
 ): Promise<ReweaveResult | null> {
   if (process.env.LIBRARY_CONNECTIONS_DISABLED === "1") return null;
   if (!kbIndex.trim() || !artifact.title.trim()) return null;
@@ -250,10 +286,22 @@ export async function reweaveArtifact(
     if (model) args.push("--model", model);
 
     const stdout = await runClaude(resolveClaudeBin(), args, timeoutMs, vaultPath);
+    // Exit 0 can still carry a usage-limit message in the JSON envelope (is_error + result text).
+    if (opts.rethrowRateLimit) {
+      const hit = detectRateLimit(stdout);
+      if (hit.limited) throw new RateLimitError("Claude usage limit reached during reweave", hit.resetAt);
+    }
     const modelText = extractModelText(stdout);
     if (!modelText) return null;
     return parseReweaveOutput(modelText);
-  } catch {
+  } catch (error) {
+    if (error instanceof RateLimitError) throw error;
+    // Non-zero exit / timeout: inspect the error (execFile errors carry .stderr/.message) for a limit.
+    if (opts.rethrowRateLimit) {
+      const e = error as { message?: string; stderr?: string; stdout?: string };
+      const hit = detectRateLimit(e?.message, e?.stderr, e?.stdout);
+      if (hit.limited) throw new RateLimitError("Claude usage limit reached during reweave", hit.resetAt);
+    }
     return null;
   } finally {
     await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});

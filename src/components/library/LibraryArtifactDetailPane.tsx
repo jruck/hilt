@@ -101,10 +101,12 @@ function MediaPreview({
   artifact,
   seekRequest,
   onTimeChange,
+  onWikilinkNavigate,
 }: {
   artifact: NonNullable<ReturnType<typeof useLibraryArtifact>["artifact"]>;
   seekRequest?: YouTubeSeekRequest | null;
   onTimeChange?: (seconds: number) => void;
+  onWikilinkNavigate?: (target: string) => void | Promise<void>;
 }) {
   const mediaMarkdown = markdownSection(artifact.content, "Media");
   if (mediaMarkdown) {
@@ -126,6 +128,7 @@ function MediaPreview({
         className="mb-5"
         youTubeSeekRequest={seekRequest}
         onYouTubeTimeChange={onTimeChange}
+        onWikilinkNavigate={onWikilinkNavigate}
       />
     );
   }
@@ -215,6 +218,27 @@ export function LibraryArtifactDetailPane({
       return seconds;
     });
   }, []);
+
+  const handleWikilinkNavigate = useCallback(async (target: string) => {
+    if (!artifact) return;
+    try {
+      const response = await fetch("/api/library/resolve-wikilink", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target, currentPath: artifact.path }),
+      });
+      if (!response.ok) return;
+      const resolved = await response.json() as {
+        exists?: boolean;
+        view?: "library" | "people" | "docs";
+        scope?: string;
+      };
+      if (!resolved.exists || !resolved.view || typeof resolved.scope !== "string") return;
+      navigateTo(resolved.view, resolved.scope);
+    } catch (error) {
+      console.warn("[library] failed to navigate wikilink", error);
+    }
+  }, [artifact, navigateTo]);
 
   if (!id) {
     return <div className={`flex flex-1 items-center justify-center text-sm text-[var(--text-tertiary)] ${className}`}>Select an artifact</div>;
@@ -439,13 +463,13 @@ export function LibraryArtifactDetailPane({
         </div>
 
         <div className="mt-5">
-          <MediaPreview artifact={artifact} seekRequest={seekRequest} onTimeChange={handleVideoTimeChange} />
+          <MediaPreview artifact={artifact} seekRequest={seekRequest} onTimeChange={handleVideoTimeChange} onWikilinkNavigate={handleWikilinkNavigate} />
           {mode === "summary" ? (
-            <LibraryMarkdown markdown={summaryMarkdown(artifact)} />
+            <LibraryMarkdown markdown={summaryMarkdown(artifact)} onWikilinkNavigate={handleWikilinkNavigate} />
           ) : hasTimedTranscript ? (
             <VideoTranscript segments={transcriptSegments} activeSeconds={videoSeconds} onSeek={seekVideo} />
           ) : hasCachedSource ? (
-            <LibraryMarkdown markdown={sourceMarkdown} />
+            <LibraryMarkdown markdown={sourceMarkdown} onWikilinkNavigate={handleWikilinkNavigate} />
           ) : (
             <p className="text-sm text-[var(--text-tertiary)]">No cached source content is available for this item yet.</p>
           )}

@@ -1231,6 +1231,40 @@ Optional query parameter:
 |-------|------|-------------|
 | `path` | string | Vault-relative markdown path from the list response. When present and the path hash matches `:id`, the route parses that exact file directly instead of walking the whole Library tree. |
 
+### POST /api/library/resolve-wikilink
+
+Resolves an Obsidian wikilink from a Library reader context to the Hilt tab that should open it. Resolution is server-side so the UI can respect the actual bridge vault rather than guessing from link text.
+
+```typescript
+{
+  target: string;       // Required. Wikilink target, with optional |alias or #heading
+  currentPath?: string; // Vault-relative markdown path for relative links
+}
+```
+
+Response for a resolved link:
+
+```typescript
+{
+  exists: true;
+  target: string;                 // Resolved vault-relative markdown path
+  view: "library" | "people" | "docs";
+  scope: string;                  // Scope passed to navigateTo(view, scope)
+  href: string;                   // Hilt URL for the destination
+  path: string;                   // Resolved vault-relative markdown path
+}
+```
+
+Routing rules:
+
+| Resolved path | Destination |
+|---------------|-------------|
+| `references/**` | Library item URL |
+| `people/index.md` or `people/<slug>.md` | People tab |
+| Any other markdown file | Docs tab |
+
+Unresolved links return `{ exists: false, target }`.
+
 ### GET /api/library/unread
 
 Returns whether any active Library item is unread. This is a lightweight shell endpoint for the top-level Library navigation dot; it short-circuits after the first unread saved reference or active candidate.

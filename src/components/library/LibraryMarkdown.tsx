@@ -15,6 +15,7 @@ interface LibraryMarkdownProps {
   className?: string;
   youTubeSeekRequest?: YouTubeSeekRequest | null;
   onYouTubeTimeChange?: (seconds: number) => void;
+  onWikilinkNavigate?: (target: string) => void | Promise<void>;
 }
 
 function rewriteWikilinks(markdown: string): string {
@@ -35,6 +36,7 @@ function LibraryMarkdownComponent({
   className = "",
   youTubeSeekRequest,
   onYouTubeTimeChange,
+  onWikilinkNavigate,
 }: LibraryMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const rewrittenMarkdown = useMemo(() => rewriteWikilinks(markdown), [markdown]);
@@ -55,7 +57,22 @@ function LibraryMarkdownComponent({
   const components = useMemo<Components>(() => ({
     a({ href, children, ...props }) {
       if (href?.startsWith("#wikilink:")) {
-        return <span className="font-medium text-blue-600 dark:text-blue-400">{children}</span>;
+        const target = decodeURIComponent(href.replace("#wikilink:", ""));
+        return (
+          <a
+            href={href}
+            onClick={(event) => {
+              if (!onWikilinkNavigate) return;
+              event.preventDefault();
+              void onWikilinkNavigate(target);
+            }}
+            className="font-medium text-blue-600 hover:underline dark:text-blue-400"
+            title={`Open ${target}`}
+            {...props}
+          >
+            {children}
+          </a>
+        );
       }
       return <a href={href} target={href?.startsWith("http") ? "_blank" : undefined} rel={href?.startsWith("http") ? "noreferrer" : undefined} {...props}>{children}</a>;
     },
@@ -101,7 +118,7 @@ function LibraryMarkdownComponent({
     summary({ children, ...props }) {
       return <summary className="cursor-pointer text-sm font-medium text-[var(--text-primary)]" {...props}>{children}</summary>;
     },
-  }), [onYouTubeTimeChange, youTubeSeekRequest]);
+  }), [onWikilinkNavigate, onYouTubeTimeChange, youTubeSeekRequest]);
 
   return (
     <div className={`${proseClass} ${className}`}>

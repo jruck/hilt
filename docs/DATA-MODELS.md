@@ -86,6 +86,39 @@ interface BridgeProjectsResponse {
 }
 ```
 
+### Briefing
+
+Daily briefing summaries and details are normally backed by `briefings/YYYY-MM-DD.md` in the Bridge vault. When today's markdown is missing because Hermes failed, Hilt can synthesize a failed briefing row from Hermes cron state so the Briefing tab still represents today's run.
+
+```typescript
+type BriefingStatus = "ready" | "failed";
+type BriefingFailureKind = "quota" | "rate_limit" | "model" | "unknown";
+
+interface BriefingRunFailure {
+  status: "failed";
+  kind: BriefingFailureKind;
+  date: string;            // ET date, YYYY-MM-DD
+  jobId: string;           // Hermes cron job id
+  jobName: string;         // Usually "Morning Briefing"
+  runAt: string;           // ISO timestamp from Hermes jobs.json
+  nextRunAt: string | null;
+  error: string;           // Raw Hermes error string
+  outputPath: string | null; // Latest Hermes cron markdown output for this date/job
+}
+
+interface BriefingSummary {
+  date: string;
+  title: string;
+  summary: string | null;
+  status?: BriefingStatus;
+  run?: BriefingRunFailure;
+}
+
+interface BriefingDetail extends BriefingSummary {
+  content: string;         // Empty for failed synthetic rows
+}
+```
+
 ### PinnedFolder
 
 A folder pinned to the sidebar for quick access.
@@ -372,6 +405,19 @@ Stored at `${DATA_DIR}/graph.sqlite` (override `HILT_GRAPH_DB_PATH`). The flag-g
 | `graph_edges` | `id` PK, `source_id`, `target_id`, `kind`, `weight`, `source_file`, `attrs_json`, `updated_at` | One row per edge; indexed on `source_id`/`target_id`/`kind`/`source_file`. |
 | `node_positions` | `id` PK, `x`, `y`, `z` (reserved, 2D in v1), `dirty`, `layout_version`, `updated_at` | Precomputed force-layout coordinates. `dirty` marks the region a scoped relayout must relax; `layout_version` gates warm-start reuse. |
 | `graph_meta` | `key` PK, `value` | Key/value store assembled into `GraphMeta` (counts exclude `type='tag'`/`kind='tag'`; `dirty` derived from `node_positions`). |
+
+### semantic.sqlite
+
+Stored at `${DATA_DIR}/semantic.sqlite` (override `HILT_SEMANTIC_DB_PATH`). The flag-gated (`HILT_SEMANTIC_ENABLED`) **third derived cache** alongside `graph.sqlite` and `calendar.sqlite` for the Phase-2 Semantic Knowledge Layer — markdown stays source of truth (`rm semantic.sqlite*` + a cold-start rebuild reproduces it). Mirrors the graph/calendar db conventions (better-sqlite3, WAL, `synchronous=NORMAL`, path-keyed singleton, `IF NOT EXISTS`) with one deliberate deviation: **`PRAGMA foreign_keys = ON`** (ruling R4) so deleting an item cascades to its chunks/mentions/memberships. Tables: `semantic_items` (one row per source unit, `item_id` = the graph node id), `chunks` (canonical LE-float32 `embedding_blob`), `entities`/`entity_aliases`/`item_entities`/`item_entity_mentions`/`entity_merges` (Layer B), hierarchical `topics` + `item_topics` + `topic_lineage` (Layer C), and `semantic_meta`. The `vec0` KNN virtual tables (`chunk_vectors`/`entity_vectors`/`topic_vectors`) exist only when the optional `sqlite-vec` extension loads; the BLOBs are canonical so search degrades to an in-process cosine scan.
+
+**Versioning (P2.4).** Every derived row carries `semantic_version` (`SEMANTIC_VERSION`, the `vN`/`vN.M` integer-published/decimal-test scheme from `src/lib/semantic/pipeline.ts`, mirroring the Library `PIPELINE_VERSION`). A model/prompt bump is a **backfill, not a migration**: new-version rows are written **alongside** prior-version rows until blessed (coexistence), then `gcStaleVersions()` drops `version != active_version`. `semantic_meta` keys:
+
+| Key | Purpose |
+|-----|---------|
+| `db_format_version` | `SEMANTIC_DB_FORMAT_VERSION` — orthogonal to `SEMANTIC_VERSION` (the `LAYOUT_VERSION` precedent). On open, a lagging value **discards every derived table and rebuilds** (schema/wire change invalidates the cache file independently of a model upgrade). |
+| `active_version` | The "of record" version queries default to (`getActiveVersion()`); defaults to the headline `SEMANTIC_VERSION` until a cold-start blesses one. Surfaced in `query.status()` as `activeVersion` (+ `versions`, the coexistence window). |
+| `active_embedding` / `active_extraction` / `active_taxonomy` | The component versions recorded at the blessed baseline (the upgrade blast-radius record). |
+| `built_at` / `blessed_at` / `gc_at` / `last_backfill_version` / `last_backfill_at` | Operational timestamps. |
 
 ### local-apps/settings.json
 
@@ -728,6 +774,8 @@ Library read state is stored outside the bridge vault in `${DATA_DIR}/library-re
 
 The **"Updated" review lane** (`src/lib/library/review-queue.ts`) isolates pipeline-version evaluation batches from organic ingestion. It is **Hilt-local state, not vault markdown** — the manifest lives at `${DATA_DIR}/library-review-queue/<vault-hash>.json` (the vault hash is `hashId(resolve(vaultPath), 16)`), written atomically.
 
+The queue's data model is **not Library-specific**, so the Phase-2 semantic layer reuses it verbatim via a `kind` parameter (ruling R10): the internal store dir is `reviewQueueDir(kind)` and every public function (`readReviewQueue`/`addToReviewQueue`/`setReviewStatus`/`listPendingReview`/`getActiveBatchNotes`/`removeFromReviewQueue`) takes an optional `kind: "library" | "semantic"` that **defaults to `"library"`** (so existing callers are unchanged). `kind = "semantic"` (`semanticReviewQueueDir()`) writes to the **sibling** `${DATA_DIR}/semantic-review-queue/<vault-hash>.json`, so the two queues never collide. The decimal/integer badge semantics carry straight over.
+
 ```typescript
 type ReviewQueueStatus = "pending" | "approved" | "rejected";
 
@@ -822,18 +870,26 @@ Flag-gated behind `HILT_GRAPH_ENABLED` (`isGraphEnabled()`). The graph is a **de
 ```typescript
 type GraphNodeType =
   | "note" | "reference" | "candidate" | "person"
-  | "project" | "north_star" | "library_cluster" | "tag"; // tag OFF by default
+  | "project" | "north_star" | "library_cluster" | "tag" // tag OFF by default
+  | "topic" | "entity"; // semantic overlay (Phase 2) — OFF unless HILT_GRAPH_SEMANTIC
 
 type GraphEdgeKind =
-  | "wikilink" | "connection" | "connected_project" | "meeting" | "tag"; // tag OFF by default
+  | "wikilink" | "connection" | "connected_project" | "meeting" | "tag" // tag OFF by default
+  // Semantic overlay (Phase 2) — OFF unless HILT_GRAPH_SEMANTIC. `similar`/`co_occurrence`
+  // are further off in GLOBAL scope unless `?semanticEdges=1`; LOCAL scope includes them.
+  | "item_topic"     // item → emergent topic (item_topics.score)
+  | "topic_parent"   // topic hierarchy, directed child → parent (weight 2)
+  | "item_entity"    // item → resolved entity (item_entities.salience)
+  | "co_occurrence"  // entity ↔ entity, shared-item count
+  | "similar";       // item ↔ item, embedding-KNN cosine
 
 interface GraphNode {
-  id: string;                  // note:/ref:/cand:/person:/project:/north_star:areas/libcluster:/tag:
+  id: string;                  // note:/ref:/cand:/person:/project:/north_star:areas/libcluster:/tag:/topic:/entity:
   type: GraphNodeType;
   label: string;
-  refPath: string | null;      // absolute vault path, person slug, or null for synthetic nodes
+  refPath: string | null;      // absolute vault path, person slug, or null for synthetic nodes (tag/topic/entity)
   degree: number;
-  colorKey: string | null;
+  colorKey: string | null;     // topic→"topic" (fuchsia), entity→"entity" (cyan)
   attrs: Record<string, unknown>;
 }
 
@@ -842,10 +898,12 @@ interface GraphEdge {
   source: string;              // node ids (NOT array indices)
   target: string;
   kind: GraphEdgeKind;
-  weight: number;              // wikilink=1, connected_project=1.5, etc.
+  weight: number;              // wikilink=1, connected_project=1.5, item_topic=score, similar=cosine, etc.
   attrs: Record<string, unknown>;
 }
 ```
+
+The `topic`/`entity` nodes and the five semantic edge kinds are a derived **overlay** written into the same `graph_nodes`/`graph_edges` tables by `src/lib/graph/semantic-overlay.ts` (`buildSemanticOverlay()`/`removeSemanticOverlay()`), reading `semantic.sqlite` via `query.ts` bulk variants (ruling R3). A `topic`/`entity` node carries `source_file = null` (cleared by `type`); `item_topic`/`item_entity` edges carry the owning item's abs path as `source_file` (so a re-digest's `deleteEdgesBySourceFile` wipes them); `co_occurrence`/`similar`/`topic_parent` carry `source_file = null` (cleared by `kind`). `topic` `attrs`: `{ topicId, level, parentId, memberCount, summary, trending, recentCount }`; `entity` `attrs`: `{ entityId, entityType, aliases[], salienceTotal }`. The overlay is fully reversible and the transport ordinals are append-only (`topic`=8, `entity`=9) — no `TRANSPORT_FORMAT_VERSION` bump.
 
 ### GraphMeta
 
@@ -860,6 +918,9 @@ interface GraphMeta {
   nodeCount: number;
   edgeCount: number;
   tagNodeCount: number;        // reported only; tags never ship in the default payload
+  topicNodeCount: number;      // semantic overlay; gate the legend on this + semanticBuilt
+  entityNodeCount: number;
+  semanticBuilt: boolean;      // true once buildSemanticOverlay() has populated the overlay
   builtAt: string | null;      // null => first-run "building" state
   layoutVersion: number;
   layoutState: GraphLayoutState;

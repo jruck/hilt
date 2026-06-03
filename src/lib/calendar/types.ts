@@ -113,6 +113,7 @@ export interface CalendarEvent {
     notePath: string | null;
     transcriptPath: string | null;
     granolaUrl: string | null;
+    meetingEndCount: number | null;
     calendarMatchMethod: string | null;
     calendarMatchConfidence: number | null;
   }>;

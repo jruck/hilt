@@ -79,6 +79,12 @@ function stripInvisibleTracking(text: string): string {
     .trim();
 }
 
+function stripInvisibleCharacters(text: string): string {
+  return text
+    .replace(/[\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, "")
+    .trim();
+}
+
 function stripWebChrome(text: string): string {
   const navWords = "Products|Solutions|Pricing|Login|Sign in|Sign up|Menu|Search|Home|Contact|About|Careers|Subscribe|Cookie|Accept|Privacy|Terms|Skip to content|NEW";
   return text
@@ -153,16 +159,23 @@ function cleanTitleText(text: string): string {
 function titleFromSourceText(text: string | null | undefined): string | null {
   if (!text) return null;
   const line = text.split(/\r?\n/).map(cleanTitleText).find((candidate) => candidate.length >= 12);
-  return line ? line.slice(0, 140) : null;
+  return line ? line.slice(0, 180) : null;
+}
+
+function titleLooksTruncated(text: string): boolean {
+  return text.length >= 110 || /\b(?:about|learned|here'?s|what|why|how|because)$/i.test(text.trim());
 }
 
 function normalizeXTitle(raw: RawArtifact, linkedXContent: string | null): RawArtifact {
   const current = cleanTitleText(raw.title);
+  const linkedTitle = titleFromSourceText(linkedXContent || raw.content);
+  if (current && linkedTitle && titleLooksTruncated(current) && linkedTitle.length > current.length) {
+    return { ...raw, title: linkedTitle };
+  }
   if (current && current !== raw.title.trim()) {
     return { ...raw, title: current.slice(0, 140) };
   }
   if (current) return raw;
-  const linkedTitle = titleFromSourceText(linkedXContent || raw.content);
   return {
     ...raw,
     title: linkedTitle || (raw.author ? `X bookmark by ${raw.author}` : "X bookmark"),
@@ -220,7 +233,7 @@ async function fetchXPostText(url: string, source: LibrarySourceConfig): Promise
       includes?: { users?: Array<{ username?: string; name?: string }> };
     };
     // Prefer the long-form note_tweet body (up to 25k chars) over the 280-char truncation.
-    const fullText = stripInvisibleTracking(parsed.data?.note_tweet?.text || parsed.data?.text || "");
+    const fullText = stripInvisibleCharacters(parsed.data?.note_tweet?.text || parsed.data?.text || "");
     if (!fullText) return null;
     const isThreadRoot = Boolean(parsed.data?.conversation_id && parsed.data.conversation_id === parsed.data.id);
     // A long-form note_tweet usually carries the whole thread inline; a short root tweet that looks
@@ -494,13 +507,33 @@ export async function digestArtifact(
   const requestedSummarize = options.useSummarize ?? true;
   const xSource = source.channel === "twitter" || isXUrl(raw.url);
   const linkedUrl = xSource ? await resolveLinkedUrl(raw) : null;
+  const directX = xSource ? await fetchXPostText(raw.url, source) : null;
   const linkedX = linkedUrl && isXUrl(linkedUrl) ? await fetchXPostText(linkedUrl, source) : null;
+  const directXContent = directX?.text ?? null;
   const linkedXContent = linkedX?.text ?? null;
   const summarizeTarget = linkedUrl && /^https?:\/\//.test(linkedUrl) && !isXUrl(linkedUrl)
     ? linkedUrl
     : raw.url;
   if (linkedUrl && linkedUrl !== raw.url) {
     extractionNotes.push(`Resolved linked URL from source metadata: ${linkedUrl}`);
+  }
+  if (directXContent) {
+    const fetchedLength = cleanSourceForDigest(directXContent).length;
+    const originalLength = cleanSourceForDigest(raw.content || "").length;
+    extractionNotes.push(fetchedLength > originalLength + 80
+      ? "Fetched full X post text for digest context."
+      : "Verified X post text for digest context.");
+    if (directX?.partialThread) {
+      extractionNotes.push("X post is the root of a multi-tweet thread; only the opening post was captured (current X API plan has no thread/search access).");
+    }
+    raw = {
+      ...raw,
+      content: directXContent,
+      metadata: {
+        ...raw.metadata,
+        ...(directX?.partialThread ? { partial_thread: true } : {}),
+      },
+    };
   }
   if (linkedXContent) {
     extractionNotes.push("Fetched linked X post text for digest context.");
@@ -510,11 +543,11 @@ export async function digestArtifact(
   } else if (xSource && linkedUrl && isXUrl(linkedUrl) && !xStatusId(linkedUrl)) {
     extractionNotes.push("Linked X URL is not a standard post URL; source text remains metadata-limited.");
   }
-  if (xSource && raw.metadata.partial_thread && !linkedX?.partialThread) {
+  if (xSource && raw.metadata.partial_thread && !directX?.partialThread && !linkedX?.partialThread) {
     extractionNotes.push("X bookmark is the root of a multi-tweet thread; only the opening post was captured (current X API plan has no thread/search access).");
   }
   if (xSource) {
-    const normalizedTitle = normalizeXTitle(raw, linkedXContent);
+    const normalizedTitle = normalizeXTitle(raw, linkedXContent || directXContent);
     if (normalizedTitle.title !== raw.title) {
       raw = normalizedTitle;
       extractionNotes.push("Normalized X/Twitter title by removing duplicate URL text.");
@@ -631,7 +664,18 @@ export async function digestArtifact(
   const sourceLimitedComplete = Boolean(summarized && format !== "video" && sourceText.length > 0 && sourceText.length < 700);
   const substantialSummary = Boolean(summarized && summary.length >= 500 && sourceText.length >= 1000);
   const sourceCacheComplete = Boolean(sourceCache && sourceText.length >= 1000 && summary.length >= 160 && sourceSentences.length >= 3);
-  const xSourceComplete = Boolean(xSource && sourceText.length >= 80 && !isUrlOnlyText(sourceText));
+  const xLooksPartial = Boolean(
+    xSource &&
+    ((raw.metadata.partial_thread || linkedX?.partialThread) ||
+      (!directXContent && !linkedXContent && looksLikeThreadRoot(sourceText))),
+  );
+  const xSourceComplete = Boolean(
+    xSource &&
+    sourceText.length >= 80 &&
+    !isUrlOnlyText(sourceText) &&
+    !xLooksPartial &&
+    (directXContent || linkedXContent || sourceText.length >= 400 || !looksLikeThreadRoot(sourceText)),
+  );
   if (sourceLimitedComplete) {
     extractionNotes.push("Source content is short; digest marked complete as source-limited.");
   }

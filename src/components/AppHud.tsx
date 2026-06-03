@@ -1,17 +1,45 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
-import { CalendarClock } from "lucide-react";
+import type { CSSProperties, ReactNode } from "react";
+import {
+  AlarmClock,
+  CalendarClock,
+  Check,
+  Cloud,
+  CloudDrizzle,
+  CloudFog,
+  CloudLightning,
+  CloudRain,
+  CloudSnow,
+  CloudSun,
+  Coffee,
+  Hourglass,
+  Moon,
+  Smile,
+  Sun,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useCalendarEvents, useCalendarSources } from "@/hooks/useCalendar";
-import { CalendarEventPopoverContent } from "./calendar/CalendarEventPopover";
-import type { CalendarDefinition, CalendarEvent } from "@/lib/calendar/types";
+import { useWeatherForecast } from "@/hooks/useWeather";
+import { CalendarEventActions, CalendarEventPopoverContent } from "./calendar/CalendarEventPopover";
+import { prepareCalendarDescription } from "@/lib/calendar/description";
+import { buildHudAgendaItems, hudAgendaConflictPositions, selectHudNextEventGroup } from "@/lib/calendar/hud-agenda";
+import type { HudAgendaConflictPosition, HudAgendaItem } from "@/lib/calendar/hud-agenda";
+import type { CalendarDefinition, CalendarEvent, CalendarSource } from "@/lib/calendar/types";
 import { isVisibleCalendarForegroundEvent } from "@/lib/calendar/visibility";
+import type { WeatherForecastDay, WeatherIconKey } from "@/lib/weather/types";
 
 const TIME_ZONE = "America/New_York";
 const UPCOMING_LOOKAHEAD_DAYS = 7;
 const FREE_BLOCK_MINUTES = 30;
 const MAX_SOON_ITEMS = 28;
+const COLLAPSED_HUD_HORIZON_MS = 4 * 60 * 60_000;
+const HUD_MANUAL_ENDED_STORAGE_KEY = "hilt:hud:manual-ended-events:v1";
+const HUD_MANUAL_ENDED_TTL_MS = 18 * 60 * 60_000;
+const NEXT_COUNTDOWN_DUPLICATE_TOLERANCE_MS = 60_000;
+const EMPTY_ENDED_EVENT_IDS = new Set<string>();
+const EMPTY_WEATHER_DAYS: WeatherForecastDay[] = [];
 const fadeEndMaskStyle: CSSProperties = {
   WebkitMaskImage: "linear-gradient(to right, black calc(100% - 18px), transparent)",
   maskImage: "linear-gradient(to right, black calc(100% - 18px), transparent)",
@@ -20,12 +48,10 @@ const fadeEndMaskStyle: CSSProperties = {
 interface AppHudProps {
   onCollapse: () => void;
   placement: "top" | "bottom";
+  variant?: "default" | "mobile";
 }
 
-type AgendaItem =
-  | { kind: "event"; event: CalendarEvent }
-  | { kind: "free"; id: string; start: Date; end: Date; minutes: number };
-type AgendaSection = { id: string; items: AgendaItem[]; label: string };
+type AgendaSection = { date: string; id: string; items: HudAgendaItem[]; label: string };
 type HudEventPopoverAnchor = { top: number; bottom: number; left: number; width: number };
 type HudEventPopover = {
   anchor: HudEventPopoverAnchor;
@@ -33,34 +59,39 @@ type HudEventPopover = {
   left: number;
   top: number;
 };
+type HudEndedEventReason = "granola" | "manual";
+type NowWatermarkState = { Icon: LucideIcon; label: string };
 
-export function AppHud({ onCollapse, placement }: AppHudProps) {
+export function AppHud({ onCollapse, placement, variant = "default" }: AppHudProps) {
   const now = useLiveNow();
+  const mobileLayout = variant === "mobile";
   const eventPopoverRef = useRef<HTMLDivElement>(null);
   const [eventPopover, setEventPopover] = useState<HudEventPopover | null>(null);
-  const todayKey = localDateKey(now);
-  const range = useMemo(() => {
-    const start = dateFromLocalKey(todayKey);
-    const end = new Date(start);
-    end.setDate(end.getDate() + UPCOMING_LOOKAHEAD_DAYS);
-    return { start, end };
-  }, [todayKey]);
-
-  const { data, error, isLoading } = useCalendarEvents(range);
-  const sourcesQuery = useCalendarSources();
-  const calendarSources = sourcesQuery.data?.calendars;
-  const sources = sourcesQuery.data?.sources;
-  const calendarEvents = data?.events;
-  const calendarColors = useMemo(() => calendarColorMap(calendarSources ?? []), [calendarSources]);
-  const calendarsById = useMemo(() => new Map((calendarSources ?? []).map((calendar) => [calendar.id, calendar])), [calendarSources]);
-  const sourcesById = useMemo(() => new Map((sources ?? []).map((source) => [source.id, source])), [sources]);
-  const visibleEvents = useMemo(() => selectHudEvents(calendarEvents ?? [], now), [calendarEvents, now]);
-  const timedEvents = useMemo(() => visibleEvents.filter((event) => !event.allDay), [visibleEvents]);
-  const currentEvent = timedEvents.find((event) => isEventCurrent(event, now)) ?? null;
-  const nextEvent = timedEvents.find((event) => !currentEvent || new Date(event.start) >= new Date(currentEvent.end)) ?? null;
-  const soonItems = useMemo(() => buildSoonItems(timedEvents, now, currentEvent, nextEvent), [currentEvent, nextEvent, now, timedEvents]);
-  const agendaSections = useMemo(() => buildAgendaSections(soonItems, now), [now, soonItems]);
-  const allDayEvents = visibleEvents.filter((event) => event.allDay).slice(0, 3);
+  const { manuallyEndedEventIds, markEventEnded } = useManualHudEndedEvents();
+  const {
+    agendaSections,
+    allDayEvents,
+    calendarColors,
+    calendarsById,
+    currentEvent,
+    endedCurrentEvent,
+    endedCurrentEventReason,
+    error,
+    isLoading,
+    nextEvent,
+    nextEvents,
+    sourcesById,
+  } = useHudCalendarSnapshot(now, manuallyEndedEventIds);
+  const hideNextCountdown = nextCountdownDuplicatesNow(currentEvent, nextEvent);
+  const todayWeatherKey = dateKeyInTimeZone(now);
+  const weatherRange = useMemo(() => ({
+    start: todayWeatherKey,
+    end: addPlainDateDays(todayWeatherKey, UPCOMING_LOOKAHEAD_DAYS - 1),
+  }), [todayWeatherKey]);
+  const weatherQuery = useWeatherForecast(weatherRange);
+  const weatherDays = weatherQuery.data?.days ?? EMPTY_WEATHER_DAYS;
+  const weatherByDate = useMemo(() => new Map(weatherDays.map((day) => [day.date, day])), [weatherDays]);
+  const todayWeather = weatherByDate.get(todayWeatherKey) ?? null;
   const openCalendarEvent = useCallback((event: CalendarEvent, target: HTMLElement) => {
     const anchor = hudPopoverAnchor(target);
     const position = hudPopoverPosition(anchor, placement);
@@ -117,7 +148,9 @@ export function AppHud({ onCollapse, placement }: AppHudProps) {
       data-testid="app-hud"
       data-placement={placement}
       className={`relative shrink-0 bg-[var(--bg-primary)] text-[var(--text-primary)] ${
-        placement === "top"
+        mobileLayout
+          ? "h-[164px] min-h-[164px] max-h-[164px] overflow-hidden border-b border-[var(--border-default)]"
+          : placement === "top"
           ? "h-[22dvh] min-h-[174px] max-h-[260px] border-b border-[var(--border-default)]"
           : "h-[22dvh] min-h-[176px] max-h-[280px] border-t border-[var(--border-default)]"
       }`}
@@ -133,18 +166,33 @@ export function AppHud({ onCollapse, placement }: AppHudProps) {
         style={{ cursor: placement === "top" ? "n-resize" : "s-resize" }}
         onClick={onCollapse}
       />
-      <div className="flex h-full min-h-0 flex-col gap-3 px-4 py-3 sm:px-5">
+      <div className={`${mobileLayout ? "gap-2 px-3 py-2" : "gap-3 px-4 py-3 sm:px-5"} flex h-full min-h-0 flex-col`}>
         <div className="flex shrink-0 items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <CalendarClock className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]" />
-            <div className="min-w-0 truncate text-sm font-semibold">{formatHudDate(now)}</div>
-          </div>
+          {mobileLayout ? (
+            <button
+              type="button"
+              className="flex min-w-0 cursor-n-resize items-center gap-2 rounded-md px-1 py-0.5 text-left active:bg-[var(--bg-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-default)]"
+              onClick={onCollapse}
+              title="Hide HUD"
+              aria-label="Hide HUD"
+            >
+              <CalendarClock className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]" />
+              <div className="min-w-0 truncate text-sm font-semibold">{formatHudDate(now)}</div>
+              <HudTodayWeather forecast={todayWeather} />
+            </button>
+          ) : (
+            <div className="flex min-w-0 items-center gap-2">
+              <CalendarClock className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]" />
+              <div className="min-w-0 truncate text-sm font-semibold">{formatHudDate(now)}</div>
+              <HudTodayWeather forecast={todayWeather} />
+            </div>
+          )}
           <div className="flex min-w-0 shrink items-center justify-end gap-1.5">
             {allDayEvents.map((event) => (
               <button
                 type="button"
                 key={event.id}
-                className="hidden max-w-[150px] truncate rounded-full bg-[var(--bg-secondary)] px-2 py-0.5 text-left text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] sm:inline"
+                className={`${mobileLayout ? "hidden" : "hidden sm:inline"} max-w-[150px] truncate rounded-full bg-[var(--bg-secondary)] px-2 py-0.5 text-left text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)]`}
                 title={`Open details for ${event.title}`}
                 data-hud-event-trigger
                 onClick={(clickEvent) => openCalendarEvent(event, clickEvent.currentTarget)}
@@ -158,46 +206,62 @@ export function AppHud({ onCollapse, placement }: AppHudProps) {
           </div>
         </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(190px,0.9fr)_minmax(220px,1fr)_minmax(280px,1.35fr)] gap-3 overflow-x-auto pb-1">
-          <section className="min-h-0">
+        <div
+          className={
+            mobileLayout
+              ? "grid min-h-0 flex-1 grid-cols-[minmax(160px,48vw)_minmax(180px,54vw)_minmax(260px,78vw)] gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain pb-1 pr-1"
+              : "grid min-h-0 flex-1 grid-cols-[minmax(190px,0.9fr)_minmax(220px,1fr)_minmax(280px,1.35fr)] gap-3 overflow-x-auto pb-1"
+          }
+        >
+          <section className="min-h-0 min-w-0">
             {isLoading ? (
-              <HudPanel title="Now"><HudEmptyState label="Loading calendar" /></HudPanel>
+              <HudPanel compact={mobileLayout} title="Now"><HudEmptyState label="Loading calendar" /></HudPanel>
             ) : error ? (
-              <HudPanel title="Now"><HudEmptyState label="Calendar unavailable" /></HudPanel>
+              <HudPanel compact={mobileLayout} title="Now"><HudEmptyState label="Calendar unavailable" /></HudPanel>
             ) : (
               <NowPanel
                 calendarColor={currentEvent ? calendarColors.get(currentEvent.calendarId) : undefined}
+                compact={mobileLayout}
                 currentEvent={currentEvent}
+                endedCurrentEvent={endedCurrentEvent}
+                endedCurrentEventReason={endedCurrentEventReason}
                 nextEvent={nextEvent}
                 now={now}
+                onEndCurrentEvent={markEventEnded}
                 onOpenEvent={openCalendarEvent}
+                showActions={!mobileLayout}
+                sourceLabel={currentEvent ? sourcesById.get(currentEvent.sourceId)?.label : undefined}
               />
             )}
           </section>
 
-          <section className="min-h-0">
+          <section className="min-h-0 min-w-0">
             {isLoading ? (
-              <HudPanel title="Next"><HudEmptyState label="Loading calendar" /></HudPanel>
+              <HudPanel compact={mobileLayout} title="Next"><HudEmptyState label="Loading calendar" /></HudPanel>
             ) : error ? (
-              <HudPanel title="Next"><HudEmptyState label="Calendar unavailable" /></HudPanel>
+              <HudPanel compact={mobileLayout} title="Next"><HudEmptyState label="Calendar unavailable" /></HudPanel>
             ) : (
               <NextPanel
-                calendarColor={nextEvent ? calendarColors.get(nextEvent.calendarId) : undefined}
-                event={nextEvent}
+                compact={mobileLayout}
+                calendarColors={calendarColors}
+                events={nextEvents}
                 now={now}
                 onOpenEvent={openCalendarEvent}
+                showActions={!mobileLayout}
+                showCountdown={!hideNextCountdown}
+                sourcesById={sourcesById}
               />
             )}
           </section>
 
-          <section className="min-h-0">
-            <HudPanel>
+          <section className="min-h-0 min-w-0">
+            <HudPanel compact={mobileLayout}>
               {isLoading ? (
                 <HudEmptyState label="Loading agenda" />
               ) : error ? (
                 <HudEmptyState label="Calendar unavailable" />
               ) : agendaSections.length > 0 ? (
-                <SoonList calendarColors={calendarColors} now={now} onOpenEvent={openCalendarEvent} sections={agendaSections} />
+                <SoonList calendarColors={calendarColors} now={now} onOpenEvent={openCalendarEvent} sections={agendaSections} weatherByDate={weatherByDate} />
               ) : (
                 <HudEmptyState label="Nothing else soon" />
               )}
@@ -223,6 +287,55 @@ export function AppHud({ onCollapse, placement }: AppHudProps) {
   );
 }
 
+export function AppHudCollapsedBar({ onExpand }: { onExpand: () => void }) {
+  const now = useLiveNow();
+  const { manuallyEndedEventIds } = useManualHudEndedEvents();
+  const {
+    calendarColors,
+    currentEvent,
+    error,
+    isLoading,
+    nextEvent,
+  } = useHudCalendarSnapshot(now, manuallyEndedEventIds);
+  const event = currentEvent ?? nextEvent;
+  const color = event ? calendarColors.get(event.calendarId) ?? "var(--interactive-default)" : "var(--border-strong)";
+  const trackStyle = event ? hudProgressTrackStyle(color) : undefined;
+  const progress = collapsedHudProgress(currentEvent, nextEvent, now);
+  const marker = clamp(progress, 3, 97);
+  const primary = collapsedHudPrimary(currentEvent, nextEvent, now, { error: Boolean(error), isLoading });
+  const secondary = isLoading
+    ? "Calendar"
+    : error
+      ? "Tap to expand"
+      : event?.title ?? "No upcoming meetings";
+
+  return (
+    <button
+      type="button"
+      aria-label="Show HUD"
+      className="grid h-9 shrink-0 grid-cols-[minmax(0,1fr)_80px] items-center gap-3 border-b border-[var(--border-default)] bg-[var(--bg-primary)] px-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--interactive-default)]"
+      data-testid="app-hud-collapsed"
+      onClick={onExpand}
+      title="Show HUD"
+    >
+      <span className="flex min-w-0 items-baseline gap-2">
+        <span className="shrink-0 text-xs font-semibold tabular-nums text-[var(--text-primary)]">{primary}</span>
+        <span className="min-w-0 truncate text-[11px] text-[var(--text-tertiary)]">{secondary}</span>
+      </span>
+      <span className="relative h-1.5 min-w-0 overflow-hidden rounded-full bg-[var(--bg-tertiary)]" style={trackStyle} aria-hidden="true">
+        <span
+          className="absolute inset-y-0 left-0 rounded-full"
+          style={{ width: `${progress}%`, backgroundColor: color }}
+        />
+        <span
+          className="absolute top-1/2 h-3 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full"
+          style={{ left: `${marker}%`, backgroundColor: color }}
+        />
+      </span>
+    </button>
+  );
+}
+
 function useLiveNow(): Date {
   const [now, setNow] = useState(() => new Date());
 
@@ -234,40 +347,137 @@ function useLiveNow(): Date {
   return now;
 }
 
+function useManualHudEndedEvents() {
+  const [manuallyEndedEvents, setManuallyEndedEvents] = useState<Record<string, number>>(() => readManualHudEndedEvents());
+  const manuallyEndedEventIds = useMemo(() => new Set(Object.keys(manuallyEndedEvents)), [manuallyEndedEvents]);
+
+  useEffect(() => {
+    writeManualHudEndedEvents(manuallyEndedEvents);
+  }, [manuallyEndedEvents]);
+
+  const markEventEnded = useCallback((event: CalendarEvent) => {
+    setManuallyEndedEvents((current) => pruneManualHudEndedEvents({
+      ...current,
+      [event.id]: Date.now(),
+    }));
+  }, []);
+
+  return { manuallyEndedEventIds, markEventEnded };
+}
+
+function useHudCalendarSnapshot(now: Date, manuallyEndedEventIds: Set<string> = EMPTY_ENDED_EVENT_IDS) {
+  const todayKey = localDateKey(now);
+  const range = useMemo(() => {
+    const start = dateFromLocalKey(todayKey);
+    const end = new Date(start);
+    end.setDate(end.getDate() + UPCOMING_LOOKAHEAD_DAYS);
+    return { start, end };
+  }, [todayKey]);
+
+  const { data, error, isLoading } = useCalendarEvents(range);
+  const sourcesQuery = useCalendarSources();
+  const calendarSources = sourcesQuery.data?.calendars;
+  const sources = sourcesQuery.data?.sources;
+  const calendarEvents = data?.events;
+  const calendarColors = useMemo(() => calendarColorMap(calendarSources ?? []), [calendarSources]);
+  const calendarsById = useMemo(() => new Map((calendarSources ?? []).map((calendar) => [calendar.id, calendar])), [calendarSources]);
+  const sourcesById = useMemo(() => new Map((sources ?? []).map((source) => [source.id, source])), [sources]);
+  const visibleEvents = useMemo(() => selectHudEvents(calendarEvents ?? [], now), [calendarEvents, now]);
+  const timedEvents = useMemo(() => visibleEvents.filter((event) => !event.allDay), [visibleEvents]);
+  const currentEvent = timedEvents.find((event) => isEventCurrent(event, now) && !hudEndedEventReason(event, now, manuallyEndedEventIds)) ?? null;
+  const endedCurrentEvent = timedEvents.find((event) => isEventCurrent(event, now) && hudEndedEventReason(event, now, manuallyEndedEventIds)) ?? null;
+  const endedCurrentEventReason = endedCurrentEvent ? hudEndedEventReason(endedCurrentEvent, now, manuallyEndedEventIds) : null;
+  const activeTimedEvents = useMemo(
+    () => timedEvents.filter((event) => !hudEndedEventReason(event, now, manuallyEndedEventIds)),
+    [manuallyEndedEventIds, now, timedEvents],
+  );
+  const nextEvents = useMemo(() => selectHudNextEventGroup(activeTimedEvents, currentEvent, now), [activeTimedEvents, currentEvent, now]);
+  const nextEvent = nextEvents[0] ?? null;
+  const soonItems = useMemo(() => buildHudAgendaItems(activeTimedEvents, now, currentEvent, {
+    freeBlockMinutes: FREE_BLOCK_MINUTES,
+    maxItems: MAX_SOON_ITEMS,
+  }), [activeTimedEvents, currentEvent, now]);
+  const agendaSections = useMemo(() => buildAgendaSections(soonItems, now), [now, soonItems]);
+  const allDayEvents = visibleEvents.filter((event) => event.allDay).slice(0, 3);
+
+  return {
+    agendaSections,
+    allDayEvents,
+    calendarColors,
+    calendarsById,
+    currentEvent,
+    endedCurrentEvent,
+    endedCurrentEventReason,
+    error,
+    isLoading,
+    nextEvent,
+    nextEvents,
+    sourcesById,
+  };
+}
+
 function NowPanel({
   calendarColor,
+  compact = false,
   currentEvent,
+  endedCurrentEvent,
+  endedCurrentEventReason,
   nextEvent,
   now,
+  onEndCurrentEvent,
   onOpenEvent,
+  showActions = true,
+  sourceLabel,
 }: {
   calendarColor?: string;
+  compact?: boolean;
   currentEvent: CalendarEvent | null;
+  endedCurrentEvent?: CalendarEvent | null;
+  endedCurrentEventReason?: HudEndedEventReason | null;
   nextEvent: CalendarEvent | null;
   now: Date;
+  onEndCurrentEvent?: (event: CalendarEvent) => void;
   onOpenEvent: (event: CalendarEvent, target: HTMLElement) => void;
+  showActions?: boolean;
+  sourceLabel?: string | null;
 }) {
   if (currentEvent) {
     const progress = eventCompletion(currentEvent, now);
+    const progressColor = calendarColor ?? "var(--interactive-default)";
     return (
-      <HudPanel color={calendarColor} title="Now" onClick={(clickEvent) => onOpenEvent(currentEvent, clickEvent.currentTarget)} ariaLabel={`Open details for ${currentEvent.title}`}>
-        <EventHero event={currentEvent} now={now} status={formatRemaining(currentEvent, now) ?? "In progress"} />
-        <div className="mt-auto h-1.5 overflow-hidden rounded-full bg-[var(--bg-tertiary)]">
-          <div className="h-full rounded-full" style={{ width: `${progress}%`, backgroundColor: calendarColor ?? "var(--interactive-default)" }} />
-        </div>
+      <HudPanel compact={compact} color={calendarColor} title="Now" onClick={(target) => onOpenEvent(currentEvent, target)} ariaLabel={`Open details for ${currentEvent.title}`}>
+        <EventHero
+          calendarColor={calendarColor}
+          compact={compact}
+          event={currentEvent}
+          now={now}
+          showActions={showActions}
+          sourceLabel={sourceLabel}
+          status={formatRemaining(currentEvent, now) ?? "In progress"}
+        />
+        <CurrentEventProgress
+          color={progressColor}
+          onEnd={showActions && onEndCurrentEvent ? () => onEndCurrentEvent(currentEvent) : undefined}
+          progress={progress}
+        />
       </HudPanel>
     );
   }
 
   if (nextEvent) {
+    const wrappedCopy = endedCurrentEvent ? `${formatEndedCurrentEventReason(endedCurrentEventReason)} · ` : "";
+    const watermark = nowWatermark(nextEvent, now);
     return (
-      <HudPanel title="Now">
-        <div className="flex min-h-0 flex-1 flex-col justify-center">
-          <div className="text-lg font-semibold tabular-nums text-[var(--text-primary)]">
-            {formatFreeUntil(nextEvent, now)}
-          </div>
-          <div className="mt-1 min-w-0 truncate text-xs text-[var(--text-tertiary)]" title={nextEvent.title}>
-            free until {formatEventStart(nextEvent, now)}
+      <HudPanel compact={compact} title="Now">
+        <div className="relative flex min-h-0 flex-1 flex-col justify-center overflow-hidden">
+          <NowWatermark compact={compact} watermark={watermark} />
+          <div className={`relative z-10 min-w-0 ${compact ? "" : "pr-24"}`}>
+            <div className={`${compact ? "text-base" : "text-lg"} font-semibold tabular-nums text-[var(--text-primary)]`}>
+              {formatFreeUntil(nextEvent, now)}
+            </div>
+            <div className={`mt-1 min-w-0 truncate ${compact ? "text-[11px]" : "text-xs"} text-[var(--text-tertiary)]`} title={nextEvent.title}>
+              {wrappedCopy}free until {formatCompactEventStart(nextEvent, now)}
+            </div>
           </div>
         </div>
       </HudPanel>
@@ -275,32 +485,155 @@ function NowPanel({
   }
 
   return (
-    <HudPanel title="Now">
-      <div className="flex min-h-0 flex-1 items-center text-sm text-[var(--text-tertiary)]">Free now</div>
+    <HudPanel compact={compact} title="Now">
+      <div className="relative flex min-h-0 flex-1 flex-col justify-center overflow-hidden">
+        <NowWatermark compact={compact} watermark={nowWatermark(null, now)} />
+        <div className={`relative z-10 min-w-0 ${compact ? "" : "pr-24"}`}>
+          <div className="text-sm text-[var(--text-tertiary)]">Free now</div>
+          {endedCurrentEvent ? (
+            <div className="mt-1 truncate text-xs text-[var(--text-tertiary)]">{formatEndedCurrentEventReason(endedCurrentEventReason)}</div>
+          ) : null}
+        </div>
+      </div>
     </HudPanel>
   );
 }
 
+function NowWatermark({ compact, watermark }: { compact?: boolean; watermark: NowWatermarkState }) {
+  const Icon = watermark.Icon;
+  return (
+    <Icon
+      aria-hidden="true"
+      className={`pointer-events-none absolute right-1 z-0 text-[var(--text-tertiary)] opacity-[0.12] ${
+        compact ? "top-2 h-6 w-6" : "top-1/2 h-20 w-20 -translate-y-1/2"
+      }`}
+    />
+  );
+}
+
+function CurrentEventProgress({
+  color,
+  onEnd,
+  progress,
+}: {
+  color: string;
+  onEnd?: () => void;
+  progress: number;
+}) {
+  const progressStyle = { "--hud-progress": `${progress}%` } as CSSProperties;
+  if (!onEnd) {
+    return (
+      <div className="mt-auto h-3">
+        <div className="h-3 w-full overflow-hidden rounded-md bg-[var(--bg-tertiary)]" style={hudProgressTrackStyle(color)}>
+          <div className="h-full rounded-md" style={{ width: `${progress}%`, backgroundColor: color }} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative mt-auto h-3 overflow-visible">
+      <button
+        type="button"
+        className="group/end absolute inset-x-0 bottom-0 h-3 overflow-hidden rounded-md text-left transition-[height] duration-200 ease-out hover:h-8 focus:h-8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-default)]"
+        style={progressStyle}
+        title="Treat this meeting as ended"
+        onClick={(clickEvent) => {
+          clickEvent.preventDefault();
+          clickEvent.stopPropagation();
+          onEnd();
+        }}
+        onKeyDown={(keyEvent) => keyEvent.stopPropagation()}
+      >
+        <span
+          className="absolute inset-x-0 bottom-0 h-full overflow-hidden rounded-md"
+          style={hudProgressTrackStyle(color)}
+          aria-hidden="true"
+        >
+          <span
+            className="block h-full w-[var(--hud-progress)] rounded-md transition-[width] duration-300 ease-out group-hover/end:w-full group-focus/end:w-full"
+            style={{ backgroundColor: color }}
+          />
+        </span>
+        <span className="relative z-10 flex h-full w-full translate-y-1 items-center justify-center gap-1.5 px-2 text-xs font-semibold text-[var(--text-inverted)] opacity-0 transition-[opacity,transform] duration-150 ease-out group-hover/end:translate-y-0 group-hover/end:opacity-100 group-focus/end:translate-y-0 group-focus/end:opacity-100">
+          <Check className="h-3.5 w-3.5" />
+          End meeting
+        </span>
+      </button>
+    </div>
+  );
+}
+
 function NextPanel({
-  calendarColor,
-  event,
+  calendarColors,
+  compact = false,
+  events,
   now,
   onOpenEvent,
+  showActions = true,
+  showCountdown = true,
+  sourcesById,
 }: {
-  calendarColor?: string;
-  event: CalendarEvent | null;
+  calendarColors: Map<string, string>;
+  compact?: boolean;
+  events: CalendarEvent[];
   now: Date;
   onOpenEvent: (event: CalendarEvent, target: HTMLElement) => void;
+  showActions?: boolean;
+  showCountdown?: boolean;
+  sourcesById: Map<string, CalendarSource>;
 }) {
+  const event = events[0] ?? null;
+  const calendarColor = event ? calendarColors.get(event.calendarId) : undefined;
+
+  if (events.length > 1) {
+    return (
+      <HudPanel compact={compact} title="Next">
+        <div className="flex min-h-0 flex-1 flex-col justify-center gap-1.5 overflow-hidden">
+          <div className="flex min-w-0 shrink-0 flex-nowrap items-center gap-2 overflow-hidden whitespace-nowrap text-xs text-[var(--text-secondary)]">
+            {showCountdown && event ? (
+              <span className="font-medium tabular-nums text-[var(--interactive-default)]">
+                {formatStartsIn(event, now)}
+              </span>
+            ) : null}
+            {event ? <span className="min-w-0 truncate tabular-nums">{formatCompactEventStart(event, now)}</span> : null}
+            <span className="shrink-0 text-[11px] text-[var(--text-tertiary)]">{events.length} choices</span>
+          </div>
+          <div className="grid min-h-0 flex-1 gap-1.5" style={{ gridTemplateColumns: `repeat(${events.length}, minmax(0, 1fr))` }}>
+            {events.map((forkEvent) => (
+              <NextForkOption
+                calendarColor={calendarColors.get(forkEvent.calendarId) ?? "var(--interactive-default)"}
+                event={forkEvent}
+                key={forkEvent.id}
+                now={now}
+                onOpenEvent={onOpenEvent}
+                sourceLabel={sourcesById.get(forkEvent.sourceId)?.label}
+              />
+            ))}
+          </div>
+        </div>
+      </HudPanel>
+    );
+  }
+
   return (
     <HudPanel
+      compact={compact}
       color={calendarColor}
       title="Next"
-      onClick={event ? (clickEvent) => onOpenEvent(event, clickEvent.currentTarget) : undefined}
+      onClick={event ? (target) => onOpenEvent(event, target) : undefined}
       ariaLabel={event ? `Open details for ${event.title}` : undefined}
     >
       {event ? (
-        <EventHero event={event} now={now} status={formatStartsIn(event, now)} />
+        <EventHero
+          calendarColor={calendarColor}
+          compact={compact}
+          event={event}
+          now={now}
+          showActions={showActions}
+          sourceLabel={sourcesById.get(event.sourceId)?.label}
+          status={showCountdown ? formatStartsIn(event, now) : null}
+        />
       ) : (
         <HudEmptyState label="No upcoming meetings" />
       )}
@@ -308,30 +641,93 @@ function NextPanel({
   );
 }
 
-function EventHero({
+function NextForkOption({
+  calendarColor,
   event,
   now,
-  status,
+  onOpenEvent,
+  sourceLabel,
 }: {
+  calendarColor: string;
   event: CalendarEvent;
   now: Date;
-  status: string;
+  onOpenEvent: (event: CalendarEvent, target: HTMLElement) => void;
+  sourceLabel?: string | null;
 }) {
-  const details = eventDetailLines(event);
+  const detail = [formatCompactEventTime(event, now), sourceLabel].filter(Boolean).join(" · ");
+  const style = {
+    background: `color-mix(in oklab, ${calendarColor} 11%, var(--content-surface))`,
+    borderColor: `color-mix(in oklab, ${calendarColor} 45%, var(--border-default))`,
+  };
   return (
-    <div className="flex min-h-0 flex-1 flex-col justify-center">
+    <button
+      type="button"
+      data-hud-event-trigger
+      className="flex min-h-0 min-w-0 flex-col justify-center overflow-hidden rounded-md border px-2 py-1 text-left transition hover:border-[var(--interactive-default)] hover:bg-[var(--bg-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-default)]"
+      style={style}
+      title={`Open details for ${event.title}`}
+      onClick={(clickEvent) => onOpenEvent(event, clickEvent.currentTarget)}
+    >
+      <span className="mb-1 h-1 w-7 shrink-0 rounded-full" style={{ backgroundColor: calendarColor }} />
+      <span className="min-w-0 overflow-hidden text-xs font-semibold leading-tight text-[var(--text-primary)] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] [overflow-wrap:anywhere]">
+        {event.title}
+      </span>
+      {detail ? (
+        <span className="mt-0.5 min-w-0 truncate text-[11px] text-[var(--text-tertiary)]">
+          {detail}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+function EventHero({
+  calendarColor,
+  compact = false,
+  event,
+  now,
+  showActions = true,
+  sourceLabel,
+  status,
+}: {
+  calendarColor?: string;
+  compact?: boolean;
+  event: CalendarEvent;
+  now: Date;
+  showActions?: boolean;
+  sourceLabel?: string | null;
+  status?: string | null;
+}) {
+  const details = compact ? [] : eventDetailLines(event);
+  const statusStyle: CSSProperties | undefined = calendarColor ? { color: calendarColor } : undefined;
+  return (
+    <div className="relative z-10 flex min-h-0 flex-1 flex-col justify-center overflow-hidden" style={{ justifyContent: "safe center" }}>
       <div
-        className="min-w-0 overflow-hidden text-base font-semibold leading-tight text-[var(--text-primary)] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] [overflow-wrap:anywhere] [text-wrap:balance]"
+        className={`${compact ? "text-sm leading-snug" : "text-base leading-tight"} min-w-0 shrink-0 overflow-hidden font-semibold text-[var(--text-primary)] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] [overflow-wrap:anywhere] [text-wrap:balance]`}
         title={event.title}
       >
         {event.title}
       </div>
-      <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-secondary)]">
-        <span className="font-medium tabular-nums text-[var(--interactive-default)]">{status}</span>
-        <span className="tabular-nums">{formatEventTime(event, now)}</span>
+      <div className="mt-1 flex min-w-0 shrink-0 flex-nowrap items-center gap-2 overflow-hidden whitespace-nowrap text-xs text-[var(--text-secondary)]">
+        {status ? (
+          <span className="font-medium tabular-nums text-[var(--interactive-default)]" style={statusStyle}>
+            {status}
+          </span>
+        ) : null}
+        <span className="min-w-0 truncate tabular-nums">{formatHeroEventTime(event, now)}</span>
       </div>
+      {showActions ? (
+        <CalendarEventActions
+          accentColor={calendarColor}
+          className="mt-1"
+          event={event}
+          sourceLabel={sourceLabel}
+          stopPropagation
+          variant="compact"
+        />
+      ) : null}
       {details.length > 0 ? (
-        <div className="mt-1.5 space-y-0.5 text-xs leading-snug text-[var(--text-tertiary)]">
+        <div className="mt-1 min-h-0 overflow-hidden space-y-0.5 text-xs leading-snug text-[var(--text-tertiary)]">
           {details.map((line) => (
             <div
               key={line}
@@ -352,24 +748,32 @@ function SoonList({
   now,
   onOpenEvent,
   sections,
+  weatherByDate,
 }: {
   calendarColors: Map<string, string>;
   now: Date;
   onOpenEvent: (event: CalendarEvent, target: HTMLElement) => void;
   sections: AgendaSection[];
+  weatherByDate: Map<string, WeatherForecastDay>;
 }) {
+  const conflictPositionsBySection = useMemo(() => new Map(
+    sections.map((section) => [section.id, hudAgendaConflictPositions(section.items)]),
+  ), [sections]);
+
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto pr-1" data-testid="hud-agenda-list">
+    <div className="-ml-3 min-h-0 flex-1 overflow-x-hidden overflow-y-auto pl-3 pr-1" data-testid="hud-agenda-list">
       <div className="space-y-0.5">
         {sections.map((section) => (
           <section key={section.id} data-testid="hud-agenda-section">
-            <AgendaHeading label={section.label} />
+            <AgendaHeading forecast={weatherByDate.get(section.date) ?? null} label={section.label} />
             <div className="space-y-0.5">
               {section.items.map((item) => {
                 if (item.kind === "free") return <FreeAgendaItem item={item} key={item.id} now={now} />;
+                const conflictPosition = conflictPositionsBySection.get(section.id)?.get(item.event.id);
                 return (
                   <EventAgendaItem
                     calendarColor={calendarColors.get(item.event.calendarId) ?? "var(--interactive-default)"}
+                    conflictPosition={conflictPosition}
                     event={item.event}
                     key={item.event.id}
                     now={now}
@@ -385,24 +789,62 @@ function SoonList({
   );
 }
 
-function AgendaHeading({ label }: { label: string }) {
+function AgendaHeading({ forecast, label }: { forecast?: WeatherForecastDay | null; label: string }) {
   return (
     <div
       data-testid="hud-agenda-heading"
-      className="sticky top-0 z-10 bg-[var(--content-surface)] px-1.5 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]"
+      className="sticky top-0 z-10 flex items-center justify-between gap-2 bg-[var(--content-surface)] px-1.5 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]"
     >
-      {label}
+      <span>{label}</span>
+      {forecast ? <HudWeatherIcon className="h-3.5 w-3.5 opacity-75" forecast={forecast} /> : null}
     </div>
   );
 }
 
+function HudTodayWeather({ forecast }: { forecast?: WeatherForecastDay | null }) {
+  if (!forecast) return null;
+  const high = Math.round(forecast.highF);
+  const low = Math.round(forecast.lowF);
+  return (
+    <span
+      className="flex shrink-0 items-center gap-1 rounded-full bg-[var(--bg-secondary)] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-[var(--text-secondary)]"
+      title={`${forecast.condition}, high ${high}\u00b0, low ${low}\u00b0`}
+      aria-label={`${forecast.condition}, high ${high}\u00b0, low ${low}\u00b0`}
+    >
+      <HudWeatherIcon className="h-3.5 w-3.5" forecast={forecast} />
+      <span>{high}&deg;/{low}&deg;</span>
+    </span>
+  );
+}
+
+function HudWeatherIcon({ className, forecast }: { className: string; forecast: WeatherForecastDay }) {
+  return (
+    <span className="hilt-hud-weather" data-weather-icon={forecast.icon} title={forecast.condition} aria-label={forecast.condition}>
+      <WeatherConditionIcon className={`${className} hilt-hud-weather-icon`} icon={forecast.icon} />
+    </span>
+  );
+}
+
+function WeatherConditionIcon({ className, icon }: { className: string; icon: WeatherIconKey }) {
+  if (icon === "sun") return <Sun className={className} aria-hidden="true" />;
+  if (icon === "cloud-sun") return <CloudSun className={className} aria-hidden="true" />;
+  if (icon === "fog") return <CloudFog className={className} aria-hidden="true" />;
+  if (icon === "drizzle") return <CloudDrizzle className={className} aria-hidden="true" />;
+  if (icon === "rain") return <CloudRain className={className} aria-hidden="true" />;
+  if (icon === "snow") return <CloudSnow className={className} aria-hidden="true" />;
+  if (icon === "storm") return <CloudLightning className={className} aria-hidden="true" />;
+  return <Cloud className={className} aria-hidden="true" />;
+}
+
 function EventAgendaItem({
   calendarColor,
+  conflictPosition,
   event,
   now,
   onOpenEvent,
 }: {
   calendarColor: string;
+  conflictPosition?: HudAgendaConflictPosition;
   event: CalendarEvent;
   now: Date;
   onOpenEvent: (event: CalendarEvent, target: HTMLElement) => void;
@@ -412,11 +854,11 @@ function EventAgendaItem({
       type="button"
       data-testid="hud-agenda-event"
       data-hud-event-trigger
-      className="grid w-full grid-cols-[12px_minmax(0,1fr)_max-content] items-center gap-2 rounded-md px-1.5 py-0.5 text-left transition-colors hover:bg-[var(--bg-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-default)]"
+      className="relative grid w-full grid-cols-[12px_minmax(0,1fr)_max-content] items-center gap-2 rounded-md px-1.5 py-0.5 text-left transition-colors hover:bg-[var(--bg-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-default)]"
       title={`Open details for ${event.title}`}
       onClick={(clickEvent) => onOpenEvent(event, clickEvent.currentTarget)}
     >
-      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: calendarColor }} />
+      <span className="relative h-2.5 w-2.5 rounded-full" style={{ backgroundColor: calendarColor }} />
       <span
         className="min-w-0 overflow-hidden whitespace-nowrap text-sm font-medium leading-snug text-[var(--text-primary)]"
         style={fadeEndMaskStyle}
@@ -426,11 +868,24 @@ function EventAgendaItem({
       <span className="ml-1 shrink-0 whitespace-nowrap tabular-nums text-[11px] text-[var(--text-tertiary)]">
         {formatCompactEventTime(event, now)}
       </span>
+      {conflictPosition ? <AgendaConflictRail position={conflictPosition} /> : null}
     </button>
   );
 }
 
-function FreeAgendaItem({ item, now }: { item: Extract<AgendaItem, { kind: "free" }>; now: Date }) {
+function AgendaConflictRail({ position }: { position: HudAgendaConflictPosition }) {
+  return <span aria-hidden="true" className={agendaConflictRailClass(position)} data-testid="hud-agenda-conflict-rail" />;
+}
+
+function agendaConflictRailClass(position: HudAgendaConflictPosition): string {
+  const base = "pointer-events-none absolute left-[-12px] z-10 w-[3px] bg-amber-500/95 dark:bg-amber-400";
+  if (position === "single") return `${base} top-1 bottom-1 rounded-full`;
+  if (position === "start") return `${base} top-1 -bottom-0.5 rounded-t-full`;
+  if (position === "end") return `${base} -top-0.5 bottom-1 rounded-b-full`;
+  return `${base} -top-0.5 -bottom-0.5`;
+}
+
+function FreeAgendaItem({ item, now }: { item: Extract<HudAgendaItem, { kind: "free" }>; now: Date }) {
   return (
     <div data-testid="hud-agenda-free" className="grid grid-cols-[12px_minmax(0,1fr)_max-content] items-center gap-2 px-1.5 py-0.5 text-xs text-[var(--text-tertiary)]">
       <span className="mx-auto h-px w-2 rounded-full bg-[var(--border-strong)]" />
@@ -446,19 +901,21 @@ function FreeAgendaItem({ item, now }: { item: Extract<AgendaItem, { kind: "free
 
 function HudPanel({
   children,
+  compact = false,
   color,
   title,
   onClick,
   ariaLabel,
 }: {
   children: ReactNode;
+  compact?: boolean;
   color?: string;
   title?: string;
-  onClick?: (event: ReactMouseEvent<HTMLButtonElement>) => void;
+  onClick?: (target: HTMLDivElement) => void;
   ariaLabel?: string;
 }) {
-  const className = `flex h-full min-h-0 w-full flex-col rounded-lg border px-3 py-2 shadow-sm ${
-    onClick ? "text-left transition hover:border-[var(--interactive-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-default)]" : ""
+  const className = `flex h-full min-h-0 w-full flex-col rounded-lg border ${compact ? "px-2.5 py-2" : "px-3 py-2"} shadow-sm ${
+    onClick ? "cursor-pointer text-left transition hover:border-[var(--interactive-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-default)]" : ""
   }`;
   const style = {
     background: color ? `color-mix(in oklab, ${color} 12%, var(--content-surface))` : "var(--content-surface)",
@@ -470,12 +927,21 @@ function HudPanel({
       {children}
     </>
   );
-  return onClick ? (
-    <button type="button" className={className} style={style} onClick={onClick} aria-label={ariaLabel} data-hud-event-trigger>
-      {content}
-    </button>
-  ) : (
-    <div className={className} style={style}>
+  return (
+    <div
+      aria-label={ariaLabel}
+      className={className}
+      data-hud-event-trigger={onClick ? true : undefined}
+      onClick={onClick ? (event) => onClick(event.currentTarget) : undefined}
+      onKeyDown={onClick ? (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onClick(event.currentTarget);
+      } : undefined}
+      role={onClick ? "button" : undefined}
+      style={style}
+      tabIndex={onClick ? 0 : undefined}
+    >
       {content}
     </div>
   );
@@ -492,43 +958,7 @@ function selectHudEvents(events: CalendarEvent[], now: Date): CalendarEvent[] {
     .sort((a, b) => a.sortStart - b.sortStart);
 }
 
-function buildSoonItems(events: CalendarEvent[], now: Date, currentEvent: CalendarEvent | null, nextEvent: CalendarEvent | null): AgendaItem[] {
-  const items: AgendaItem[] = [];
-  const startAfter = nextEvent ? new Date(nextEvent.end) : currentEvent ? new Date(currentEvent.end) : now;
-  let cursor = startAfter;
-
-  for (const event of events) {
-    if (currentEvent && event.id === currentEvent.id) continue;
-    if (nextEvent && event.id === nextEvent.id) continue;
-    const eventStart = new Date(event.start);
-    const eventEnd = new Date(event.end);
-    if (eventEnd <= cursor) continue;
-    if (eventStart < cursor) {
-      items.push({ kind: "event", event });
-      if (eventEnd > cursor) cursor = eventEnd;
-      continue;
-    }
-
-    const freeMinutes = Math.floor((eventStart.getTime() - cursor.getTime()) / 60_000);
-    if (freeMinutes >= FREE_BLOCK_MINUTES) {
-      items.push({
-        kind: "free",
-        id: `free-${cursor.toISOString()}-${event.start}`,
-        start: cursor,
-        end: eventStart,
-        minutes: freeMinutes,
-      });
-    }
-
-    items.push({ kind: "event", event });
-    cursor = eventEnd > cursor ? eventEnd : cursor;
-    if (items.length >= MAX_SOON_ITEMS) break;
-  }
-
-  return items.slice(0, MAX_SOON_ITEMS);
-}
-
-function buildAgendaSections(items: AgendaItem[], now: Date): AgendaSection[] {
+function buildAgendaSections(items: HudAgendaItem[], now: Date): AgendaSection[] {
   const sections: AgendaSection[] = [];
   let currentDayKey: string | null = null;
   let currentSection: AgendaSection | null = null;
@@ -538,6 +968,7 @@ function buildAgendaSections(items: AgendaItem[], now: Date): AgendaSection[] {
     const dayKey = dateKeyInTimeZone(start);
     if (dayKey !== currentDayKey) {
       currentSection = {
+        date: dayKey,
         id: `section-${dayKey}`,
         items: [],
         label: agendaHeadingLabel(start, now),
@@ -551,7 +982,7 @@ function buildAgendaSections(items: AgendaItem[], now: Date): AgendaSection[] {
   return sections;
 }
 
-function agendaItemStart(item: AgendaItem): Date {
+function agendaItemStart(item: HudAgendaItem): Date {
   return item.kind === "event" ? new Date(item.event.start) : item.start;
 }
 
@@ -560,6 +991,35 @@ function isEventCurrent(event: CalendarEvent, now: Date): boolean {
   const start = new Date(event.start);
   const end = new Date(event.end);
   return start <= now && end > now;
+}
+
+function hudEndedEventReason(event: CalendarEvent, now: Date, manuallyEndedEventIds: Set<string>): HudEndedEventReason | null {
+  if (!isEventCurrent(event, now)) return null;
+  if (manuallyEndedEventIds.has(event.id)) return "manual";
+  if (hasGranolaEndedSignal(event)) return "granola";
+  return null;
+}
+
+function hasGranolaEndedSignal(event: CalendarEvent): boolean {
+  return Boolean(event.meetingNotes?.some((note) => typeof note.meetingEndCount === "number" && note.meetingEndCount > 0));
+}
+
+function nowWatermark(nextEvent: CalendarEvent | null, now: Date): NowWatermarkState {
+  if (!nextEvent) return { Icon: Smile, label: "Free now" };
+
+  const nextStart = new Date(nextEvent.start);
+  const millisecondsUntilStart = nextStart.getTime() - now.getTime();
+  const minutesUntilStart = Math.ceil(millisecondsUntilStart / 60_000);
+  if (minutesUntilStart <= 5) return { Icon: AlarmClock, label: "Meeting imminent" };
+  if (minutesUntilStart <= 20) return { Icon: Hourglass, label: "Meeting soon" };
+  if (differenceInLocalDays(nextStart, now) > 0) return { Icon: Moon, label: "Done for the day" };
+  if (minutesUntilStart >= 60) return { Icon: Coffee, label: "Open block" };
+  return { Icon: Smile, label: "Free block" };
+}
+
+function formatEndedCurrentEventReason(reason?: HudEndedEventReason | null): string {
+  if (reason === "manual") return "ended manually";
+  return "wrapped early";
 }
 
 function formatHudDate(date: Date): string {
@@ -579,48 +1039,24 @@ function formatClock(date: Date): string {
   }).format(date);
 }
 
-function formatEventTime(event: CalendarEvent, now: Date): string {
-  if (event.allDay) return "All day";
-  return formatTimeRange(new Date(event.start), new Date(event.end), now);
-}
-
-function formatEventStart(event: CalendarEvent, now: Date): string {
+function formatCompactEventStart(event: CalendarEvent, now: Date): string {
   const start = new Date(event.start);
-  const prefix = formatDatePrefix(start, now);
-  const time = new Intl.DateTimeFormat(undefined, {
-    timeZone: TIME_ZONE,
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(start);
+  const prefix = formatCompactDatePrefix(start, now);
+  const time = formatCompactTime(compactTimeParts(start), true);
   return prefix ? `${prefix} ${time}` : time;
-}
-
-function formatTimeRange(start: Date, end: Date, now: Date): string {
-  const formatter = new Intl.DateTimeFormat(undefined, {
-    timeZone: TIME_ZONE,
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  const prefix = formatDatePrefix(start, now);
-  const endPrefix = differenceInLocalDays(end, start) === 0 ? "" : formatDatePrefix(end, now);
-  const startTime = prefix ? `${prefix} ${formatter.format(start)}` : formatter.format(start);
-  const endTime = endPrefix ? `${endPrefix} ${formatter.format(end)}` : formatter.format(end);
-  return `${startTime} - ${endTime}`;
-}
-
-function formatDatePrefix(date: Date, now: Date): string {
-  const dayDifference = differenceInLocalDays(date, now);
-  if (dayDifference === 0) return "";
-  if (dayDifference === 1) return "Tomorrow";
-  if (dayDifference > 1 && dayDifference < 7) {
-    return new Intl.DateTimeFormat(undefined, { timeZone: TIME_ZONE, weekday: "short" }).format(date);
-  }
-  return new Intl.DateTimeFormat(undefined, { timeZone: TIME_ZONE, month: "short", day: "numeric" }).format(date);
 }
 
 function formatCompactEventTime(event: CalendarEvent, now: Date): string {
   if (event.allDay) return "all day";
   return formatCompactTimeRange(new Date(event.start), new Date(event.end), now);
+}
+
+function formatHeroEventTime(event: CalendarEvent, now: Date): string {
+  if (event.allDay) return "all day";
+  const start = new Date(event.start);
+  return formatCompactTimeRange(start, new Date(event.end), now, {
+    includeStartDate: differenceInLocalDays(start, now) !== 0,
+  });
 }
 
 function formatCompactTimeRange(start: Date, end: Date, now: Date, options: { includeStartDate?: boolean } = {}): string {
@@ -638,7 +1074,7 @@ function formatCompactTimeRange(start: Date, end: Date, now: Date, options: { in
 function formatCompactDatePrefix(date: Date, now: Date): string {
   const dayDifference = differenceInLocalDays(date, now);
   if (dayDifference === 0) return "";
-  if (dayDifference === 1) return "Tmrw";
+  if (dayDifference === 1) return "tomorrow";
   if (dayDifference > 1 && dayDifference < 7) {
     return new Intl.DateTimeFormat(undefined, { timeZone: TIME_ZONE, weekday: "short" }).format(date);
   }
@@ -686,6 +1122,12 @@ function dateKeyInTimeZone(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function addPlainDateDays(value: string, days: number): string {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function eventDetailLines(event: CalendarEvent): string[] {
   return [
     formatParticipantSummary(event),
@@ -708,7 +1150,7 @@ function formatParticipantSummary(event: CalendarEvent): string | null {
 }
 
 function compactDescription(description: string | null): string | null {
-  const text = description
+  const text = prepareCalendarDescription(description).visible
     ?.replace(/<[^>]*>/g, " ")
     .replace(/https?:\/\/\S+/g, " ")
     .replace(/\s+/g, " ")
@@ -751,6 +1193,40 @@ function formatStartsIn(event: CalendarEvent, now: Date): string {
   const milliseconds = Math.max(0, start - now.getTime());
   if (milliseconds < 1000) return "starting now";
   return `in ${formatDuration(milliseconds, { secondsBelowMinute: true })}`;
+}
+
+function nextCountdownDuplicatesNow(currentEvent: CalendarEvent | null, nextEvent: CalendarEvent | null): boolean {
+  if (!nextEvent) return false;
+  if (!currentEvent) return true;
+  const currentEnd = new Date(currentEvent.end).getTime();
+  const nextStart = new Date(nextEvent.start).getTime();
+  return Math.abs(nextStart - currentEnd) <= NEXT_COUNTDOWN_DUPLICATE_TOLERANCE_MS;
+}
+
+function collapsedHudPrimary(
+  currentEvent: CalendarEvent | null,
+  nextEvent: CalendarEvent | null,
+  now: Date,
+  state: { error: boolean; isLoading: boolean }
+): string {
+  if (state.isLoading) return "Loading";
+  if (state.error) return "Calendar unavailable";
+  if (currentEvent) return `Now ${formatRemaining(currentEvent, now) ?? "in progress"}`;
+  if (nextEvent) return `Next ${formatStartsIn(nextEvent, now)}`;
+  return "Free now";
+}
+
+function collapsedHudProgress(currentEvent: CalendarEvent | null, nextEvent: CalendarEvent | null, now: Date): number {
+  if (currentEvent) return eventCompletion(currentEvent, now);
+  if (!nextEvent) return 100;
+  const millisecondsUntilStart = Math.max(0, new Date(nextEvent.start).getTime() - now.getTime());
+  return clamp(100 - (millisecondsUntilStart / COLLAPSED_HUD_HORIZON_MS) * 100, 0, 100);
+}
+
+function hudProgressTrackStyle(color: string): CSSProperties {
+  return {
+    backgroundColor: `color-mix(in oklab, ${color} 18%, var(--content-surface))`,
+  };
 }
 
 function formatFreeUntil(event: CalendarEvent, now: Date): string {
@@ -796,6 +1272,42 @@ function differenceInLocalDays(date: Date, reference: Date): number {
   const start = startOfLocalDay(date).getTime();
   const referenceStart = startOfLocalDay(reference).getTime();
   return Math.round((start - referenceStart) / 86_400_000);
+}
+
+function readManualHudEndedEvents(): Record<string, number> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(HUD_MANUAL_ENDED_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const records: Record<string, number> = {};
+    Object.entries(parsed).forEach(([id, endedAt]) => {
+      if (typeof endedAt === "number" && Number.isFinite(endedAt)) records[id] = endedAt;
+    });
+    return pruneManualHudEndedEvents(records);
+  } catch {
+    return {};
+  }
+}
+
+function writeManualHudEndedEvents(records: Record<string, number>) {
+  if (typeof window === "undefined") return;
+  try {
+    const pruned = pruneManualHudEndedEvents(records);
+    if (Object.keys(pruned).length === 0) {
+      window.localStorage.removeItem(HUD_MANUAL_ENDED_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(HUD_MANUAL_ENDED_STORAGE_KEY, JSON.stringify(pruned));
+  } catch {
+    // Ignore storage failures; the HUD can still apply the in-memory override.
+  }
+}
+
+function pruneManualHudEndedEvents(records: Record<string, number>): Record<string, number> {
+  const cutoff = Date.now() - HUD_MANUAL_ENDED_TTL_MS;
+  return Object.fromEntries(Object.entries(records).filter(([, endedAt]) => endedAt >= cutoff));
 }
 
 function localDateKey(date: Date): string {

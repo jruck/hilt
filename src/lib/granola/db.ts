@@ -203,7 +203,7 @@ export function listGranolaMeetingNotesForCalendarEventIds(eventIds: string[]): 
   const result = new Map<string, GranolaMeetingNoteLink[]>();
   if (!eventIds.length) return result;
   const rows = getGranolaSyncDb().prepare(`
-    SELECT id, title, note_path, transcript_path, granola_url, hilt_calendar_event_id,
+    SELECT id, title, note_path, transcript_path, granola_url, raw_json, hilt_calendar_event_id,
       hilt_calendar_match_method, hilt_calendar_match_confidence
     FROM granola_documents
     WHERE hilt_calendar_event_id IN (${eventIds.map(() => "?").join(",")})
@@ -214,6 +214,7 @@ export function listGranolaMeetingNotesForCalendarEventIds(eventIds: string[]): 
     note_path: string | null;
     transcript_path: string | null;
     granola_url: string | null;
+    raw_json: string;
     hilt_calendar_event_id: string;
     hilt_calendar_match_method: string | null;
     hilt_calendar_match_confidence: number | null;
@@ -227,12 +228,23 @@ export function listGranolaMeetingNotesForCalendarEventIds(eventIds: string[]): 
       notePath: row.note_path,
       transcriptPath: row.transcript_path,
       granolaUrl: row.granola_url,
+      meetingEndCount: granolaMeetingEndCount(row.raw_json),
       calendarMatchMethod: row.hilt_calendar_match_method,
       calendarMatchConfidence: row.hilt_calendar_match_confidence,
     });
     result.set(row.hilt_calendar_event_id, items);
   }
   return result;
+}
+
+function granolaMeetingEndCount(rawJson: string): number | null {
+  try {
+    const raw = JSON.parse(rawJson) as { meeting_end_count?: unknown; meetingEndCount?: unknown };
+    const value = raw.meeting_end_count ?? raw.meetingEndCount;
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 export function getGranolaDocumentById(id: string): DocumentRow | null {

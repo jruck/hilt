@@ -168,6 +168,17 @@ Every action should have visible feedback:
 
 This section tracks design decisions and refinements over time. Each entry should note what was tried, what was rejected, and why.
 
+### 2026-06-02: Briefing Reliability — Failure Is Today's Briefing State
+
+**Principle**: The Briefing tab represents the expected daily briefing loop, not merely the newest successful markdown file. If today's briefing generation failed, the UI should show today's failed state directly instead of silently falling back to yesterday and making the user infer that something is missing.
+
+**UI rule**:
+- Render failed generation as a compact content card with the time, readable cause, next scheduled run, and a direct retry affordance.
+- Keep the card quiet and diagnostic: amber status tint, no modal, no alarming full-screen error.
+- Hilt may queue the existing Hermes job for retry, but Hermes remains the owner of generation. Hilt should not create a second hidden briefing generator.
+
+**Rationale**: Briefing is a morning trust surface. A missing briefing is itself useful information, and showing it in place preserves the daily habit while keeping recovery close to the failure.
+
 ### 2026-05-30: Library Reweave — One Pass, Free-Form Digest, Disciplined Connections
 
 **Principle (durable)**: When a reference is durably saved, Hilt does ONE Claude pass that *weaves the reference into Justin's corpus* — the way Justin would ask a sharp friend to read something, distill it, and tell him how it bears on his work. That single pass produces both the digest and the connections; there is no separate summarize-then-judge handoff for durable saves.
@@ -201,6 +212,17 @@ This section tracks design decisions and refinements over time. Each entry shoul
 - Source families should collapse noisy feeds before exposing detail. YouTube belongs under one parent with playlist/channel children; email newsletters belong under `Newsletters` with friendly sender facets instead of raw email addresses.
 
 **Rationale**: Justin uses bookmarks for both "this may change how I think/work" and "remember this object/place/product later." Treating every saved bookmark as a study item makes the feed noisy and connection prompts silly. A mode split keeps the Library useful for both behaviors without inventing a second archive.
+
+### 2026-06-02: Library Read State — Open Then Leave
+
+**Principle**: "Visible" is not "read." Library items should not become read because a user scrolled past them, even if the viewport is tall enough to expose many cards at once.
+
+**Rule**:
+- Opening/selecting an item is necessary but not sufficient.
+- The item is marked read only when the reader moves away from it: selecting a different item, closing the reader, or backing out of the detail surface.
+- Scrolling Feed/List surfaces only changes position and pagination. It must never mutate read state.
+
+**Rationale**: The Library feed is partly an inbox. Scanning for context should not consume the unread signal; closing/leaving the opened item is the user intent that says "I have dealt with this."
 
 ### 2026-05-30: Knowledge Graph — Freeze at Rest, Default Global, Show-in-Graph Everywhere
 
@@ -271,14 +293,14 @@ This section tracks design decisions and refinements over time. Each entry shoul
 - Treat health as operational chrome: an icon with a popover, expandable details, and log excerpts. Warnings must explain themselves where they appear.
 - List defaults should privilege the reading pane. Source lists should be only as wide as their labels require, artifact/feed lists should stay scannable, and detail panes should get the remaining space.
 - Resizable panes should follow the Docs convention: stable defaults, a slim hover handle, and localStorage persistence.
-- Saved-reference archive is destructive enough to hide behind an overflow menu and confirmation. Candidate Skip is a normal review action and can stay direct.
+- Saved-reference archive is destructive enough to hide behind an overflow menu and confirmation. It is also a durable source-ingestion suppression signal: keep the hidden `.archive` file around so explicit-save sources do not recreate it. Candidate Skip is a normal review action and can stay direct.
 - Lifecycle filters belong with source filters in the rail and must update both the visible item list and source-list counts, so the numbers describe the current slice rather than the whole library.
 - Library should be one composable surface, not separate Feed and Browse destinations. Keep ranking (`Recent` / `For You`), lifecycle (`All` / `Saved` / `Candidates`), source visibility, and density (`Feed` / `List`) as independent controls.
 - Feed density is the default because it is the easiest reviewing surface. Feed can be full-width when nothing is selected, then compress into a split reader when an item is opened. Re-selecting the active Feed item can dismiss the reader.
 - List density gives the old Browse/inbox feel. It implies a reader slot: desktop should always reserve detail space, auto-select a visible item when possible, and show a quiet placeholder instead of expanding the list to full width when no item is selected.
 - Opening a Library item should preserve the current Library context. Desktop can compress the current Feed/List into a left pane with detail on the right; mobile should open detail over the current list with a Back control and restore scroll position when returning.
 - Library detail rendering should use Docs read-mode as the gold master for Markdown typography, links, bullets, tables, and rich text. Reference bodies should not carry navigation chrome or repeated source metadata; source/author/date/format live in frontmatter, while the visible document starts with title, optional media, summary, key points, connections, and raw content.
-- Unread state in Library should feel like an inbox hint, not an obligation. Use the same small blue-dot language as top-level unread nav, keep count badges compact, and avoid marking a dense list read just because it rendered. Feed can mark read after an item has been visible and scrolled past; List should require an explicit open.
+- Unread state in Library should feel like an inbox hint, not an obligation. Use the same small blue-dot language as top-level unread nav, keep count badges compact, and never mark a dense list read just because it rendered or scrolled past. Feed and List should require an explicit open, then mark read only when the reader moves away from that item.
 - New/unread filtering belongs with Library ranking, not lifecycle status. `New` can span saved references and candidates, while source/status filters remain orthogonal controls for narrowing the same surface.
 - Video references should behave like media documents, not static notes. Keep the video available while reading by letting it collapse into a small bottom-right player after the inline embed scrolls away, prefer faster playback for review, and make timestamped transcripts feel like an app-native reading surface with seekable rows and playhead context.
 - Floating video should be tied to active playback, not mere scroll position. Do not pop out a video that has not been played or is currently paused; when floating, it should be movable/resizable and dismissible back inline without stopping playback.

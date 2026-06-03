@@ -235,9 +235,44 @@ export class GraphRunner {
     try {
       this.diffDirs(INCLUDED_DIRS);
       await this.pollCandidates();
+      this.refreshSemanticOverlay();
     } catch (err) {
       console.error("[GraphRunner] reconcile failed:", err);
     }
+  }
+
+  /**
+   * Eventual semantic overlay refresh (like candidates — `semantic.sqlite` churns via the
+   * Phase-1 CLI/scheduled jobs, not vault file watchers). Flag-gated + lazily required so
+   * the semantic layer never loads with the overlay off. Re-derives only when the semantic
+   * watermark advanced past the graph's recorded marker (cheap watermark check — skip the
+   * rebuild when nothing re-fit). On change, seed the touched overlay node ids dirty and
+   * schedule a relax so the incremental layout repositions just the affected region.
+   */
+  private refreshSemanticOverlay(): void {
+    if (process.env.HILT_GRAPH_SEMANTIC !== "true") return;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const overlay = require("./semantic-overlay") as typeof import("./semantic-overlay");
+      const db = getGraphDb();
+      const before = new Set(this.overlayNodeIds(db));
+      const changed = overlay.refreshSemanticOverlayIfStale({ db });
+      if (!changed) return;
+      const after = this.overlayNodeIds(db);
+      // Seed both prior and current overlay nodes so vacated positions also re-relax.
+      for (const id of before) this.dirtySeeds.add(id);
+      for (const id of after) this.dirtySeeds.add(id);
+      this.scheduleRelax();
+    } catch (err) {
+      console.error("[GraphRunner] semantic overlay refresh failed:", err);
+    }
+  }
+
+  /** Current topic/entity overlay node ids (the dirty-seed set for an overlay change). */
+  private overlayNodeIds(db: ReturnType<typeof getGraphDb>): string[] {
+    return (db.prepare("SELECT id FROM graph_nodes WHERE type IN ('topic','entity')").all() as Array<{ id: string }>).map(
+      (r) => r.id,
+    );
   }
 
   // -------------------------------------------------------------------------

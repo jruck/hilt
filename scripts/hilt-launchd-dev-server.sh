@@ -21,4 +21,7 @@ if is_hilt_up; then
   echo "Existing Hilt server disappeared; launchd is taking over."
 fi
 
-exec /opt/homebrew/bin/npm run dev:all
+exec ./node_modules/.bin/concurrently \
+  "DATA_DIR=$DATA_DIR npm run dev:webpack" \
+  "DATA_DIR=$DATA_DIR npm run ws-server" \
+  "DATA_DIR=$DATA_DIR npm run event-server"

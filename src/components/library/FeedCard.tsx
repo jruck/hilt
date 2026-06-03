@@ -28,6 +28,7 @@ export function FeedCard({
   onOpen,
   onMarkUnread,
   onDismissCandidate,
+  onArchiveReference,
   onReviewStatus,
   active = false,
 }: {
@@ -39,6 +40,7 @@ export function FeedCard({
   onOpen?: (artifact: LibraryArtifact) => void;
   onMarkUnread?: (id: string) => void | Promise<void>;
   onDismissCandidate?: (artifact: LibraryArtifact | RecommendedArtifact) => void | Promise<void>;
+  onArchiveReference?: (artifact: LibraryArtifact | RecommendedArtifact) => void | Promise<void>;
   onReviewStatus?: (id: string, status: ReviewQueueStatus, note?: string) => void | Promise<void>;
   active?: boolean;
 }) {
@@ -184,6 +186,11 @@ export function FeedCard({
                     <button
                       onClick={async () => {
                         if (!window.confirm("Archive this saved reference? It will move out of the active Library.")) return;
+                        setActionsOpen(false);
+                        if (onArchiveReference) {
+                          await onArchiveReference(artifact);
+                          return;
+                        }
                         await archiveArtifact(artifact.id);
                         onChanged?.();
                       }}

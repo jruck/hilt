@@ -4,6 +4,7 @@ import { loadEnvConfig } from "@next/env";
 import { digestArtifact } from "../src/lib/library/digestion";
 import { extractBullets, extractSection, parseMarkdownFile, stringifyMarkdown } from "../src/lib/library/markdown";
 import { buildMediaMarkdown, cachedSourceContent, getYouTubeVideoId, stripDetailsWrapper } from "../src/lib/library/media";
+import { PIPELINE_VERSION } from "../src/lib/library/pipeline";
 import { loadSources } from "../src/lib/library/source-config";
 import { dateOnly } from "../src/lib/library/utils";
 import type { LibrarySourceConfig, ProcessedArtifact, RawArtifact } from "../src/lib/library/types";
@@ -48,12 +49,20 @@ function existingRawContent(body: string): string {
 }
 
 function resolvedSourceUrlFromNotes(body: string): string | undefined {
-  return body.match(/Resolved linked URL from source metadata:\s*(https?:\/\/\S+)/)?.[1];
+  const url = body.match(/Resolved linked URL from source metadata:\s*(https?:\/\/\S+)/)?.[1];
+  if (!url) return undefined;
+  // Older repair code accidentally derived this synthetic URL from any X iframe. It is not a real
+  // source expansion, so do not feed it back into the next redigest as a linked video.
+  if (/^https?:\/\/(?:www\.)?x\.com\/i\/status\/\d+\/video\/\d+/i.test(url)) return undefined;
+  return url;
 }
 
 function xEmbedVideoUrlFromBody(body: string): string | undefined {
-  const postId = body.match(/platform\.twitter\.com\/embed\/Tweet\.html\?id=(\d+)/)?.[1];
-  return postId ? `https://x.com/i/status/${postId}/video/1` : undefined;
+  const bodyWithoutSourceNotes = body.replace(/\n## Source Notes[\s\S]*$/i, "");
+  const url = bodyWithoutSourceNotes.match(/https?:\/\/(?:www\.)?(?:x|twitter)\.com\/[^/\s)]+\/status\/\d+\/video\/\d+/i)?.[0];
+  if (!url) return undefined;
+  if (/^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/i\/status\/\d+\/video\/\d+/i.test(url)) return undefined;
+  return url;
 }
 
 function markdownList(items: string[], fallback = "- "): string {
@@ -82,19 +91,20 @@ function sourceNotes(processed: ProcessedArtifact): string {
 
 function referenceBody(processed: ProcessedArtifact): string {
   const media = buildMediaMarkdown(processed.raw);
-  return `# ${processed.raw.title}
-
-${media ? `${media}\n` : ""}## Summary
+  const digestBlock = processed.digest_markdown
+    ? processed.digest_markdown.trim()
+    : `## Summary
 
 ${processed.summary}
 
 ## Key Points
 
-${markdownList(processed.key_points)}
+${markdownList(processed.key_points)}`;
+  const connections = connectionLines(processed);
+  const connectionsBlock = connections.trim() ? `\n\n## Connections\n\n${connections}` : "";
+  return `# ${processed.raw.title}
 
-## Connections
-
-${connectionLines(processed)}
+${media ? `${media}\n` : ""}${digestBlock}${connectionsBlock}
 
 ## Raw Content
 
@@ -150,7 +160,8 @@ function addMediaSection(body: string, media: string): string {
 function mergeFrontmatter(existing: Record<string, unknown>, processed: ProcessedArtifact): Record<string, unknown> {
   const merged: Record<string, unknown> = {
     ...existing,
-    description: processed.summary.slice(0, 180),
+    pipeline_version: PIPELINE_VERSION,
+    description: (processed.description || processed.summary).slice(0, processed.digest_markdown ? 300 : 180),
     format: processed.format,
     author: processed.raw.author || existing.author,
     published: processed.raw.date ? dateOnly(processed.raw.date) : existing.published,
@@ -253,7 +264,9 @@ async function main() {
     const existingSummary = String(extractSection(parsed.body, "Summary") || parsed.data.description || "").trim();
     const existingKeyPoints = extractBullets(extractSection(parsed.body, "Key Points"));
     const resolvedSourceUrl = resolvedSourceUrlFromNotes(parsed.body);
-    const xEmbedVideoUrl = xEmbedVideoUrlFromBody(parsed.body);
+    const xEmbedVideoUrl = typeof parsed.data.video_url === "string"
+      ? parsed.data.video_url
+      : xEmbedVideoUrlFromBody(parsed.body);
     const raw: RawArtifact = {
       url: String(parsed.data.url || ""),
       title: rawTitle,

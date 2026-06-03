@@ -27,7 +27,8 @@ import * as fs from "fs";
 import * as path from "path";
 import Database from "better-sqlite3";
 import { getSemanticDbPath, isSemanticVecDisabled, semanticDim } from "./config";
-import { SEMANTIC_VERSION } from "./pipeline";
+import { SEMANTIC_DB_FORMAT_VERSION, SEMANTIC_VERSION } from "./pipeline";
+import { blobToFloat32 } from "./vector";
 
 let cachedDb: Database.Database | undefined;
 let cachedPath: string | undefined;
@@ -45,8 +46,49 @@ export function getSemanticDb(): Database.Database {
   cachedDb = new Database(dbPath);
   cachedPath = dbPath;
   vecAvailable = tryLoadVec(cachedDb);
+  invalidateOnFormatBump(cachedDb);
   ensureSemanticSchema(cachedDb);
   return cachedDb;
+}
+
+/**
+ * Drop every derived table when the on-disk SEMANTIC_DB_FORMAT_VERSION lags this build's
+ * (the LAYOUT_VERSION precedent — a schema/wire change invalidates the cache file
+ * independently of a SEMANTIC_VERSION model upgrade). The db is a pure derived cache, so
+ * discarding it is always safe; the cold start rebuilds it from the vault. Runs before
+ * `ensureSemanticSchema` so the IF-NOT-EXISTS recreate lands a clean current-format schema.
+ *
+ * On a fresh/empty file `semantic_meta` doesn't exist yet → nothing to invalidate; we
+ * stamp the format version after the schema is (re)created in `ensureSemanticSchema`.
+ */
+function invalidateOnFormatBump(db: Database.Database): void {
+  const metaExists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'semantic_meta'")
+    .get();
+  if (!metaExists) return; // fresh file — ensureSemanticSchema stamps the format version
+  const row = db.prepare("SELECT value FROM semantic_meta WHERE key = 'db_format_version'").get() as
+    | { value: string }
+    | undefined;
+  const stamped = row ? Number(row.value) : 0;
+  if (stamped === SEMANTIC_DB_FORMAT_VERSION) return; // current — keep the cache
+  // Stale (or unstamped legacy) format → discard all derived tables. Order respects FKs
+  // (children first); vec0 virtual tables are dropped explicitly (FK cascade can't reach them).
+  db.exec(`
+    DROP TABLE IF EXISTS chunk_vectors;
+    DROP TABLE IF EXISTS entity_vectors;
+    DROP TABLE IF EXISTS topic_vectors;
+    DROP TABLE IF EXISTS topic_lineage;
+    DROP TABLE IF EXISTS item_topics;
+    DROP TABLE IF EXISTS item_entities;
+    DROP TABLE IF EXISTS entity_aliases;
+    DROP TABLE IF EXISTS entity_merges;
+    DROP TABLE IF EXISTS item_entity_mentions;
+    DROP TABLE IF EXISTS topics;
+    DROP TABLE IF EXISTS entities;
+    DROP TABLE IF EXISTS chunks;
+    DROP TABLE IF EXISTS semantic_items;
+    DROP TABLE IF EXISTS semantic_meta;
+  `);
 }
 
 /** Reset BOTH cached db and path (the calendar/graph rebind gotcha) so tests rebind. */
@@ -161,6 +203,40 @@ export function ensureSemanticSchema(db = getSemanticDb()): void {
     );
     CREATE INDEX IF NOT EXISTS idx_entity_aliases_norm ON entity_aliases(alias_norm);
 
+    -- Raw per-item extractions (Layer B audit/rebuild source; cheap to re-derive). The
+    -- idempotency key is (item_id, item_content_hash, semantic_version): an unchanged
+    -- item at the same version re-extracts to 0 client calls. entity_id is NULL until
+    -- a resolution pass binds the mention to a canonical entity.
+    CREATE TABLE IF NOT EXISTS item_entity_mentions (
+      id                TEXT PRIMARY KEY,         -- hashId(item_id|raw_type|norm_name|semantic_version)
+      item_id           TEXT NOT NULL,
+      raw_type          TEXT NOT NULL,            -- person|project|idea|source
+      raw_name          TEXT NOT NULL,
+      norm_name         TEXT NOT NULL,            -- slugified raw_name for blocking
+      aliases_json      TEXT NOT NULL,
+      salience          REAL NOT NULL DEFAULT 0,
+      evidence          TEXT NOT NULL,
+      entity_id         TEXT,                     -- FK to entities.id, NULL until resolved
+      extract_model     TEXT NOT NULL,
+      item_content_hash TEXT NOT NULL,
+      semantic_version  TEXT NOT NULL,
+      updated_at        TEXT NOT NULL,
+      FOREIGN KEY (item_id) REFERENCES semantic_items(item_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_mentions_item   ON item_entity_mentions(item_id);
+    CREATE INDEX IF NOT EXISTS idx_mentions_norm   ON item_entity_mentions(raw_type, norm_name);
+    CREATE INDEX IF NOT EXISTS idx_mentions_entity ON item_entity_mentions(entity_id);
+
+    -- Merge audit (a merge is reversible/inspectable; mirrors topic_lineage intent).
+    CREATE TABLE IF NOT EXISTS entity_merges (
+      loser_id         TEXT NOT NULL,
+      winner_id        TEXT NOT NULL,
+      reason           TEXT,
+      semantic_version TEXT NOT NULL,
+      created_at       TEXT NOT NULL,
+      PRIMARY KEY (loser_id, winner_id)
+    );
+
     -- Emergent, hierarchical, evolving topics (Layer C).
     CREATE TABLE IF NOT EXISTS topics (
       id               TEXT PRIMARY KEY,
@@ -239,6 +315,12 @@ export function ensureSemanticSchema(db = getSemanticDb()): void {
       );
     `);
   }
+
+  // Stamp the cache-file format version so a future bump (invalidateOnFormatBump) can
+  // detect a stale layout and discard the file. Idempotent — overwrites the same value.
+  db.prepare(
+    "INSERT INTO semantic_meta (key, value) VALUES ('db_format_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  ).run(String(SEMANTIC_DB_FORMAT_VERSION));
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +334,123 @@ export function setMeta(key: string, value: string, db = getSemanticDb()): void 
 export function getMeta(key: string, db = getSemanticDb()): string | null {
   const row = db.prepare("SELECT value FROM semantic_meta WHERE key = ?").get(key) as { value: string } | undefined;
   return row?.value ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Active-version meta (P2.4) — the "of record" version queries default to.
+// ---------------------------------------------------------------------------
+//
+// A SEMANTIC_VERSION bump writes new-version rows ALONGSIDE the prior-version rows
+// (a backfill, not a migration). `active_version` is the published baseline; the
+// review lane shows the new (decimal) version's diff before it is blessed. Blessing
+// = flipping `active_version` to the new string + recording the component versions,
+// after which `semantic:gc` drops every row whose version != active_version.
+
+/** Component versions stamped at the active baseline (the upgrade blast-radius record). */
+export interface ActiveComponents {
+  embedding?: string;
+  extraction?: string;
+  taxonomy?: string;
+}
+
+/** The version queries default to. Falls back to the headline SEMANTIC_VERSION when unset. */
+export function getActiveVersion(db = getSemanticDb()): string {
+  return getMeta("active_version", db) ?? SEMANTIC_VERSION;
+}
+
+/**
+ * Bless a version as the active baseline (flip `active_version` + record the component
+ * versions + a `blessed_at` timestamp). After this, `getActiveVersion()` returns it and a
+ * `semantic:gc` sweep can drop the now-superseded rows. Idempotent; one transaction.
+ */
+export function setActiveVersion(version: string, components: ActiveComponents = {}, db = getSemanticDb()): void {
+  db.transaction(() => {
+    setMeta("active_version", version, db);
+    if (components.embedding) setMeta("active_embedding", components.embedding, db);
+    if (components.extraction) setMeta("active_extraction", components.extraction, db);
+    if (components.taxonomy) setMeta("active_taxonomy", components.taxonomy, db);
+    setMeta("blessed_at", new Date().toISOString(), db);
+  })();
+}
+
+/** Every distinct `semantic_version` present across the derived tables (coexistence probe). */
+export function listDerivedVersions(db = getSemanticDb()): string[] {
+  const rows = db
+    .prepare(
+      `SELECT semantic_version AS v FROM semantic_items
+       UNION SELECT semantic_version FROM chunks
+       UNION SELECT semantic_version FROM entities
+       UNION SELECT semantic_version FROM item_entity_mentions
+       UNION SELECT semantic_version FROM topics
+       UNION SELECT semantic_version FROM item_topics
+       UNION SELECT semantic_version FROM topic_lineage
+       ORDER BY v`,
+    )
+    .all() as Array<{ v: string }>;
+  return rows.map((r) => r.v);
+}
+
+/** Row counts at a given version across the derived tables (gc/coexistence inspection). */
+export function countRowsAtVersion(version: string, db = getSemanticDb()): number {
+  const one = (sql: string): number => Number((db.prepare(sql).get(version) as { c: number }).c);
+  return (
+    one("SELECT COUNT(*) AS c FROM semantic_items WHERE semantic_version = ?") +
+    one("SELECT COUNT(*) AS c FROM chunks WHERE semantic_version = ?") +
+    one("SELECT COUNT(*) AS c FROM entities WHERE semantic_version = ?") +
+    one("SELECT COUNT(*) AS c FROM item_entity_mentions WHERE semantic_version = ?") +
+    one("SELECT COUNT(*) AS c FROM topics WHERE semantic_version = ?") +
+    one("SELECT COUNT(*) AS c FROM item_topics WHERE semantic_version = ?") +
+    one("SELECT COUNT(*) AS c FROM topic_lineage WHERE semantic_version = ?")
+  );
+}
+
+/**
+ * GC sweep (the `semantic:gc` job, analog of `library:candidates:cleanup`): drop every
+ * derived row whose `semantic_version` != the active baseline. Run AFTER a blessing flip,
+ * never before — the coexistence window is what lets a decimal test lane be reviewed
+ * against the live integer baseline. Returns the active version + the row count removed.
+ *
+ * Deletes children before parents and clears the matching vec0 rows explicitly (virtual
+ * tables aren't reached by FK cascade — the same discipline as the incremental delete key).
+ * One transaction so a crash never leaves a half-swept file.
+ */
+export function gcStaleVersions(db = getSemanticDb()): { activeVersion: string; rowsRemoved: number } {
+  const active = getActiveVersion(db);
+  const total = (sql: string): number => Number((db.prepare(sql).get() as { c: number }).c);
+  const staleSql = (table: string): string => `SELECT COUNT(*) AS c FROM ${table} WHERE semantic_version != '${active.replace(/'/g, "''")}'`;
+  const before =
+    total(staleSql("semantic_items")) +
+    total(staleSql("chunks")) +
+    total(staleSql("entities")) +
+    total(staleSql("item_entity_mentions")) +
+    total(staleSql("topics")) +
+    total(staleSql("item_topics")) +
+    total(staleSql("topic_lineage"));
+
+  db.transaction(() => {
+    if (vecAvailable) {
+      db.prepare(
+        "DELETE FROM chunk_vectors WHERE chunk_id IN (SELECT id FROM chunks WHERE semantic_version != ?)",
+      ).run(active);
+      db.prepare(
+        "DELETE FROM entity_vectors WHERE entity_id IN (SELECT id FROM entities WHERE semantic_version != ?)",
+      ).run(active);
+      db.prepare(
+        "DELETE FROM topic_vectors WHERE topic_id IN (SELECT id FROM topics WHERE semantic_version != ?)",
+      ).run(active);
+    }
+    // Children first (defensive even with FK cascade — versions can cross item boundaries).
+    db.prepare("DELETE FROM topic_lineage WHERE semantic_version != ?").run(active);
+    db.prepare("DELETE FROM item_topics WHERE semantic_version != ?").run(active);
+    db.prepare("DELETE FROM item_entity_mentions WHERE semantic_version != ?").run(active);
+    db.prepare("DELETE FROM topics WHERE semantic_version != ?").run(active);
+    db.prepare("DELETE FROM entities WHERE semantic_version != ?").run(active);
+    db.prepare("DELETE FROM chunks WHERE semantic_version != ?").run(active);
+    db.prepare("DELETE FROM semantic_items WHERE semantic_version != ?").run(active);
+    setMeta("gc_at", new Date().toISOString(), db);
+  })();
+
+  return { activeVersion: active, rowsRemoved: before };
 }
 
 // ---------------------------------------------------------------------------
@@ -304,6 +503,13 @@ export function getItem(itemId: string, db = getSemanticDb()): SemanticItemRow |
   return (db.prepare("SELECT * FROM semantic_items WHERE item_id = ?").get(itemId) as SemanticItemRow | undefined) ?? null;
 }
 
+/** All item rows (item_id + source_file + version) — the sample-lane review-queue source. */
+export function listItemRows(db = getSemanticDb()): Array<Pick<SemanticItemRow, "item_id" | "source_file" | "semantic_version">> {
+  return db
+    .prepare("SELECT item_id, source_file, semantic_version FROM semantic_items ORDER BY item_id")
+    .all() as Array<Pick<SemanticItemRow, "item_id" | "source_file" | "semantic_version">>;
+}
+
 /** Delete an item; FK cascade removes its chunks/item_entities/item_topics rows. */
 export function deleteItem(itemId: string, db = getSemanticDb()): void {
   db.prepare("DELETE FROM semantic_items WHERE item_id = ?").run(itemId);
@@ -338,4 +544,369 @@ export function upsertChunk(chunk: SemanticChunk, db = getSemanticDb()): void {
 
 export function countChunks(itemId: string, db = getSemanticDb()): number {
   return Number((db.prepare("SELECT COUNT(*) AS c FROM chunks WHERE item_id = ?").get(itemId) as { c: number }).c);
+}
+
+export function countEmbeddedChunks(itemId: string, db = getSemanticDb()): number {
+  return Number(
+    (db.prepare("SELECT COUNT(*) AS c FROM chunks WHERE item_id = ? AND embedding_blob IS NOT NULL").get(itemId) as { c: number }).c,
+  );
+}
+
+/** Drop an item's chunks (re-chunk on content change). vec0 cleanup is handled separately. */
+export function deleteChunksForItem(itemId: string, db = getSemanticDb()): void {
+  db.prepare("DELETE FROM chunks WHERE item_id = ?").run(itemId);
+}
+
+/** An item's embedded chunk vectors (decoded from the canonical BLOBs), ordinal order. */
+export function getChunkVectorsForItem(itemId: string, db = getSemanticDb()): Float32Array[] {
+  const rows = db
+    .prepare("SELECT embedding_blob FROM chunks WHERE item_id = ? AND embedding_blob IS NOT NULL ORDER BY ordinal")
+    .all(itemId) as Array<{ embedding_blob: Buffer }>;
+  return rows.map((r) => blobToFloat32(r.embedding_blob));
+}
+
+// ---------------------------------------------------------------------------
+// Layer B — entity mentions (raw per-item extractions) + canonical entities
+// ---------------------------------------------------------------------------
+
+export interface MentionRow {
+  id: string;
+  item_id: string;
+  raw_type: string;
+  raw_name: string;
+  norm_name: string;
+  aliases_json: string;
+  salience: number;
+  evidence: string;
+  entity_id: string | null;
+  extract_model: string;
+  item_content_hash: string;
+  semantic_version: string;
+  updated_at: string;
+}
+
+export interface MentionInput {
+  id: string;
+  itemId: string;
+  rawType: string;
+  rawName: string;
+  normName: string;
+  aliases: string[];
+  salience: number;
+  evidence: string;
+  extractModel: string;
+  itemContentHash: string;
+}
+
+export function upsertMention(m: MentionInput, db = getSemanticDb()): void {
+  db.prepare(`
+    INSERT INTO item_entity_mentions
+      (id, item_id, raw_type, raw_name, norm_name, aliases_json, salience, evidence, entity_id, extract_model, item_content_hash, semantic_version, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      item_id = excluded.item_id, raw_type = excluded.raw_type, raw_name = excluded.raw_name,
+      norm_name = excluded.norm_name, aliases_json = excluded.aliases_json, salience = excluded.salience,
+      evidence = excluded.evidence, extract_model = excluded.extract_model,
+      item_content_hash = excluded.item_content_hash, semantic_version = excluded.semantic_version,
+      updated_at = excluded.updated_at
+  `).run(
+    m.id, m.itemId, m.rawType, m.rawName, m.normName, JSON.stringify(m.aliases),
+    m.salience, m.evidence, m.extractModel, m.itemContentHash, SEMANTIC_VERSION, new Date().toISOString(),
+  );
+}
+
+/** All mentions for an item (across types). */
+export function getMentionsForItem(itemId: string, db = getSemanticDb()): MentionRow[] {
+  return db.prepare("SELECT * FROM item_entity_mentions WHERE item_id = ? ORDER BY id").all(itemId) as MentionRow[];
+}
+
+/** All mentions in the corpus (cold-start global resolution input). */
+export function getAllMentions(db = getSemanticDb()): MentionRow[] {
+  return db.prepare("SELECT * FROM item_entity_mentions ORDER BY id").all() as MentionRow[];
+}
+
+/** True when this item already has mentions at the given (content_hash, version) — idempotency probe. */
+export function hasMentions(itemId: string, contentHash: string, db = getSemanticDb()): boolean {
+  const row = db
+    .prepare(
+      "SELECT 1 AS c FROM item_entity_mentions WHERE item_id = ? AND item_content_hash = ? AND semantic_version = ? LIMIT 1",
+    )
+    .get(itemId, contentHash, SEMANTIC_VERSION) as { c: number } | undefined;
+  return row !== undefined;
+}
+
+/** Drop an item's mentions (re-extract on content/version change). */
+export function deleteMentionsForItem(itemId: string, db = getSemanticDb()): void {
+  db.prepare("DELETE FROM item_entity_mentions WHERE item_id = ?").run(itemId);
+}
+
+/** Point a set of mentions at their resolved canonical entity. */
+export function bindMentionsToEntity(mentionIds: string[], entityId: string, db = getSemanticDb()): void {
+  const stmt = db.prepare("UPDATE item_entity_mentions SET entity_id = ?, updated_at = ? WHERE id = ?");
+  const now = new Date().toISOString();
+  for (const id of mentionIds) stmt.run(entityId, now, id);
+}
+
+export interface EntityRow {
+  id: string;
+  type: string;
+  canonical_name: string;
+  summary: string | null;
+  ref_path: string | null;
+  graph_node_id: string | null;
+  mention_count: number;
+  semantic_version: string;
+  updated_at: string;
+}
+
+export interface EntityInput {
+  id: string;
+  type: string;
+  canonicalName: string;
+  summary?: string | null;
+  refPath?: string | null;
+  graphNodeId?: string | null;
+  mentionCount?: number;
+  embedding?: Float32Array | null;
+  embeddingModel?: string | null;
+}
+
+export function upsertEntity(e: EntityInput, db = getSemanticDb()): void {
+  const blob = e.embedding ? Buffer.from(e.embedding.buffer, e.embedding.byteOffset, e.embedding.byteLength) : null;
+  db.prepare(`
+    INSERT INTO entities
+      (id, type, canonical_name, summary, ref_path, graph_node_id, mention_count, embedding_blob, embedding_model, dim, semantic_version, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      type = excluded.type, canonical_name = excluded.canonical_name, summary = excluded.summary,
+      ref_path = excluded.ref_path, graph_node_id = excluded.graph_node_id,
+      mention_count = excluded.mention_count, embedding_blob = excluded.embedding_blob,
+      embedding_model = excluded.embedding_model, dim = excluded.dim,
+      semantic_version = excluded.semantic_version, updated_at = excluded.updated_at
+  `).run(
+    e.id, e.type, e.canonicalName, e.summary ?? null, e.refPath ?? null, e.graphNodeId ?? null,
+    e.mentionCount ?? 0, blob, e.embeddingModel ?? null, e.embedding ? e.embedding.length : null,
+    SEMANTIC_VERSION, new Date().toISOString(),
+  );
+}
+
+export function getEntity(id: string, db = getSemanticDb()): EntityRow | null {
+  return (db.prepare("SELECT * FROM entities WHERE id = ?").get(id) as EntityRow | undefined) ?? null;
+}
+
+/** Look up an existing canonical entity of a type by its exact normalized name or any alias. */
+export function findEntityByNorm(type: string, norm: string, db = getSemanticDb()): EntityRow | null {
+  const viaName = db
+    .prepare("SELECT * FROM entities WHERE type = ? AND LOWER(canonical_name) = ?")
+    .get(type, norm) as EntityRow | undefined;
+  if (viaName) return viaName;
+  const viaAlias = db
+    .prepare(
+      `SELECT e.* FROM entity_aliases a JOIN entities e ON e.id = a.entity_id
+       WHERE a.alias_norm = ? AND e.type = ? LIMIT 1`,
+    )
+    .get(norm, type) as EntityRow | undefined;
+  return viaAlias ?? null;
+}
+
+/** All canonical entities of a type (resolution blocking corpus). */
+export function getEntitiesByType(type: string, db = getSemanticDb()): EntityRow[] {
+  return db.prepare("SELECT * FROM entities WHERE type = ? ORDER BY id").all(type) as EntityRow[];
+}
+
+export function addAlias(entityId: string, alias: string, db = getSemanticDb()): void {
+  const aliasNorm = alias.trim().toLowerCase();
+  if (!aliasNorm) return;
+  db.prepare(`
+    INSERT INTO entity_aliases (entity_id, alias, alias_norm, semantic_version, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(entity_id, alias_norm) DO UPDATE SET
+      alias = excluded.alias, semantic_version = excluded.semantic_version, updated_at = excluded.updated_at
+  `).run(entityId, alias.trim(), aliasNorm, SEMANTIC_VERSION, new Date().toISOString());
+}
+
+export function upsertItemEntity(itemId: string, entityId: string, salience: number, db = getSemanticDb()): void {
+  db.prepare(`
+    INSERT INTO item_entities (item_id, entity_id, salience, semantic_version, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(item_id, entity_id) DO UPDATE SET
+      salience = MAX(item_entities.salience, excluded.salience),
+      semantic_version = excluded.semantic_version, updated_at = excluded.updated_at
+  `).run(itemId, entityId, salience, SEMANTIC_VERSION, new Date().toISOString());
+}
+
+export function recordEntityMerge(loserId: string, winnerId: string, reason: string, db = getSemanticDb()): void {
+  db.prepare(`
+    INSERT INTO entity_merges (loser_id, winner_id, reason, semantic_version, created_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(loser_id, winner_id) DO UPDATE SET reason = excluded.reason
+  `).run(loserId, winnerId, reason, SEMANTIC_VERSION, new Date().toISOString());
+}
+
+/** Recompute every entity's mention_count from item_entities (mirrors recomputeDegrees). */
+export function recomputeEntityMentionCounts(db = getSemanticDb()): void {
+  db.prepare(
+    `UPDATE entities SET mention_count =
+       (SELECT COUNT(*) FROM item_entities ie WHERE ie.entity_id = entities.id), updated_at = ?`,
+  ).run(new Date().toISOString());
+}
+
+/** GC entities with no remaining item_entities edges (mirrors deleteDanglingEdges). */
+export function deleteDanglingEntities(db = getSemanticDb()): void {
+  db.prepare("DELETE FROM entities WHERE id NOT IN (SELECT entity_id FROM item_entities)").run();
+}
+
+// ---------------------------------------------------------------------------
+// Layer C — topics, item_topics, topic_lineage (P2.2)
+// ---------------------------------------------------------------------------
+
+export interface TopicRow {
+  id: string;
+  parent_id: string | null;
+  level: number;
+  label: string;
+  summary: string | null;
+  item_count: number;
+  trend_score: number | null;
+  semantic_version: string;
+  updated_at: string;
+}
+
+export interface TopicInput {
+  id: string;
+  parentId?: string | null;
+  level: number;
+  label: string;
+  summary?: string | null;
+  itemCount?: number;
+  centroid?: Float32Array | null;
+  embeddingModel?: string | null;
+  trendScore?: number | null;
+}
+
+export function upsertTopic(t: TopicInput, db = getSemanticDb()): void {
+  const blob = t.centroid ? Buffer.from(t.centroid.buffer, t.centroid.byteOffset, t.centroid.byteLength) : null;
+  db.prepare(`
+    INSERT INTO topics
+      (id, parent_id, level, label, summary, item_count, centroid_blob, embedding_model, dim, trend_score, semantic_version, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      parent_id = excluded.parent_id, level = excluded.level, label = excluded.label,
+      summary = excluded.summary, item_count = excluded.item_count, centroid_blob = excluded.centroid_blob,
+      embedding_model = excluded.embedding_model, dim = excluded.dim, trend_score = excluded.trend_score,
+      semantic_version = excluded.semantic_version, updated_at = excluded.updated_at
+  `).run(
+    t.id, t.parentId ?? null, t.level, t.label, t.summary ?? null, t.itemCount ?? 0,
+    blob, t.embeddingModel ?? null, t.centroid ? t.centroid.length : null, t.trendScore ?? null,
+    SEMANTIC_VERSION, new Date().toISOString(),
+  );
+}
+
+export function getTopicRow(id: string, db = getSemanticDb()): TopicRow | null {
+  return (db.prepare("SELECT * FROM topics WHERE id = ?").get(id) as TopicRow | undefined) ?? null;
+}
+
+/** Topics with a centroid (leaf topics carry one) — the incremental-assignment corpus. */
+export interface TopicCentroid {
+  id: string;
+  level: number;
+  vec: Float32Array;
+}
+
+export function getTopicCentroids(db = getSemanticDb()): TopicCentroid[] {
+  const rows = db
+    .prepare("SELECT id, level, centroid_blob FROM topics WHERE centroid_blob IS NOT NULL ORDER BY id")
+    .all() as Array<{ id: string; level: number; centroid_blob: Buffer }>;
+  return rows.map((r) => ({ id: r.id, level: r.level, vec: blobToFloat32(r.centroid_blob) }));
+}
+
+/** Leaf topic centroids only (childless topics) — the nearest-topic targets (§C.4). */
+export function getLeafTopicCentroids(db = getSemanticDb()): TopicCentroid[] {
+  const rows = db
+    .prepare(
+      `SELECT id, level, centroid_blob FROM topics t
+       WHERE centroid_blob IS NOT NULL AND NOT EXISTS (SELECT 1 FROM topics c WHERE c.parent_id = t.id)
+       ORDER BY id`,
+    )
+    .all() as Array<{ id: string; level: number; centroid_blob: Buffer }>;
+  return rows.map((r) => ({ id: r.id, level: r.level, vec: blobToFloat32(r.centroid_blob) }));
+}
+
+/** Drop every topic + membership + lineage row (a re-fit rebuilds from scratch at the current version). */
+export function clearTopics(db = getSemanticDb()): void {
+  db.exec("DELETE FROM topic_lineage; DELETE FROM item_topics; DELETE FROM topics;");
+}
+
+export function upsertItemTopic(
+  itemId: string,
+  topicId: string,
+  score: number,
+  assignedBy: "refit" | "incremental",
+  db = getSemanticDb(),
+): void {
+  db.prepare(`
+    INSERT INTO item_topics (item_id, topic_id, score, assigned_by, semantic_version, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(item_id, topic_id) DO UPDATE SET
+      score = excluded.score, assigned_by = excluded.assigned_by,
+      semantic_version = excluded.semantic_version, updated_at = excluded.updated_at
+  `).run(itemId, topicId, score, assignedBy, SEMANTIC_VERSION, new Date().toISOString());
+}
+
+/** Remove an item's topic memberships (incremental re-assignment clears stale rows first). */
+export function deleteItemTopicsForItem(itemId: string, db = getSemanticDb()): void {
+  db.prepare("DELETE FROM item_topics WHERE item_id = ?").run(itemId);
+}
+
+export interface ItemTopicRow {
+  item_id: string;
+  topic_id: string;
+  score: number;
+  assigned_by: string;
+}
+
+/** Current item→topic membership across the corpus (lineage diff input). */
+export function getAllItemTopics(db = getSemanticDb()): ItemTopicRow[] {
+  return db
+    .prepare("SELECT item_id, topic_id, score, assigned_by FROM item_topics ORDER BY topic_id, item_id")
+    .all() as ItemTopicRow[];
+}
+
+export interface LineageInput {
+  oldTopicId?: string | null;
+  newTopicId?: string | null;
+  op: "create" | "merge" | "split" | "rename" | "carry" | "delete" | "birth" | "death";
+  score?: number | null;
+}
+
+export function insertLineage(l: LineageInput, db = getSemanticDb()): void {
+  db.prepare(`
+    INSERT INTO topic_lineage (old_topic_id, new_topic_id, op, score, semantic_version, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(l.oldTopicId ?? null, l.newTopicId ?? null, l.op, l.score ?? null, SEMANTIC_VERSION, new Date().toISOString());
+}
+
+export interface LineageRow {
+  id: number;
+  old_topic_id: string | null;
+  new_topic_id: string | null;
+  op: string;
+  score: number | null;
+  semantic_version: string;
+  updated_at: string;
+}
+
+/** Lineage rows touching a topic (either side) — powers the drill-down history. */
+export function getLineageForTopic(topicId: string, db = getSemanticDb()): LineageRow[] {
+  return db
+    .prepare("SELECT * FROM topic_lineage WHERE old_topic_id = ? OR new_topic_id = ? ORDER BY id")
+    .all(topicId, topicId) as LineageRow[];
+}
+
+/** Recompute every topic's item_count from item_topics (mirrors recomputeEntityMentionCounts). */
+export function recomputeTopicItemCounts(db = getSemanticDb()): void {
+  db.prepare(
+    `UPDATE topics SET item_count =
+       (SELECT COUNT(*) FROM item_topics it WHERE it.topic_id = topics.id), updated_at = ?`,
+  ).run(new Date().toISOString());
 }

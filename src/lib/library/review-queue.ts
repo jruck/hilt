@@ -41,13 +41,27 @@ export interface LibraryReviewQueue {
   batches: Record<string, ReviewBatchNote>;
 }
 
-function libraryReviewQueueDir(): string {
-  return path.join(process.env.DATA_DIR || path.join(process.cwd(), "data"), "library-review-queue");
+/**
+ * The review queue is vault-keyed and NOT Library-specific in its data model, so a sibling
+ * store (`kind`) lets a second subsystem reuse it without colliding (ruling R10 / spec
+ * "Versioning, Scheduling & Model Upgrades"). `library` → `library-review-queue`,
+ * `semantic` → `semantic-review-queue`. The public functions default to `library` so every
+ * existing caller is unchanged; the Phase-2 semantic backfill passes `semantic`.
+ */
+export type ReviewQueueKind = "library" | "semantic";
+
+function reviewQueueDir(kind: ReviewQueueKind = "library"): string {
+  return path.join(process.env.DATA_DIR || path.join(process.cwd(), "data"), `${kind}-review-queue`);
 }
 
-function libraryReviewQueuePath(vaultPath: string): string {
+/** The semantic layer's sibling review-queue store dir (DATA_DIR/semantic-review-queue). */
+export function semanticReviewQueueDir(): string {
+  return reviewQueueDir("semantic");
+}
+
+function libraryReviewQueuePath(vaultPath: string, kind: ReviewQueueKind = "library"): string {
   const vaultKey = hashId(path.resolve(vaultPath), 16);
-  return path.join(libraryReviewQueueDir(), `${vaultKey}.json`);
+  return path.join(reviewQueueDir(kind), `${vaultKey}.json`);
 }
 
 function isReviewStatus(value: unknown): value is ReviewQueueStatus {
@@ -110,14 +124,14 @@ function normalizeReviewQueue(value: unknown): LibraryReviewQueue | null {
   };
 }
 
-function writeLibraryReviewQueue(vaultPath: string, queue: LibraryReviewQueue): void {
-  const target = libraryReviewQueuePath(vaultPath);
+function writeLibraryReviewQueue(vaultPath: string, queue: LibraryReviewQueue, kind: ReviewQueueKind = "library"): void {
+  const target = libraryReviewQueuePath(vaultPath, kind);
   ensureDir(path.dirname(target));
   atomicWriteFile(target, `${JSON.stringify(queue, null, 2)}\n`);
 }
 
-export function readReviewQueue(vaultPath: string): LibraryReviewQueue {
-  const target = libraryReviewQueuePath(vaultPath);
+export function readReviewQueue(vaultPath: string, kind: ReviewQueueKind = "library"): LibraryReviewQueue {
+  const target = libraryReviewQueuePath(vaultPath, kind);
   if (fs.existsSync(target)) {
     try {
       const parsed = normalizeReviewQueue(JSON.parse(fs.readFileSync(target, "utf-8")));
@@ -136,7 +150,7 @@ export function readReviewQueue(vaultPath: string): LibraryReviewQueue {
 export function addToReviewQueue(
   vaultPath: string,
   entries: Array<{ id: string; path: string; pipeline_version: string }>,
-  opts: { batch: string; note?: ReviewBatchNoteInput },
+  opts: { batch: string; note?: ReviewBatchNoteInput; kind?: ReviewQueueKind },
 ): { added: number } {
   const cleaned = entries
     .map((entry) => ({
@@ -147,7 +161,8 @@ export function addToReviewQueue(
     .filter((entry) => entry.id);
   if (!cleaned.length) return { added: 0 };
 
-  const queue = readReviewQueue(vaultPath);
+  const kind = opts.kind ?? "library";
+  const queue = readReviewQueue(vaultPath, kind);
   const addedAt = isoNow();
   for (const entry of cleaned) {
     // Re-adding a regenerated item resets it to pending with a fresh added_at,
@@ -164,7 +179,7 @@ export function addToReviewQueue(
   if (opts.note) {
     queue.batches[opts.batch] = { ...opts.note, created_at: addedAt };
   }
-  writeLibraryReviewQueue(vaultPath, queue);
+  writeLibraryReviewQueue(vaultPath, queue, kind);
   return { added: cleaned.length };
 }
 
@@ -173,11 +188,12 @@ export function setReviewStatus(
   id: string,
   status: ReviewQueueStatus,
   note?: string,
+  kind: ReviewQueueKind = "library",
 ): ReviewQueueEntry | null {
   const key = id.trim();
   if (!key) return null;
 
-  const queue = readReviewQueue(vaultPath);
+  const queue = readReviewQueue(vaultPath, kind);
   const existing = queue.items[key];
   if (!existing) return null;
 
@@ -188,12 +204,12 @@ export function setReviewStatus(
   };
   if (typeof note === "string") updated.note = note;
   queue.items[key] = updated;
-  writeLibraryReviewQueue(vaultPath, queue);
+  writeLibraryReviewQueue(vaultPath, queue, kind);
   return updated;
 }
 
-export function listPendingReview(vaultPath: string): ReviewQueueEntry[] {
-  const queue = readReviewQueue(vaultPath);
+export function listPendingReview(vaultPath: string, kind: ReviewQueueKind = "library"): ReviewQueueEntry[] {
+  const queue = readReviewQueue(vaultPath, kind);
   return Object.values(queue.items).filter((entry) => entry.status === "pending");
 }
 
@@ -202,8 +218,8 @@ export function listPendingReview(vaultPath: string): ReviewQueueEntry[] {
  * annotated with how many of its items are awaiting review, newest first. Batches whose items are
  * all reviewed (or that never carried a note) are omitted.
  */
-export function getActiveBatchNotes(vaultPath: string): ActiveBatchNote[] {
-  const queue = readReviewQueue(vaultPath);
+export function getActiveBatchNotes(vaultPath: string, kind: ReviewQueueKind = "library"): ActiveBatchNote[] {
+  const queue = readReviewQueue(vaultPath, kind);
   const pendingByBatch = new Map<string, number>();
   for (const entry of Object.values(queue.items)) {
     if (entry.status !== "pending") continue;
@@ -219,13 +235,13 @@ export function getActiveBatchNotes(vaultPath: string): ActiveBatchNote[] {
   return notes;
 }
 
-export function removeFromReviewQueue(vaultPath: string, id: string): boolean {
+export function removeFromReviewQueue(vaultPath: string, id: string, kind: ReviewQueueKind = "library"): boolean {
   const key = id.trim();
   if (!key) return false;
 
-  const queue = readReviewQueue(vaultPath);
+  const queue = readReviewQueue(vaultPath, kind);
   if (!(key in queue.items)) return false;
   delete queue.items[key];
-  writeLibraryReviewQueue(vaultPath, queue);
+  writeLibraryReviewQueue(vaultPath, queue, kind);
   return true;
 }

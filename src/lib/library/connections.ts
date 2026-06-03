@@ -29,7 +29,7 @@ const MAX_SOURCE_EXCERPT_CHARS = 5_000;
 // The reweave digest reads the source more deeply than the judge, so it gets a larger excerpt.
 const MAX_REWEAVE_EXCERPT_CHARS = 8_000;
 
-function resolveClaudeBin(): string {
+export function resolveClaudeBin(): string {
   return process.env.CLAUDE_PATH || process.env.CLAUDE_BIN || "claude";
 }
 
@@ -75,7 +75,7 @@ function detectRateLimit(...texts: Array<string | undefined>): { limited: boolea
  * via -p) so the CLI does not wait on stdin. `cwd` points the run at the vault so the judge's
  * read tools resolve against Justin's notes.
  */
-function runClaude(bin: string, args: string[], timeoutMs: number, cwd?: string): Promise<string> {
+export function runClaude(bin: string, args: string[], timeoutMs: number, cwd?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       bin,
@@ -134,7 +134,7 @@ function buildExploreTask(
  * answer lives in the `result` field; fall back to treating stdout as raw text if it is not
  * the expected envelope.
  */
-function extractModelText(stdout: string): string {
+export function extractModelText(stdout: string): string {
   const trimmed = stdout.trim();
   if (!trimmed) return "";
   try {

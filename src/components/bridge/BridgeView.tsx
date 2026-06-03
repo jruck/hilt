@@ -13,19 +13,28 @@ import { ProjectBoard } from "./ProjectBoard";
 import { ThoughtBoard } from "./ThoughtBoard";
 import { RecycleModal } from "./RecycleModal";
 import { BridgeTaskPanel } from "./BridgeTaskPanel";
+import { AppHud, AppHudCollapsedBar } from "@/components/AppHud";
 import { parseLifecycle } from "@/lib/attribution";
 import { Loader2 } from "lucide-react";
 import type { BridgeTask, BridgeProject, BridgeWeeklySection } from "@/lib/types";
 
 interface BridgeViewProps {
   addTaskTrigger?: number;
+  hudVisible?: boolean;
+  onHudVisibleChange?: (visible: boolean) => void;
   searchQuery?: string;
   onNavigateToProject?: (project: BridgeProject) => void;
 }
 
 const NEW_TASK_TITLE = "New Task";
 
-export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToProject }: BridgeViewProps) {
+export function BridgeView({
+  addTaskTrigger = 0,
+  hudVisible = false,
+  onHudVisibleChange,
+  searchQuery = "",
+  onNavigateToProject,
+}: BridgeViewProps) {
   const {
     data: weekly,
     isLoading: weeklyLoading,
@@ -331,7 +340,15 @@ export function BridgeView({ addTaskTrigger = 0, searchQuery = "", onNavigateToP
   }
 
   return (
-    <div className="flex-1 flex overflow-hidden">
+    <div className={`${isMobile ? "flex-col" : ""} flex min-h-0 flex-1 overflow-hidden`}>
+      {isMobile && onHudVisibleChange ? (
+        hudVisible ? (
+          <AppHud placement="top" variant="mobile" onCollapse={() => onHudVisibleChange(false)} />
+        ) : (
+          <AppHudCollapsedBar onExpand={() => onHudVisibleChange(true)} />
+        )
+      ) : null}
+
       {/* Main content */}
       <div data-mobile-scroll-chrome="bottom" className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         <div className={`max-w-3xl mx-auto px-6 py-8 ${isMobile ? "pb-[var(--hilt-mobile-nav-clearance)]" : ""}`}>

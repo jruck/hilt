@@ -169,6 +169,7 @@ export function LibraryArtifactDetailPane({
   onChanged,
   onMarkUnread,
   onCandidateDismissed,
+  onArchiveReference,
   onReviewStatus,
   className = "",
   controlsClassName = "",
@@ -184,6 +185,7 @@ export function LibraryArtifactDetailPane({
   onChanged?: () => void;
   onMarkUnread?: (id: string) => void | Promise<void>;
   onCandidateDismissed?: (artifact: NonNullable<ReturnType<typeof useLibraryArtifact>["artifact"]>) => void | Promise<void>;
+  onArchiveReference?: (artifact: NonNullable<ReturnType<typeof useLibraryArtifact>["artifact"]>) => void | Promise<void>;
   onReviewStatus?: (id: string, status: ReviewQueueStatus, note?: string) => void | Promise<void>;
   className?: string;
   controlsClassName?: string;
@@ -241,7 +243,7 @@ export function LibraryArtifactDetailPane({
   }, [artifact, navigateTo]);
 
   if (!id) {
-    return <div className={`flex flex-1 items-center justify-center text-sm text-[var(--text-tertiary)] ${className}`}>Select an artifact</div>;
+    return <div className={`flex flex-1 items-center justify-center text-sm text-[var(--text-tertiary)] ${className}`}>No reference selected</div>;
   }
   if (isLoading || !artifact) {
     return <div className={`flex flex-1 items-center justify-center text-sm text-[var(--text-tertiary)] ${className}`}>Loading...</div>;
@@ -446,8 +448,12 @@ export function LibraryArtifactDetailPane({
                     <button
                       onClick={async () => {
                         if (!window.confirm("Archive this saved reference? It will move out of the active Library.")) return;
-                        await archiveArtifact(artifact.id);
                         setActionsOpen(false);
+                        if (onArchiveReference) {
+                          await onArchiveReference(artifact);
+                          return;
+                        }
+                        await archiveArtifact(artifact.id);
                         onChanged?.();
                       }}
                       className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"

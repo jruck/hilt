@@ -6,6 +6,8 @@ interface BriefingSummary {
   date: string;
   title: string;
   summary: string | null;
+  status?: "ready" | "failed";
+  run?: BriefingRunFailure;
 }
 
 interface BriefingDetail {
@@ -13,6 +15,20 @@ interface BriefingDetail {
   title: string;
   summary: string | null;
   content: string;
+  status?: "ready" | "failed";
+  run?: BriefingRunFailure;
+}
+
+export interface BriefingRunFailure {
+  status: "failed";
+  kind: "quota" | "rate_limit" | "model" | "unknown";
+  date: string;
+  jobId: string;
+  jobName: string;
+  runAt: string;
+  nextRunAt: string | null;
+  error: string;
+  outputPath: string | null;
 }
 
 export function useBriefings() {
@@ -22,6 +38,8 @@ export function useBriefings() {
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isLoadingContent, setIsLoadingContent] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
+  const [retryStatus, setRetryStatus] = useState<"idle" | "queued" | "error">("idle");
+  const [retryMessage, setRetryMessage] = useState<string | null>(null);
 
   // Fetch briefing list
   const fetchList = useCallback(async () => {
@@ -51,6 +69,31 @@ export function useBriefings() {
       setIsLoadingList(false);
     }
   }, [selectedDate]);
+
+  const retryBriefing = useCallback(async () => {
+    const date = briefing?.date ?? selectedDate;
+    if (!date) return;
+
+    setRetryStatus("idle");
+    setRetryMessage(null);
+    try {
+      const res = await fetch("/api/bridge/briefings/retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to queue retry");
+      }
+      setRetryStatus("queued");
+      setRetryMessage(data?.message || "Retry queued for Hermes.");
+      fetchList();
+    } catch (err) {
+      setRetryStatus("error");
+      setRetryMessage(err instanceof Error ? err.message : "Failed to queue retry");
+    }
+  }, [briefing?.date, fetchList, selectedDate]);
 
   // Fetch single briefing content
   useEffect(() => {
@@ -108,6 +151,9 @@ export function useBriefings() {
     isLoadingList,
     isLoadingContent,
     hasUnread,
+    retryBriefing,
+    retryStatus,
+    retryMessage,
     refresh: fetchList,
   };
 }

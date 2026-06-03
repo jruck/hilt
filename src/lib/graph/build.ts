@@ -40,7 +40,7 @@ import { listCandidates } from "@/lib/library/candidate-cache";
 import { northStarSignal } from "@/lib/library/kb-index";
 import { hashId } from "@/lib/library/utils";
 import type { ConnectionSuggestion, ProcessedArtifact } from "@/lib/library/types";
-import { graphIncludeLibraries } from "./config";
+import { graphIncludeLibraries, graphSemanticOverlayEnabled } from "./config";
 import {
   deleteDanglingEdges,
   deleteEdgesBySourceFile,
@@ -265,6 +265,13 @@ export function libraryClusterNodeId(sub: string): string {
 export function tagNodeId(normalizedTag: string): string {
   return `tag:${normalizedTag}`;
 }
+/** Semantic-overlay node ids (Phase 2): the semantic.sqlite topic/entity id, namespaced. */
+export function topicNodeId(topicId: string): string {
+  return `topic:${topicId}`;
+}
+export function entityNodeId(entityId: string): string {
+  return `entity:${entityId}`;
+}
 
 /** Deterministic edge id: hash(source|target|kind) — drives upsert/dedupe. */
 export function edgeId(source: string, target: string, kind: GraphEdgeKind): string {
@@ -318,8 +325,12 @@ function resolveConnectionTarget(
   return projectNodeId(target);
 }
 
-/** Map a resolved absolute path to its node id, honoring the dir-based ID scheme. */
-function nodeIdForResolvedPath(absPath: string, root: string): string {
+/**
+ * Map a resolved absolute path to its node id, honoring the dir-based ID scheme.
+ * Exported (ruling R9) so the semantic overlay maps item paths → graph node ids with
+ * the same logic the builder uses — never a reimplementation.
+ */
+export function nodeIdForResolvedPath(absPath: string, root: string): string {
   const rel = path.relative(root, absPath).split(path.sep).join("/");
   if (rel.startsWith("people/")) {
     return personNodeId(path.basename(absPath, ".md"));
@@ -803,12 +814,31 @@ export function buildFullGraph(opts: BuildOptions = {}): BuildResult {
     );
   })();
 
+  // Semantic overlay tail (Phase 2): repaint the whole topic/entity overlay after the
+  // vault rows are rebuilt. Flag-gated + lazily required so the semantic layer never loads
+  // on the flag-off path or in the default bundle (mirrors tryLoadVec's optional require).
+  if (graphSemanticOverlayEnabled()) {
+    try {
+      const { buildSemanticOverlay } = loadSemanticOverlay();
+      buildSemanticOverlay({ db });
+    } catch (err) {
+      // Monitor-first: an absent/empty semantic.sqlite must never fail the vault build.
+      console.warn("[graph] semantic overlay skipped:", err);
+    }
+  }
+
   return {
     nodeCount: nodeEntries.length,
     edgeCount: edgeEntries.length,
     fileCount: files.length,
     mtimes,
   };
+}
+
+/** Lazily resolve the semantic-overlay producer (flag-on only — keeps it off the default path). */
+function loadSemanticOverlay(): typeof import("./semantic-overlay") {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require("./semantic-overlay") as typeof import("./semantic-overlay");
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 import path from "path";
 import type { LibrarySourceConfig, PromotionReason, RawArtifact } from "./types";
 import { findCandidateByUrl, updateCandidate, writeCandidate } from "./candidate-cache";
-import { findSavedReferenceByUrl, writeDurableReference } from "./references";
+import { findArchivedReferenceByUrl, findSavedReferenceByUrl, writeDurableReference } from "./references";
 import { digestArtifact } from "./digestion";
 
 export interface ProcessArtifactResult {
@@ -19,6 +19,10 @@ export async function processArtifact(
   const existingRef = findSavedReferenceByUrl(vaultPath, raw.url);
   if (existingRef) {
     return { status: "duplicate", path: path.join(vaultPath, existingRef.path), reason: "saved_reference_exists" };
+  }
+  const archivedRef = findArchivedReferenceByUrl(vaultPath, raw.url);
+  if (archivedRef) {
+    return { status: "duplicate", path: path.join(vaultPath, archivedRef.path), reason: "archived_reference_exists" };
   }
   const existingCandidate = findCandidateByUrl(vaultPath, raw.url);
   if (existingCandidate && existingCandidate.status === "candidate") {

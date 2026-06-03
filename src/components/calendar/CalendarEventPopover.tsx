@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from "react";
 import {
   CalendarDays,
   Check,
@@ -43,9 +43,7 @@ export function CalendarEventPopoverContent({
   onClose,
   sourceLabel,
 }: CalendarEventPopoverContentProps) {
-  const { navigateTo } = useScope();
   const contentRef = useRef<HTMLDivElement>(null);
-  const [openingNoteTarget, setOpeningNoteTarget] = useState<string | null>(null);
   const [showFullDescription, setShowFullDescription] = useState(false);
 
   useLayoutEffect(() => {
@@ -74,33 +72,7 @@ export function CalendarEventPopoverContent({
 
   if (!event) return null;
 
-  const eventNoteTargets = event.meetingNotes?.length ? [] : event.noteTargets ?? [];
   const description = prepareCalendarDescription(event.description);
-  const openPeopleNoteTarget = async (target: CalendarEventNoteTarget) => {
-    setOpeningNoteTarget(target.slug);
-    try {
-      const response = await fetch(`/api/bridge/people/${encodeURIComponent(target.slug)}/next`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          preserveContent: true,
-          keepCalendarOnEmpty: true,
-          calendarCandidate: target.candidate,
-        }),
-      });
-      if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
-      await Promise.all([
-        mutate(`/api/bridge/people/${target.slug}`),
-        mutate("/api/bridge/people"),
-      ]);
-      navigateTo("people", `/${target.slug}/next`);
-      onClose();
-    } catch (error) {
-      console.warn("[calendar] Failed to open People notes target", error);
-    } finally {
-      setOpeningNoteTarget(null);
-    }
-  };
 
   return (
     <div
@@ -123,71 +95,7 @@ export function CalendarEventPopoverContent({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         <div className="space-y-4">
-          {(event.joinLinks.length > 0 || event.meetingNotes?.length || eventNoteTargets.length > 0 || event.providerUrl) ? (
-            <div className="flex flex-wrap gap-2" data-testid="calendar-event-actions">
-              {event.joinLinks.map((link, index) => (
-                <a
-                  key={`${link.kind}:${link.url}`}
-                  href={link.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={
-                    index === 0
-                      ? "inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--interactive-default)] px-3 text-sm font-medium text-[var(--text-inverted)] hover:bg-[var(--interactive-hover)]"
-                      : "inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                  }
-                >
-                  {link.kind === "web" ? <LinkIcon className="h-3.5 w-3.5" /> : <Video className="h-3.5 w-3.5" />}
-                  {link.kind === "web" ? "Join" : `Join ${JOIN_LABELS[link.kind]}`}
-                </a>
-              ))}
-              {event.meetingNotes?.map((note) => (
-                <button
-                  key={note.granolaId}
-                  type="button"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                  onClick={() => {
-                    navigateTo("people", `/__inbox__/meeting/${encodeURIComponent(note.granolaId)}`);
-                    onClose();
-                  }}
-                  title={note.calendarMatchMethod
-                    ? `Linked notes · ${note.calendarMatchMethod}${note.calendarMatchConfidence != null ? ` · ${Math.round(note.calendarMatchConfidence * 100)}%` : ""}`
-                    : "Linked meeting notes"}
-                >
-                  <NotebookPen className="h-3.5 w-3.5" />
-                  Notes
-                </button>
-              ))}
-              {eventNoteTargets.map((target) => (
-                <button
-                  key={`${target.kind}:${target.slug}:${target.candidate.eventId}`}
-                  type="button"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] disabled:cursor-wait disabled:opacity-70"
-                  disabled={openingNoteTarget === target.slug}
-                  onClick={() => void openPeopleNoteTarget(target)}
-                  title={`${target.reason} · ${Math.round(target.confidence * 100)}%`}
-                >
-                  {openingNoteTarget === target.slug ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <NotebookPen className="h-3.5 w-3.5" />
-                  )}
-                  {eventNoteTargets.length > 1 ? `Notes: ${target.name}` : "Notes"}
-                </button>
-              ))}
-              {event.providerUrl ? (
-                <a
-                  href={event.providerUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  {providerLinkLabel(event.providerUrl, sourceLabel)}
-                </a>
-              ) : null}
-            </div>
-          ) : null}
+          <CalendarEventActions event={event} onClose={onClose} sourceLabel={sourceLabel} />
 
           <DetailRow
             icon={<Clock className="h-4 w-4" />}
@@ -221,6 +129,165 @@ export function CalendarEventPopoverContent({
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+interface CalendarEventActionsProps {
+  accentColor?: string;
+  className?: string;
+  event: CalendarEvent;
+  onClose?: () => void;
+  sourceLabel?: string | null;
+  stopPropagation?: boolean;
+  variant?: "default" | "compact";
+}
+
+export function CalendarEventActions({
+  accentColor,
+  className,
+  event,
+  onClose,
+  sourceLabel,
+  stopPropagation = false,
+  variant = "default",
+}: CalendarEventActionsProps) {
+  const { navigateTo } = useScope();
+  const [openingNoteTarget, setOpeningNoteTarget] = useState<string | null>(null);
+  const eventNoteTargets = event.meetingNotes?.length ? [] : event.noteTargets ?? [];
+  const hasActions = event.joinLinks.length > 0 || Boolean(event.meetingNotes?.length) || eventNoteTargets.length > 0 || Boolean(event.providerUrl);
+  if (!hasActions) return null;
+
+  const isCompact = variant === "compact";
+  const compactAccentColor = isCompact && accentColor ? accentColor : null;
+  const primaryStyle: CSSProperties | undefined = compactAccentColor
+    ? {
+        backgroundColor: compactAccentColor,
+        borderColor: compactAccentColor,
+        color: "var(--text-inverted)",
+      }
+    : undefined;
+  const secondaryStyle: CSSProperties | undefined = compactAccentColor
+    ? {
+        backgroundColor: `color-mix(in oklab, ${compactAccentColor} 18%, var(--content-surface))`,
+        borderColor: `color-mix(in oklab, ${compactAccentColor} 44%, var(--border-default))`,
+        color: `color-mix(in oklab, ${compactAccentColor} 86%, var(--text-primary))`,
+      }
+    : undefined;
+  const iconClassName = isCompact ? "h-3 w-3" : "h-3.5 w-3.5";
+  const primaryClassName = isCompact
+    ? compactAccentColor
+      ? "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-opacity hover:opacity-90"
+      : "inline-flex h-7 items-center gap-1.5 rounded-md bg-[var(--interactive-default)] px-2 text-xs font-medium text-[var(--text-inverted)] hover:bg-[var(--interactive-hover)]"
+    : "inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--interactive-default)] px-3 text-sm font-medium text-[var(--text-inverted)] hover:bg-[var(--interactive-hover)]";
+  const secondaryClassName = isCompact
+    ? compactAccentColor
+      ? "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs transition-opacity hover:opacity-90"
+      : "inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
+    : "inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]";
+  const actionRowClassName = `${isCompact ? "flex flex-wrap gap-1.5" : "flex flex-wrap gap-2"} ${className ?? ""}`.trim();
+  const stopIfNeeded = (event: SyntheticEvent<HTMLElement>) => {
+    if (stopPropagation) event.stopPropagation();
+  };
+  const openPeopleNoteTarget = async (target: CalendarEventNoteTarget) => {
+    setOpeningNoteTarget(target.slug);
+    try {
+      const response = await fetch(`/api/bridge/people/${encodeURIComponent(target.slug)}/next`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          preserveContent: true,
+          keepCalendarOnEmpty: true,
+          calendarCandidate: target.candidate,
+        }),
+      });
+      if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
+      await Promise.all([
+        mutate(`/api/bridge/people/${target.slug}`),
+        mutate("/api/bridge/people"),
+      ]);
+      navigateTo("people", `/${target.slug}/next`);
+      onClose?.();
+    } catch (error) {
+      console.warn("[calendar] Failed to open People notes target", error);
+    } finally {
+      setOpeningNoteTarget(null);
+    }
+  };
+
+  return (
+    <div className={actionRowClassName} data-testid={variant === "compact" ? "hud-event-actions" : "calendar-event-actions"}>
+      {event.joinLinks.map((link, index) => (
+        <a
+          key={`${link.kind}:${link.url}`}
+          href={link.url}
+          target="_blank"
+          rel="noreferrer"
+          className={index === 0 ? primaryClassName : secondaryClassName}
+          style={index === 0 ? primaryStyle : secondaryStyle}
+          onKeyDown={stopIfNeeded}
+          onClick={stopIfNeeded}
+        >
+          {link.kind === "web" ? <LinkIcon className={iconClassName} /> : <Video className={iconClassName} />}
+          {JOIN_LABELS[link.kind]}
+        </a>
+      ))}
+      {event.meetingNotes?.map((note) => (
+        <button
+          key={note.granolaId}
+          type="button"
+          className={secondaryClassName}
+          style={secondaryStyle}
+          onKeyDown={stopIfNeeded}
+          onClick={(clickEvent) => {
+            stopIfNeeded(clickEvent);
+            navigateTo("people", `/__inbox__/meeting/${encodeURIComponent(note.granolaId)}`);
+            onClose?.();
+          }}
+          title={note.calendarMatchMethod
+            ? `Linked notes · ${note.calendarMatchMethod}${note.calendarMatchConfidence != null ? ` · ${Math.round(note.calendarMatchConfidence * 100)}%` : ""}`
+            : "Linked meeting notes"}
+        >
+          <NotebookPen className={iconClassName} />
+          Notes
+        </button>
+      ))}
+      {eventNoteTargets.map((target) => (
+        <button
+          key={`${target.kind}:${target.slug}:${target.candidate.eventId}`}
+          type="button"
+          className={`${secondaryClassName} disabled:cursor-wait disabled:opacity-70`}
+          disabled={openingNoteTarget === target.slug}
+          style={secondaryStyle}
+          onKeyDown={stopIfNeeded}
+          onClick={(clickEvent) => {
+            stopIfNeeded(clickEvent);
+            void openPeopleNoteTarget(target);
+          }}
+          title={`${target.reason} · ${Math.round(target.confidence * 100)}%`}
+        >
+          {openingNoteTarget === target.slug ? (
+            <Loader2 className={`${iconClassName} animate-spin`} />
+          ) : (
+            <NotebookPen className={iconClassName} />
+          )}
+          {eventNoteTargets.length > 1 ? `Notes: ${target.name}` : "Notes"}
+        </button>
+      ))}
+      {event.providerUrl ? (
+        <a
+          href={event.providerUrl}
+          target="_blank"
+          rel="noreferrer"
+          className={secondaryClassName}
+          style={secondaryStyle}
+          onKeyDown={stopIfNeeded}
+          onClick={stopIfNeeded}
+        >
+          <ExternalLink className={iconClassName} />
+          {providerLinkLabel(event.providerUrl, sourceLabel)}
+        </a>
+      ) : null}
     </div>
   );
 }
@@ -270,12 +337,12 @@ function DetailRow({ icon, label }: { icon: ReactNode; label: ReactNode }) {
 function providerLinkLabel(url: string, sourceLabel?: string | null): string {
   try {
     const host = new URL(url).hostname;
-    if (/(^|\.)google\./.test(host)) return "Open in Google";
-    if (/(^|\.)(outlook|office|live|microsoft)\./.test(host)) return "Open in Outlook";
+    if (/(^|\.)google\./.test(host)) return "Google";
+    if (/(^|\.)(outlook|office|live|microsoft)\./.test(host)) return "Outlook";
   } catch {
     // Fall through to the source label.
   }
-  return sourceLabel ? `Open in ${sourceLabel}` : "Open link";
+  return sourceLabel || "Link";
 }
 
 function formatEventTime(event: CalendarEvent): string {

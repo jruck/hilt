@@ -211,12 +211,17 @@ export function getAllNodes(db = getGraphDb(), includeTags = false): GraphNode[]
   return (db.prepare(sql).all() as NodeRow[]).map(rowToNode);
 }
 
-/** Read every edge (layout spring input / encoder). Excludes `tag` edges by default. */
-export function getAllEdges(db = getGraphDb(), includeTags = false): GraphEdge[] {
-  const sql = includeTags
-    ? "SELECT * FROM graph_edges ORDER BY id"
-    : "SELECT * FROM graph_edges WHERE kind != 'tag' ORDER BY id";
-  return (db.prepare(sql).all() as EdgeRow[]).map(rowToEdge);
+/**
+ * Read every edge (layout spring input / encoder). Excludes `tag` edges by default.
+ * `excludeKinds` drops further kinds (the route passes `['similar','co_occurrence']` to
+ * keep the fuzzy semantic web off the GLOBAL scope unless `semanticEdges=1`).
+ */
+export function getAllEdges(db = getGraphDb(), includeTags = false, excludeKinds: readonly string[] = []): GraphEdge[] {
+  const where: string[] = [];
+  if (!includeTags) where.push("kind != 'tag'");
+  if (excludeKinds.length > 0) where.push(`kind NOT IN (${excludeKinds.map(() => "?").join(",")})`);
+  const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  return (db.prepare(`SELECT * FROM graph_edges ${whereClause} ORDER BY id`).all(...excludeKinds) as EdgeRow[]).map(rowToEdge);
 }
 
 /** Delete every node owned by a vault file (incremental delete key). */
@@ -391,6 +396,8 @@ export function graphMeta(enabled: boolean, db = getGraphDb()): GraphMeta {
   const nodeCount = Number((db.prepare("SELECT COUNT(*) AS c FROM graph_nodes WHERE type != 'tag'").get() as { c: number }).c);
   const edgeCount = Number((db.prepare("SELECT COUNT(*) AS c FROM graph_edges WHERE kind != 'tag'").get() as { c: number }).c);
   const tagNodeCount = Number((db.prepare("SELECT COUNT(*) AS c FROM graph_nodes WHERE type = 'tag'").get() as { c: number }).c);
+  const topicNodeCount = Number((db.prepare("SELECT COUNT(*) AS c FROM graph_nodes WHERE type = 'topic'").get() as { c: number }).c);
+  const entityNodeCount = Number((db.prepare("SELECT COUNT(*) AS c FROM graph_nodes WHERE type = 'entity'").get() as { c: number }).c);
   const dirtyCount = Number((db.prepare("SELECT COUNT(*) AS c FROM node_positions WHERE dirty = 1").get() as { c: number }).c);
   const layoutState = asLayoutState(getMeta("layout_state", db));
   const lastError = getMeta("last_error", db);
@@ -399,6 +406,9 @@ export function graphMeta(enabled: boolean, db = getGraphDb()): GraphMeta {
     nodeCount,
     edgeCount,
     tagNodeCount,
+    topicNodeCount,
+    entityNodeCount,
+    semanticBuilt: getMeta("semantic_built", db) === "1",
     builtAt: getMeta("built_at", db),
     layoutVersion: metaInt("layout_version", db) ?? LAYOUT_VERSION,
     layoutState,
@@ -480,6 +490,8 @@ interface SelectGlobalOptions {
    * global hairball; default (undefined) keeps the current degree>0 behavior.
    */
   minDegree?: number;
+  /** Edge kinds to drop from the induced subgraph (e.g. `['similar','co_occurrence']`). */
+  excludeKinds?: readonly string[];
   db?: Database.Database;
 }
 
@@ -517,7 +529,7 @@ export function selectGlobalGraph(opts: SelectGlobalOptions = {}): GraphSelectio
 
   // Re-sort kept by id so the encoder's index assignment is stable across runs.
   const nodes = kept.map(rowToNode).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  const edges = inducedEdges(db, new Set(nodes.map((n) => n.id)), includeTags);
+  const edges = inducedEdges(db, new Set(nodes.map((n) => n.id)), includeTags, opts.excludeKinds);
   return { nodes, edges, truncated };
 }
 
@@ -624,11 +636,19 @@ function neighborIds(db: Database.Database, id: string, includeTags: boolean): s
   return rows.map((r) => r.nb).filter((nb) => nb !== id);
 }
 
-/** Edges whose BOTH endpoints are in the kept set (induced subgraph). */
-function inducedEdges(db: Database.Database, ids: Set<string>, includeTags: boolean): GraphEdge[] {
+/** Edges whose BOTH endpoints are in the kept set (induced subgraph). `excludeKinds` drops further kinds. */
+function inducedEdges(
+  db: Database.Database,
+  ids: Set<string>,
+  includeTags: boolean,
+  excludeKinds: readonly string[] = [],
+): GraphEdge[] {
   if (ids.size === 0) return [];
-  const tagFilter = includeTags ? "" : " WHERE kind != 'tag'";
-  const all = db.prepare(`SELECT * FROM graph_edges${tagFilter} ORDER BY id`).all() as EdgeRow[];
+  const where: string[] = [];
+  if (!includeTags) where.push("kind != 'tag'");
+  if (excludeKinds.length > 0) where.push(`kind NOT IN (${excludeKinds.map(() => "?").join(",")})`);
+  const whereClause = where.length ? ` WHERE ${where.join(" AND ")}` : "";
+  const all = db.prepare(`SELECT * FROM graph_edges${whereClause} ORDER BY id`).all(...excludeKinds) as EdgeRow[];
   return all.filter((e) => ids.has(e.source_id) && ids.has(e.target_id)).map(rowToEdge);
 }
 

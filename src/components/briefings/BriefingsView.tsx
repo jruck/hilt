@@ -4,6 +4,7 @@ import { useBriefings } from "@/hooks/useBriefings";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { BriefingHeader } from "./BriefingHeader";
 import { BriefingContent } from "./BriefingContent";
+import { BriefingFailureCard } from "./BriefingFailureCard";
 import { Loader2, Newspaper } from "lucide-react";
 
 export function BriefingsView() {
@@ -14,6 +15,9 @@ export function BriefingsView() {
     briefing,
     isLoadingList,
     isLoadingContent,
+    retryBriefing,
+    retryStatus,
+    retryMessage,
   } = useBriefings();
   const isMobile = useIsMobile();
 
@@ -60,6 +64,13 @@ export function BriefingsView() {
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-5 h-5 animate-spin text-[var(--text-tertiary)]" />
               </div>
+            ) : briefing?.status === "failed" && briefing.run ? (
+              <BriefingFailureCard
+                run={briefing.run}
+                onRetry={retryBriefing}
+                retryStatus={retryStatus}
+                retryMessage={retryMessage}
+              />
             ) : briefing ? (
               <BriefingContent content={briefing.content} />
             ) : (

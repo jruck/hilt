@@ -6,7 +6,7 @@ import { useHaptics } from "@/hooks/useHaptics";
 import { ViewToggle, ViewMode } from "./ViewToggle";
 import { ThemeToggle } from "./ThemeToggle";
 import { SourceToggle } from "./SourceToggle";
-import { PanelBottom, PanelTop, Search, X } from "lucide-react";
+import { PanelBottom, Search, X } from "lucide-react";
 import { useMobileChrome, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 
 const SHORTCUTS = [
@@ -295,27 +295,6 @@ export function NavBar({
 
                 {/* View toggle (compact mode) */}
                 <ViewToggle view={viewMode} onChange={setViewMode} compact onDoubleTapActive={() => window.location.reload()} unreadTabs={unreadTabs} />
-
-                <button
-                  onClick={() => {
-                    haptics.selection();
-                    setHudVisible((visible) => !visible);
-                  }}
-                  className={`
-                    relative flex min-h-[48px] min-w-[48px] items-center justify-center rounded-full
-                    transition-colors
-                    ${
-                      hudVisible
-                        ? "bg-[var(--nav-mobile-active-bg)] text-[var(--nav-mobile-active)] shadow-sm"
-                        : "text-[var(--nav-mobile-muted)] hover:text-[var(--nav-mobile-hover)] active:bg-[var(--nav-mobile-press-bg)]"
-                    }
-                  `}
-                  style={NO_DRAG_REGION_STYLE}
-                  title={hudVisible ? "Hide HUD" : "Show HUD"}
-                  aria-pressed={hudVisible}
-                >
-                  <PanelTop className="h-6 w-6" />
-                </button>
 
               </div>
             )}

@@ -123,6 +123,15 @@ export function listSavedReferences(vaultPath: string): LibraryArtifactDetail[] 
     .sort((a, b) => compareDatesDesc(a.created_at, b.created_at));
 }
 
+export function listArchivedReferences(vaultPath: string): LibraryArtifactDetail[] {
+  return walkMarkdown(referencesDir(vaultPath), { includeHidden: true })
+    .filter((filePath) => filePath.includes(`${path.sep}.archive${path.sep}`))
+    .filter((filePath) => !filePath.includes(`${path.sep}.cache${path.sep}`))
+    .map((filePath) => parseReferenceFile(vaultPath, filePath))
+    .filter((artifact): artifact is LibraryArtifactDetail => Boolean(artifact))
+    .sort((a, b) => compareDatesDesc(a.created_at, b.created_at));
+}
+
 export function findSavedReferenceById(vaultPath: string, id: string): LibraryArtifactDetail | null {
   for (const filePath of walkMarkdown(referencesDir(vaultPath))) {
     if (filePath.includes(`${path.sep}.cache${path.sep}`)) continue;
@@ -136,6 +145,11 @@ export function findSavedReferenceById(vaultPath: string, id: string): LibraryAr
 export function findSavedReferenceByUrl(vaultPath: string, url: string): LibraryArtifact | null {
   const canonical = canonicalUrl(url);
   return listSavedReferences(vaultPath).find((artifact) => artifact.url && canonicalUrl(artifact.url) === canonical) || null;
+}
+
+export function findArchivedReferenceByUrl(vaultPath: string, url: string): LibraryArtifact | null {
+  const canonical = canonicalUrl(url);
+  return listArchivedReferences(vaultPath).find((artifact) => artifact.url && canonicalUrl(artifact.url) === canonical) || null;
 }
 
 function destinationDir(vaultPath: string, proposedDestination: string | null | undefined): string {

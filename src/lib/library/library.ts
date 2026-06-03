@@ -6,8 +6,8 @@ import { findSavedReferenceById, listSavedReferences, MANUAL_SOURCE_ID, MANUAL_S
 import { applyLibraryReadState, isLibraryArtifactUnread, readLibraryReadState } from "./read-state";
 import { readReviewQueue } from "./review-queue";
 import { loadSources, readSourceState } from "./source-config";
-import { compareDatesDesc, dateTimestamp, ensureDir, hashId, walkMarkdown } from "./utils";
-import { relativeVaultPath } from "./markdown";
+import { compareDatesDesc, dateTimestamp, ensureDir, hashId, isoNow, walkMarkdown } from "./utils";
+import { parseMarkdownFile, relativeVaultPath, stringifyMarkdown } from "./markdown";
 import { artifactDisplayTags, validLibraryModeFilter } from "./taxonomy";
 
 export interface LibraryListOptions {
@@ -374,6 +374,13 @@ export function archiveLibraryArtifact(vaultPath: string, id: string): { archive
   const archiveDir = path.join(path.dirname(filePath), ".archive");
   ensureDir(archiveDir);
   const targetPath = uniqueArchivePath(archiveDir, path.basename(filePath));
+  const parsed = parseMarkdownFile(filePath);
+  fs.writeFileSync(filePath, stringifyMarkdown({
+    ...parsed.data,
+    archived: true,
+    archived_at: isoNow(),
+    archived_from: artifact.path,
+  }, parsed.body), "utf-8");
   fs.renameSync(filePath, targetPath);
   return { archived_to: relativeVaultPath(vaultPath, targetPath) };
 }

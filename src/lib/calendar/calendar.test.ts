@@ -115,6 +115,32 @@ END:VCALENDAR`, {
     ]);
   });
 
+  test("keeps standalone Outlook recurrence exception instances", () => {
+    const source = CALENDAR_SOURCE_CONFIGS.find((item) => item.id === "evercommerce")!;
+    const parsed = parseIcsFeed(source, `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:standalone-exception@example.com
+RECURRENCE-ID;TZID=Eastern Standard Time:20260602T140000
+SUMMARY:Weekly EverPro Product Leadership call
+DTSTART;TZID=Eastern Standard Time:20260603T150000
+DTEND;TZID=Eastern Standard Time:20260603T160000
+STATUS:CONFIRMED
+X-MICROSOFT-CDO-INSTTYPE:3
+END:VEVENT
+END:VCALENDAR`, {
+      start: new Date("2026-06-03T00:00:00.000Z"),
+      end: new Date("2026-06-04T00:00:00.000Z"),
+    });
+
+    assert.equal(parsed.events.length, 1);
+    assert.equal(parsed.events[0].title, "Weekly EverPro Product Leadership call");
+    assert.equal(parsed.events[0].start, "2026-06-03T19:00:00.000Z");
+    assert.equal(parsed.events[0].end, "2026-06-03T20:00:00.000Z");
+    assert.equal(parsed.events[0].recurrence.recurring, true);
+    assert.equal(parsed.events[0].recurrence.recurrenceId, "20260602T140000");
+  });
+
   test("keeps punctuation-only blocker titles during parsing", () => {
     const source = CALENDAR_SOURCE_CONFIGS.find((item) => item.id === "personal")!;
     const parsed = parseIcsFeed(source, `BEGIN:VCALENDAR

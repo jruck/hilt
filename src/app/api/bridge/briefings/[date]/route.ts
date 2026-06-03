@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import matter from "gray-matter";
 import { getVaultPath } from "@/lib/bridge/vault";
+import { getHermesBriefingFailureForDate } from "@/lib/bridge/briefing-status";
 
 export async function GET(
   _req: NextRequest,
@@ -23,6 +24,17 @@ export async function GET(
     try {
       raw = await fs.readFile(filePath, "utf-8");
     } catch {
+      const failure = await getHermesBriefingFailureForDate(date);
+      if (failure) {
+        return NextResponse.json({
+          date,
+          title: `Morning Briefing — ${date}`,
+          summary: `Generation failed: ${failure.error}`,
+          content: "",
+          status: failure.status,
+          run: failure,
+        });
+      }
       return NextResponse.json({ error: "Briefing not found" }, { status: 404 });
     }
 

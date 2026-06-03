@@ -11,7 +11,11 @@
  * renderer uses for click-through and hover.
  */
 
-/** Node kinds. `tag` is OFF by default (Decision 4) — only `buildTagLayer()` mints them. */
+/**
+ * Node kinds. `tag` is OFF by default (Decision 4) — only `buildTagLayer()` mints
+ * them. `topic`/`entity` are the Phase-2 semantic overlay (OFF unless
+ * `graphSemanticOverlayEnabled()`) — only `buildSemanticOverlay()` mints them.
+ */
 export type GraphNodeType =
   | "note"
   | "reference"
@@ -20,15 +24,26 @@ export type GraphNodeType =
   | "project"
   | "north_star"
   | "library_cluster"
-  | "tag";
+  | "tag"
+  | "topic" // semantic overlay — emergent cluster (semantic.sqlite `topics`)
+  | "entity"; // semantic overlay — resolved entity (semantic.sqlite `entities`)
 
-/** Edge kinds. `tag` edges are OFF by default (Decision 4). */
+/**
+ * Edge kinds. `tag` edges are OFF by default (Decision 4). The five semantic-overlay
+ * kinds are OFF unless `graphSemanticOverlayEnabled()`; `similar`/`co_occurrence` are
+ * further off-by-default in GLOBAL scope (on via `&semanticEdges=1`; local includes them).
+ */
 export type GraphEdgeKind =
   | "wikilink"
   | "connection"
   | "connected_project"
   | "meeting"
-  | "tag";
+  | "tag"
+  | "item_topic" // item belongs to topic (item_topics.score)
+  | "topic_parent" // topic hierarchy (topics.parent_id), directed child→parent
+  | "item_entity" // item mentions entity (item_entities.salience)
+  | "co_occurrence" // entity↔entity co-mention (shared-item count)
+  | "similar"; // item↔item KNN embedding similarity (kept distinct from co_occurrence)
 
 /** Single source of truth for scope literals (validated by the API route + deep-link grammar). */
 export type GraphScope = "global" | "local";
@@ -63,6 +78,11 @@ export interface GraphMeta {
   edgeCount: number;
   /** Reported (for the on-demand tag layer); never shipped in the default payload. */
   tagNodeCount: number;
+  /** Reported semantic-overlay counts (0 unless the overlay is built). Gate the legend on these. */
+  topicNodeCount: number;
+  entityNodeCount: number;
+  /** True once `buildSemanticOverlay()` has populated the overlay rows at least once. */
+  semanticBuilt: boolean;
   builtAt: string | null;
   layoutVersion: number;
   layoutState: GraphLayoutState;

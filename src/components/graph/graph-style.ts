@@ -57,6 +57,8 @@ const TYPE_HUE: Record<string, keyof typeof TW> = {
   north_star: "rose",
   library_cluster: "teal",
   tag: "slate",
+  topic: "fuchsia", // semantic overlay — emergent themes pop as the new structural layer
+  entity: "cyan", // semantic overlay — resolved entities, distinct from blue references
 };
 
 /**
@@ -114,11 +116,16 @@ const MAX_SIZE = 32;
 const LEAF_SIZE = 2.5;
 /** North Stars (and other hubs) get a size floor regardless of degree. */
 const NORTH_STAR_SIZE_FLOOR = 20;
+/** Topics are the new structural hubs (ordinal 8) — floor them so a broad theme reads as one. */
+const TOPIC_SIZE_FLOOR = 18;
+/** Ordinals (NODE_TYPE_ORDER) that get a permanent emphasis floor instead of the leaf shrink. */
+const NORTH_STAR_ORDINAL = 5;
+const TOPIC_ORDINAL = 8;
 
 /**
  * Build the per-point size buffer. Size = MIN + (MAX-MIN)*sqrt(degree/maxDegree),
- * with a floor for North Stars (type ordinal 5 in NODE_TYPE_ORDER). Degree is
- * derived from the links buffer (adjacency count) so the sidecar stays lean.
+ * with a floor for North Stars (ordinal 5) and topics (ordinal 8) in NODE_TYPE_ORDER.
+ * Degree is derived from the links buffer (adjacency count) so the sidecar stays lean.
  */
 export function buildSizeBuffer(degrees: Uint32Array, typeOrdinals: number[]): Float32Array {
   let maxDegree = 1;
@@ -127,12 +134,15 @@ export function buildSizeBuffer(degrees: Uint32Array, typeOrdinals: number[]): F
   }
   const out = new Float32Array(degrees.length);
   for (let i = 0; i < degrees.length; i++) {
-    // Shrink single-link leaves so they recede behind the connected structure.
-    if (degrees[i] <= 1 && typeOrdinals[i] !== 5) { out[i] = LEAF_SIZE; continue; }
+    const ord = typeOrdinals[i];
+    const floored = ord === NORTH_STAR_ORDINAL || ord === TOPIC_ORDINAL;
+    // Shrink single-link leaves so they recede behind the connected structure (hubs are exempt).
+    if (degrees[i] <= 1 && !floored) { out[i] = LEAF_SIZE; continue; }
     const norm = Math.sqrt(degrees[i] / maxDegree);
     let size = MIN_SIZE + (MAX_SIZE - MIN_SIZE) * norm;
-    // north_star ordinal === 5 (NODE_TYPE_ORDER): permanent emphasis.
-    if (typeOrdinals[i] === 5 && size < NORTH_STAR_SIZE_FLOOR) size = NORTH_STAR_SIZE_FLOOR;
+    // Permanent emphasis: a broad hub with few-but-meaningful members isn't shrunk to a leaf.
+    if (ord === NORTH_STAR_ORDINAL && size < NORTH_STAR_SIZE_FLOOR) size = NORTH_STAR_SIZE_FLOOR;
+    else if (ord === TOPIC_ORDINAL && size < TOPIC_SIZE_FLOOR) size = TOPIC_SIZE_FLOOR;
     out[i] = size;
   }
   return out;

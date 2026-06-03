@@ -27,6 +27,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import net from "node:net";
 import { chromium, type Page } from "playwright";
+import { runColdStart } from "../src/lib/semantic/backfill";
+import { collectItems } from "../src/lib/semantic/chunking";
+import type { ClusterInput, ClusterNode, ClusterResult, RunClustering } from "../src/lib/semantic/cluster";
+import { closeSemanticDbForTests } from "../src/lib/semantic/db";
+import type { ExtractedEntity } from "../src/lib/semantic/gemini";
+import type { MergeJudge } from "../src/lib/semantic/resolve-prompt";
+import { createFakeSemanticClient } from "../src/lib/semantic/test-helpers";
+import { l2normalize } from "../src/lib/semantic/vector";
 
 const HOST = "127.0.0.1";
 const MOBILE_CAP = 200;
@@ -69,6 +77,7 @@ async function main() {
   let server: ChildProcessWithoutNullStreams | null = null;
   let logs = "";
 
+  const semanticDbPath = join(dataDir, "semantic.sqlite");
   const serverEnv = {
     ...process.env,
     HOST,
@@ -76,6 +85,11 @@ async function main() {
     DATA_DIR: dataDir,
     HILT_GRAPH_DB_PATH: join(dataDir, "graph.sqlite"),
     HILT_GRAPH_ENABLED: "true",
+    // P2.3 semantic overlay ON — the buildFullGraph tail layers topic/entity nodes.
+    HILT_GRAPH_SEMANTIC: "true",
+    HILT_SEMANTIC_ENABLED: "true",
+    HILT_SEMANTIC_DB_PATH: semanticDbPath,
+    SEMANTIC_VEC_DISABLED: "1", // deterministic BLOB cosine path (no native extension)
     BRIDGE_VAULT_PATH: vaultRoot,
     HILT_GRAPH_MAX_NODES_MOBILE: String(MOBILE_CAP),
     NEXT_TELEMETRY_DISABLED: "1",
@@ -105,6 +119,14 @@ async function main() {
     const globalSel = await fetchJson<GraphSelectionJson>(`${baseUrl}/api/system/graph?scope=global&fmt=json`);
     assert.ok(globalSel.nodeCount > 0, "global selection returns nodes");
     assert.ok(globalSel.edgeCount > 0, "global selection returns edges");
+
+    // P2.3 — seed semantic.sqlite offline (fake client) against the SAME fixture vault, then
+    // rebuild so the buildFullGraph tail layers the overlay. item_id == graph node id (R1), so
+    // the overlay's edges resolve against the just-built graph_nodes.
+    await seedSemanticLayer(semanticDbPath, vaultRoot, serverEnv.HILT_GRAPH_DB_PATH);
+    await rebuildGraph(baseUrl);
+    await waitForBuilt(baseUrl);
+    await verifySemanticOverlay(baseUrl);
 
     // /navigate must accept the system view + graph focus path (allowlist + Decision 3).
     await verifyNavigateAllowlist(baseUrl, globalSel);
@@ -335,6 +357,146 @@ async function verifyNavigateAllowlist(baseUrl: string, sel: GraphSelectionJson)
   const path = `/graph/focus/${encodeURIComponent(focusId)}`;
   assert.ok(!path.includes("?"), "deep-link grammar is path-segment only (no query string)");
   assert.equal(decodeURIComponent(path.split("/")[3]), focusId, "encoded focus id decodes back exactly");
+}
+
+// ---------------------------------------------------------------------------
+// P2.3 — semantic overlay seeding + assertions (offline, fake client)
+// ---------------------------------------------------------------------------
+
+/**
+ * Cold-start the semantic layer over the SAME fixture vault, fully offline (fake client +
+ * fake clustering, ruling R6). Produces items (item_id == graph node id), entities of every
+ * bucket, and a 2-level topic hierarchy in `semantic.sqlite` so the next graph rebuild's
+ * overlay tail has real topics/entities to layer on. Runs in THIS process (the server reads
+ * the resulting `semantic.sqlite` file); env is pointed at the same vault/dbs and restored.
+ */
+async function seedSemanticLayer(semanticDbPath: string, vaultRoot: string, graphDbPath: string): Promise<void> {
+  const prev = {
+    sem: process.env.HILT_SEMANTIC_DB_PATH,
+    graph: process.env.HILT_GRAPH_DB_PATH,
+    vec: process.env.SEMANTIC_VEC_DISABLED,
+    vault: process.env.BRIDGE_VAULT_PATH,
+  };
+  process.env.HILT_SEMANTIC_DB_PATH = semanticDbPath;
+  process.env.HILT_GRAPH_DB_PATH = graphDbPath; // the binder reads the live graph for entity binding
+  process.env.SEMANTIC_VEC_DISABLED = "1";
+  process.env.BRIDGE_VAULT_PATH = vaultRoot;
+  closeSemanticDbForTests();
+
+  try {
+    const client = createFakeSemanticClient({ dim: 64, extractFixtures: buildExtractFixtures() });
+    await runColdStart({ client, judge: noMergeJudge, runClustering: fakeClustering() });
+  } finally {
+    closeSemanticDbForTests();
+    if (prev.sem === undefined) delete process.env.HILT_SEMANTIC_DB_PATH; else process.env.HILT_SEMANTIC_DB_PATH = prev.sem;
+    if (prev.graph === undefined) delete process.env.HILT_GRAPH_DB_PATH; else process.env.HILT_GRAPH_DB_PATH = prev.graph;
+    if (prev.vec === undefined) delete process.env.SEMANTIC_VEC_DISABLED; else process.env.SEMANTIC_VEC_DISABLED = prev.vec;
+    if (prev.vault === undefined) delete process.env.BRIDGE_VAULT_PATH; else process.env.BRIDGE_VAULT_PATH = prev.vault;
+  }
+}
+
+/** Every fixture item gets at least one entity so all four buckets resolve (keyed by assembled text). */
+function buildExtractFixtures(): Record<string, ExtractedEntity[]> {
+  const fixtures: Record<string, ExtractedEntity[]> = {};
+  for (const item of collectItems()) {
+    const text = item.chunks.map((c) => c.text).join(" ");
+    // TWO shared ideas co-occur across the (multiple) note items so the overlay derives an
+    // entity↔entity co_occurrence edge (a pair sharing ≥2 items). Plus a per-kind entity so
+    // person/project/reference/idea buckets all materialize.
+    const ents: ExtractedEntity[] = [
+      { type: "idea", name: "knowledge graph", aliases: ["graph"], salience: 0.8, evidence: text.slice(0, 40) },
+      { type: "idea", name: "semantic layer", aliases: [], salience: 0.7, evidence: text.slice(0, 40) },
+    ];
+    if (item.kind === "person") ents.push({ type: "person", name: item.title ?? "Person", aliases: [], salience: 1, evidence: "person" });
+    else if (item.kind === "project") ents.push({ type: "project", name: item.title ?? "Project", aliases: [], salience: 1, evidence: "project" });
+    else if (item.kind === "reference") ents.push({ type: "source", name: item.title ?? "Source", aliases: [], salience: 1, evidence: "source" });
+    fixtures[text] = ents;
+  }
+  return fixtures;
+}
+
+/** Offline merge-judge: keep every member separate (exercise auto-merge, not the LLM). */
+const noMergeJudge: MergeJudge = async () => [];
+
+/**
+ * Offline clustering seam (ruling R6) — no Python. Two leaf topics under one root: notes vs
+ * everything-else, guaranteeing a ≥2-level hierarchy the overlay maps to topic_parent edges.
+ */
+function fakeClustering(): RunClustering {
+  return async (input: ClusterInput): Promise<ClusterResult> => {
+    const vecById = new Map(input.ids.map((id, i) => [id, l2normalize(Float32Array.from(input.vectors[i]))]));
+    const leafFor = (chunkId: string): string => (chunkId.startsWith("note:") ? "L1-notes" : "L1-corpus");
+    const leafMembers = new Map<string, string[]>();
+    for (const id of input.ids) {
+      const leaf = leafFor(id);
+      const arr = leafMembers.get(leaf) ?? [];
+      arr.push(id);
+      leafMembers.set(leaf, arr);
+    }
+    const centroid = (members: string[]): number[] => {
+      const dim = input.vectors[0]?.length ?? 0;
+      const out = new Float32Array(dim);
+      for (const m of members) {
+        const v = vecById.get(m)!;
+        for (let i = 0; i < dim; i++) out[i] += v[i];
+      }
+      return Array.from(l2normalize(out));
+    };
+    const all = [...leafMembers.values()].flat();
+    const hierarchy: ClusterNode[] = [
+      { clusterId: "L0-root", parentId: null, level: 0, memberIds: all, centroid: centroid(all), size: all.length },
+    ];
+    for (const [leaf, members] of [...leafMembers].sort()) {
+      hierarchy.push({ clusterId: leaf, parentId: "L0-root", level: 1, memberIds: members, centroid: centroid(members), size: members.length });
+    }
+    return {
+      assignments: input.ids.map((id) => ({ id, leafCluster: 1, probability: 0.9 })),
+      hierarchy,
+      outliers: [],
+      paramsUsed: {},
+    };
+  };
+}
+
+/** Assert the overlay landed: topic + entity nodes present, semantic edges present, no leaks. */
+async function verifySemanticOverlay(baseUrl: string): Promise<void> {
+  // /meta reports the overlay counts + built marker.
+  const meta = await fetchJson<{ topicNodeCount: number; entityNodeCount: number; semanticBuilt: boolean }>(
+    `${baseUrl}/api/system/graph/meta`,
+  );
+  assert.ok(meta.semanticBuilt, "/meta reports semanticBuilt after the overlay tail ran");
+  assert.ok(meta.topicNodeCount >= 3, `overlay produced topic nodes (root + ≥2 leaves), got ${meta.topicNodeCount}`);
+  assert.ok(meta.entityNodeCount >= 1, `overlay produced entity nodes, got ${meta.entityNodeCount}`);
+
+  // GLOBAL scope: topic/entity nodes present; sparse semantic edges present; the fuzzy web
+  // (similar/co_occurrence) is OFF by default.
+  const globalSel = await fetchJson<GraphSelectionJson>(`${baseUrl}/api/system/graph?scope=global&fmt=json`);
+  assert.ok(globalSel.nodes.some((n) => n.type === "topic"), "global selection contains a topic node");
+  assert.ok(globalSel.nodes.some((n) => n.type === "entity"), "global selection contains an entity node");
+  assert.ok(globalSel.edges.some((e) => e.kind === "item_topic"), "global selection contains item_topic edges");
+  assert.ok(globalSel.edges.some((e) => e.kind === "topic_parent"), "global selection contains topic_parent edges");
+  assert.ok(
+    !globalSel.edges.some((e) => e.kind === "similar" || e.kind === "co_occurrence"),
+    "global scope omits similar/co_occurrence by default",
+  );
+
+  // GLOBAL with &semanticEdges=1: the fuzzy web is now included.
+  const globalFuzzy = await fetchJson<GraphSelectionJson>(`${baseUrl}/api/system/graph?scope=global&semanticEdges=1&fmt=json`);
+  assert.ok(
+    globalFuzzy.edges.some((e) => e.kind === "co_occurrence"),
+    "global scope with semanticEdges=1 includes co_occurrence (the shared 'knowledge graph' idea)",
+  );
+
+  // The dedicated semantic HTTP routes mirror the CLI --json shape.
+  const topics = await fetchJson<Array<{ id: string; label: string; level: number; parentId: string | null }>>(
+    `${baseUrl}/api/system/semantic/topics`,
+  );
+  assert.ok(topics.some((t) => t.parentId === null), "semantic/topics returns the root topic");
+  const root = topics.find((t) => t.parentId === null)!;
+  const detail = await fetchJson<{ topic: { id: string }; children: unknown[]; items: unknown[] }>(
+    `${baseUrl}/api/system/semantic/topic/${encodeURIComponent(root.id)}`,
+  );
+  assert.ok(detail.children.length >= 2, "semantic/topic/:id drill-down returns the leaf children");
 }
 
 // ---------------------------------------------------------------------------

@@ -227,8 +227,6 @@ export function Board() {
         unreadTabs={unreadTabs}
       />
 
-      {hudVisible && isMobile && <AppHud placement="top" onCollapse={() => setHudVisible(false)} />}
-
       <div
         className="flex min-h-0 flex-1 overflow-hidden"
         style={undefined}
@@ -240,6 +238,8 @@ export function Board() {
         {viewMode === "bridge" ? (
           <BridgeView
             addTaskTrigger={addTaskTrigger}
+            hudVisible={hudVisible}
+            onHudVisibleChange={setHudVisible}
             searchQuery={searchQuery}
             onNavigateToProject={(project) => {
               navigateTo("docs", project.path);

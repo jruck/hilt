@@ -20,6 +20,8 @@ export const NODE_TYPE_BY_ORDINAL: GraphNodeType[] = [
   "north_star",
   "library_cluster",
   "tag",
+  "topic",
+  "entity",
 ];
 
 export const NODE_TYPE_LABEL: Record<GraphNodeType, string> = {
@@ -31,6 +33,8 @@ export const NODE_TYPE_LABEL: Record<GraphNodeType, string> = {
   north_star: "North Star",
   library_cluster: "Cluster",
   tag: "Tag",
+  topic: "Topic",
+  entity: "Entity",
 };
 
 /** Tailwind background tokens mirroring the WebGL palette (graph-style.ts TYPE_HUE). */
@@ -43,6 +47,8 @@ export const NODE_TYPE_DOT: Record<GraphNodeType, string> = {
   north_star: "bg-rose-500",
   library_cluster: "bg-teal-500",
   tag: "bg-slate-500",
+  topic: "bg-fuchsia-500",
+  entity: "bg-cyan-500",
 };
 
 export function nodeTypeLabel(ordinal: number): string {
@@ -60,6 +66,11 @@ export const EDGE_KIND_LABEL: Record<GraphEdgeKind, string> = {
   connected_project: "Projects",
   meeting: "Meetings",
   tag: "Tags",
+  item_topic: "Topics",
+  topic_parent: "Topic hierarchy",
+  item_entity: "Entities",
+  co_occurrence: "Co-mentions",
+  similar: "Similar",
 };
 
 /** One-line "what this connection means" copy for the legend popover. */
@@ -69,6 +80,11 @@ export const EDGE_KIND_DESCRIPTION: Record<GraphEdgeKind, string> = {
   connected_project: "A reference supporting a project",
   meeting: "People & projects linked via shared meetings",
   tag: "A shared #tag",
+  item_topic: "An item belongs to an emergent topic",
+  topic_parent: "A topic's place in the broad→specific hierarchy",
+  item_entity: "An item mentions a resolved entity",
+  co_occurrence: "Two entities mentioned together across items",
+  similar: "Two items the embeddings find semantically close",
 };
 
 /** Stable display order for connection groups (most structural first). */
@@ -78,4 +94,9 @@ export const EDGE_KIND_ORDER: GraphEdgeKind[] = [
   "connected_project",
   "meeting",
   "tag",
+  "item_topic",
+  "topic_parent",
+  "item_entity",
+  "co_occurrence",
+  "similar",
 ];

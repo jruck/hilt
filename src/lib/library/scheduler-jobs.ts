@@ -1,11 +1,21 @@
 import os from "os";
 import path from "path";
 
+/**
+ * A launchd job schedule. `weekday` (0=Sunday..6=Saturday) on a calendar interval makes the
+ * job WEEKLY — launchd `StartCalendarInterval` has no native "weekly" key, so the day-of-week
+ * is set in the calendar dict (the semantic re-fit uses this; spec "Versioning, Scheduling").
+ */
+export type SchedulerJobSchedule =
+  | { intervalSeconds: number }
+  | { hour: number; minute: number; weekday?: number }
+  | { runAtLoad: true };
+
 export interface LibrarySchedulerJobDefinition {
   id: string;
   label: string;
   script: string;
-  schedule: { intervalSeconds: number } | { hour: number; minute: number };
+  schedule: SchedulerJobSchedule;
   stdout: string;
   stderr: string;
 }
@@ -63,10 +73,17 @@ export function librarySchedulerJobs(logDir = librarySchedulerLogDir()): Library
   ];
 }
 
-export function schedulerJobScheduleLabel(schedule: LibrarySchedulerJobDefinition["schedule"]): string {
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
+
+export function schedulerJobScheduleLabel(schedule: SchedulerJobSchedule): string {
+  if ("runAtLoad" in schedule) return "manual / run-at-load";
   if ("intervalSeconds" in schedule) {
     const hours = schedule.intervalSeconds / 3600;
     return hours === 1 ? "hourly" : `every ${hours}h`;
   }
-  return `daily ${String(schedule.hour).padStart(2, "0")}:${String(schedule.minute).padStart(2, "0")}`;
+  const time = `${String(schedule.hour).padStart(2, "0")}:${String(schedule.minute).padStart(2, "0")}`;
+  if (schedule.weekday !== undefined) {
+    return `weekly ${WEEKDAY_NAMES[schedule.weekday] ?? `day${schedule.weekday}`} ${time}`;
+  }
+  return `daily ${time}`;
 }

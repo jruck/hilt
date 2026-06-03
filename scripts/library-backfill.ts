@@ -1,0 +1,224 @@
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import { loadEnvConfig } from "@next/env";
+import { buildKbIndex } from "../src/lib/library/kb-index";
+import { markLibraryArtifactsRead } from "../src/lib/library/read-state";
+import { hashId } from "../src/lib/library/utils";
+
+/**
+ * Full-library backfill orchestrator: reanalyze every durable reference up to the current published
+ * PIPELINE_VERSION (v2). Parallel, resumable, and rate-limit-aware.
+ *
+ *   DATA_DIR=/Users/jruck/.hilt/data npx tsx scripts/library-backfill.ts --vault /Users/jruck/work/bridge
+ *   ... --dry-run            # enumerate only, change nothing
+ *   ... --limit 2            # reweave just N (smoke test)
+ *   ... --concurrency 4      # starting worker count (auto-drops on limits, climbs back when clean)
+ *
+ * Worklist = every `type: reference` not yet at TARGET_VERSION, recomputed from disk — so it is
+ * idempotent and a re-run resumes wherever it stopped. Items already at the prior decimal (v1.4) are
+ * re-stamped without a reweave (identical protocol); everything else is reweaved via the tested
+ * per-file path in library-reweave.ts (one prebuilt KB index shared via --kb-index-file). A worker that
+ * hits a Claude usage limit exits 75; the pool pauses (exponential backoff, honoring a parsed reset
+ * time), drops concurrency by one, and climbs back after a clean streak. Read-state baseline is
+ * advanced at the end so the mass rewrite does not flood the New lane.
+ */
+
+loadEnvConfig(process.cwd());
+const execFileAsync = promisify(execFile);
+
+const args = process.argv.slice(2);
+const argValue = (name: string): string | null => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] || null : null; };
+const has = (name: string): boolean => args.includes(name);
+
+const vaultPath = argValue("--vault") || process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || process.cwd();
+const TARGET_VERSION = "v2";
+const RESTAMP_FROM = "v1.4"; // same protocol as v2 → re-stamp, do not reweave
+const startConcurrency = Math.max(1, Number(argValue("--concurrency") || 4));
+const minConcurrency = Math.max(1, Number(argValue("--min-concurrency") || 1));
+const limit = Number(argValue("--limit") || 0);
+const dryRun = has("--dry-run");
+const baseWaitMs = Number(argValue("--base-wait-ms") || 60_000);
+const maxWaitMs = Number(argValue("--max-wait-ms") || 1_800_000);
+const reweaveTimeoutMs = Number(process.env.LIBRARY_REWEAVE_TIMEOUT_MS || 600_000);
+const RAMP_UP_STREAK = 10;
+
+function relOf(file: string): string {
+  return path.relative(vaultPath, file).split(path.sep).join("/");
+}
+
+function walkMarkdown(dir: string): string[] {
+  const out: string[] = [];
+  if (!fs.existsSync(dir)) return out;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === ".cache") continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walkMarkdown(full));
+    else if (entry.isFile() && entry.name.endsWith(".md")) out.push(full);
+  }
+  return out;
+}
+
+/** Returns the pipeline_version of a durable reference, "(unstamped)" if none, or null if not a reference. */
+function refVersion(file: string): string | null {
+  let text: string;
+  try { text = fs.readFileSync(file, "utf-8"); } catch { return null; }
+  const fm = text.split(/^---$/m)[1] || "";
+  if (!/^type:\s*reference\s*$/m.test(fm)) return null;
+  return (fm.match(/^pipeline_version:\s*(\S+)/m) || [])[1] || "(unstamped)";
+}
+
+const log = (msg: string): void => console.error(`[backfill ${new Date().toISOString()}] ${msg}`);
+
+async function main(): Promise<void> {
+  if (!process.env.DATA_DIR) {
+    log("WARNING: DATA_DIR is not set — read-state will be written under cwd/data, not the live app dir. Set DATA_DIR.");
+  }
+
+  // 1. Enumerate + partition.
+  const refs = walkMarkdown(path.join(vaultPath, "references")).filter((f) => refVersion(f) !== null);
+  const restampList: string[] = [];
+  let reweaveList: string[] = [];
+  let alreadyDone = 0;
+  for (const f of refs) {
+    const v = refVersion(f);
+    if (v === TARGET_VERSION) alreadyDone++;
+    else if (v === RESTAMP_FROM) restampList.push(f);
+    else reweaveList.push(f);
+  }
+  if (limit > 0) reweaveList = reweaveList.slice(0, limit);
+
+  log(`durable refs: ${refs.length} | already ${TARGET_VERSION}: ${alreadyDone} | re-stamp ${RESTAMP_FROM}: ${restampList.length} | reweave: ${reweaveList.length}${limit ? ` (capped at ${limit})` : ""}`);
+
+  if (dryRun) {
+    log("dry-run: no changes. Sample reweave targets:");
+    reweaveList.slice(0, 8).forEach((f) => console.error("   - " + relOf(f)));
+    return;
+  }
+
+  const touchedIds: string[] = [];
+
+  // 2. Re-stamp v1.4 → v2 (no reweave).
+  for (const f of restampList) {
+    const text = fs.readFileSync(f, "utf-8");
+    fs.writeFileSync(f, text.replace(/^pipeline_version:\s*\S+\s*$/m, `pipeline_version: ${TARGET_VERSION}`), "utf-8");
+    touchedIds.push(hashId(relOf(f)));
+  }
+  if (restampList.length) log(`re-stamped ${restampList.length} ${RESTAMP_FROM} → ${TARGET_VERSION}`);
+
+  if (!reweaveList.length) {
+    log("nothing to reweave.");
+    finalize(touchedIds);
+    return;
+  }
+
+  // 3. Shared KB index (built once).
+  const kbFile = path.join(os.tmpdir(), `hilt-backfill-kb-${process.pid}.txt`);
+  fs.writeFileSync(kbFile, buildKbIndex(vaultPath, { noWrite: true }), "utf-8");
+
+  const tsxBin = fs.existsSync("node_modules/.bin/tsx") ? "node_modules/.bin/tsx" : "npx";
+  const tsxPrefix = tsxBin === "npx" ? ["tsx"] : [];
+
+  // 4. Adaptive, rate-limit-aware worker pool.
+  const queue = [...reweaveList];
+  const retries = new Map<string, number>();
+  const failed: string[] = [];
+  let maxActive = startConcurrency;
+  let active = 0;
+  let pausedUntil = 0;
+  let backoffMs = baseWaitMs;
+  let okStreak = 0;
+  let okCount = 0;
+  const total = reweaveList.length;
+
+  function onRateLimit(resetAt: string | null): void {
+    // Only escalate once per pause window — concurrent workers all hitting the wall shouldn't stack it.
+    if (Date.now() < pausedUntil) return;
+    backoffMs = Math.min(backoffMs * 2, maxWaitMs);
+    let wait = backoffMs;
+    if (resetAt) {
+      const until = Date.parse(resetAt);
+      if (Number.isFinite(until)) wait = Math.min(Math.max(until - Date.now() + 5_000, baseWaitMs), maxWaitMs);
+    }
+    pausedUntil = Date.now() + wait;
+    maxActive = Math.max(minConcurrency, maxActive - 1);
+    okStreak = 0;
+    log(`RATE LIMIT — pausing ${Math.round(wait / 1000)}s, concurrency → ${maxActive}${resetAt ? ` (reset ${resetAt})` : ""}`);
+  }
+
+  async function runReweave(file: string): Promise<{ code: number; stderr: string }> {
+    try {
+      await execFileAsync(
+        tsxBin,
+        [...tsxPrefix, "scripts/library-reweave.ts", "--write", "--vault", vaultPath, "--path", file, "--kb-index-file", kbFile],
+        {
+          env: { ...process.env, LIBRARY_REWEAVE_RETHROW_RATELIMIT: "1", LIBRARY_REWEAVE_TIMEOUT_MS: String(reweaveTimeoutMs) },
+          maxBuffer: 1024 * 1024 * 16,
+          timeout: reweaveTimeoutMs + 30_000,
+        },
+      );
+      return { code: 0, stderr: "" };
+    } catch (error) {
+      const e = error as { code?: number; stderr?: string };
+      return { code: typeof e.code === "number" ? e.code : 1, stderr: e.stderr || "" };
+    }
+  }
+
+  async function processOne(file: string): Promise<void> {
+    const { code, stderr } = await runReweave(file);
+    if (code === 75) {
+      const resetAt = (stderr.match(/RESET_AT=(\S+)/) || [])[1] || null;
+      onRateLimit(resetAt);
+      queue.push(file); // requeue — not a failure
+      return;
+    }
+    if (refVersion(file) === TARGET_VERSION) {
+      okCount++; okStreak++;
+      touchedIds.push(hashId(relOf(file)));
+      if (okCount % 5 === 0 || okCount === total) {
+        log(`progress: ${okCount}/${total} reweaved · ${failed.length} failed · conc ${maxActive}`);
+      }
+      if (okStreak >= RAMP_UP_STREAK && maxActive < startConcurrency) {
+        maxActive += 1; backoffMs = baseWaitMs; okStreak = 0;
+        log(`clean streak — concurrency → ${maxActive}`);
+      }
+    } else {
+      const r = (retries.get(file) || 0) + 1;
+      retries.set(file, r);
+      if (r <= 2) { queue.push(file); }
+      else { failed.push(file); log(`FAILED (gave up after ${r}): ${relOf(file)}`); }
+    }
+  }
+
+  await new Promise<void>((resolve) => {
+    const tick = async (): Promise<void> => {
+      const now = Date.now();
+      while (active < maxActive && now >= pausedUntil && queue.length) {
+        const file = queue.shift()!;
+        active++;
+        void processOne(file).finally(() => { active--; });
+      }
+      if (!queue.length && active === 0) { resolve(); return; }
+      setTimeout(() => void tick(), 250);
+    };
+    void tick();
+  });
+
+  fs.rmSync(kbFile, { force: true });
+  log(`reweave complete: ${okCount}/${total} succeeded · ${failed.length} failed`);
+  if (failed.length) failed.forEach((f) => console.error("   FAILED: " + relOf(f)));
+  finalize(touchedIds);
+}
+
+function finalize(touchedIds: string[]): void {
+  const unique = Array.from(new Set(touchedIds));
+  if (unique.length) {
+    const { marked } = markLibraryArtifactsRead(vaultPath, unique);
+    log(`marked ${marked} backfilled items read (so the rewrite doesn't flood the New lane).`);
+  }
+  log("done.");
+}
+
+main().catch((error) => { console.error(error); process.exit(1); });

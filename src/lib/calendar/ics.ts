@@ -20,11 +20,26 @@ export function parseIcsFeed(source: CalendarSourceConfig, icsText: string, wind
   const calendar = new ICAL.Component(parsed);
   const calendarName = stringValue(calendar.getFirstPropertyValue("x-wr-calname")) || stringValue(calendar.getFirstPropertyValue("name")) || source.label;
   const components = calendar.getAllSubcomponents("vevent");
-  const baseEvents = components.map((component) => new ICAL.Event(component)).filter((event) => !event.isRecurrenceException());
+  const parsedEvents = components.map((component) => new ICAL.Event(component));
+  const baseEvents = parsedEvents.filter((event) => !event.isRecurrenceException());
+  const exceptionEvents = parsedEvents.filter((event) => event.isRecurrenceException());
   const events: CalendarEventInput[] = [];
 
   for (const event of baseEvents) {
     events.push(...expandEvent(source, event, window));
+  }
+  const emittedExceptions = new Set(events
+    .filter((event) => event.uid && event.recurrenceId)
+    .map((event) => exceptionKey(event.uid, event.recurrenceId)));
+
+  for (const event of exceptionEvents) {
+    const recurrenceId = recurrenceIdString(event);
+    if (!recurrenceId || emittedExceptions.has(exceptionKey(event.uid, recurrenceId))) continue;
+    const input = eventToInput(source, event, recurrenceId, event.startDate, event.endDate);
+    if (eventAllowedForSource(source, input) && eventIntersectsWindow(input, window)) {
+      events.push(input);
+      emittedExceptions.add(exceptionKey(input.uid, recurrenceId));
+    }
   }
 
   return {
@@ -121,7 +136,7 @@ function eventToInput(
     attendees,
     organizer,
     recurrence: {
-      recurring: event.isRecurring(),
+      recurring: event.isRecurring() || Boolean(recurrenceId),
       recurrenceId,
       rules,
     },
@@ -138,6 +153,19 @@ function eventToInput(
       organizer: organizer?.email || organizer?.name || null,
     },
   };
+}
+
+function recurrenceIdString(event: ICAL.Event): string | null {
+  const value = event.component.getFirstPropertyValue("recurrence-id");
+  if (!value) return null;
+  if (typeof value === "object" && "toICALString" in value && typeof value.toICALString === "function") {
+    return value.toICALString();
+  }
+  return stringValue(value);
+}
+
+function exceptionKey(uid: string | null, recurrenceId: string | null): string {
+  return `${(uid || "").toLowerCase()}:${recurrenceId || ""}`;
 }
 
 function eventTitle(event: ICAL.Event): string {

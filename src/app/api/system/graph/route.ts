@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   graphDefaultHops,
   graphMaxNodesMobile,
+  graphSemanticOverlayEnabled,
   isGraphEnabled,
   isGraphTagsEnabled,
   LAYOUT_VERSION,
@@ -49,6 +50,20 @@ export async function GET(request: NextRequest) {
   const hops = clampInt(search.get("hops"), graphDefaultHops(), 1, 3);
   const vaultRoot = resolveVaultRoot();
 
+  // Semantic overlay gating (Graph §3/§6):
+  //  - flag OFF ⇒ topic/entity nodes + ALL five semantic edge kinds are excluded
+  //    everywhere (defends a stale `semantic_built=1` from leaking, like `type != 'tag'`).
+  //  - flag ON, GLOBAL ⇒ `similar`/`co_occurrence` are off unless `&semanticEdges=1`
+  //    (sparse hubs stay, the dense fuzzy web is opt-in to keep the per-request layout cheap).
+  //  - flag ON, LOCAL ⇒ everything included (the ring/fan-out caps already bound them).
+  const overlayOn = graphSemanticOverlayEnabled();
+  const wantSemanticEdges = search.get("semanticEdges") === "1";
+  const globalExcludeKinds: string[] = !overlayOn
+    ? ["item_topic", "topic_parent", "item_entity", "co_occurrence", "similar"]
+    : wantSemanticEdges
+      ? []
+      : ["similar", "co_occurrence"];
+
   let selection: GraphSelection;
   let isLocal = false;
   // Custom positions for the global contracted graph (laid out fresh, not from the DB).
@@ -68,11 +83,16 @@ export async function GET(request: NextRequest) {
     selection = anchorId
       ? selectLocalGraph({ nodeId: anchorId, hops, limit, includeTags })
       : { nodes: [], edges: [], truncated: false };
+    // With the overlay flag off, strip any stale semantic rows from the local set too
+    // (defensive — the producer should have removed them, but a stale db can't leak).
+    if (!overlayOn) selection = stripSemanticRows(selection);
   } else {
     // Global: contract meetings → a small graph of people / projects / references /
     // (non-meeting) notes, laid out fresh. minDegree drops the low-degree fringe.
     const minDegree = clampInt(search.get("minDegree"), includeIsolated ? 0 : 1, 0, 50);
-    const contracted = contractMeetings(getAllNodes(undefined, includeTags), getAllEdges(undefined, includeTags), vaultRoot);
+    let nodes = getAllNodes(undefined, includeTags);
+    if (!overlayOn) nodes = nodes.filter((n) => n.type !== "topic" && n.type !== "entity");
+    const contracted = contractMeetings(nodes, getAllEdges(undefined, includeTags, globalExcludeKinds), vaultRoot);
     const deg = degreeMap(contracted.nodes, contracted.edges);
     const keptNodes = minDegree > 0
       ? contracted.nodes.filter((n) => (deg.get(n.id) ?? 0) >= minDegree)
@@ -115,6 +135,17 @@ export async function GET(request: NextRequest) {
       truncated: selection.truncated,
     }),
   });
+}
+
+/** Drop semantic overlay nodes/edges from a selection (the flag-off defensive filter). */
+const SEMANTIC_EDGE_KINDS = new Set(["item_topic", "topic_parent", "item_entity", "co_occurrence", "similar"]);
+function stripSemanticRows(selection: GraphSelection): GraphSelection {
+  const nodes = selection.nodes.filter((n) => n.type !== "topic" && n.type !== "entity");
+  const keptIds = new Set(nodes.map((n) => n.id));
+  const edges = selection.edges.filter(
+    (e) => !SEMANTIC_EDGE_KINDS.has(e.kind) && keptIds.has(e.source) && keptIds.has(e.target),
+  );
+  return { ...selection, nodes, edges };
 }
 
 function clampInt(raw: string | null, fallback: number, min: number, max: number): number {

@@ -22,7 +22,7 @@ import { parseOpenGraphHtml } from "./media-enrichment";
 import { markLibraryArtifactsRead } from "./read-state";
 import { PIPELINE_VERSION } from "./pipeline";
 import { getRecommendations } from "./recommendations";
-import { buildDurableReferenceMarkdown, listSavedReferences, parseReferenceFile } from "./references";
+import { buildDurableReferenceMarkdown, findArchivedReferenceByUrl, listArchivedReferences, listSavedReferences, parseReferenceFile } from "./references";
 import { addToReviewQueue, getActiveBatchNotes, readReviewQueue, setReviewStatus } from "./review-queue";
 import { parseReweaveOutput } from "./reweave-prompt";
 import { runIngestion } from "./runner";
@@ -416,6 +416,66 @@ test("URL-only X bookmark digestion does not promote the URL to summary text", a
     assert.match(processed.extraction_notes.join("\n"), /metadata-limited/);
     assert.doesNotMatch(buildDurableReferenceMarkdown(processed), /https:\/\/t\.co\/only/);
   } finally {
+    if (originalDisabled === undefined) delete process.env.LIBRARY_SUMMARIZE_DISABLED;
+    else process.env.LIBRARY_SUMMARIZE_DISABLED = originalDisabled;
+  }
+});
+
+test("X bookmark digestion enriches truncated bookmark text with full note_tweet text", async () => {
+  const originalDisabled = process.env.LIBRARY_SUMMARIZE_DISABLED;
+  process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-xurl-note-"));
+  const xurlBin = path.join(dir, "xurl");
+  fs.writeFileSync(xurlBin, `#!/usr/bin/env node
+console.log(JSON.stringify({
+  data: {
+    id: "2061796432534003866",
+    text: "In the last 6 months at @Ahrefs, we analyzed over 1 billion data points across 14 studies. Here's what we learned about AI search optimization:\\n\\n1) Best X listicles make up 43.8% of all page types",
+    note_tweet: {
+      text: "In the last 6 months at @Ahrefs, we analyzed over 1 billion data points across 14 studies. Here's what we learned about AI search optimization:\\n\\n1) Best X blog listicles make up 43.8% of all page types cited by ChatGPT specifically.\\n\\n2) 67% of ChatGPT's top 1,000 citations come from sources marketers can't influence.\\n\\n3) 28.3% of ChatGPT's most-cited pages have zero Google organic visibility.\\n\\n4) ChatGPT only cites about 50% of the URLs it retrieves."
+    },
+    conversation_id: "2061796432534003866",
+    created_at: "2026-06-02T13:05:50.000Z",
+    author_id: "85286925"
+  },
+  includes: { users: [{ id: "85286925", username: "timsoulo", name: "Tim Soulo" }] }
+}));
+`, "utf-8");
+  fs.chmodSync(xurlBin, 0o755);
+  const source: LibrarySourceConfig = {
+    id: "twitter-bookmarks",
+    name: "X bookmarks",
+    channel: "twitter",
+    url: "x://bookmarks",
+    enabled: true,
+    cadence: "hourly",
+    intent: "explicit_save",
+    signal: "twitter_bookmark",
+    retention: { mode: "durable", candidate_ttl_days: 30, auto_promote_threshold: 0.85 },
+    backfill: { enabled: true, mode: "checkpointed" },
+    tags: [],
+    filters: { include_topics: [], exclude_topics: [] },
+    metadata: { xurl_path: xurlBin },
+    path: "",
+  };
+
+  try {
+    const processed = await digestArtifact({
+      url: "https://x.com/timsoulo/status/2061796432534003866",
+      title: "In the last 6 months at @Ahrefs, we analyzed over 1 billion data points across 14 studies. Here's what we learned about ",
+      author: "Tim Soulo",
+      date: "2026-06-02T13:05:50.000Z",
+      content: "In the last 6 months at @Ahrefs, we analyzed over 1 billion data points across 14 studies. Here's what we learned about AI search optimization:\n\n1) Best X listicles make up 43.8% of all page types",
+      metadata: { tweet_id: "2061796432534003866" },
+    }, source, { useSummarize: true });
+
+    assert.equal(processed.raw.title, "In the last 6 months at @Ahrefs, we analyzed over 1 billion data points across 14 studies. Here's what we learned about AI search optimization");
+    assert.match(processed.source_cache?.content || "", /67% of ChatGPT's top 1,000 citations/);
+    assert.match(processed.source_cache?.content || "", /28\.3% of ChatGPT's most-cited pages/);
+    assert.equal(processed.digestion?.status, "hot");
+    assert.match(processed.extraction_notes.join("\n"), /Fetched full X post text/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
     if (originalDisabled === undefined) delete process.env.LIBRARY_SUMMARIZE_DISABLED;
     else process.env.LIBRARY_SUMMARIZE_DISABLED = originalDisabled;
   }
@@ -1458,6 +1518,17 @@ fixtures:
   assert.match(result.archived_to, /references\/\.archive\/2026-05-28-archive-me\.md/);
   assert.equal(listSavedReferences(vault).some((item) => item.id === artifact.id), false);
   assert.equal(fs.existsSync(path.join(vault, result.archived_to)), true);
+  const archived = parseReferenceFile(vault, path.join(vault, result.archived_to));
+  assert.equal(archived?.raw_frontmatter.archived, true);
+  assert.equal(archived?.raw_frontmatter.archived_from, artifact.path);
+  assert.equal(listArchivedReferences(vault).length, 1);
+  assert.equal(findArchivedReferenceByUrl(vault, "https://example.com/archive-me")?.path, result.archived_to);
+
+  const rerun = await runIngestion(vault, { useSummarize: false, ignoreState: true });
+  assert.equal(rerun.saved, 0);
+  assert.equal(rerun.duplicates, 1);
+  assert.equal(rerun.sources[0].artifacts[0].reason, "archived_reference_exists");
+  assert.equal(listSavedReferences(vault).length, 0);
 });
 
 test("cursor ingestion bypasses timestamp state for historical backfill", async () => {

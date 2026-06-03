@@ -7,7 +7,7 @@ import { useScope } from "@/contexts/ScopeContext";
 import type { LibraryArtifact, RecommendedArtifact } from "@/lib/library/types";
 import { artifactDisplayTags } from "@/lib/library/taxonomy";
 import { buildLibraryUrl, libraryConcreteSource, libraryItemIdFromScope, libraryItemScope, librarySourceChannel, parseLibraryControls, type LibraryDensity, type LibraryModeControl, type LibraryRanking, type LibraryStatusFilter, type LibraryUrlControls } from "@/lib/library/url";
-import { ingestLibrarySources, markLibraryArtifactsRead, markLibraryArtifactsUnread, restoreCandidate, setReviewStatus, skipCandidate, useInfiniteLibrary, useRecommendations, useReviewQueue } from "@/hooks/useLibrary";
+import { archiveArtifact, ingestLibrarySources, markLibraryArtifactsRead, markLibraryArtifactsUnread, restoreCandidate, setReviewStatus, skipCandidate, useInfiniteLibrary, useRecommendations, useReviewQueue } from "@/hooks/useLibrary";
 import type { ReviewQueueStatus } from "@/lib/library/review-queue";
 import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import { SecondarySegmentedButton, SecondarySegmentedControl, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
@@ -120,10 +120,9 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   const [toast, setToast] = useState<LibraryToast | null>(null);
   const [isCheckingSources, setIsCheckingSources] = useState(false);
   const feedScrollRef = useRef<HTMLDivElement>(null);
-  const feedItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const seenFeedIdsRef = useRef<Set<string>>(new Set());
   const pendingReadIdsRef = useRef<Set<string>>(new Set());
   const readFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const readEligibleIdsRef = useRef<Set<string>>(new Set());
   const resizeRef = useRef<{ startX: number; startWidth: number; moved: boolean } | null>(null);
   const selectedChannel = librarySourceChannel(selectedSource);
   const selectedSourceId = libraryConcreteSource(selectedSource);
@@ -245,6 +244,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   const markUnread = useCallback(async (id: string) => {
     // Drop any pending/local read mark so the item is unread locally, then persist to the server.
     pendingReadIdsRef.current.delete(id);
+    readEligibleIdsRef.current.delete(id);
     setLocalReadIds((previous) => {
       if (!previous.has(id)) return previous;
       const next = new Set(previous);
@@ -322,6 +322,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   useEffect(() => {
     const itemId = libraryItemIdFromScope(scopePath);
     if (itemId) {
+      readEligibleIdsRef.current.add(itemId);
       setSelectedId(itemId);
       setMobileDetailOpen(true);
       return;
@@ -383,7 +384,10 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   const previousSelectedIdRef = useRef<string | null>(null);
   useEffect(() => {
     const previous = previousSelectedIdRef.current;
-    if (previous && previous !== selectedId) markRead([previous]);
+    if (previous && previous !== selectedId && readEligibleIdsRef.current.has(previous)) {
+      readEligibleIdsRef.current.delete(previous);
+      markRead([previous]);
+    }
     previousSelectedIdRef.current = selectedId;
   }, [selectedId, markRead]);
 
@@ -527,6 +531,47 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
     refreshReadAwareData();
   }, [libraryControls, navigateLibrary, refreshReadAwareData, selectedId]);
 
+  const archiveReference = useCallback(async (artifact: LibraryArtifact | RecommendedArtifact) => {
+    setLocalHiddenIds((previous) => {
+      const next = new Set(previous);
+      next.add(artifact.id);
+      return next;
+    });
+    const wasSelected = selectedId === artifact.id;
+    if (wasSelected) {
+      setSelectedId(null);
+      setMobileDetailOpen(false);
+      navigateLibrary("", libraryControls);
+    }
+    try {
+      await archiveArtifact(artifact.id);
+    } catch (error) {
+      setLocalHiddenIds((previous) => {
+        const next = new Set(previous);
+        next.delete(artifact.id);
+        return next;
+      });
+      if (wasSelected) {
+        setSelectedId(artifact.id);
+        setMobileDetailOpen(true);
+        navigateLibrary(libraryItemScope(artifact.id), libraryControls);
+      }
+      setToast({
+        id: `archive-error:${artifact.id}:${Date.now()}`,
+        title: error instanceof Error ? error.message : "Archive failed",
+        message: "Archive failed",
+      });
+      console.warn("[library] failed to archive reference", error);
+      return;
+    }
+    setToast({
+      id: `archive:${artifact.id}:${Date.now()}`,
+      title: artifact.title,
+      message: "Reference archived",
+    });
+    refreshReadAwareData();
+  }, [libraryControls, navigateLibrary, refreshReadAwareData, selectedId]);
+
   const openArtifact = useCallback((artifact: LibraryArtifact | RecommendedArtifact) => {
     // Do NOT mark read on open — an opened item stays in the unread view while you read it. It's
     // marked read only when you move off it (see the deselect effect below), so it doesn't vanish.
@@ -536,6 +581,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
       navigateLibrary("", libraryControls);
       return;
     }
+    readEligibleIdsRef.current.add(artifact.id);
     setSelectedId(artifact.id);
     setMobileDetailOpen(true);
     navigateLibrary(libraryItemScope(artifact.id), libraryControls);
@@ -596,45 +642,13 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
     if (typeof window !== "undefined" && window.innerWidth < 1024) setSourcesOpen(false);
   };
 
-  const registerFeedItem = useCallback((id: string) => (node: HTMLDivElement | null) => {
-    if (node) feedItemRefs.current.set(id, node);
-    else feedItemRefs.current.delete(id);
-  }, []);
-
-  const updateFeedReadProgress = useCallback(() => {
-    if (density !== "feed") return;
-    const node = feedScrollRef.current;
-    if (!node) return;
-    const containerRect = node.getBoundingClientRect();
-    const scrolledPastUnreadIds: string[] = [];
-    for (const artifact of items) {
-      if (!artifact.is_unread) continue;
-      const element = feedItemRefs.current.get(artifact.id);
-      if (!element) continue;
-      const rect = element.getBoundingClientRect();
-      const isVisible = rect.bottom > containerRect.top + 24 && rect.top < containerRect.bottom - 24;
-      if (isVisible) seenFeedIdsRef.current.add(artifact.id);
-      if (seenFeedIdsRef.current.has(artifact.id) && rect.bottom < containerRect.top + 2) {
-        scrolledPastUnreadIds.push(artifact.id);
-      }
-    }
-    if (scrolledPastUnreadIds.length) markRead(scrolledPastUnreadIds);
-  }, [density, items, markRead]);
-
   const handleFeedScroll = useCallback(() => {
     const node = feedScrollRef.current;
     if (!node) return;
     if (usesRecentPaging && recent.hasMore && !recent.isLoadingMore && node.scrollHeight - node.scrollTop - node.clientHeight < 900) {
       recent.loadMore();
     }
-    updateFeedReadProgress();
-  }, [recent, updateFeedReadProgress, usesRecentPaging]);
-
-  useEffect(() => {
-    if (density !== "feed") return;
-    const frame = requestAnimationFrame(updateFeedReadProgress);
-    return () => cancelAnimationFrame(frame);
-  }, [density, items, updateFeedReadProgress]);
+  }, [recent, usesRecentPaging]);
 
   const startResize = useCallback((kind: "source" | "content", width: number) => (event: React.MouseEvent) => {
     event.preventDefault();
@@ -788,20 +802,20 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
                     </div>
                   )}
                   {items.map((artifact) => (
-                    <div key={artifact.id} ref={registerFeedItem(artifact.id)}>
-                      <FeedCard
-                        artifact={artifact}
-                        why={"why" in artifact && typeof artifact.why === "string" ? artifact.why : undefined}
-                        priority={"priority" in artifact && (artifact.priority === "must_read" || artifact.priority === "recommended" || artifact.priority === "interesting") ? artifact.priority : undefined}
-                        promoteReason={ranking === "for-you" ? "for_you_selected" : "manual_save"}
-                        onChanged={refresh}
-                        onOpen={openArtifact}
-                        onMarkUnread={markUnread}
-                        onDismissCandidate={dismissCandidate}
-                        onReviewStatus={ranking === "updated" ? handleReviewStatus : undefined}
-                        active={artifact.id === selectedId}
-                      />
-                    </div>
+                    <FeedCard
+                      key={artifact.id}
+                      artifact={artifact}
+                      why={"why" in artifact && typeof artifact.why === "string" ? artifact.why : undefined}
+                      priority={"priority" in artifact && (artifact.priority === "must_read" || artifact.priority === "recommended" || artifact.priority === "interesting") ? artifact.priority : undefined}
+                      promoteReason={ranking === "for-you" ? "for_you_selected" : "manual_save"}
+                      onChanged={refresh}
+                      onOpen={openArtifact}
+                      onMarkUnread={markUnread}
+                      onDismissCandidate={dismissCandidate}
+                      onArchiveReference={archiveReference}
+                      onReviewStatus={ranking === "updated" ? handleReviewStatus : undefined}
+                      active={artifact.id === selectedId}
+                    />
                   ))}
                   {usesRecentPaging && items.length > 0 && (
                     <div className="py-2 text-center text-xs text-[var(--text-tertiary)]">
@@ -864,6 +878,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
                 onChanged={refresh}
                 onMarkUnread={markUnread}
                 onCandidateDismissed={dismissCandidate}
+                onArchiveReference={archiveReference}
                 onReviewStatus={ranking === "updated" ? handleReviewStatus : undefined}
               />
             </div>

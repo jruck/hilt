@@ -39,6 +39,64 @@ export function semanticDim(): number {
   return boundedInt(process.env.SEMANTIC_DIM, 1536, 64, 3072);
 }
 
+/** Cosine floor for embedding-ANN to PROPOSE a merge pair to the judge (spec §B.4). */
+export function semanticBlockSim(): number {
+  return boundedFloat(process.env.SEMANTIC_BLOCK_SIM, 0.82, 0, 1);
+}
+
+/** Cosine ceiling above which near-identical names auto-merge without an LLM call. */
+export function semanticAutoMergeSim(): number {
+  return boundedFloat(process.env.SEMANTIC_AUTO_MERGE_SIM, 0.95, 0, 1);
+}
+
+/** Cosine floor to BIND a person/project entity to an existing graph node (spec §B.6). */
+export function semanticBindSim(): number {
+  return boundedFloat(process.env.SEMANTIC_BIND_SIM, 0.88, 0, 1);
+}
+
+// --- Topic layer (P2.2, spec §C) ---------------------------------------------
+
+/**
+ * Cosine floor for incremental nearest-topic assignment (§C.4): a new item joins a
+ * leaf topic only when its similarity to the centroid clears this; below ⇒ outlier.
+ */
+export function semanticAssignCos(): number {
+  return boundedFloat(process.env.SEMANTIC_ASSIGN_COS, 0.55, 0, 1);
+}
+
+/** Cosine pre-gate above which two sibling topics are PROPOSED to the merge judge (§C.2). */
+export function semanticMergeCos(): number {
+  return boundedFloat(process.env.SEMANTIC_MERGE_COS, 0.85, 0, 1);
+}
+
+/**
+ * Centroid-cosine floor for warm-start lineage matching (§C.5): a new cluster whose
+ * centroid matches a prior topic this closely INHERITS that topic's id (stable identity).
+ */
+export function semanticLineageCos(): number {
+  return boundedFloat(process.env.SEMANTIC_LINEAGE_COS, 0.7, 0, 1);
+}
+
+/** Deterministic clustering seed handed to the sidecar (UMAP `random_state`). */
+export function semanticClusterSeed(): number {
+  return boundedInt(process.env.SEMANTIC_CLUSTER_SEED, 42, 0, 2_147_483_647);
+}
+
+/** Minimum new/outlier items since the last re-fit before the signal-gated refit runs (§C.5). */
+export function semanticRefitMinNew(): number {
+  return boundedInt(process.env.SEMANTIC_REFIT_MIN_NEW, 10, 0, 1_000_000);
+}
+
+/** Sidecar wall-clock timeout in ms (mirrors LIBRARY_REWEAVE_TIMEOUT_MS). */
+export function semanticRefitTimeoutMs(): number {
+  return boundedInt(process.env.SEMANTIC_REFIT_TIMEOUT_MS, 120_000, 1_000, 1_800_000);
+}
+
+/** Offline kill switch for the topic LABELER (mirrors LIBRARY_CONNECTIONS_DISABLED=1). */
+export function isSemanticLabelDisabled(): boolean {
+  return truthy(process.env.SEMANTIC_LABEL_DISABLED);
+}
+
 function truthy(v: string | undefined): boolean {
   return v === "1" || v === "true";
 }
@@ -49,4 +107,12 @@ export function boundedInt(raw: string | undefined, fallback: number, min: numbe
   const n = Number(raw);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
+/** Clamp an env float to [min,max] with a fallback. */
+export function boundedFloat(raw: string | undefined, fallback: number, min: number, max: number): number {
+  if (raw == null || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
 }

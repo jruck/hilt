@@ -80,6 +80,65 @@ export function isGraphTagsEnabled(): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Semantic overlay (Phase 2 — System → Graph integration). Mirrors the tag-layer
+// flag gate: with HILT_GRAPH_SEMANTIC off (the default) `buildSemanticOverlay()` is
+// never called, the overlay rows are never selected, and the legend never offers the
+// new kinds. Bounded thresholds mirror the calendar boundedInt/boundedFloat precedent.
+// ---------------------------------------------------------------------------
+
+/**
+ * Gate the semantic overlay (topic/entity nodes + semantic edges). OFF by default —
+ * additive and fully reversible via `removeSemanticOverlay()` (identical lifecycle to
+ * `isGraphTagsEnabled()` / `buildTagLayer()`). Reading the overlay also requires the
+ * semantic layer itself to be built (a flag-on graph with no `semantic.sqlite` is inert).
+ */
+export function graphSemanticOverlayEnabled(): boolean {
+  return process.env.HILT_GRAPH_SEMANTIC === "true";
+}
+
+/** Membership-score floor for an `item_topic` edge (Graph §3). Plan default 0.5. */
+export function semanticGraphTopicMinScore(): number {
+  return boundedFloat(process.env.SEMANTIC_GRAPH_TOPIC_MIN_SCORE, 0.5, 0, 1);
+}
+
+/** Cap each item to its top-K topics so a note isn't smeared across the taxonomy. Default 3. */
+export function semanticGraphTopicTopK(): number {
+  return boundedInt(process.env.SEMANTIC_GRAPH_TOPIC_TOP_K, 3, 1, 50);
+}
+
+/** Salience floor for an `item_entity` edge (Graph §3). Default 0.3. */
+export function semanticGraphEntityMinSalience(): number {
+  return boundedFloat(process.env.SEMANTIC_GRAPH_ENTITY_MIN_SALIENCE, 0.3, 0, 1);
+}
+
+/** Cap each item to its top-K entities by salience. Default 5. */
+export function semanticGraphEntityTopK(): number {
+  return boundedInt(process.env.SEMANTIC_GRAPH_ENTITY_TOP_K, 5, 1, 50);
+}
+
+/** Minimum shared-item count for an entity↔entity `co_occurrence` edge. Default 2. */
+export function semanticGraphCooccurMinItems(): number {
+  return boundedInt(process.env.SEMANTIC_GRAPH_COOCCUR_MIN_ITEMS, 2, 1, 1000);
+}
+
+/** Cosine floor for an item↔item `similar` edge (Graph §3). Plan default 0.78. */
+export function semanticGraphSimilarityMin(): number {
+  return boundedFloat(process.env.SEMANTIC_GRAPH_SIMILARITY_MIN, 0.78, 0, 1);
+}
+
+/** Top-M nearest neighbors per item for `similar` edges. Plan default 5. */
+export function semanticGraphSimilarTopM(): number {
+  return boundedInt(process.env.SEMANTIC_GRAPH_SIMILAR_TOP_M, 5, 1, 50);
+}
+
+function boundedFloat(value: string | undefined, fallback: number, min: number, max: number): number {
+  if (value == null || value === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+// ---------------------------------------------------------------------------
 // Layout tuning (HILT_GRAPH_LAYOUT_*). Bounded ints mirror the calendar
 // boundedInt precedent: non-numeric/empty falls back; in-range clamps.
 // ---------------------------------------------------------------------------

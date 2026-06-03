@@ -53,10 +53,9 @@ Old versions are **never** kept as parallel runnable files. When the logic chang
 in place and the previous behavior is recovered from git. Mapping each version to a git ref (below) is
 how you "run" an old version: check out the ref.
 
-**Current = `v2` — the PUBLISHED baseline.** `v2` is the `v1.4` protocol verbatim (concision & density),
-promoted to an integer because it is being rolled out across the whole library via a full backfill
-(`scripts/library-backfill.ts`). The `v1.1 → v1.4` decimals were the review iterations that led here;
-every durable reference not yet stamped `v2` is a backfill target.
+**Current = `v2.1` — a TEST iteration over the published `v2` baseline.** `v2` remains the published
+baseline; `v2.1` fixes X long-post extraction and numbered-list preservation for newly ingested or
+explicitly repaired items. It is not a full-library backfill target unless later promoted.
 
 ## Version history
 
@@ -67,7 +66,8 @@ every durable reference not yet stamped `v2` is a backfill target.
 | v1.2 | test | Unified **reweave**: one Claude pass → free-form digest + disciplined connections | uncommitted working tree (this session) |
 | v1.3 | test | Intent-aware reweave: ideas-first voice, treatment modes, X long-form/thread/embed, self-reference filter, omit-empty-connections | uncommitted working tree (this session) |
 | v1.4 | test | Concision & density: executive-brief discipline (bullets/tables over prose walls), newsletter synthesis, connections lean first-party + deduped | uncommitted working tree (this session) |
-| **v2 (current)** | **published baseline** | The `v1.4` protocol verbatim, promoted on full-library backfill. Every durable reference is being reanalyzed to v2 (`scripts/library-backfill.ts`); v1.4 items re-stamped without reweave | uncommitted working tree (this session) |
+| v2 | **published baseline** | The `v1.4` protocol verbatim, promoted on full-library backfill. Every durable reference is being reanalyzed to v2 (`scripts/library-backfill.ts`); v1.4 items re-stamped without reweave | uncommitted working tree (this session) |
+| **v2.1 (current)** | test | X long-post repair: verify bookmarked X posts through xurl, prefer `note_tweet`, preserve numbered findings as takeaways, and keep redigest output on normal free-form body conventions | uncommitted working tree (this session) |
 
 > **Re-base note (2026-06-01):** earlier this work was numbered v1–v5 as if each step shipped. It
 > didn't — only the *digest era* (now folded into **v1**) was ever applied across the whole library.
@@ -176,7 +176,7 @@ every durable reference not yet stamped `v2` is a backfill target.
   fall back to the page's OpenGraph `og:image`.
 - **Git ref:** uncommitted working tree (this session). `PIPELINE_VERSION = "v1.4"` in `pipeline.ts`.
 
-### v2 — Published baseline (current)
+### v2 — Published baseline
 
 - **Summary:** The `v1.4` protocol **verbatim** (no prompt change), promoted from a decimal test
   iteration to the integer **published baseline** because it is being applied across the whole library.
@@ -191,6 +191,26 @@ every durable reference not yet stamped `v2` is a backfill target.
   backoff and drops concurrency, then climbs back after a clean streak. Read-state baseline is advanced
   at the end so the mass rewrite does not flood the New lane.
 - **Git ref:** uncommitted working tree (this session). `PIPELINE_VERSION = "v2"` in `pipeline.ts`.
+
+---
+
+### v2.1 — X long-post extraction + numbered-list preservation (test)
+
+- **Summary:** A small extraction-and-digest fix over `v2` for X/Twitter bookmarks whose bookmark-list
+  response is only the truncated public `text` field.
+- **What changed:**
+  - `digestArtifact` now verifies the bookmarked X post itself through the configured xurl path and
+    prefers full `note_tweet.text` before summarizing or caching source text.
+  - Thread/list roots that cannot be verified as complete are no longer allowed to become "hot" just
+    because they contain 80+ characters of source metadata.
+  - `DIGEST_PROMPT` now says that if the source is already a numbered/listed set of findings, the
+    concrete claims should be preserved as takeaways rather than collapsing the digest around item 1.
+  - `scripts/library-redigest.ts` now mirrors normal ingestion's body conventions: it keeps
+    `digest_markdown` when the reweave produces it and stamps the active `PIPELINE_VERSION`.
+- **Why:** The Ahrefs AI-search post (`2061796432534003866`) had a 10-item `note_tweet`, but the
+  bookmark window supplied only item 1. The old note summarized that first item confidently and marked
+  the capture hot.
+- **Git ref:** uncommitted working tree (this session). `PIPELINE_VERSION = "v2.1"` in `pipeline.ts`.
 
 ---
 

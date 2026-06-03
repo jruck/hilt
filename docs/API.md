@@ -380,13 +380,14 @@ Binary graph payload (`application/octet-stream`). The canonical wire format is 
 | `limit` | int | device ceiling | Server enforces `HILT_GRAPH_MAX_NODES_MOBILE`/`_DESKTOP` regardless of request. |
 | `includeTags` | `0 \| 1` | `0` | Requires `HILT_GRAPH_TAGS=true`; default payload always filters tags by `type`. |
 | `includeIsolated` | `0 \| 1` | `0` | Degree-0 leaves are hidden by default (global only). |
+| `semanticEdges` | `0 \| 1` | `0` | Requires `HILT_GRAPH_SEMANTIC=true`. In **global** scope, includes the dense fuzzy semantic web (`similar`/`co_occurrence`) which is off by default (sparse `topic`/`entity` hubs + `item_topic`/`topic_parent` are always included when the overlay flag is on). **Local** scope always includes them (ring/fan-out caps bound them). With the overlay flag off, all overlay rows are excluded everywhere. |
 | `fmt` | `bin \| json` | `bin` | `json` returns the decoded selection (nodes/edges/byteLength) for debugging. |
 
 Local selection always keeps all 1-hop neighbors, fills 2-hop by ascending target degree until the cap, and caps per-node hub fan-out (`HILT_GRAPH_HUB_FANOUT_CAP`) so a person super-hub cannot swamp the set; `truncatedRings` reports which ring was clipped.
 
 #### GET /api/system/graph/meta
 
-JSON `GraphMeta`: counts, `builtAt`, `layoutVersion`/`layoutState`, first-run progress (`layoutPhase`/`nodesPlaced`/`totalNodes`), `dirty`/`stale`/`lastError`, reported `tagNodeCount` (never shipped in the default payload), and device `budgets`. The client polls this first to drive its first-run state machine and scope/limit choice.
+JSON `GraphMeta`: counts, `builtAt`, `layoutVersion`/`layoutState`, first-run progress (`layoutPhase`/`nodesPlaced`/`totalNodes`), `dirty`/`stale`/`lastError`, reported `tagNodeCount` (never shipped in the default payload), the semantic-overlay counts `topicNodeCount`/`entityNodeCount` and `semanticBuilt` (gate the legend/filters on these), and device `budgets`. The client polls this first to drive its first-run state machine and scope/limit choice.
 
 #### GET /api/system/graph/node/[id]
 
@@ -394,7 +395,43 @@ JSON single node + its immediate edges (inspector/hover). Includes `refPath` (th
 
 #### POST /api/system/graph/rebuild
 
-Operational, monitor-first: full rebuild + relayout. Body `{ fullLayout?, bumpLayoutVersion? }`; response `{ ok, blocked, nodeCount, edgeCount, layoutVersion, durationMs }`. `409 { blocked: true }` if a layout/rebuild pass is already running (single-flight). Never deletes vault content.
+Operational, monitor-first: full rebuild + relayout. Body `{ fullLayout?, bumpLayoutVersion? }`; response `{ ok, blocked, nodeCount, edgeCount, layoutVersion, durationMs }`. `409 { blocked: true }` if a layout/rebuild pass is already running (single-flight). Never deletes vault content. When `HILT_GRAPH_SEMANTIC=true`, the build tail also repaints the semantic overlay (topic/entity nodes + semantic edges) from `semantic.sqlite`.
+
+---
+
+## Semantic Layer Routes
+
+Thin read wrappers over `src/lib/semantic/query.ts` (the same surface the `semantic` CLI binds to). All four `404` when `HILT_SEMANTIC_ENABLED` is unset — the whole subsystem is inert without the flag. JSON matches the CLI `--json` shape.
+
+#### GET /api/system/semantic/topics
+
+Topic exploration (the locked "first query"). Returns `TopicSummary[]`. `?recent=1` orders by recency/trend; `?parent=<id>` returns a parent topic's children (broad→specific drill-down).
+
+#### GET /api/system/semantic/topic/[id]
+
+A `TopicDetail` — the topic plus its child topics, top member items, and lineage history. `404` for an unknown topic id (mirrors the CLI's "no topic" exit).
+
+#### GET /api/system/semantic/related
+
+`?item=<itemId>&k=N` → items semantically related to an item via embedding KNN (chunk-grain, rolled up to items by max cosine). Returns `RelatedHit[]`. `400` when `item` is missing.
+
+#### GET /api/system/semantic/entity/[name]
+
+Resolve an entity by canonical name or alias → an `EntityResult` (entity + its top items). `404` when no entity matches.
+
+### Semantic CLI + scheduler (P2.4)
+
+The layer's heavy/periodic work runs as CLI entrypoints (the launchd jobs and the runner share the same code path), never on the request path. All gate on `HILT_SEMANTIC_ENABLED` (`--force` overrides for a manual dev run), so a stray installed plist is a no-op when the feature is off.
+
+- `npm run semantic:backfill` — cold-start backfill (default mode): scan → chunk → embed → extract → cluster. Idempotent/resumable. Blesses `active_version` on a true cold-start. `-- --limit N` for a cheap slice.
+- `npm run semantic:backfill:cold` — alias for the `cold-start` mode (the launchd cold-start job).
+- `npm run semantic:backfill -- sample --review-batch <label>` — a coexistence/decimal pass: writes new-version rows **without** blessing the live baseline and registers the sample items + the `docs/semantic-review-notes/<version>.md` note into the **sibling** semantic review queue.
+- `npm run semantic:gc` — drop rows whose `semantic_version != active_version` (run after a bless flip; analog of `library:candidates:cleanup`).
+- `npm run semantic:refit` — the signal-gated BALANCED weekly global re-fit (`--force` to override the drift gate).
+- `npm run semantic:scheduler:plan` — print the `com.hilt.semantic.*` launchd jobs (cold-start / refit / gc) without installing.
+- `npm run semantic:scheduler:install` / `npm run semantic:scheduler:uninstall` — write/load or unload/remove the launchd plists (dry-run by default; reuses the shared `scripts/launchd-scheduler.ts` helper that the Library scheduler also uses).
+
+The incremental path is the **SemanticRunner** (`src/lib/semantic/runner.ts`), not a CLI — it is instantiated by `ws-server.ts` only when `HILT_SEMANTIC_ENABLED=true` and embeds/extracts a changed item (one embed call) then slots it into the nearest existing topic with no re-cluster.
 
 ---
 
@@ -534,6 +571,67 @@ The response includes the weekly file's section order so the Bridge view can ren
   filePath: string;
   availableWeeks: string[];
   latestWeek: string;
+}
+```
+
+### GET /api/bridge/briefings
+
+**File**: `src/app/api/bridge/briefings/route.ts`
+
+List daily briefing summaries, newest first. Reads `briefings/YYYY-MM-DD.md` from the Bridge vault. If today's ET briefing markdown is missing but Hermes reports that the Morning Briefing cron job failed today, the response prepends a synthetic failed briefing row so the Briefing tab shows today's failure instead of falling back to yesterday.
+
+**Response**
+
+```typescript
+Array<{
+  date: string;
+  title: string;
+  summary: string | null;
+  status?: "ready" | "failed";
+  run?: BriefingRunFailure;
+}>
+```
+
+### GET /api/bridge/briefings/[date]
+
+**File**: `src/app/api/bridge/briefings/[date]/route.ts`
+
+Read one daily briefing by ISO date. Returns rendered markdown content for successful briefing files. If the file is missing and Hermes has a same-day failed Morning Briefing run, returns a failed briefing payload instead of 404.
+
+**Response**
+
+```typescript
+{
+  date: string;
+  title: string;
+  summary: string | null;
+  content: string;
+  status?: "ready" | "failed";
+  run?: BriefingRunFailure;
+}
+```
+
+### POST /api/bridge/briefings/retry
+
+**File**: `src/app/api/bridge/briefings/retry/route.ts`
+
+Queue a retry for a failed briefing by invoking the existing Hermes cron job with `hermes cron run --accept-hooks <job-id>`. This does not run a separate Hilt generator; Hermes remains the owner of briefing generation.
+
+**Request Body**
+
+```typescript
+{ date?: string } // defaults to today's ET date
+```
+
+**Response**
+
+```typescript
+{
+  ok: true;
+  status: "queued";
+  date: string;
+  jobId: string;
+  message: string;
 }
 ```
 
@@ -1289,7 +1387,7 @@ Returns `{ marked, ids, read_at }`.
 
 ### POST /api/library/:id/archive
 
-Archives a saved reference by moving its markdown file into a local `.archive/` folder beside the original file. Candidate review items should use Dismiss instead of archive; the file-level status remains `skipped`.
+Archives a saved reference by stamping `archived`, `archived_at`, and `archived_from` frontmatter, then moving its markdown file into a local `.archive/` folder beside the original file. Archived references are hidden from normal Library lists, unread counts, and source counts, but automated ingestion still scans them as durable suppression records so explicit-save sources such as X/Raindrop do not recreate the same URL on the next source check. Candidate review items should use Dismiss instead of archive; the file-level status remains `skipped`.
 
 ### GET /api/library/candidates
 

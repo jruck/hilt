@@ -90,12 +90,14 @@ function normalizeJudgment(parsed: Record<string, unknown>): ConnectionJudgment 
   };
 }
 
-function stripCodeFences(raw: string): string {
+/** Strip a ```json … ``` fence, returning the inner body (or the trimmed input). */
+export function stripCodeFences(raw: string): string {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
   return fenced ? fenced[1].trim() : raw.trim();
 }
 
-function extractFirstJsonObject(text: string): string | null {
+/** Find the first balanced top-level JSON object in `text` (string-aware), or null. */
+export function extractFirstJsonObject(text: string): string | null {
   const start = text.indexOf("{");
   if (start === -1) return null;
   let depth = 0;
@@ -119,7 +121,8 @@ function extractFirstJsonObject(text: string): string | null {
   return null;
 }
 
-function tryParse(text: string): Record<string, unknown> | null {
+/** Parse `text` to a plain JSON object (not an array), or null on any failure. */
+export function tryParse(text: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(text);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)

@@ -499,6 +499,7 @@ Recorded summary.
         notePath: "meetings/Alex Weekly.md",
         transcriptPath: null,
         granolaUrl: null,
+        meetingEndCount: 1,
         calendarMatchMethod: "icaluid",
         calendarMatchConfidence: 1,
       }],

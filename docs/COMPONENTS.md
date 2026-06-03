@@ -199,7 +199,7 @@ Reference Library workspace backed by markdown reference files and hidden candid
 - Feed density stays full-width until an item is selected. Selecting the active Feed card again clears the reader and restores the full-width feed.
 - List density gives the old Browse/inbox scanning behavior, always reserves the reader slot on desktop, auto-selects the first visible row when possible, and shows a placeholder when no item is selected.
 - Unread indicators are deliberately quiet: Feed cards and List rows show a small blue dot, the toolbar shows a `new` count beside the current item/pick count, and the source rail shows per-status/per-source unread badges.
-- Feed marks unread items read only after they have been visible and then scroll above the feed viewport, or when the user opens them. List density marks an item read only on explicit row/card open; auto-selection does not count as reading.
+- Feed/List scrolling never marks unread items read. A Library item becomes read only after it has been opened and the reader moves away from it by selecting another item, closing the reader, or backing out of detail. Auto-selection does not count as reading.
 - Desktop source/content columns use slim persisted resize handles; defaults keep the source rail narrow, the list/feed pane scannable, and the detail reader as the largest pane.
 - `LibraryArtifactDetailPane` is shared across densities so rendered Markdown, media embeds, cache/source tabs, Save/Dismiss, and archive behavior stay consistent.
 - `LibraryArtifactDetailPane` strips legacy manual-capture body chrome before rendering summaries, so old `← References` links and bold source/author/date clusters do not leak into the reader. The underlying repair CLI removes the same cruft from markdown files.

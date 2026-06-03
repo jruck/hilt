@@ -147,6 +147,7 @@ describe("Granola calendar links", () => {
       title: "Roadmap Sync",
       created_at: "2026-05-20T14:00:00.000Z",
       updated_at: "2026-05-20T15:00:00.000Z",
+      meeting_end_count: 1,
       last_viewed_panel: { content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Summary" }] }] } },
       google_calendar_event: { iCalUID: "abc@example.com", start: { dateTime: "2026-05-20T14:00:00.000Z" } },
     });
@@ -164,5 +165,6 @@ describe("Granola calendar links", () => {
     const calendarEvent: CalendarEvent = { ...event, sourceIds: ["personal"], duplicateSourceCount: 1, readOnly: true };
     const linked = attachGranolaMeetingNotes([calendarEvent]);
     assert.equal(linked[0].meetingNotes?.[0]?.granolaId, "doc_3");
+    assert.equal(linked[0].meetingNotes?.[0]?.meetingEndCount, 1);
   });
 });

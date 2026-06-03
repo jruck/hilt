@@ -23,11 +23,15 @@ const nextConfig: NextConfig = {
   // Keep native local-only modules out of the client/server bundle.
   serverExternalPackages: ["better-sqlite3"],
 
-  // Expose the graph feature flag to the client bundle so the System → Graph
+  // Expose the graph feature flags to the client bundle so the System → Graph
   // sub-mode can gate its tab/render via isGraphEnabled() (one predicate,
-  // src/lib/graph/config.ts). Unset => inlined as undefined => flag off.
+  // src/lib/graph/config.ts) and the toolbar can gate the tag/semantic legend rows
+  // via isGraphTagsEnabled()/graphSemanticOverlayEnabled(). Unset => inlined as
+  // undefined => flag off.
   env: {
     HILT_GRAPH_ENABLED: process.env.HILT_GRAPH_ENABLED,
+    HILT_GRAPH_TAGS: process.env.HILT_GRAPH_TAGS,
+    HILT_GRAPH_SEMANTIC: process.env.HILT_GRAPH_SEMANTIC,
   },
 
   allowedDevOrigins: remoteHost ? [remoteHost] : [],

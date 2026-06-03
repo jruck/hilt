@@ -4,7 +4,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Globe, RefreshCw, Tag } from "lucide-react";
 import { SecondaryIconButton } from "@/components/layout/SecondaryToolbar";
-import { isGraphTagsEnabled } from "@/lib/graph/config";
+import { graphSemanticOverlayEnabled, isGraphTagsEnabled } from "@/lib/graph/config";
 import type { GraphEdgeKind, GraphScope } from "@/lib/graph/types";
 import { EDGE_KIND_DESCRIPTION, EDGE_KIND_LABEL } from "./graph-labels";
 
@@ -82,13 +82,29 @@ const LEGEND_ITEMS: Array<{ label: string; className: string }> = [
   { label: "North Star", className: "bg-rose-500" },
 ];
 
+/** Semantic-overlay node swatches — shown only when the overlay flag is on. */
+const SEMANTIC_LEGEND_ITEMS: Array<{ label: string; className: string }> = [
+  { label: "Topic", className: "bg-fuchsia-500" },
+  { label: "Entity", className: "bg-cyan-500" },
+];
+
 /** Edge kinds shown in the legend (tag is opt-in and excluded). */
 const LEGEND_EDGE_KINDS: GraphEdgeKind[] = ["wikilink", "connection", "connected_project", "meeting"];
+
+/** Semantic-overlay edge kinds — shown only when the overlay flag is on. */
+const SEMANTIC_LEGEND_EDGE_KINDS: GraphEdgeKind[] = [
+  "item_topic",
+  "topic_parent",
+  "item_entity",
+  "co_occurrence",
+  "similar",
+];
 
 function GraphLegend() {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const semanticOn = graphSemanticOverlayEnabled();
 
   // The toolbar is `overflow-hidden` (for horizontal scroll), which would clip a
   // normally-positioned dropdown to the 44px bar. Portal to <body> with fixed
@@ -139,10 +155,19 @@ function GraphLegend() {
                   <span className="h-2.5 w-2.5 rounded-full bg-slate-400" />
                   Note
                 </div>
+                {/* Semantic-overlay node swatches — only when HILT_GRAPH_SEMANTIC is on. */}
+                {semanticOn
+                  ? SEMANTIC_LEGEND_ITEMS.map((item) => (
+                      <div key={item.label} className="flex items-center gap-2 px-2 py-1 text-xs text-[var(--text-primary)]">
+                        <span className={`h-2.5 w-2.5 rounded-full ${item.className}`} />
+                        {item.label}
+                      </div>
+                    ))
+                  : null}
                 <div className="mt-1.5 border-t border-[var(--border-default)] px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
                   Connections
                 </div>
-                {LEGEND_EDGE_KINDS.map((kind) => (
+                {(semanticOn ? [...LEGEND_EDGE_KINDS, ...SEMANTIC_LEGEND_EDGE_KINDS] : LEGEND_EDGE_KINDS).map((kind) => (
                   <div key={kind} className="flex items-start gap-2 px-2 py-1 text-xs text-[var(--text-primary)]">
                     <span className="mt-1.5 h-px w-3 shrink-0 bg-[var(--text-tertiary)]" />
                     <span className="min-w-0">

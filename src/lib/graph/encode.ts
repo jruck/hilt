@@ -66,6 +66,8 @@ export const NODE_TYPE_ORDER = [
   "north_star",
   "library_cluster",
   "tag",
+  "topic", // ordinal 8 — semantic overlay (append-only; no TRANSPORT_FORMAT_VERSION bump)
+  "entity", // ordinal 9 — semantic overlay
 ] as const;
 
 const TYPE_TO_ORDINAL = new Map<string, number>(NODE_TYPE_ORDER.map((t, i) => [t, i]));

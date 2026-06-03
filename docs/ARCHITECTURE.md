@@ -560,6 +560,14 @@ CosmosRenderer.ts (the ONLY @cosmos.gl/graph importer) uploads server coords
 
 **Device budgets & deep-links.** `device-budget.ts` maps device-class → `GraphBudget` (Electron → desktop GLOBAL; coarse-pointer small viewport → mobile LOCAL with DPR clamped to 1.0, `allowGlobal: false`, `maxHops: 2`). The scope grammar is **path-segment only** (no query strings — `navigateTo(mode, scope)` builds `/${mode}${scope}`), defined once in `src/components/graph/graph-deeplink.ts` (`buildGraphScope`/`parseGraphScope`). A "Show in graph" affordance in Docs / People / Library detail views deep-links into `/system/graph/focus/<encoded-id>` — the reciprocal of node click-through.
 
+### 12. Semantic Knowledge Layer (Phase 2 — `semantic.sqlite`)
+
+The **third derived cache** (`src/lib/semantic/`, flag-gated `HILT_SEMANTIC_ENABLED`) layers continuous semantic analysis over the same vault scope the graph walks: embeddings (gemini-embedding-001@1536), Flash-extracted typed entities, and an emergent hierarchical topic taxonomy. It surfaces the serendipitous through-lines explicit wikilinks structurally can't (the `semantic` CLI + `/api/system/semantic/*` routes + the graph overlay). It is a **pure derived cache** — `rm semantic.sqlite*` + a cold-start rebuilds it — with `foreign_keys=ON` (ruling R4) for cascade-on-item-delete.
+
+**Versioning is a backfill, not a migration.** `SEMANTIC_VERSION` (the Library `PIPELINE_VERSION` integer/decimal scheme) stamps every derived row; a model/prompt bump writes new-version rows **alongside** the prior baseline (coexistence) until blessed, then `gcStaleVersions()` (the `semantic:gc` job) drops the superseded rows. `active_version` in `semantic_meta` is what queries default to. `SEMANTIC_DB_FORMAT_VERSION` is orthogonal (the `LAYOUT_VERSION` precedent): a lagging on-disk `db_format_version` discards and rebuilds the whole cache file on open — a schema/wire change invalidates independently of a model upgrade. The decimal sample lane is reviewed in the **sibling** semantic review queue (`reviewQueueDir("semantic")`, ruling R10), carrying a `docs/semantic-review-notes/<version>.md` note.
+
+**Three cadences.** (1) The **cold-start backfill** (`scripts/semantic-backfill.ts`, `semantic:backfill:cold`) embeds/extracts/clusters the whole corpus once and blesses the baseline. (2) The **SemanticRunner** (`src/lib/semantic/runner.ts`) is the incremental path — structurally a copy of `GraphRunner`, instantiated by `ws-server` only when `isSemanticEnabled()` (dynamic `import()` so the flag-off path never loads it; `ws-server` boots fully inert with the flag off). It keeps a `source_file → content_hash` map, reuses the same BridgeWatcher/ScopeWatcher signals, and on a change embeds the item (one embed call), extracts + resolves its entities, and slots it into the nearest **existing** leaf topic by cosine — **never re-clustering**. A debounce (`SEMANTIC_INCREMENTAL_DEBOUNCE_MS`, 2s) + single-flight + queued-rerun coalesces an edit burst; a 5-min content-hash reconcile self-heals; the scope guard excludes `libraries/` + dotdirs. (3) The **balanced weekly re-fit** (`semantic:refit`) is the heavy launchd job that re-clusters with a warm start and records `topic_lineage`. The `com.hilt.semantic.*` launchd family (cold-start / refit / gc) installs via `scripts/semantic-scheduler.ts`, which reuses the shared `scripts/launchd-scheduler.ts` plist/launchctl helper that the Library scheduler also calls (R10); the scheduled scripts short-circuit on the flag so a stray plist is a no-op.
+
 ## State Management
 
 | State | Location | Persistence | Purpose |
@@ -573,6 +581,9 @@ CosmosRenderer.ts (the ONLY @cosmos.gl/graph importer) uploads server coords
 | Map index | `${DATA_DIR}/map.sqlite` | SQLite | Local Codex/Claude session metadata, source scan status, overrides |
 | Local Apps settings/previews | `${DATA_DIR}/local-apps/` | Server JSON + PNG cache | Local service monitor settings and optional screenshots |
 | Graph index | `${DATA_DIR}/graph.sqlite` | SQLite (derived cache) | Nodes/edges/positions/meta for System → Graph (flag-gated; markdown stays canonical) |
+| Semantic index | `${DATA_DIR}/semantic.sqlite` | SQLite (derived cache) | Items/chunks/embeddings/entities/topics/lineage for the Phase-2 Semantic Knowledge Layer (flag-gated `HILT_SEMANTIC_ENABLED`; `foreign_keys=ON`; markdown stays canonical) |
+| Semantic review queue | `${DATA_DIR}/semantic-review-queue/<vault>.json` | Server JSON | Sibling of the Library review queue — the semantic sample/decimal lane (ruling R10) |
+| Briefing run status | `~/.hermes/cron/jobs.json` + `~/.hermes/cron/output/` | Read-only Hermes files | Same-day failed Morning Briefing detection when no `briefings/YYYY-MM-DD.md` exists |
 | Scope path | URL + ScopeContext | URL state | Current folder scope |
 
 ## API Routes
@@ -590,6 +601,9 @@ CosmosRenderer.ts (the ONLY @cosmos.gl/graph importer) uploads server coords
 | `/api/bridge/notes` | GET/PUT | Read/write notes section | `content` |
 | `/api/bridge/recycle` | POST | Roll over to new week | - |
 | `/api/bridge/upload` | POST | Upload file to vault | multipart |
+| `/api/bridge/briefings` | GET | List briefing markdown plus same-day Hermes failure row | - |
+| `/api/bridge/briefings/[date]` | GET | Read briefing markdown or failed Hermes run payload | `date` |
+| `/api/bridge/briefings/retry` | POST | Queue existing Hermes Morning Briefing cron job | `date` |
 | `/api/bridge/people` | GET | List people + groups | - |
 | `/api/bridge/people/[slug]` | GET | Person detail + meetings | `slug` |
 | `/api/bridge/people/[slug]/notes` | PUT | Update dated notes section | `slug`, `date`, `notes` |

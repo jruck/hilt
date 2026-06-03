@@ -113,6 +113,11 @@ function parseCalendarEventDeepLink(scopePath: string): { id: string; date: stri
 const TIME_ZONE = "America/New_York";
 const DAY_BOUNDARIES = { start: "00:00", end: "24:00" };
 const INITIAL_TIME_GRID_HOUR = 9;
+const INITIAL_VISIBLE_TIME_GRID_HOURS = 10;
+const TIME_GRID_FRAME_CHROME_PX = 122;
+const TIME_GRID_HOUR_LABEL_OFFSET_PX = 9;
+const TIME_GRID_INITIAL_LABEL_PADDING_PX = 4;
+const TIME_GRID_INITIAL_SCROLL_SETTLE_MS = 3500;
 const MOBILE_CALENDAR_MEDIA_QUERY = "(max-width: 640px)";
 const EVERCOMMERCE_WORKDAY_START_HOUR = 9;
 const EVERCOMMERCE_WORKDAY_END_HOUR = 17;
@@ -121,6 +126,7 @@ const EMPTY_CALENDARS: CalendarDefinition[] = [];
 const EMPTY_EVENTS: CalendarEvent[] = [];
 const EMPTY_WEATHER_DAYS: WeatherForecastDay[] = [];
 const DEFAULT_WEEK_GRID_HEIGHT = 1440;
+const HOURS_PER_DAY = 24;
 
 function todayPlainDate(): string {
   return Temporal.Now.plainDateISO(TIME_ZONE).toString();
@@ -520,8 +526,8 @@ function useResponsiveWeekGridHeight(ref: React.RefObject<HTMLElement | null>): 
     if (!element) return;
     const update = () => {
       const rect = element.getBoundingClientRect();
-      const visibleGridHeight = Math.max(560, Math.round(rect.height - 122));
-      const next = Math.max(DEFAULT_WEEK_GRID_HEIGHT, visibleGridHeight * 2.2);
+      const visibleGridHeight = Math.max(560, Math.round(rect.height - TIME_GRID_FRAME_CHROME_PX));
+      const next = Math.max(DEFAULT_WEEK_GRID_HEIGHT, visibleGridHeight * (HOURS_PER_DAY / INITIAL_VISIBLE_TIME_GRID_HOURS));
       setHeight(next);
     };
     update();
@@ -535,6 +541,99 @@ function useResponsiveWeekGridHeight(ref: React.RefObject<HTMLElement | null>): 
   }, [ref]);
 
   return height;
+}
+
+function scrollToInitialTimeGridSlice(frame: HTMLElement | null, gridHeight: number): boolean {
+  const viewContainer = frame?.querySelector(".sx__view-container");
+  const weekGrid = frame?.querySelector(".sx__week-grid");
+  const weekHeader = frame?.querySelector(".sx__week-header");
+  if (!(viewContainer instanceof HTMLElement) || !(weekGrid instanceof HTMLElement) || !(weekHeader instanceof HTMLElement)) {
+    return false;
+  }
+
+  const viewRect = viewContainer.getBoundingClientRect();
+  const weekGridRect = weekGrid.getBoundingClientRect();
+  const weekGridContentTop = weekGridRect.top - viewRect.top + viewContainer.scrollTop;
+  const stickyHeaderHeight = weekHeader.getBoundingClientRect().height;
+  const pixelsPerHour = (weekGridRect.height || gridHeight) / HOURS_PER_DAY;
+  const targetTop = weekGridContentTop
+    + INITIAL_TIME_GRID_HOUR * pixelsPerHour
+    - TIME_GRID_HOUR_LABEL_OFFSET_PX
+    - TIME_GRID_INITIAL_LABEL_PADDING_PX
+    - stickyHeaderHeight;
+
+  viewContainer.scrollTo({ top: Math.max(0, targetTop), behavior: "auto" });
+  return true;
+}
+
+function watchInitialTimeGridScroll(
+  frame: HTMLElement | null,
+  gridHeight: number,
+  fallbackScroll: () => void,
+): () => void {
+  if (!frame) return () => undefined;
+
+  let disposed = false;
+  let frameId = 0;
+  let didScroll = false;
+  let resizeObserver: ResizeObserver | null = null;
+  let mutationObserver: MutationObserver | null = null;
+  let userInteracted = false;
+
+  const cleanup = () => {
+    disposed = true;
+    if (frameId) window.cancelAnimationFrame(frameId);
+    resizeObserver?.disconnect();
+    mutationObserver?.disconnect();
+    frame.removeEventListener("wheel", markUserInteracted, true);
+    frame.removeEventListener("touchstart", markUserInteracted, true);
+    frame.removeEventListener("pointerdown", markUserInteracted, true);
+    frame.removeEventListener("keydown", markUserInteracted, true);
+    window.clearTimeout(timeoutId);
+  };
+
+  const attachResizeObserver = () => {
+    if (resizeObserver || typeof ResizeObserver === "undefined") return;
+    const elements = [
+      frame.querySelector(".sx__view-container"),
+      frame.querySelector(".sx__week-grid"),
+      frame.querySelector(".sx__week-header"),
+    ].filter((element): element is HTMLElement => element instanceof HTMLElement);
+    if (!elements.length) return;
+    resizeObserver = new ResizeObserver(queueScroll);
+    elements.forEach((element) => resizeObserver?.observe(element));
+  };
+
+  function queueScroll() {
+    if (disposed || userInteracted || frameId) return;
+    frameId = window.requestAnimationFrame(() => {
+      frameId = 0;
+      if (disposed || userInteracted) return;
+      didScroll = scrollToInitialTimeGridSlice(frame, gridHeight) || didScroll;
+      attachResizeObserver();
+    });
+  }
+
+  function markUserInteracted() {
+    userInteracted = true;
+  }
+
+  const timeoutId = window.setTimeout(() => {
+    if (!didScroll && !userInteracted) fallbackScroll();
+    cleanup();
+  }, TIME_GRID_INITIAL_SCROLL_SETTLE_MS);
+
+  if (typeof MutationObserver !== "undefined") {
+    mutationObserver = new MutationObserver(queueScroll);
+    mutationObserver.observe(frame, { childList: true, subtree: true });
+  }
+  frame.addEventListener("wheel", markUserInteracted, { capture: true, passive: true });
+  frame.addEventListener("touchstart", markUserInteracted, { capture: true, passive: true });
+  frame.addEventListener("pointerdown", markUserInteracted, { capture: true });
+  frame.addEventListener("keydown", markUserInteracted, { capture: true });
+
+  queueScroll();
+  return cleanup;
 }
 
 export function CalendarView() {
@@ -733,12 +832,19 @@ export function CalendarView() {
       timeAxisFormatOptions: { hour: "numeric" },
     });
     if (mode === "day" || mode === "week") {
-      try {
-        scrollController.scrollTo(`${String(INITIAL_TIME_GRID_HOUR).padStart(2, "0")}:00`);
-      } catch {
-        // The plugin also owns initialScroll; this call only re-applies it after local layout changes.
-      }
+      return watchInitialTimeGridScroll(
+        calendarFrameRef.current,
+        weekGridHeight,
+        () => {
+          try {
+            scrollController.scrollTo(`${String(INITIAL_TIME_GRID_HOUR).padStart(2, "0")}:00`);
+          } catch {
+            // The plugin also owns initialScroll; this call only re-applies it after local layout changes.
+          }
+        },
+      );
     }
+    return undefined;
   }, [calendarApp, calendarControls, mode, scrollController, weekGridHeight]);
 
   useEffect(() => {

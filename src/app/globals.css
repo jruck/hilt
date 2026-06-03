@@ -2360,6 +2360,26 @@ body[data-dev-focus="inspector"] [data-feedback-toolbar] {
   white-space: nowrap;
 }
 
+.hilt-hud-weather {
+  display: inline-flex;
+  align-items: center;
+  color: var(--hilt-calendar-accent, #f59e0b);
+}
+
+.hilt-hud-weather[data-weather-icon="cloud"],
+.hilt-hud-weather[data-weather-icon="fog"] {
+  color: var(--text-tertiary);
+}
+
+.hilt-hud-weather[data-weather-icon="drizzle"],
+.hilt-hud-weather[data-weather-icon="rain"] {
+  color: #38bdf8;
+}
+
+.hilt-hud-weather[data-weather-icon="snow"] {
+  color: #67e8f9;
+}
+
 .hilt-calendar .sx__time-grid-day {
   min-width: 0;
   flex: 1 1 0;

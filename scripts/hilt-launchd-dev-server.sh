@@ -9,6 +9,8 @@ export WS_PORT="${WS_PORT:-3100}"
 export HILT_GRANOLA_SYNC_DAEMON="${HILT_GRANOLA_SYNC_DAEMON:-1}"
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 
+ulimit -n 65536 2>/dev/null || ulimit -n 4096 2>/dev/null || true
+
 is_hilt_up() {
   /usr/bin/curl -fsS --max-time 2 "http://127.0.0.1:3000/api/ws-port" >/dev/null 2>&1
 }
@@ -21,7 +23,4 @@ if is_hilt_up; then
   echo "Existing Hilt server disappeared; launchd is taking over."
 fi
 
-exec ./node_modules/.bin/concurrently \
-  "DATA_DIR=$DATA_DIR npm run dev:webpack" \
-  "DATA_DIR=$DATA_DIR npm run ws-server" \
-  "DATA_DIR=$DATA_DIR npm run event-server"
+exec /opt/homebrew/bin/npm run dev:all

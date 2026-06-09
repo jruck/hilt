@@ -22,15 +22,8 @@
 
 export const PIPELINE_VERSION = "v2.1";
 
-export const DIGEST_PROMPT = [
-  "Write a 2-4 sentence narrative summary of this source for a personal reference library.",
-  "Then a blank line.",
-  "Then a line that is EXACTLY \"Key takeaways:\" on its own.",
-  "Then 3-6 distinct markdown bullets, where each bullet is a standalone insight that does NOT restate the narrative summary.",
-  "Ignore newsletter/site chrome, navigation, invisible tracking text, subscription/forwarding/unsubscribe boilerplate, and email metadata.",
-  "Extract the actual argument, claims, examples, and implications.",
-  "If the source is itself a numbered/listed set of findings, preserve the concrete numbered claims in the takeaways instead of collapsing the digest around only the first item.",
-].join(" ");
-
+// The L1 digest prompt is no longer owned here. capture-voice.ts is the single source of the shared
+// voice core (CAPTURE_VOICE) and the body-only DIGEST_PROMPT that wraps it; both layers compose it.
+export { DIGEST_PROMPT } from "./capture-voice";
 export { REWEAVE_PROMPT } from "./reweave-prompt";
 export { CONNECTION_PROMPT } from "./connection-prompt";

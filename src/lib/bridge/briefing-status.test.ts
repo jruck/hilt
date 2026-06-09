@@ -43,6 +43,12 @@ describe("briefing status", () => {
             last_run_at: "2026-06-02T06:01:15.678189-04:00",
             next_run_at: "2026-06-03T06:00:00-04:00",
           },
+          {
+            id: "retry-1",
+            name: "Morning Briefing Retry Watch",
+            script: "briefing-retry-watch.sh",
+            next_run_at: "2026-06-02T06:30:00-04:00",
+          },
         ],
       })
     );
@@ -56,6 +62,7 @@ describe("briefing status", () => {
       jobName: failure.jobName,
       runAt: failure.runAt,
       nextRunAt: failure.nextRunAt,
+      autoRetryNextRunAt: failure.autoRetryNextRunAt,
       error: failure.error,
       outputPath: path.basename(failure.outputPath ?? ""),
     }, {
@@ -66,8 +73,34 @@ describe("briefing status", () => {
       jobName: "Morning Briefing",
       runAt: "2026-06-02T06:01:15.678189-04:00",
       nextRunAt: "2026-06-03T06:00:00-04:00",
+      autoRetryNextRunAt: "2026-06-02T06:30:00-04:00",
       error: "RuntimeError: You're out of extra usage.",
       outputPath: "2026-06-02_06-01-15.md",
     });
+  });
+
+  it("does not treat the retry watcher as the failed briefing run", async () => {
+    const homeDir = await makeHome();
+    const cronDir = path.join(homeDir, ".hermes", "cron");
+    await fs.mkdir(cronDir, { recursive: true });
+    await fs.writeFile(
+      path.join(cronDir, "jobs.json"),
+      JSON.stringify({
+        jobs: [
+          {
+            id: "retry-1",
+            name: "Morning Briefing Retry Watch",
+            script: "briefing-retry-watch.sh",
+            last_status: "error",
+            last_error: "watcher failed",
+            last_run_at: "2026-06-02T06:30:00-04:00",
+            next_run_at: "2026-06-02T07:00:00-04:00",
+          },
+        ],
+      })
+    );
+
+    const failure = await getHermesBriefingFailureForDate("2026-06-02", { homeDir });
+    assert.equal(failure, null);
   });
 });

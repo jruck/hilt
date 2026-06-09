@@ -7,15 +7,18 @@ import { loadEnvConfig } from "@next/env";
 import { buildKbIndex } from "../src/lib/library/kb-index";
 import { markLibraryArtifactsRead } from "../src/lib/library/read-state";
 import { hashId } from "../src/lib/library/utils";
+import { PIPELINE_VERSION } from "../src/lib/library/pipeline";
+import { CANDIDATE_CACHE_DIR } from "../src/lib/library/candidate-cache";
 
 /**
  * Full-library backfill orchestrator: reanalyze every durable reference up to the current published
- * PIPELINE_VERSION (v2). Parallel, resumable, and rate-limit-aware.
+ * PIPELINE_VERSION (tracked from src/lib/library/pipeline). Parallel, resumable, and rate-limit-aware.
  *
  *   DATA_DIR=/Users/jruck/.hilt/data npx tsx scripts/library-backfill.ts --vault /Users/jruck/work/bridge
  *   ... --dry-run            # enumerate only, change nothing
  *   ... --limit 2            # reweave just N (smoke test)
  *   ... --concurrency 4      # starting worker count (auto-drops on limits, climbs back when clean)
+ *   ... --include-candidates # also reweave references/.cache/library-candidates/ (the onion sweep)
  *
  * Worklist = every `type: reference` not yet at TARGET_VERSION, recomputed from disk — so it is
  * idempotent and a re-run resumes wherever it stopped. Items already at the prior decimal (v1.4) are
@@ -34,12 +37,18 @@ const argValue = (name: string): string | null => { const i = args.indexOf(name)
 const has = (name: string): boolean => args.includes(name);
 
 const vaultPath = argValue("--vault") || process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || process.cwd();
-const TARGET_VERSION = "v2";
-const RESTAMP_FROM = "v1.4"; // same protocol as v2 → re-stamp, do not reweave
+const TARGET_VERSION = PIPELINE_VERSION; // tracks the live published version (was hardcoded "v2"); fresh reweaves are stamped with this.
+// The published saved baseline of record is "v2" (603 durable refs); the live version is "v2.1" (the
+// onion). BOTH are "already current" — a v2 ref must NOT be re-reweaved just because the live version
+// bumped a decimal (that protocol is identical for the digest; v2.1 only adds the candidate path). Only
+// versions outside this set get reweaved, so --include-candidates never mass-re-reweaves saved refs.
+const CURRENT_VERSIONS = new Set([PIPELINE_VERSION, "v2"]);
+const RESTAMP_FROM = "v1.4"; // same protocol as the target → re-stamp, do not reweave
 const startConcurrency = Math.max(1, Number(argValue("--concurrency") || 4));
 const minConcurrency = Math.max(1, Number(argValue("--min-concurrency") || 1));
 const limit = Number(argValue("--limit") || 0);
 const dryRun = has("--dry-run");
+const includeCandidates = has("--include-candidates");
 const baseWaitMs = Number(argValue("--base-wait-ms") || 60_000);
 const maxWaitMs = Number(argValue("--max-wait-ms") || 1_800_000);
 const reweaveTimeoutMs = Number(process.env.LIBRARY_REWEAVE_TIMEOUT_MS || 600_000);
@@ -61,13 +70,27 @@ function walkMarkdown(dir: string): string[] {
   return out;
 }
 
-/** Returns the pipeline_version of a durable reference, "(unstamped)" if none, or null if not a reference. */
+/**
+ * Returns the pipeline_version of a durable reference OR a reference-candidate (both are reweave
+ * targets), "(unstamped)" if none, or null if the file is neither.
+ */
 function refVersion(file: string): string | null {
   let text: string;
   try { text = fs.readFileSync(file, "utf-8"); } catch { return null; }
   const fm = text.split(/^---$/m)[1] || "";
-  if (!/^type:\s*reference\s*$/m.test(fm)) return null;
+  if (!/^type:\s*reference(-candidate)?\s*$/m.test(fm)) return null;
   return (fm.match(/^pipeline_version:\s*(\S+)/m) || [])[1] || "(unstamped)";
+}
+
+/**
+ * A study item that got only the L1 digest carries `reweave_pending: true` — it must be reweaved
+ * regardless of its version stamp (it's "current" in version but missing its connections).
+ */
+function reweavePending(file: string): boolean {
+  try {
+    const fm = fs.readFileSync(file, "utf-8").split(/^---$/m)[1] || "";
+    return /^reweave_pending:\s*true\s*$/m.test(fm);
+  } catch { return false; }
 }
 
 const log = (msg: string): void => console.error(`[backfill ${new Date().toISOString()}] ${msg}`);
@@ -77,20 +100,27 @@ async function main(): Promise<void> {
     log("WARNING: DATA_DIR is not set — read-state will be written under cwd/data, not the live app dir. Set DATA_DIR.");
   }
 
-  // 1. Enumerate + partition.
+  // 1. Enumerate + partition. walkMarkdown skips .cache, so candidates are collected separately and
+  // only when --include-candidates is set (the v2.1 onion sweep). The ~5 unstamped saved refs that
+  // never reached the saved backfill are folded in here too, since they fail the TARGET_VERSION check.
   const refs = walkMarkdown(path.join(vaultPath, "references")).filter((f) => refVersion(f) !== null);
+  const candidates = includeCandidates
+    ? walkMarkdown(path.join(vaultPath, CANDIDATE_CACHE_DIR)).filter((f) => refVersion(f) !== null)
+    : [];
+  const worklist = [...refs, ...candidates];
   const restampList: string[] = [];
   let reweaveList: string[] = [];
   let alreadyDone = 0;
-  for (const f of refs) {
+  for (const f of worklist) {
     const v = refVersion(f);
-    if (v === TARGET_VERSION) alreadyDone++;
-    else if (v === RESTAMP_FROM) restampList.push(f);
+    const pending = reweavePending(f); // current-version study items still missing connections
+    if (v && CURRENT_VERSIONS.has(v) && !pending) alreadyDone++;
+    else if (v === RESTAMP_FROM && !pending) restampList.push(f);
     else reweaveList.push(f);
   }
   if (limit > 0) reweaveList = reweaveList.slice(0, limit);
 
-  log(`durable refs: ${refs.length} | already ${TARGET_VERSION}: ${alreadyDone} | re-stamp ${RESTAMP_FROM}: ${restampList.length} | reweave: ${reweaveList.length}${limit ? ` (capped at ${limit})` : ""}`);
+  log(`durable refs: ${refs.length}${includeCandidates ? ` | candidates: ${candidates.length}` : ""} | already current (${[...CURRENT_VERSIONS].join("/")}): ${alreadyDone} | re-stamp ${RESTAMP_FROM}: ${restampList.length} | reweave: ${reweaveList.length}${limit ? ` (capped at ${limit})` : ""}`);
 
   if (dryRun) {
     log("dry-run: no changes. Sample reweave targets:");

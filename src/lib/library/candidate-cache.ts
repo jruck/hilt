@@ -1,4 +1,3 @@
-import fs from "fs";
 import path from "path";
 import type { CandidateStatus, ReferenceCandidate, ProcessedArtifact, PromotionReason } from "./types";
 import { addDays, atomicWriteFile, canonicalUrl, dateOnly, ensureDir, hashId, isoNow, slugify, walkMarkdown } from "./utils";
@@ -6,6 +5,7 @@ import { extractBullets, extractSection, parseMarkdownFile, relativeVaultPath, s
 import { buildMediaMarkdown, cachedSourceContent, stripDetailsWrapper } from "./media";
 import { PIPELINE_VERSION } from "./pipeline";
 import { friendlyNewsletterSender, semanticTags, uniqueTags, validLibraryMode } from "./taxonomy";
+import { youtubeFrontmatter } from "./youtube-frontmatter";
 
 export const CANDIDATE_CACHE_DIR = path.join("references", ".cache", "library-candidates");
 const NEWSLETTERS_SOURCE_ID = "superhuman-news";
@@ -88,7 +88,7 @@ export function parseCandidateFile(vaultPath: string, filePath: string): Referen
       promoted_at: typeof promotion.promoted_at === "string" ? promotion.promoted_at : null,
       promoted_reason: typeof promotion.promoted_reason === "string" ? promotion.promoted_reason as PromotionReason : null,
     },
-    summary: extractSection(body, "Summary"),
+    summary: String(data.description || data.summary || extractSection(body, "Summary") || "").trim(),
     key_points: keyPoints,
     cached_source: cachedSource || null,
     content: body.trim(),
@@ -145,6 +145,10 @@ export function buildCandidateMarkdown(processed: ProcessedArtifact): string {
   const frontmatter: Record<string, unknown> = {
     type: "reference-candidate",
     pipeline_version: PIPELINE_VERSION,
+    // The feed-card description. Prefer the reweave's free-form description; persist it so a
+    // free-form digest body (which no longer carries a ## Summary heading) still yields a summary
+    // on round-trip via parseCandidateFile.
+    description: processed.description || undefined,
     url: processed.raw.url,
     format: processed.format,
     title: processed.raw.title,
@@ -179,11 +183,13 @@ export function buildCandidateMarkdown(processed: ProcessedArtifact): string {
     connection_suggestions: processed.connection_suggestions?.length ? processed.connection_suggestions : undefined,
     connection_reasoning: processed.connection_reasoning || undefined,
     reweave_candidates: processed.reweave_candidates?.length ? processed.reweave_candidates : undefined,
+    reweave_pending: processed.reweave_pending ? true : undefined,
     promotion: {
       promoted_to: null,
       promoted_at: null,
       promoted_reason: null,
     },
+    ...youtubeFrontmatter(processed),
   };
 
   for (const key of Object.keys(frontmatter)) {
@@ -191,26 +197,27 @@ export function buildCandidateMarkdown(processed: ProcessedArtifact): string {
   }
 
   const media = buildMediaMarkdown(processed.raw);
-  const body = `# ${processed.raw.title}
-
-${media ? `${media}\n` : ""}## Summary
+  // Mirror buildDurableReferenceMarkdown: a free-form digest_markdown REPLACES the fixed
+  // ## Summary / ## Key Points scaffold (the model chose its own ## headings). Without one, degrade
+  // identically to the legacy Summary/Key Points form. The ## Assessment scaffold is dropped —
+  // score + save_recommendation already live in frontmatter.
+  const digestBlock = processed.digest_markdown
+    ? processed.digest_markdown.trim()
+    : `## Summary
 
 ${processed.summary}
 
 ## Key Points
 
-${processed.key_points.length ? processed.key_points.map((point) => `- ${point}`).join("\n") : "- "}
+${processed.key_points.length ? processed.key_points.map((point) => `- ${point}`).join("\n") : "- "}`;
 
-## Assessment
+  // Omit the Connections section entirely when there are none — no empty heading.
+  const connections = connectionLines(processed);
+  const connectionsBlock = connections.trim() ? `\n\n## Connections\n\n${connections}` : "";
 
-- Recommendation: ${processed.assessment.save_recommendation}
-- Why: ${processed.assessment.why}
-- What changed: ${processed.assessment.what_changed || ""}
-- What is suspect: ${processed.assessment.what_is_suspect || ""}
+  const body = `# ${processed.raw.title}
 
-## Suggested Connections
-
-${connectionLines(processed)}
+${media ? `${media}\n` : ""}${digestBlock}${connectionsBlock}
 
 ## Raw Content
 

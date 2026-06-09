@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getVaultPath } from "@/lib/bridge/vault";
 import { getLibraryArtifact, summarizeArtifact } from "@/lib/library/library";
-import { getActiveBatchNotes, readReviewQueue, setReviewStatus, type ReviewQueueStatus } from "@/lib/library/review-queue";
+import { scoreArtifacts } from "@/lib/library/recommendations";
+import type { LibraryArtifactDetail } from "@/lib/library/types";
+import { getActiveBatchNotes, readReviewQueue, setReviewStatus, type ReviewQueueEntry, type ReviewQueueStatus } from "@/lib/library/review-queue";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,14 +16,25 @@ export async function GET() {
   try {
     const vaultPath = await getVaultPath();
     const queue = readReviewQueue(vaultPath);
-    const items = [];
+    const details: LibraryArtifactDetail[] = [];
+    const reviews = new Map<string, ReviewQueueEntry>();
     for (const [id, review] of Object.entries(queue.items)) {
       if (review.status !== "pending") continue;
       // Skip entries whose underlying artifact no longer resolves.
       const detail = getLibraryArtifact(vaultPath, id);
       if (!detail) continue;
-      items.push({ ...summarizeArtifact(detail), review });
+      details.push(detail);
+      reviews.set(detail.id, review);
     }
+    const scoredById = new Map(
+      scoreArtifacts(vaultPath, details.filter((artifact) => artifact.library_mode !== "keep"))
+        .map((artifact) => [artifact.id, artifact.eval_attrs]),
+    );
+    const items = details.map((detail) => {
+      const summary = summarizeArtifact(detail);
+      const evalAttrs = scoredById.get(detail.id);
+      return { ...(evalAttrs ? { ...summary, eval_attrs: evalAttrs } : summary), review: reviews.get(detail.id) };
+    });
     const notes = getActiveBatchNotes(vaultPath);
     return NextResponse.json({ items, total: items.length, notes });
   } catch (error) {

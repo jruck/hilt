@@ -22,6 +22,7 @@ import {
   upsertChunk,
   upsertItem,
 } from "./db";
+import { semanticConcurrency } from "./config";
 import type { ClusterInput, RunClustering } from "./cluster";
 import { extractEntities } from "./extract";
 import type { SemanticLlmClient } from "./gemini";
@@ -89,6 +90,23 @@ function itemText(item: ItemChunks): string {
   return item.chunks.map((c) => c.text).join(" ");
 }
 
+/**
+ * Run `fn` over `items` with at most `concurrency` in flight (a worker pool). Only the
+ * async network waits overlap; each `fn`'s synchronous DB transaction runs to completion
+ * within its continuation, so writes never interleave (JS is single-threaded). A failing
+ * item rejects its worker; we surface the first error after draining.
+ */
+async function mapPool<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const n = Math.max(1, Math.min(concurrency, items.length));
+  const workers = Array.from({ length: n }, async () => {
+    for (let i = next++; i < items.length; i = next++) {
+      await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+}
+
 export async function runColdStart(opts: ColdStartOptions): Promise<ColdStartResult> {
   const db = opts.db ?? getSemanticDb();
   let items = collectItems(opts.root);
@@ -106,14 +124,17 @@ export async function runColdStart(opts: ColdStartOptions): Promise<ColdStartRes
     topicsTotal: 0,
     topicsItemsAssigned: 0,
   };
+  const concurrency = semanticConcurrency();
+
+  // Embedding pass — concurrent network, serialized writes (see mapPool).
   let done = 0;
-  for (const item of items) {
+  await mapPool(items, concurrency, async (item) => {
     done += 1;
     opts.onProgress?.(done, items.length, item.itemId);
 
     if (itemUnchanged(item.itemId, item.contentHash, item.chunks.length, db)) {
       result.itemsSkipped += 1;
-      continue;
+      return;
     }
 
     let vecs: Float32Array[] = [];
@@ -148,14 +169,14 @@ export async function runColdStart(opts: ColdStartOptions): Promise<ColdStartRes
 
     result.itemsEmbedded += 1;
     result.chunksEmbedded += item.chunks.length;
-  }
+  });
 
-  // Entity layer: per-item extraction (idempotent) then one global resolve+reconcile pass.
+  // Entity layer: per-item extraction (concurrent, idempotent) then one global resolve+reconcile pass.
   if (opts.extractEntities !== false) {
-    for (const item of items) {
+    await mapPool(items, concurrency, async (item) => {
       const r = await extractEntities({ itemId: item.itemId, contentHash: item.contentHash, text: itemText(item) }, { client: opts.client, db });
       if (!r.skipped) result.itemsExtracted += 1;
-    }
+    });
     const { binder, close } = createReconcileBinder();
     try {
       const judge = opts.judge ?? createGeminiMergeJudge();

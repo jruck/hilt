@@ -14,6 +14,7 @@ import { MCPServerDetail } from "@/components/stack/MCPServerDetail";
 import { PluginDetail } from "@/components/stack/PluginDetail";
 import { CodeViewer } from "@/components/docs/CodeViewer";
 import { SecondarySegmentedButton, SecondarySegmentedControl, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
+import { LoadingState } from "@/components/ui/LoadingState";
 import type { ClaudeStack, ConfigFile, ConfigFileContent, ConfigLayer, MCPServerConfig, PluginConfig } from "@/lib/claude-config/types";
 import type { SystemStackSnapshot } from "@/lib/system/stack";
 import type { SystemMode } from "@/lib/system/navigation";
@@ -77,7 +78,7 @@ export function SystemView({ mode, onModeChange, searchQuery = "", workingFolder
         ) : mode === "graph" && isGraphEnabled() && isMobile ? (
           <div className="flex h-full min-h-0 flex-col" data-testid="graph-desktop-only">
             <SecondaryToolbar left={modeSwitcher} right={null} />
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+            <div className="hilt-mobile-fixed-clearance hilt-mobile-fixed-extra-3 flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
               <Network className="h-6 w-6 text-[var(--text-tertiary)]" />
               <div className="text-sm font-medium text-[var(--text-primary)]">Graph is desktop-only</div>
               <div className="max-w-xs text-xs text-[var(--text-tertiary)]">Open the knowledge graph on the desktop app for the full WebGL view.</div>
@@ -164,10 +165,7 @@ function SystemStackView({
           loading={loading}
           error={error}
         />
-        <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-secondary)]">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          Loading system stack
-        </div>
+        <LoadingState label="Loading system stack" />
       </div>
     );
   }
@@ -238,14 +236,14 @@ function SystemStackView({
         loading={loading}
         error={error}
       />
-      <div data-mobile-scroll-chrome="bottom" className="flex-1 overflow-auto px-4 pb-[calc(var(--hilt-mobile-nav-clearance)+1rem)] pt-[13px]">
+      <div data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-4 flex-1 overflow-auto px-4 pt-[13px]">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {snapshots.map((snapshot) => (
             <button
               key={snapshot.machine.id}
               type="button"
               onClick={() => setSelectedMachineId(snapshot.machine.id)}
-              className="rounded-lg bg-[var(--content-surface)] p-4 text-left content-card-shadow transition-transform hover:-translate-y-0.5"
+              className="hilt-card hilt-card-elevated p-4 text-left transition-transform hover:-translate-y-0.5"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -351,7 +349,7 @@ function RemoteStackInspector({ snapshot, searchQuery }: { snapshot: SystemStack
             <div className="text-xs font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Remote stack</div>
             <div className="mt-1 truncate text-sm text-[var(--text-primary)]">{displayPath(snapshot.projectPath || stack.projectPath)}</div>
           </div>
-          <div data-mobile-scroll-chrome="bottom" className="min-h-0 flex-1 overflow-auto">
+          <div data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance min-h-0 flex-1 overflow-auto">
             <StackFileTree
               layers={stack.layers}
               mcpServers={stack.mcpServers}
@@ -469,10 +467,7 @@ function ReadOnlyStackFilePane({
 
   if (!currentResult) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-[var(--text-secondary)]">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        Loading file
-      </div>
+      <LoadingState label="Loading file" />
     );
   }
 

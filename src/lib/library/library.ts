@@ -1,14 +1,18 @@
 import fs from "fs";
 import path from "path";
-import type { CandidateStatus, LibraryArtifact, LibraryArtifactDetail, LibraryLifecycleStatus, LibraryModeFilter, LibrarySourceFacetSummary, LibrarySourceSummary, ReferenceCandidate } from "./types";
+import type { CandidateStatus, LibraryArtifact, LibraryArtifactDetail, LibraryComment, LibraryLifecycleStatus, LibraryModeFilter, LibrarySourceFacetSummary, LibrarySourceSummary, ReferenceCandidate, SourceIntent, YouTubeClipReviewAttrs } from "./types";
 import { CANDIDATE_CACHE_DIR, candidateCacheDir, findCandidateById, listCandidates, parseCandidateFile } from "./candidate-cache";
 import { findSavedReferenceById, listSavedReferences, MANUAL_SOURCE_ID, MANUAL_SOURCE_NAME, parseReferenceFile, referencesDir } from "./references";
 import { applyLibraryReadState, isLibraryArtifactUnread, readLibraryReadState } from "./read-state";
+import { addStoredComment, deleteStoredComment, editStoredComment, getStoredComments, listStoredFeedback, markStoredCommentsProcessed } from "./library-feedback";
+import { isMutedSender, readMutedSenders } from "./library-mute";
 import { readReviewQueue } from "./review-queue";
 import { loadSources, readSourceState } from "./source-config";
 import { compareDatesDesc, dateTimestamp, ensureDir, hashId, isoNow, walkMarkdown } from "./utils";
 import { parseMarkdownFile, relativeVaultPath, stringifyMarkdown } from "./markdown";
 import { artifactDisplayTags, validLibraryModeFilter } from "./taxonomy";
+import { detectYouTubeContentForm } from "./youtube-clip-detector";
+import { persistedYouTubeClip } from "./youtube-frontmatter";
 
 export interface LibraryListOptions {
   source?: string | null;
@@ -23,6 +27,15 @@ export interface LibraryListOptions {
   offset?: number;
   limit?: number;
   includeCandidates?: boolean;
+  includeSkippedCandidates?: boolean;
+  // Pipeline-inspection filters (frontmatter-based; the eval workbench in the sidebar).
+  pipeline_version?: string | null;
+  digested_with?: string | null;
+  connection_state?: "has" | "abstained" | "never" | null;
+  substance_graded?: "graded" | "ungraded" | null;
+  reweave_pending?: boolean | null;
+  feedback?: "none" | "unprocessed" | "processed" | null;
+  youtube_clip_policy?: YouTubeClipReviewAttrs["policy_action"] | null;
 }
 
 const candidateStatuses = new Set<LibraryLifecycleStatus>(["candidate", "skipped", "expired", "promoted"]);
@@ -95,7 +108,11 @@ function candidateToArtifact(vaultPath: string, candidate: ReferenceCandidate): 
     relevance_score: candidate.score.total,
     lifecycle_status: candidate.status,
     pipeline_version: typeof candidate.raw_frontmatter.pipeline_version === "string" ? candidate.raw_frontmatter.pipeline_version : undefined,
-    video_duration_seconds: typeof candidate.raw_frontmatter.video_duration_seconds === "number" ? candidate.raw_frontmatter.video_duration_seconds : undefined,
+    video_duration_seconds: typeof candidate.raw_frontmatter.video_duration_seconds === "number"
+      ? candidate.raw_frontmatter.video_duration_seconds
+      : typeof candidate.raw_frontmatter.youtube_duration_seconds === "number"
+        ? candidate.raw_frontmatter.youtube_duration_seconds
+        : undefined,
     save_recommendation: candidate.save_recommendation,
     proposed_destination: candidate.proposed_destination,
     expires_at: candidate.expires,
@@ -123,6 +140,51 @@ function matchesText(artifact: LibraryArtifactDetail, q: string): boolean {
   return haystack.includes(q.toLowerCase());
 }
 
+function sourceIntent(value: unknown): SourceIntent | null {
+  return value === "explicit_save" || value === "discovery" ? value : null;
+}
+
+function numberField(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function stringField(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function youtubeClipReviewForArtifact(artifact: LibraryArtifactDetail): YouTubeClipReviewAttrs | undefined {
+  if (artifact.channel !== "youtube") return undefined;
+  const fm = artifact.raw_frontmatter || {};
+  const persisted = persistedYouTubeClip(fm.youtube_clip);
+  if (persisted) return persisted;
+  const detection = detectYouTubeContentForm({
+    title: artifact.title,
+    description: stringField(fm.youtube_description_preview) || stringField(fm.source_description) || stringField(fm.description) || artifact.summary || "",
+    channelTitle: stringField(fm.youtube_channel_title) || artifact.author || stringField(fm.author),
+    sourceId: artifact.source_id,
+    sourceName: artifact.source_name,
+    sourceIntent: sourceIntent(fm.intent),
+    sourceSignal: stringField(fm.signal) || stringField(fm.source_signal),
+    tags: [
+      ...artifact.tags,
+      ...artifact.source_tags,
+      ...(Array.isArray(fm.youtube_tags) ? fm.youtube_tags.map(String) : []),
+    ],
+    durationSeconds: artifact.video_duration_seconds ?? numberField(fm.youtube_duration_seconds) ?? numberField(fm.duration_seconds),
+  });
+  return detection;
+}
+
+function withYouTubeClipReview<T extends LibraryArtifactDetail>(artifact: T): T {
+  const youtubeClip = youtubeClipReviewForArtifact(artifact);
+  return youtubeClip ? { ...artifact, youtube_clip: youtubeClip } : artifact;
+}
+
 function filterArtifacts(artifacts: LibraryArtifactDetail[], options: LibraryListOptions): LibraryArtifactDetail[] {
   const after = dateTimestamp(options.after);
   const before = dateTimestamp(options.before);
@@ -137,12 +199,26 @@ function filterArtifacts(artifacts: LibraryArtifactDetail[], options: LibraryLis
     if (after && dateTimestamp(artifact.created_at) < after) return false;
     if (before && dateTimestamp(artifact.created_at) > before) return false;
     if (options.q && !matchesText(artifact, options.q)) return false;
+    if (options.pipeline_version && String(artifact.raw_frontmatter.pipeline_version || "") !== options.pipeline_version) return false;
+    if (options.digested_with && String(artifact.raw_frontmatter.digested_with || "") !== options.digested_with) return false;
+    if (options.youtube_clip_policy && artifact.youtube_clip?.policy_action !== options.youtube_clip_policy) return false;
+    if (options.reweave_pending != null && (artifact.raw_frontmatter.reweave_pending === true) !== options.reweave_pending) return false;
+    if (options.substance_graded) {
+      const graded = typeof artifact.raw_frontmatter.substance === "number";
+      if ((options.substance_graded === "graded") !== graded) return false;
+    }
+    if (options.connection_state) {
+      const count = Array.isArray(artifact.raw_frontmatter.connection_suggestions) ? artifact.raw_frontmatter.connection_suggestions.length : 0;
+      const state = count > 0 ? "has" : typeof artifact.raw_frontmatter.reconnected_at === "string" ? "abstained" : "never";
+      if (state !== options.connection_state) return false;
+    }
     return true;
   });
 }
 
 export function listLibraryArtifactDetails(vaultPath: string, options: LibraryListOptions = {}): { artifacts: LibraryArtifactDetail[]; total: number; unread_total: number } {
   const saved = listSavedReferences(vaultPath);
+  const includeClipReviewStatuses = Boolean((options.youtube_clip_policy && !options.status) || options.includeSkippedCandidates);
   const requestedCandidateStatus = options.status && options.status !== "all" && candidateStatuses.has(options.status)
     ? options.status as CandidateStatus
     : null;
@@ -150,12 +226,28 @@ export function listLibraryArtifactDetails(vaultPath: string, options: LibraryLi
     || options.status === "saved"
     ? []
     : listCandidates(vaultPath, requestedCandidateStatus || undefined)
-      .filter((candidate) => requestedCandidateStatus || candidate.status === "candidate")
+      .filter((candidate) => requestedCandidateStatus || candidate.status === "candidate" || (includeClipReviewStatuses && candidate.status === "skipped"))
       .map((candidate) => candidateToArtifact(vaultPath, candidate));
   const all = [...saved, ...candidates].sort(compareArtifactsByRecent);
   const state = readLibraryReadState(vaultPath);
-  const readAware = applyLibraryReadState(all, state);
-  const filtered = filterArtifacts(readAware, options);
+  const readAware = applyLibraryReadState(all.map(withYouTubeClipReview), state);
+  let pool = readAware;
+  const mutedSenders = readMutedSenders(vaultPath);
+  if (mutedSenders.size) {
+    pool = pool.filter((artifact) => !isMutedSender(mutedSenders, artifact.author || (typeof artifact.raw_frontmatter.author === "string" ? artifact.raw_frontmatter.author : null)));
+  }
+  if (options.feedback) {
+    const stored = listStoredFeedback(vaultPath);
+    const hasComments = new Set(stored.filter((entry) => entry.comments.length).map((entry) => entry.id));
+    const hasUnprocessed = new Set(stored.filter((entry) => entry.comments.some((c) => !c.processed_at)).map((entry) => entry.id));
+    pool = pool.filter((artifact) => {
+      if (options.feedback === "none") return !hasComments.has(artifact.id);
+      if (options.feedback === "unprocessed") return hasUnprocessed.has(artifact.id);
+      if (options.feedback === "processed") return hasComments.has(artifact.id) && !hasUnprocessed.has(artifact.id);
+      return true;
+    });
+  }
+  const filtered = filterArtifacts(pool, options);
   const offset = options.offset || 0;
   const limit = options.limit || 50;
   return {
@@ -200,7 +292,7 @@ export function getLibraryArtifact(vaultPath: string, id: string): LibraryArtifa
     return candidate ? candidateToArtifact(vaultPath, candidate) : null;
   })();
   if (!artifact) return null;
-  return applyLibraryReadState([artifact], readLibraryReadState(vaultPath))[0] || null;
+  return applyLibraryReadState([withYouTubeClipReview(artifact)], readLibraryReadState(vaultPath))[0] || null;
 }
 
 function resolveArtifactPath(vaultPath: string, artifactPath: string): { relPath: string; filePath: string } | null {
@@ -380,7 +472,48 @@ export function archiveLibraryArtifact(vaultPath: string, id: string): { archive
     archived: true,
     archived_at: isoNow(),
     archived_from: artifact.path,
+    // Records who dismissed it. Manual archive is sticky; the eval never sets this (it only flags
+    // `to_archive`). When auto-archive ships, the system path writes `archived_by: system` instead.
+    archived_by: "user",
   }, parsed.body), "utf-8");
   fs.renameSync(filePath, targetPath);
   return { archived_to: relativeVaultPath(vaultPath, targetPath) };
+}
+
+export interface LibraryFeedbackItem {
+  id: string;
+  title: string;
+  path: string;
+  comments: LibraryComment[];
+  unprocessed: number;
+}
+
+// Feedback lives in Hilt's DATA_DIR store (library-feedback.ts), NOT the vault frontmatter — it is
+// commentary to the eval engine, not article content. These are thin re-exports of the store ops.
+export const addLibraryComment = addStoredComment;
+export const editLibraryComment = editStoredComment;
+export const deleteLibraryComment = deleteStoredComment;
+export const markLibraryCommentsProcessed = markStoredCommentsProcessed;
+
+/** Comments for one item (for the detail metadata panel). */
+export function getLibraryComments(vaultPath: string, id: string): LibraryComment[] {
+  return getStoredComments(vaultPath, id);
+}
+
+/** Items carrying feedback comments, joined with current title/path. Default = only unprocessed. */
+export function listLibraryFeedback(vaultPath: string, options: { includeProcessed?: boolean } = {}): LibraryFeedbackItem[] {
+  const stored = listStoredFeedback(vaultPath);
+  if (!stored.length) return [];
+  const byId = new Map<string, LibraryArtifactDetail>();
+  for (const artifact of listLibraryArtifactDetails(vaultPath, { limit: 100000, includeCandidates: true, mode: "all" }).artifacts) {
+    byId.set(artifact.id, artifact);
+  }
+  const items: LibraryFeedbackItem[] = [];
+  for (const { id, comments } of stored) {
+    const unprocessed = comments.filter((comment) => !comment.processed_at).length;
+    if (!options.includeProcessed && unprocessed === 0) continue;
+    const artifact = byId.get(id);
+    items.push({ id, title: artifact?.title || id, path: artifact?.path || "", comments, unprocessed });
+  }
+  return items.sort((a, b) => b.unprocessed - a.unprocessed);
 }

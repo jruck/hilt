@@ -51,6 +51,7 @@ export class ScopeWatcher extends EventEmitter {
     const watcher = chokidar.watch(scopePath, {
       ignoreInitial: true, // Don't emit events for existing files
       ignored: [
+        /(^|[/\\])\../,
         /node_modules/,
         /\.git/,
         /\.DS_Store/,

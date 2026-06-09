@@ -55,6 +55,14 @@ export function librarySchedulerJobs(logDir = librarySchedulerLogDir()): Library
       stderr: path.join(logDir, "retry.err.log"),
     },
     {
+      id: "reweave-pending",
+      label: "com.hilt.library.reweave-pending",
+      script: "library:reweave:pending",
+      schedule: { hour: 3, minute: 35 },
+      stdout: path.join(logDir, "reweave-pending.out.log"),
+      stderr: path.join(logDir, "reweave-pending.err.log"),
+    },
+    {
       id: "cleanup",
       label: "com.hilt.library.cleanup",
       script: "library:candidates:cleanup",

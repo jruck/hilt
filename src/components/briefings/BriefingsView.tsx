@@ -1,11 +1,11 @@
 "use client";
 
 import { useBriefings } from "@/hooks/useBriefings";
-import { useIsMobile } from "@/hooks/useIsMobile";
 import { BriefingHeader } from "./BriefingHeader";
 import { BriefingContent } from "./BriefingContent";
 import { BriefingFailureCard } from "./BriefingFailureCard";
-import { Loader2, Newspaper } from "lucide-react";
+import { Newspaper } from "lucide-react";
+import { LoadingState } from "@/components/ui/LoadingState";
 
 export function BriefingsView() {
   const {
@@ -19,14 +19,10 @@ export function BriefingsView() {
     retryStatus,
     retryMessage,
   } = useBriefings();
-  const isMobile = useIsMobile();
-
   // Loading state
   if (isLoadingList) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 className="w-5 h-5 animate-spin text-[var(--text-tertiary)]" />
-      </div>
+      <LoadingState />
     );
   }
 
@@ -46,8 +42,8 @@ export function BriefingsView() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Scrollable content */}
-      <div data-mobile-scroll-chrome="bottom" className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-        <div className={`max-w-3xl mx-auto px-6 py-8 space-y-8 overflow-x-hidden ${isMobile ? "pb-[var(--hilt-mobile-nav-clearance)]" : ""}`}>
+      <div data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+        <div className="max-w-3xl mx-auto px-6 py-8 space-y-8 overflow-x-hidden">
           {/* Header with date selector */}
           {selectedDate && (
             <BriefingHeader
@@ -61,9 +57,7 @@ export function BriefingsView() {
           {/* Content */}
           <div className="mt-6">
             {isLoadingContent ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-5 h-5 animate-spin text-[var(--text-tertiary)]" />
-              </div>
+              <LoadingState className="min-h-40 py-12" />
             ) : briefing?.status === "failed" && briefing.run ? (
               <BriefingFailureCard
                 run={briefing.run}

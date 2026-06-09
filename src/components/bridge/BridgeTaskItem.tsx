@@ -117,9 +117,9 @@ export function BridgeTaskItem({
 
   // Left border accent using inset box-shadow (doesn't affect layout)
   const leftAccentStyle = isNew
-    ? { boxShadow: "inset 3px 0 0 0 rgb(245 158 11)" } // amber-500
+    ? { boxShadow: "inset 3px 0 0 0 rgb(245 158 11), var(--hilt-card-shadow, var(--content-shadow-subtle))" } // amber-500
     : isReview
-    ? { boxShadow: "inset 3px 0 0 0 rgb(59 130 246)" } // blue-500
+    ? { boxShadow: "inset 3px 0 0 0 rgb(59 130 246), var(--hilt-card-shadow, var(--content-shadow-subtle))" } // blue-500
     : undefined;
 
   return (
@@ -127,10 +127,8 @@ export function BridgeTaskItem({
       {/* Task card */}
       <div
         style={leftAccentStyle}
-        className={`flex-1 min-w-0 rounded-lg border bg-[var(--content-surface)] transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
-          isSelected
-            ? "border-[var(--interactive-default)]"
-            : "border-[var(--border-default)]"
+        className={`hilt-card flex-1 min-w-0 transition-all duration-150 ease-out ${
+          isSelected ? "hilt-card-selected" : ""
         } ${visuallyDone || isReview ? "opacity-50" : ""}`}
       >
         <div

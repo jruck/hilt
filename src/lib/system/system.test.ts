@@ -8,7 +8,7 @@ import { isSystemMode, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeFo
 import { decodeSystemNodeId, decodeSystemSessionId, systemMachineNodeId, systemNodeId, systemSessionId } from "./map";
 import { machineIdentity } from "../local-apps/tailnet";
 import { machineId, machineLabel } from "./peers";
-import { __resetSystemSyncCacheForTests, collectConflictFiles, readLocalSystemSync } from "./sync";
+import { __resetSystemSyncCacheForTests, collectConflictFiles, readLocalSystemSync, readSystemSyncForMachines } from "./sync";
 import type { SystemMachine } from "./types";
 
 describe("system machine ids", () => {
@@ -166,11 +166,18 @@ describe("system sync snapshots", () => {
           stateChanged: "2026-05-22T12:01:00Z",
           inSyncFiles: 3,
           inSyncBytes: 128,
+          localBytes: 128,
           needFiles: 0,
           needBytes: 0,
           pullErrors: 0,
         });
       }
+      if (url.pathname === "/rest/stats/folder") return send({
+        "work-meta": {
+          lastScan: "2026-05-22T12:02:00Z",
+          lastFile: { at: "2026-05-22T12:01:30Z", filename: "probe.md", deleted: false },
+        },
+      });
       if (url.pathname === "/rest/folder/errors") return send({ errors: [] });
       if (url.pathname === "/rest/db/ignores") return send({
         ignore: ["#include .hilt-syncthing-ignore"],
@@ -220,10 +227,12 @@ describe("system sync snapshots", () => {
       if (first.enabled && second.enabled) {
         assert.equal(first.machine.daemon.version, "v-test");
         assert.equal(first.machine.folder?.id, "work-meta");
+        assert.equal(first.machine.folder?.lastScan, "2026-05-22T12:02:00Z");
         assert.equal(first.machine.folder?.versioning.maxAgeDays, 90);
         assert.equal(first.machine.folder?.maxConflicts, -1);
         assert.equal(first.machine.folder?.ignore.includePresent, true);
         assert.equal(first.machine.folder?.conflicts.count, 1);
+        assert.equal(first.machine.folder?.disk.syncedBytes, 128);
         assert.equal(first.machine.peers[0].connected, true);
         assert.equal(second.machine.folder?.inSyncFiles, 3);
       }
@@ -233,5 +242,100 @@ describe("system sync snapshots", () => {
       server.close();
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it("probes a peer sync endpoint even when the feature flag is stale", async () => {
+    const remoteMachine: SystemMachine = {
+      id: "xochipilli.tailc0acaa.ts.net",
+      self: false,
+      reachable: true,
+      source_url: "https://xochipilli.tailc0acaa.ts.net",
+      machine: {
+        hostname: "Xochipilli",
+        tailscale_dns: "xochipilli.tailc0acaa.ts.net",
+        tailscale_ip4: "100.104.52.2",
+        origin: "remote",
+      },
+      features: { map: true, apps: true, stack: true, sync: false },
+      error: null,
+    };
+
+    let requestedPath = "";
+    const response = await readSystemSyncForMachines([remoteMachine], {
+      force: true,
+      peerFetcher: async (_machine, path) => {
+        requestedPath = path;
+        return {
+          app: "hilt-system-sync",
+          enabled: true,
+          machine: {
+            machine: remoteMachine,
+            provider: "syncthing",
+            enabled: true,
+            readOnly: true,
+            daemon: {
+              reachable: true,
+              version: "v-test",
+              deviceId: "REMOTE",
+              startTime: "2026-06-09T12:00:00Z",
+              error: null,
+            },
+            folder: {
+              id: "work-meta",
+              label: "Work Meta",
+              path: "/Users/jruck/work/meta",
+              type: "sendreceive",
+              paused: false,
+              state: "idle",
+              stateChanged: "2026-06-09T12:01:00Z",
+              lastScan: "2026-06-09T12:02:00Z",
+              lastFile: null,
+              globalBytes: 128,
+              globalFiles: 1,
+              inSyncBytes: 128,
+              inSyncFiles: 1,
+              localBytes: 128,
+              localFiles: 1,
+              needBytes: 0,
+              needFiles: 0,
+              needDeletes: 0,
+              pullErrors: 0,
+              versioning: { enabled: true, type: "staggered", maxAgeDays: 90, path: null },
+              maxConflicts: -1,
+              ignore: {
+                localHash: "local",
+                sharedHash: "shared",
+                includePresent: true,
+                patternCount: 1,
+                expandedPatternCount: 1,
+              },
+              errors: [],
+              conflicts: {
+                count: 0,
+                truncated: false,
+                files: [],
+                scannedAt: "2026-06-09T12:02:00Z",
+              },
+              disk: {
+                totalBytes: 128,
+                syncedBytes: 128,
+                ignoredBytes: 0,
+                otherBytes: 0,
+                ignoredPathCount: 0,
+                largestIgnoredPaths: [],
+              },
+            },
+            peers: [],
+            refreshedAt: "2026-06-09T12:03:00Z",
+            error: null,
+          },
+        };
+      },
+    });
+
+    assert.equal(requestedPath, "/api/system/sync?scope=local&force=true");
+    assert.equal(response.summary.machine_count, 1);
+    assert.equal(response.summary.healthy_count, 1);
+    assert.equal(response.machines[0].enabled, true);
   });
 });

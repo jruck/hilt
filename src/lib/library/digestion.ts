@@ -7,11 +7,12 @@ import type { LibrarySourceConfig, ProcessedArtifact, RawArtifact, SaveRecommend
 import { isoNow, scoreClamp } from "./utils";
 import { isXVideoUrl, isYouTubeUrl, looksLikeThreadRoot } from "./media";
 import { enrichRawArtifactMedia } from "./media-enrichment";
-import { buildKbIndex, judgeConnections, reweaveArtifact } from "./connections";
+import { buildKbIndex, reweaveArtifact } from "./connections";
 import { extractBullets } from "./markdown";
 import { DIGEST_PROMPT } from "./pipeline";
 import { artifactTaxonomy } from "./taxonomy";
 import { getVideoDurationSeconds, isLikelyVideoUrl } from "./video-duration";
+import { detectYouTubeContentForm } from "./youtube-clip-detector";
 
 const execFileAsync = promisify(execFile);
 
@@ -140,6 +141,16 @@ function parseDigestOutput(raw: string): { summary: string; keyPoints: string[] 
   return { summary, keyPoints };
 }
 
+/**
+ * A short feed-card description derived from the free-form L1 digest (first sentence or two,
+ * stripped + truncated). Used when there is no reweave to supply its own `description`.
+ */
+function deriveDescription(markdown: string): string {
+  const plain = stripMarkdown(markdown).replace(/\s+/g, " ").trim();
+  const firstTwo = sentences(plain).slice(0, 2).join(" ");
+  return (firstTwo || plain).slice(0, 280).trim();
+}
+
 function firstHttpUrl(text: string): string | null {
   return text.match(/https?:\/\/[^\s)>"]+/i)?.[0].replace(/[.,;:!?]+$/, "") || null;
 }
@@ -185,6 +196,14 @@ function normalizeXTitle(raw: RawArtifact, linkedXContent: string | null): RawAr
 function xStatusId(url: string | null | undefined): string | null {
   if (!url) return null;
   return url.match(/\/status\/(\d+)/)?.[1] || null;
+}
+
+function metadataNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function metadataString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 async function resolveShortUrl(url: string): Promise<string | null> {
@@ -495,7 +514,7 @@ function projectSlugFromTarget(target: string | null, projectSlugs: Set<string>)
 export async function digestArtifact(
   raw: RawArtifact,
   source: LibrarySourceConfig,
-  options: { useSummarize?: boolean; vaultPath?: string; preferCachedSource?: boolean } = {},
+  options: { useSummarize?: boolean; vaultPath?: string; preferCachedSource?: boolean; reweaveTimeoutMs?: number } = {},
 ): Promise<ProcessedArtifact> {
   const extractionNotes: string[] = [];
   const mediaEnrichment = await enrichRawArtifactMedia(raw, {
@@ -693,17 +712,22 @@ export async function digestArtifact(
     : source.channel === "youtube" || source.channel === "twitter"
       ? "references/process"
       : "references";
-  // LLM connection judgment runs ONLY when the artifact will be durably saved — explicit-save
-  // sources, or discovery items the policy recommends filing. Candidates that stay in the review
-  // cache get no connections (no LLM spend) until they are promoted/re-judged.
-  const willBeDurablySaved = source.intent === "explicit_save" || saveRecommendation === "file";
-  const shouldWeaveConnections = willBeDurablySaved && taxonomy.library_mode === "study";
+  // ONE processing path, gated only by INTENT (study vs keep) — never by candidate-vs-saved or a
+  // flag. STUDY items (candidate OR saved) get the full reweave: free-form digest + woven
+  // connections. KEEP items (products/shopping/bookmarks) get the clean L1 digest only — no deep
+  // analysis. The only quality divergence beyond study/keep is a TECHNICAL failure, handled by the
+  // graceful degradation below (reweave_pending → re-upgraded on a later pass).
+  const shouldWeaveConnections = taxonomy.library_mode === "study";
   let connectionSuggestions: ProcessedArtifact["connection_suggestions"] = [];
   let connectedProjects: string[] = [];
   let connectionReasoning = "";
   let reweaveCandidates: ProcessedArtifact["reweave_candidates"] = [];
-  let digestMarkdown: string | undefined;
-  let description: string | undefined;
+  // L1 default body for EVERYONE: the free-form CAPTURE_VOICE digest from `summarize --prompt
+  // DIGEST_PROMPT`. A study reweave overrides it below; a keep item keeps it; a study item whose
+  // reweave can't run degrades to it and is flagged `reweave_pending` for re-upgrade on a later pass.
+  let digestMarkdown: string | undefined = summarized?.trim() || undefined;
+  let description: string | undefined = digestMarkdown ? deriveDescription(digestMarkdown) : undefined;
+  let reweavePending = false;
   const vaultPath = options.vaultPath || process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER;
   if (shouldWeaveConnections && process.env.LIBRARY_CONNECTIONS_DISABLED !== "1" && vaultPath) {
     const projectSlugs = projectSlugSet(vaultPath);
@@ -722,10 +746,13 @@ export async function digestArtifact(
       taxonomy.source_folder ? `folder: ${taxonomy.source_folder}` : "",
       taxonomy.library_mode === "keep" ? "mode: keep / quiet durable memory" : "mode: study / weave into knowledge work",
     ].filter(Boolean).join("; ");
-    const reweave = await reweaveArtifact(kbIndex, { title: raw.title, sourceContent, intent }, { vaultPath });
+    const reweave = await reweaveArtifact(kbIndex, { title: raw.title, sourceContent, intent }, {
+      vaultPath,
+      timeoutMs: options.reweaveTimeoutMs,
+    });
     if (reweave) {
-      digestMarkdown = reweave.digest_markdown || undefined;
-      description = reweave.description || undefined;
+      digestMarkdown = reweave.digest_markdown || digestMarkdown;
+      description = reweave.description || description;
       // Keep first-party ties ahead of library cross-references so rendering reflects priority.
       const orderedConnections = [...reweave.connections_first_party, ...reweave.connections_library];
       connectionSuggestions = orderedConnections.map((connection) => ({
@@ -746,32 +773,41 @@ export async function digestArtifact(
       // We never auto-rename files; raw.title is kept as the H1 and filename basis. The reweave's
       // proposed_title is a suggestion only and is not persisted from this path.
     } else {
-      // Reweave failed/disabled — fall back to the prior judgeConnections behavior so durable
-      // saves keep getting connection suggestions, and the parseDigestOutput summary/key_points
-      // above remain the body.
-      const judgment = await judgeConnections(kbIndex, {
-        title: raw.title,
-        summary,
-        keyPoints,
-        sourceExcerpt: sourceCache?.content || raw.content || metadataExcerpt || summary,
-      }, { vaultPath });
-      connectionSuggestions = judgment.connections;
-      connectionReasoning = judgment.reasoning;
-      reweaveCandidates = judgment.reweave_candidates || [];
-      connectedProjects = Array.from(new Set(
-        judgment.connections
-          .map((suggestion) => suggestion.target)
-          .filter((target): target is string => Boolean(target) && projectSlugs.has(target as string)),
-      ));
+      // Reweave couldn't run (rate-limited / parse failure). The L1 free-form digest stands as the
+      // body; flag for re-upgrade so a later pass adds connections — never stamp a study item "done"
+      // without them. The backfill orchestrator re-includes reweave_pending items regardless of stamp.
+      reweavePending = true;
     }
+  } else if (shouldWeaveConnections) {
+    // Study item, but connections are disabled or there's no vault path — same technical degradation.
+    reweavePending = true;
   }
   const connectionWhy = connectionReasoning ? ` ${connectionReasoning}` : "";
 
   // For video sources, capture total duration (via yt-dlp) so the feed/list can badge it.
   let videoDurationSeconds: number | undefined;
   if (format === "video" || isLikelyVideoUrl(raw.url)) {
-    videoDurationSeconds = (await getVideoDurationSeconds(raw.url)) ?? undefined;
+    videoDurationSeconds = metadataNumber(raw.metadata.video_duration_seconds)
+      ?? metadataNumber(raw.metadata.youtube_duration_seconds)
+      ?? (await getVideoDurationSeconds(raw.url))
+      ?? undefined;
   }
+  const preflightClip = raw.metadata.youtube_clip && typeof raw.metadata.youtube_clip === "object"
+    ? raw.metadata.youtube_clip as ProcessedArtifact["youtube_clip"]
+    : undefined;
+  const youtubeClip = source.channel === "youtube"
+    ? preflightClip || detectYouTubeContentForm({
+      title: raw.title,
+      description: metadataString(raw.metadata.youtube_description_preview) || raw.content || "",
+      channelTitle: metadataString(raw.metadata.youtube_channel_title) || raw.author,
+      sourceId: source.id,
+      sourceName: source.name,
+      sourceIntent: source.intent,
+      sourceSignal: source.signal || metadataString(raw.metadata.signal),
+      tags: Array.isArray(raw.metadata.youtube_tags) ? raw.metadata.youtube_tags.map(String) : tags,
+      durationSeconds: videoDurationSeconds ?? null,
+    })
+    : undefined;
 
   return {
     raw,
@@ -779,9 +815,11 @@ export async function digestArtifact(
     format,
     summary,
     video_duration_seconds: videoDurationSeconds,
+    youtube_clip: youtubeClip,
     key_points: keyPoints.length ? keyPoints : [raw.title],
     digest_markdown: digestMarkdown,
     description,
+    reweave_pending: reweavePending || undefined,
     assessment: {
       save_recommendation: saveRecommendation,
       why: source.intent === "explicit_save"

@@ -156,7 +156,10 @@ async function main(): Promise<void> {
       continue;
     }
     const { data, body } = parsed;
-    if (data.type !== "reference") {
+    // Accept durable references AND discovery candidates (reference-candidate). Both reweave through
+    // the same reweaveArtifact path and re-stamp pipeline_version; candidates are swept by
+    // library-backfill --include-candidates (the v2.1 onion). Anything else is left untouched.
+    if (data.type !== "reference" && data.type !== "reference-candidate") {
       results.push({ path: filePath, status: "skipped_not_reference", reason: `type is ${String(data.type)}, not reference` });
       continue;
     }
@@ -297,6 +300,8 @@ ${rawContentSection}
     else delete nextData.connection_suggestions;
     nextData.reconnected_at = new Date().toISOString();
     nextData.pipeline_version = PIPELINE_VERSION;
+    // A successful reweave upgrades a degraded (L1-only) item — clear the re-upgrade flag.
+    delete nextData.reweave_pending;
     for (const key of Object.keys(nextData)) {
       if (nextData[key] === undefined) delete nextData[key];
     }

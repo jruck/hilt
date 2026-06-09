@@ -86,8 +86,15 @@ function expandRecurringEvent(source: CalendarSourceConfig, event: ICAL.Event, w
 }
 
 function eventAllowedForSource(source: CalendarSourceConfig, event: CalendarEventInput): boolean {
+  if (declinedBySourceAccount(source, event)) return false;
   if (source.id !== "us-holidays") return true;
-  return event.allDay && /\bpublic holiday\b/i.test(event.description || "");
+  return event.allDay;
+}
+
+function declinedBySourceAccount(source: CalendarSourceConfig, event: CalendarEventInput): boolean {
+  const account = source.accountHint.trim().toLowerCase();
+  if (!account) return false;
+  return event.attendees.some((attendee) => attendee.email?.trim().toLowerCase() === account && attendee.responseStatus === "declined");
 }
 
 function eventToInput(
@@ -242,7 +249,7 @@ function buildDedupeKey(uid: string | null, title: string, start: string, end: s
 }
 
 function eventIntersectsWindow(event: CalendarEventInput, window: ParseWindow): boolean {
-  return event.sortEnd >= window.start.getTime() && event.sortStart <= window.end.getTime();
+  return event.sortEnd > window.start.getTime() && event.sortStart < window.end.getTime();
 }
 
 function timeToStorage(time: ICAL.Time): string {

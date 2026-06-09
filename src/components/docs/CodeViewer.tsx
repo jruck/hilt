@@ -177,7 +177,7 @@ export function CodeViewer({ filePath, content, readOnly = true, onChange }: Cod
   }, [extension, resolvedTheme]);
 
   return (
-    <div data-mobile-scroll-chrome="bottom" className="flex-1 flex flex-col overflow-auto bg-[var(--content-surface)] px-4 pb-[calc(var(--hilt-mobile-nav-clearance)+1rem)]">
+    <div data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-4 flex-1 flex flex-col overflow-auto bg-[var(--content-surface)] px-4">
       {/* Stats centered at top */}
       <div className="text-center text-xs text-[var(--text-tertiary)] py-3">
         {lineCount} line{lineCount !== 1 ? "s" : ""}

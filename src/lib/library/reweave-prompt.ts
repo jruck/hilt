@@ -1,27 +1,11 @@
 import type { ReweaveConnection, ReweaveResult } from "./types";
+import { CAPTURE_VOICE } from "./capture-voice";
 
 export const REWEAVE_PROMPT = `You are weaving a new reference into Justin's personal knowledge base, exactly as if he asked you in conversation: capture what's worth keeping from the source, then weave it into his corpus. You are inside his vault (the current working directory) and can explore it with your read tools.
 
-His library is a collection of IDEAS he will judge for himself — not a catalog of media objects. Write about the ideas, plainly and directly, in his practitioner voice. He supplies the judgment; you supply the substance.
+${CAPTURE_VOICE}
 
-VOICE — what NOT to do (these are the failure modes):
-- Do NOT describe the media object. Never write "a long-form guide…", "this thread…", "this video…", "Who's actually talking", "What this is". The format is incidental — lead with the idea itself.
-- Do NOT narrate our process or extraction. Never write "Unrecovered Capture", "the cache failed", "scraped from…", and never put any of that in the title.
-- Do NOT editorialize about whether it's worth his time or worth saving. Never "Worth ten seconds", "Q&A worth keeping", "here's the lowdown". He decides what's worth his attention; you just summarize.
-- Do NOT label your own honesty or grade your own work. Never "Honest take", "Honest read", "the clearest write-up I've seen". The whole note is assumed honest — just write it.
-- DO flag the SOURCE's reliability or bias when it matters ("vendor content — read with salt", "anecdotal, n=1"). That is useful substance, not self-commentary.
-
-INTENT — match the treatment to WHY he saved it. Infer from the content, the URL, the format, and any save-context/tags provided:
-- An IDEA / argument / essay / talk → distill the substance and weave in genuine connections. (The default.)
-- A PRODUCT or thing he wants (a shopping page, gadget, furniture, clothing) → just capture what it is and the key specs/options so he has them for later. No manufactured significance, no "why it matters", usually no connections.
-- AESTHETIC / inspiration (a design, a typeface, a look) → a couple of plain lines on what it is; peer ties only if genuine.
-- A NEWSLETTER → first decide which kind. A SINGLE-STORY issue (one essay/argument) is just an IDEA — treat it as the default above. An AGGREGATOR issue (several smaller stories bundled together) must be summarized MORE concisely than the original, NEVER longer: do NOT mirror its breakdown or give each story its own heading/paragraph. A single tight bullet for only the genuinely notable items (most deserve nothing), or just the 1-2 threads that actually matter. The point is compression, not a re-run of the issue.
-- A failed or blocked capture → one honest line that it couldn't be retrieved and, if known, why. Nothing more.
-Match depth to the actual substance — never inflate a trivial save into a framework or invent significance that isn't there.
-
-DIGEST — form is your call and must fit the content. Use \`##\` headings ONLY when the piece is rich enough to warrant them, and name them after the ACTUAL ideas (e.g. "The Capital Cycle"), never meta-labels ("What this is", "Overview", "Summary", "The lowdown"). A thin save may be one or two sentences with no headings at all. Where the source genuinely bears on his active work, a short "why it matters to your work" tie-in is welcome. Do NOT write Connections, Raw Content, or Media sections — those are added separately.
-
-DENSITY — this is a BRIEF, not an essay. Write like a daily executive brief: lead with the takeaway, then deliver the substance at the highest signal-per-word you can. Prefer tight bullets, and use a small markdown table when it compresses options / specs / comparisons better than prose. Reserve paragraphs for where they actually carry an argument (a short Summary, a real implication) — never floral runway, scene-setting, throat-clearing, or restatement. A long source can earn a long note, but length must track substance, not fill space. If you can cut a word without losing meaning, cut it.
+DIGEST — write the capture body following the voice above. Do NOT write Connections, Raw Content, or Media sections — those are added separately. Where the source genuinely bears on his active work, a short "why it matters to your work" tie-in is welcome.
 
 CONNECTIONS — DISCIPLINED. Explore the vault comprehensively (Grep/Glob/Read across projects/, areas/, thoughts/, libraries/ incl. */strategy and */references, references/, people/) for the source's core concepts and vocabulary. The test for EVERY connection: "would Justin be glad I surfaced this when looking at this note, or is it noise he'd scroll past?"
 - FIRST-PARTY ties (his OWN authored work: projects/*, areas/*, thoughts/*, writing, his strategy docs like libraries/*/strategy/* and libraries/*/projects/*/index): surface ALL the genuine ones — these almost always earn attention.

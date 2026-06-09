@@ -1,9 +1,9 @@
 import { loadEnvConfig } from "@next/env";
 import { expireCandidates } from "../src/lib/library/candidate-cache";
-import { readDeadLetters } from "../src/lib/library/dead-letter";
+import { unresolvedDeadLetterSources } from "../src/lib/library/dead-letter";
 import { getRecommendations } from "../src/lib/library/recommendations";
 import { runIngestion } from "../src/lib/library/runner";
-import { loadSources } from "../src/lib/library/source-config";
+import { loadSources, readSourceState } from "../src/lib/library/source-config";
 import { verifyLibraryAuth } from "../src/lib/library/auth";
 
 loadEnvConfig(process.cwd());
@@ -20,7 +20,7 @@ function argValue(name: string): string | null {
 }
 
 function positionals(): string[] {
-  const valueOptions = new Set(["--mode", "--limit"]);
+  const valueOptions = new Set(["--mode", "--limit", "--reweave-timeout-ms"]);
   const values: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -76,9 +76,9 @@ async function main() {
   }
 
   if (selectedMode === "retry") {
-    const retrySourceIds = Array.from(new Set(readDeadLetters(vaultPath).map((entry) => entry.source_id))).filter(Boolean);
+    const retrySourceIds = unresolvedDeadLetterSources(vaultPath, readSourceState(vaultPath));
     if (!retrySourceIds.length) {
-      console.log(JSON.stringify({ checked: 0, message: "No dead-letter sources to replay." }, null, 2));
+      console.log(JSON.stringify({ checked: 0, message: "No unresolved dead-letter sources to replay." }, null, 2));
       return;
     }
     const report = await runIngestion(vaultPath, { sourceIds: retrySourceIds, useSummarize, dryRun, ignoreState });
@@ -103,6 +103,7 @@ async function main() {
     ignoreState,
     useCursor: selectedMode === "backfill",
     limit: argValue("--limit") ? Number(argValue("--limit")) : undefined,
+    reweaveTimeoutMs: argValue("--reweave-timeout-ms") ? Number(argValue("--reweave-timeout-ms")) : undefined,
   });
   console.log(JSON.stringify(report, null, 2));
   process.exitCode = report.blocked.length || report.errors.length ? 1 : 0;

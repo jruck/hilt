@@ -14,14 +14,17 @@ import { ThoughtBoard } from "./ThoughtBoard";
 import { RecycleModal } from "./RecycleModal";
 import { BridgeTaskPanel } from "./BridgeTaskPanel";
 import { AppHud, AppHudCollapsedBar } from "@/components/AppHud";
+import { LoadingState } from "@/components/ui/LoadingState";
 import { parseLifecycle } from "@/lib/attribution";
-import { Loader2 } from "lucide-react";
+import type { CalendarEventOpenDetail } from "@/lib/calendar/deeplink";
 import type { BridgeTask, BridgeProject, BridgeWeeklySection } from "@/lib/types";
 
 interface BridgeViewProps {
   addTaskTrigger?: number;
   hudVisible?: boolean;
   onHudVisibleChange?: (visible: boolean) => void;
+  onOpenCalendarEvent?: (detail: CalendarEventOpenDetail) => void;
+  openTaskRequest?: { taskId: string; token: number } | null;
   searchQuery?: string;
   onNavigateToProject?: (project: BridgeProject) => void;
 }
@@ -32,6 +35,8 @@ export function BridgeView({
   addTaskTrigger = 0,
   hudVisible = false,
   onHudVisibleChange,
+  onOpenCalendarEvent,
+  openTaskRequest,
   searchQuery = "",
   onNavigateToProject,
 }: BridgeViewProps) {
@@ -65,6 +70,7 @@ export function BridgeView({
   const [autoFocusPanel, setAutoFocusPanel] = useState(false);
   const [autoFocusTitleToken, setAutoFocusTitleToken] = useState(0);
   const [sheetVisible, setSheetVisible] = useState(false);
+  const lastHandledOpenTaskToken = useRef<number | null>(null);
 
   // Build project path → title map for markdown serialization
   const projectTitlesMap = useMemo(() => {
@@ -239,6 +245,24 @@ export function BridgeView({
     setAutoFocusPanel(false);
   }, [selectedTask, markTaskRead]);
 
+  const openTaskById = useCallback((taskId: string) => {
+    const task = weekly?.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    if (selectedTask && selectedTask.id !== task.id) {
+      markTaskRead(selectedTask);
+    }
+    setSelectedTask(task);
+    setAutoFocusPanel(false);
+  }, [weekly?.tasks, selectedTask, markTaskRead]);
+
+  useEffect(() => {
+    if (!openTaskRequest || lastHandledOpenTaskToken.current === openTaskRequest.token) return;
+    const task = weekly?.tasks.find(t => t.id === openTaskRequest.taskId);
+    if (!task) return;
+    openTaskById(task.id);
+    lastHandledOpenTaskToken.current = openTaskRequest.token;
+  }, [openTaskById, openTaskRequest, weekly?.tasks]);
+
   const weeklySectionOrder = useMemo(() => {
     if (!weekly) return [];
     const order: BridgeWeeklySection[] = [...(weekly.sectionOrder ?? [])];
@@ -325,9 +349,7 @@ export function BridgeView({
 
   if (weeklyLoading && !weekly) {
     return (
-      <div className="flex-1 flex items-center justify-center text-[var(--text-tertiary)]">
-        <Loader2 className="w-5 h-5 animate-spin" />
-      </div>
+      <LoadingState />
     );
   }
 
@@ -343,15 +365,21 @@ export function BridgeView({
     <div className={`${isMobile ? "flex-col" : ""} flex min-h-0 flex-1 overflow-hidden`}>
       {isMobile && onHudVisibleChange ? (
         hudVisible ? (
-          <AppHud placement="top" variant="mobile" onCollapse={() => onHudVisibleChange(false)} />
+          <AppHud
+            placement="top"
+            variant="mobile"
+            onCollapse={() => onHudVisibleChange(false)}
+            onOpenCalendarEvent={onOpenCalendarEvent}
+            onOpenTask={openTaskById}
+          />
         ) : (
           <AppHudCollapsedBar onExpand={() => onHudVisibleChange(true)} />
         )
       ) : null}
 
       {/* Main content */}
-      <div data-mobile-scroll-chrome="bottom" className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-        <div className={`max-w-3xl mx-auto px-6 py-8 ${isMobile ? "pb-[var(--hilt-mobile-nav-clearance)]" : ""}`}>
+      <div data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+        <div className="max-w-3xl mx-auto px-6 py-8">
           <WeekHeader
             week={weekly.week}
             needsRecycle={weekly.needsRecycle}
@@ -383,9 +411,7 @@ export function BridgeView({
             )}
 
             {(projectsLoading || thoughtsLoading) && !projects && !thoughts && (
-              <div className="text-center text-[var(--text-tertiary)] py-4">
-                <Loader2 className="w-4 h-4 animate-spin inline-block" />
-              </div>
+              <LoadingState className="min-h-16 py-4" />
             )}
 
             {q && !hasAnyResults && (

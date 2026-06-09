@@ -256,6 +256,26 @@ export function getLastGranolaSeenAt(): string | null {
   return row?.lastSeenAt ?? null;
 }
 
+export function hasRecentOpenGranolaMeeting(nowMs = Date.now(), recentMs = 4 * 60 * 60_000): boolean {
+  const since = new Date(nowMs - recentMs).toISOString();
+  const rows = getGranolaSyncDb().prepare(`
+    SELECT raw_json FROM granola_documents
+    WHERE COALESCE(updated_at, created_at, last_seen_at) >= ?
+    ORDER BY COALESCE(updated_at, created_at, last_seen_at) DESC
+    LIMIT 50
+  `).all(since) as Array<{ raw_json: string }>;
+
+  return rows.some((row) => {
+    try {
+      const raw = JSON.parse(row.raw_json) as { meeting_end_count?: unknown; meetingEndCount?: unknown };
+      const value = raw.meeting_end_count ?? raw.meetingEndCount;
+      return typeof value === "number" && value === 0;
+    } catch {
+      return false;
+    }
+  });
+}
+
 export function getGranolaSyncDbStatus(base: Omit<GranolaSyncStatus, "lastRun" | "documents">): GranolaSyncStatus {
   const db = getGranolaSyncDb();
   const lastRun = db.prepare("SELECT * FROM granola_sync_runs ORDER BY id DESC LIMIT 1").get() as RunRow | undefined;

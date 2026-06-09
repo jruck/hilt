@@ -84,6 +84,52 @@ describe("calendar ICS parsing", () => {
     assert.equal(focusDay.start, "2026-05-31");
   });
 
+  test("drops events declined by the source account", () => {
+    const source = CALENDAR_SOURCE_CONFIGS.find((item) => item.id === "priceless")!;
+    const parsed = parseIcsFeed(source, `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:declined-self@example.com
+DTSTAMP:20260603T120000Z
+DTSTART:20260603T183000Z
+DTEND:20260603T190000Z
+STATUS:CONFIRMED
+SUMMARY:Priceless + AI Strategy Session
+ATTENDEE;CN=Justin Ruckman;PARTSTAT=DECLINED:mailto:justin@pricelessmisc.com
+ATTENDEE;CN=Matt;PARTSTAT=ACCEPTED:mailto:matt@pricelessmisc.com
+END:VEVENT
+END:VCALENDAR`, {
+      start: new Date("2026-06-03T00:00:00.000Z"),
+      end: new Date("2026-06-04T00:00:00.000Z"),
+    });
+
+    assert.equal(parsed.events.length, 0);
+  });
+
+  test("keeps unanswered invitations for the source account", () => {
+    const source = CALENDAR_SOURCE_CONFIGS.find((item) => item.id === "evercommerce")!;
+    const parsed = parseIcsFeed(source, `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:needs-action-self@example.com
+DTSTAMP:20260603T120000Z
+DTSTART:20260603T150000Z
+DTEND:20260603T160000Z
+STATUS:CONFIRMED
+SUMMARY:Chatmeter SES huddle
+ATTENDEE;CN=Justin Ruckman;PARTSTAT=NEEDS-ACTION:mailto:jruckman@evercommerce.com
+ATTENDEE;CN=Sebastien;PARTSTAT=ACCEPTED:mailto:sebastien@example.com
+END:VEVENT
+END:VCALENDAR`, {
+      start: new Date("2026-06-03T00:00:00.000Z"),
+      end: new Date("2026-06-04T00:00:00.000Z"),
+    });
+
+    assert.equal(parsed.events.length, 1);
+    assert.equal(parsed.events[0].title, "Chatmeter SES huddle");
+    assert.equal(parsed.events[0].attendees[0].responseStatus, "needs-action");
+  });
+
   test("applies recurrence exceptions", () => {
     const source = CALENDAR_SOURCE_CONFIGS.find((item) => item.id === "evercommerce")!;
     const parsed = parseIcsFeed(source, `BEGIN:VCALENDAR
@@ -250,15 +296,16 @@ END:VCALENDAR`, {
     assert.match(links[0].url, /meeting_PRIMARY/);
   });
 
-  test("keeps only public holidays from the US holidays source", () => {
+  test("keeps all-day holidays and observances from the US holidays source", () => {
     const source = CALENDAR_SOURCE_CONFIGS.find((item) => item.id === "us-holidays")!;
     const parsed = parseIcsFeed(source, CALENDAR_FIXTURE_ICS["us-holidays"], {
       start: new Date("2026-05-24T00:00:00.000Z"),
       end: new Date("2026-05-30T23:59:59.999Z"),
     });
 
-    assert.deepEqual(parsed.events.map((event) => event.title), ["Memorial Day"]);
+    assert.deepEqual(parsed.events.map((event) => event.title), ["Memorial Day", "National Tuba Day"]);
     assert.equal(parsed.events[0].allDay, true);
+    assert.equal(parsed.events[1].allDay, true);
   });
 });
 
@@ -354,6 +401,39 @@ END:VCALENDAR`, {
       assert.deepEqual(events.map((event) => event.title), ["Imported history", "Live feed event"]);
       assert.equal(events.every((event) => event.sourceId === "evercommerce"), true);
       assert.equal(events.every((event) => event.calendarId === "evercommerce:primary"), true);
+    });
+  });
+
+  test("query treats all-day event end dates as exclusive", async () => {
+    await withTempCalendar(() => {
+      const source = CALENDAR_SOURCE_CONFIGS.find((item) => item.id === "personal")!;
+      const parsed = parseIcsFeed(source, `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:anniversary-boundary@example.com
+DTSTAMP:20260601T120000Z
+DTSTART;VALUE=DATE:20260603
+DTEND;VALUE=DATE:20260604
+SUMMARY:Boundary anniversary
+END:VEVENT
+END:VCALENDAR`, {
+        start: new Date(2026, 5, 3),
+        end: new Date(2026, 5, 5),
+      });
+      upsertCalendar(source.id, parsed.calendarName, source.color);
+      replaceSourceEvents(source.id, parsed.events);
+
+      const june3Events = queryCalendarEvents({
+        start: new Date(2026, 5, 3),
+        end: new Date(2026, 5, 4),
+      });
+      const june4Events = queryCalendarEvents({
+        start: new Date(2026, 5, 4),
+        end: new Date(2026, 5, 5),
+      });
+
+      assert.deepEqual(june3Events.map((event) => event.title), ["Boundary anniversary"]);
+      assert.deepEqual(june4Events.map((event) => event.title), []);
     });
   });
 
@@ -553,9 +633,9 @@ END:VCALENDAR`, window);
       assert.equal(response.status, 200);
       assert.equal(data.events.some((event) => event.title === "Platform standup"), true);
       assert.equal(data.events.some((event) => event.title === "Memorial Day"), true);
-      assert.equal(data.events.some((event) => event.title === "National Tuba Day"), false);
+      assert.equal(data.events.some((event) => event.title === "National Tuba Day"), true);
       assert.equal(data.availabilityBlocks.some((event) => event.title === "!"), true);
-      assert.deepEqual(data.holidayEvents.map((event) => event.title), ["Memorial Day"]);
+      assert.deepEqual(data.holidayEvents.map((event) => event.title), ["Memorial Day", "National Tuba Day"]);
 
       const eventWithLink = data.events.find((event) => event.joinLinks.length > 0)!;
       const detail = await detailGET(new Request(`http://hilt.test/api/calendar/events/${eventWithLink.id}`), {

@@ -205,10 +205,14 @@ export function MobileChromeContent({
 
   const style = active ? ({
     "--hilt-mobile-top-chrome-offset": offset,
+    "--hilt-mobile-chrome-overshoot": "var(--hilt-mobile-top-chrome-offset)",
     top: "var(--hilt-mobile-top-chrome-offset)",
     bottom: "calc(0px - var(--hilt-mobile-top-chrome-offset))",
     transform: hidden ? "translateY(calc(0px - var(--hilt-mobile-top-chrome-offset)))" : "translateY(0)",
-  } as CSSProperties & { "--hilt-mobile-top-chrome-offset": string }) : undefined;
+  } as CSSProperties & {
+    "--hilt-mobile-top-chrome-offset": string;
+    "--hilt-mobile-chrome-overshoot": string;
+  }) : undefined;
 
   return (
     <div

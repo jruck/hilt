@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { FileText, List, Loader2, PanelLeft, RefreshCw, X } from "lucide-react";
 import { useSWRConfig } from "swr";
 import { useScope } from "@/contexts/ScopeContext";
@@ -11,10 +11,11 @@ import { archiveArtifact, ingestLibrarySources, markLibraryArtifactsRead, markLi
 import type { ReviewQueueStatus } from "@/lib/library/review-queue";
 import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import { SecondarySegmentedButton, SecondarySegmentedControl, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
+import { LoadingState } from "@/components/ui/LoadingState";
 import { ArtifactList, SourceNav } from "./BrowseView";
 import { FeedCard } from "./FeedCard";
 import { GenerationNoteCard } from "./GenerationNoteCard";
-import { LibraryArtifactDetailPane } from "./LibraryArtifactDetailPane";
+import { LIBRARY_META_OPEN_KEY, LibraryArtifactDetailPane } from "./LibraryArtifactDetailPane";
 import { LibraryHealthPanel } from "./LibraryHealthPanel";
 
 const SOURCE_WIDTH_KEY = "hilt-library-source-width";
@@ -32,6 +33,11 @@ interface LibraryToast {
   title: string;
   message: string;
   undo?: () => void | Promise<void>;
+}
+
+interface FeedScrollAnchor {
+  id: string;
+  offsetTop: number;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -119,7 +125,19 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   const [localHiddenIds, setLocalHiddenIds] = useState<Set<string>>(() => new Set());
   const [toast, setToast] = useState<LibraryToast | null>(null);
   const [isCheckingSources, setIsCheckingSources] = useState(false);
+  const [evalFilters, setEvalFilters] = useState<{
+    lifecycle?: string | null;
+    connection_state?: string | null;
+    digested_with?: string | null;
+    pipeline_version?: string | null;
+    substance_graded?: string | null;
+    reweave_pending?: boolean | null;
+    worth_min?: number | null;
+    feedback?: string | null;
+    youtube_clip_policy?: string | null;
+  }>({});
   const feedScrollRef = useRef<HTMLDivElement>(null);
+  const pendingFeedScrollAnchorRef = useRef<FeedScrollAnchor | null>(null);
   const pendingReadIdsRef = useRef<Set<string>>(new Set());
   const readFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const readEligibleIdsRef = useRef<Set<string>>(new Set());
@@ -144,6 +162,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
     status: statusFilter === "all" ? null : statusFilter,
     unread: ranking === "new",
     q: searchQuery || null,
+    ...evalFilters,
   }, density === "list" ? 80 : 40);
   const recommendations = useRecommendations(20);
   const reviewQueue = useReviewQueue();
@@ -194,6 +213,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   const usesRecentPaging = ranking === "recent" || ranking === "new";
   const hasMore = usesRecentPaging && recent.hasMore;
   const isLoadingMore = usesRecentPaging && recent.isLoadingMore;
+  const adminEvalActive = Boolean(evalFilters.lifecycle || evalFilters.connection_state || evalFilters.digested_with || evalFilters.pipeline_version || evalFilters.substance_graded || evalFilters.feedback || evalFilters.youtube_clip_policy || (typeof evalFilters.worth_min === "number" && evalFilters.worth_min > 0));
   const selectedVisible = selectedId ? items.some((artifact) => artifact.id === selectedId) : false;
   const selectedArtifact = selectedId ? items.find((artifact) => artifact.id === selectedId) || null : null;
   const desktopReaderVisible = density === "list" || selectedId !== null;
@@ -210,6 +230,43 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
       /^\/api\/library\/[^/]+(?:\?.*)?$/.test(key)
     ));
   }, [mutateGlobal, recent, recommendations]);
+
+  const captureFeedScrollAnchor = useCallback((id: string | null) => {
+    if (density !== "feed" || !id) return;
+    const scroller = feedScrollRef.current;
+    if (!scroller) return;
+    const card = scroller.querySelector<HTMLElement>(`[data-library-artifact-id="${CSS.escape(id)}"]`);
+    if (!card) return;
+    pendingFeedScrollAnchorRef.current = {
+      id,
+      offsetTop: card.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
+    };
+  }, [density]);
+
+  useLayoutEffect(() => {
+    const anchor = pendingFeedScrollAnchorRef.current;
+    if (!anchor || density !== "feed") return;
+
+    let frame = 0;
+    let attempts = 0;
+    const restore = () => {
+      const scroller = feedScrollRef.current;
+      const card = scroller?.querySelector<HTMLElement>(`[data-library-artifact-id="${CSS.escape(anchor.id)}"]`);
+      if (scroller && card) {
+        const currentOffset = card.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+        scroller.scrollTop += currentOffset - anchor.offsetTop;
+      }
+      attempts += 1;
+      if (attempts < 3) {
+        frame = window.requestAnimationFrame(restore);
+      } else {
+        pendingFeedScrollAnchorRef.current = null;
+      }
+    };
+
+    frame = window.requestAnimationFrame(restore);
+    return () => window.cancelAnimationFrame(frame);
+  }, [density, desktopReaderVisible, items.length, selectedId]);
 
   const flushPendingReadIds = useCallback(() => {
     const ids = Array.from(pendingReadIdsRef.current);
@@ -286,6 +343,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
       return next;
     });
     if (selectedId === id) {
+      captureFeedScrollAnchor(id);
       setSelectedId(null);
       setMobileDetailOpen(false);
       navigateLibrary("", libraryControls);
@@ -303,7 +361,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
     }
     void reviewQueue.mutate();
     refreshReadAwareData();
-  }, [libraryControls, navigateLibrary, refreshReadAwareData, reviewQueue, selectedId]);
+  }, [captureFeedScrollAnchor, libraryControls, navigateLibrary, refreshReadAwareData, reviewQueue, selectedId]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -349,12 +407,13 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
         setSelectedId(nextId);
         replaceLibraryHistory(libraryItemScope(nextId), libraryControls);
       } else {
+        captureFeedScrollAnchor(selectedId);
         setSelectedId(null);
         setMobileDetailOpen(false);
         if (libraryItemIdFromScope(scopePath)) replaceLibraryHistory("", libraryControls);
       }
     }
-  }, [density, items, libraryControls, loading, localReadIds, ranking, replaceLibraryHistory, scopePath, selectedId, selectedVisible]);
+  }, [captureFeedScrollAnchor, density, items, libraryControls, loading, localReadIds, ranking, replaceLibraryHistory, scopePath, selectedId, selectedVisible]);
 
   useEffect(() => {
     if (density === "list" && !selectedId && items[0]) {
@@ -369,6 +428,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
     if (!selectedId) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && density === "feed") {
+        captureFeedScrollAnchor(selectedId);
         setSelectedId(null);
         setMobileDetailOpen(false);
         navigateLibrary("", libraryControls);
@@ -376,7 +436,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [density, libraryControls, navigateLibrary, selectedId]);
+  }, [captureFeedScrollAnchor, density, libraryControls, navigateLibrary, selectedId]);
 
   // Mark an item read only when you move OFF it (open another, or close the reader) — not on open.
   // Combined with the unread filter retaining the selected item, an opened item stays visible while
@@ -449,10 +509,19 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
         sourceIds: checkedSourceIds,
         cadence: checkedSourceIds ? undefined : "hourly",
         limit: 10,
+        reweaveTimeoutMs: 60_000,
       });
       const added = report.saved + report.candidates + report.promoted;
       const issueCount = report.errors.length + report.blocked.length;
       const sourceLabel = checkedSourceIds ? selectedSourceId : "hourly sources";
+      const clipReviewCount = report.sources.reduce((total, source) => {
+        const policy = source.youtube_clip_review?.policy_actions;
+        if (!policy) return total;
+        return total + policy.suppress + policy.label_review + policy.label_only;
+      }, 0);
+      const clipReviewMessage = clipReviewCount
+        ? `${clipReviewCount} clip-review ${clipReviewCount === 1 ? "item" : "items"} flagged`
+        : null;
       setToast({
         id: `source-check:${Date.now()}`,
         title: issueCount
@@ -461,8 +530,10 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
         message: issueCount
           ? "Source check needs attention"
           : added
-            ? `Added ${added} ${added === 1 ? "item" : "items"} from ${sourceLabel}`
-            : `No new items from ${sourceLabel}`,
+            ? `Added ${added} ${added === 1 ? "item" : "items"} from ${sourceLabel}${clipReviewMessage ? `; ${clipReviewMessage}` : ""}`
+            : clipReviewMessage
+              ? `${clipReviewMessage} from ${sourceLabel}`
+              : `No new items from ${sourceLabel}`,
       });
       refreshReadAwareData();
       void mutateGlobal((key) => typeof key === "string" && (
@@ -489,6 +560,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
       return next;
     });
     if (selectedId === artifact.id) {
+      captureFeedScrollAnchor(artifact.id);
       setSelectedId(null);
       setMobileDetailOpen(false);
       navigateLibrary("", libraryControls);
@@ -529,7 +601,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
       },
     });
     refreshReadAwareData();
-  }, [libraryControls, navigateLibrary, refreshReadAwareData, selectedId]);
+  }, [captureFeedScrollAnchor, libraryControls, navigateLibrary, refreshReadAwareData, selectedId]);
 
   const archiveReference = useCallback(async (artifact: LibraryArtifact | RecommendedArtifact) => {
     setLocalHiddenIds((previous) => {
@@ -539,6 +611,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
     });
     const wasSelected = selectedId === artifact.id;
     if (wasSelected) {
+      captureFeedScrollAnchor(artifact.id);
       setSelectedId(null);
       setMobileDetailOpen(false);
       navigateLibrary("", libraryControls);
@@ -570,22 +643,33 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
       message: "Reference archived",
     });
     refreshReadAwareData();
-  }, [libraryControls, navigateLibrary, refreshReadAwareData, selectedId]);
+  }, [captureFeedScrollAnchor, libraryControls, navigateLibrary, refreshReadAwareData, selectedId]);
 
-  const openArtifact = useCallback((artifact: LibraryArtifact | RecommendedArtifact) => {
+  const openArtifact = useCallback((artifact: LibraryArtifact | RecommendedArtifact, intent: "default" | "metadata" = "default") => {
     // Do NOT mark read on open — an opened item stays in the unread view while you read it. It's
     // marked read only when you move off it (see the deselect effect below), so it doesn't vanish.
+    if (intent === "metadata") {
+      try { window.localStorage.setItem(LIBRARY_META_OPEN_KEY, "1"); } catch { /* ignore */ }
+      captureFeedScrollAnchor(artifact.id);
+      readEligibleIdsRef.current.add(artifact.id);
+      setSelectedId(artifact.id);
+      setMobileDetailOpen(true);
+      navigateLibrary(libraryItemScope(artifact.id), libraryControls);
+      return;
+    }
     if (density === "feed" && selectedId === artifact.id) {
+      captureFeedScrollAnchor(artifact.id);
       setSelectedId(null);
       setMobileDetailOpen(false);
       navigateLibrary("", libraryControls);
       return;
     }
+    captureFeedScrollAnchor(artifact.id);
     readEligibleIdsRef.current.add(artifact.id);
     setSelectedId(artifact.id);
     setMobileDetailOpen(true);
     navigateLibrary(libraryItemScope(artifact.id), libraryControls);
-  }, [density, libraryControls, navigateLibrary, selectedId]);
+  }, [captureFeedScrollAnchor, density, libraryControls, navigateLibrary, selectedId]);
 
   const selectDensity = useCallback((nextDensity: LibraryDensity) => {
     const nextControls = { ...libraryControls, density: nextDensity };
@@ -667,9 +751,9 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
                   onClick={() => setSourcesOpen((value) => !value)}
                   active={sourcesOpen}
                   icon={<PanelLeft className="h-4 w-4" />}
-                  title="Sources"
+                  title="Filters"
                 >
-                  Sources
+                  Filters
                 </SecondarySegmentedButton>
               </SecondarySegmentedControl>
               <SecondarySegmentedControl>
@@ -743,8 +827,8 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
           {sourcesOpen && (
             <button
               type="button"
-              aria-label="Close sources"
-              className="absolute bottom-0 right-0 top-0 z-10 bg-black/5 left-[344px] lg:hidden"
+              aria-label="Close filters"
+              className="absolute bottom-0 right-0 top-0 z-10 bg-transparent left-[344px] lg:hidden"
               onClick={() => setSourcesOpen(false)}
             />
           )}
@@ -759,6 +843,8 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
               onTagSelect={selectTag}
               onStatusSelect={selectStatusFilter}
               onModeSelect={selectModeFilter}
+              evalFilters={evalFilters}
+              onEvalFilterChange={setEvalFilters}
               className="absolute bottom-3 left-3 top-3 z-20 w-[min(82vw,320px)] rounded-lg border border-[var(--border-default)] content-card-shadow lg:static lg:bottom-auto lg:left-auto lg:top-auto lg:z-auto lg:block lg:w-[var(--library-source-width)] lg:flex-none lg:shrink-0 lg:rounded-none lg:border-0 lg:shadow-none"
               style={{ "--library-source-width": `${sourceWidth}px` } as CSSProperties}
             />
@@ -771,7 +857,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
               />
               <button
                 type="button"
-                aria-label="Resize or collapse sources"
+                aria-label="Resize or collapse filters"
                 data-testid="library-source-resizer"
                 className="hilt-resize-separator-hit absolute inset-y-0 left-1/2 z-20 w-2 -translate-x-1/2 cursor-col-resize border-0 bg-transparent p-0"
                 onMouseDown={startResize("source", sourceWidth)}
@@ -790,12 +876,12 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
             style={{ "--library-content-width": `${contentWidth}px` } as CSSProperties}
           >
             {density === "feed" ? (
-              <div ref={feedScrollRef} onScroll={handleFeedScroll} data-mobile-scroll-chrome="top-bottom" data-testid="library-feed-list" className="min-h-0 flex-1 overflow-y-auto">
-                <div className={`${desktopReaderVisible ? "max-w-none gap-3 px-3 py-3" : "mx-auto max-w-3xl gap-5 px-4 py-5"} flex w-full flex-col`}>
+              <div ref={feedScrollRef} onScroll={handleFeedScroll} data-mobile-scroll-chrome="top-bottom" data-testid="library-feed-list" className="hilt-mobile-scroll-clearance min-h-0 flex-1 overflow-y-auto">
+                <div className={`${desktopReaderVisible ? "max-w-none gap-3 px-3 py-3" : "mx-auto max-w-4xl gap-5 px-4 py-5"} flex w-full flex-col`}>
                   {ranking === "updated" && reviewQueue.notes.map((note) => (
                     <GenerationNoteCard key={note.batch} note={note} />
                   ))}
-                  {loading && <div className="rounded-lg border border-[var(--border-default)] bg-[var(--content-surface)] p-5 text-sm text-[var(--text-secondary)]">Loading library...</div>}
+                  {loading && <LoadingState label="Loading library" className="min-h-40 py-8" />}
                   {!loading && items.length === 0 && (
                     <div className="rounded-lg border border-[var(--border-default)] bg-[var(--content-surface)] p-5 text-sm text-[var(--text-secondary)]">
                       No library items match these controls.
@@ -805,8 +891,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
                     <FeedCard
                       key={artifact.id}
                       artifact={artifact}
-                      why={"why" in artifact && typeof artifact.why === "string" ? artifact.why : undefined}
-                      priority={"priority" in artifact && (artifact.priority === "must_read" || artifact.priority === "recommended" || artifact.priority === "interesting") ? artifact.priority : undefined}
+                      showEvalBreakdown={adminEvalActive}
                       promoteReason={ranking === "for-you" ? "for_you_selected" : "manual_save"}
                       onChanged={refresh}
                       onOpen={openArtifact}
@@ -815,11 +900,12 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
                       onArchiveReference={archiveReference}
                       onReviewStatus={ranking === "updated" ? handleReviewStatus : undefined}
                       active={artifact.id === selectedId}
+                      wideLayout={!desktopReaderVisible}
                     />
                   ))}
                   {usesRecentPaging && items.length > 0 && (
                     <div className="py-2 text-center text-xs text-[var(--text-tertiary)]">
-                      {isLoadingMore ? "Loading more..." : hasMore ? `${items.length} of ${recent.total} loaded` : `${items.length} of ${recent.total} loaded`}
+                      {isLoadingMore ? <LoadingState label="Loading more" size="sm" className="py-0 text-xs" /> : hasMore ? `${items.length} of ${recent.total} loaded` : `${items.length} of ${recent.total} loaded`}
                     </div>
                   )}
                 </div>
@@ -841,6 +927,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
                     ))}
                   </div>
                 ) : undefined}
+                showEvalBreakdown={adminEvalActive}
                 className="min-h-0 w-full flex-1"
               />
             )}
@@ -869,6 +956,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
                 controlsClassName="lg:hidden"
                 backClassName="lg:hidden"
                 onBack={() => {
+                  captureFeedScrollAnchor(selectedId);
                   setMobileDetailOpen(false);
                   if (density === "feed") {
                     setSelectedId(null);

@@ -168,7 +168,9 @@ async function main() {
       source_collection_id: live?.source_collection_id || parsed.data.source_collection_id,
       source_folder: parsed.data.source_folder || source.metadata.folder_name,
       source_folder_id: parsed.data.source_folder_id || source.metadata.folder_id,
-      library_mode: parsed.data.library_mode,
+      // Do NOT echo the already-stamped library_mode back in — that would be read as an explicit item
+      // mode and make a stale/system-default value sticky, preventing re-classification. Re-derive fresh
+      // from collection/content/source on every repair pass.
     };
     const raw: RawArtifact = {
       url,

@@ -2,7 +2,6 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from "react";
 import {
-  CalendarDays,
   Check,
   Clock,
   ExternalLink,
@@ -18,6 +17,7 @@ import {
 import { mutate } from "swr";
 import { useScope } from "@/contexts/ScopeContext";
 import { prepareCalendarDescription, type CalendarDescriptionDisplay } from "@/lib/calendar/description";
+import { displayCalendarEventTitle } from "@/lib/calendar/title";
 import type { CalendarEvent, CalendarEventNoteTarget } from "@/lib/calendar/types";
 
 const TIME_ZONE = "America/New_York";
@@ -30,17 +30,21 @@ const JOIN_LABELS: Record<CalendarEvent["joinLinks"][number]["kind"], string> = 
 
 interface CalendarEventPopoverContentProps {
   availabilityWarning?: boolean;
+  calendarColor?: string | null;
   calendarLabel?: string | null;
   event: CalendarEvent | null;
   onClose: () => void;
+  onTitleClick?: (event: CalendarEvent) => void;
   sourceLabel?: string | null;
 }
 
 export function CalendarEventPopoverContent({
   availabilityWarning,
+  calendarColor,
   calendarLabel,
   event,
   onClose,
+  onTitleClick,
   sourceLabel,
 }: CalendarEventPopoverContentProps) {
   const contentRef = useRef<HTMLDivElement>(null);
@@ -73,6 +77,7 @@ export function CalendarEventPopoverContent({
   if (!event) return null;
 
   const description = prepareCalendarDescription(event.description);
+  const calendarDetailLabel = calendarPopoverSourceLabel(calendarLabel, sourceLabel);
 
   return (
     <div
@@ -80,14 +85,9 @@ export function CalendarEventPopoverContent({
       className="flex max-h-[inherit] min-h-0 flex-col overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-2xl"
       data-testid="calendar-event-popover"
     >
-      <div className="flex min-h-[52px] shrink-0 items-start gap-2 border-b border-[var(--border-default)] px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <div className="break-words text-sm font-semibold leading-5">
-            {availabilityWarning ? (
-              <span className="mr-1.5 inline-flex h-4 w-4 translate-y-0.5 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white" title="Not blocked on EverCommerce">!</span>
-            ) : null}
-            {event.title}
-          </div>
+      <div className="flex min-h-[52px] shrink-0 items-center gap-2 border-b border-[var(--border-default)] px-4 py-3">
+        <div className="flex min-w-0 flex-1 items-center self-stretch">
+          <PopoverTitle event={event} availabilityWarning={availabilityWarning} onTitleClick={onTitleClick} />
         </div>
         <button type="button" aria-label="Close event details" className="calendar-icon-button h-8 w-8" onClick={onClose}>
           <X className="h-4 w-4" />
@@ -113,9 +113,9 @@ export function CalendarEventPopoverContent({
               </div>
             )}
           />
-          <DetailRow icon={<CalendarDays className="h-4 w-4" />} label={calendarLabel || sourceLabel || "Calendar"} />
-          {availabilityWarning ? <DetailRow icon={<Clock className="h-4 w-4" />} label="Not blocked on EverCommerce" /> : null}
           {event.location ? <DetailRow icon={<MapPin className="h-4 w-4" />} label={event.location} /> : null}
+          {calendarDetailLabel ? <DetailRow icon={<CalendarSourceDot color={calendarColor} />} label={calendarDetailLabel} /> : null}
+          {availabilityWarning ? <DetailRow icon={<Clock className="h-4 w-4" />} label="Not blocked on EverCommerce" /> : null}
           {event.organizer ? <DetailRow icon={<UserRound className="h-4 w-4" />} label={event.organizer.name || event.organizer.email || "Organizer"} /> : null}
           {event.attendees.length ? <DetailRow icon={<UsersRound className="h-4 w-4" />} label={`${event.attendees.length} attendees`} /> : null}
           {event.duplicateSourceCount > 1 ? <DetailRow icon={<Check className="h-4 w-4" />} label={`${event.duplicateSourceCount} sources`} /> : null}
@@ -130,6 +130,42 @@ export function CalendarEventPopoverContent({
         </div>
       </div>
     </div>
+  );
+}
+
+function PopoverTitle({
+  availabilityWarning,
+  event,
+  onTitleClick,
+}: {
+  availabilityWarning?: boolean;
+  event: CalendarEvent;
+  onTitleClick?: (event: CalendarEvent) => void;
+}) {
+  const displayTitle = displayCalendarEventTitle(event.title);
+  const content = (
+    <>
+      {availabilityWarning ? (
+        <span className="mr-1.5 inline-flex h-4 w-4 translate-y-0.5 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white" title="Not blocked on EverCommerce">!</span>
+      ) : null}
+      {displayTitle}
+    </>
+  );
+
+  if (!onTitleClick) {
+    return <div className="break-words text-sm font-semibold leading-5" data-testid="calendar-event-title">{content}</div>;
+  }
+
+  return (
+    <button
+      type="button"
+      className="-ml-1 max-w-full rounded px-1 text-left text-sm font-semibold leading-5 break-words transition-colors hover:text-[var(--interactive-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-default)]"
+      data-testid="calendar-event-title"
+      onClick={() => onTitleClick(event)}
+      title={`Open ${displayTitle} in Calendar`}
+    >
+      {content}
+    </button>
   );
 }
 
@@ -334,6 +370,17 @@ function DetailRow({ icon, label }: { icon: ReactNode; label: ReactNode }) {
   );
 }
 
+function CalendarSourceDot({ color }: { color?: string | null }) {
+  return (
+    <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
+      <span
+        className="block h-2.5 w-2.5 rounded-full border border-black/5"
+        style={{ backgroundColor: color || "var(--text-tertiary)" }}
+      />
+    </span>
+  );
+}
+
 function providerLinkLabel(url: string, sourceLabel?: string | null): string {
   try {
     const host = new URL(url).hostname;
@@ -343,6 +390,18 @@ function providerLinkLabel(url: string, sourceLabel?: string | null): string {
     // Fall through to the source label.
   }
   return sourceLabel || "Link";
+}
+
+function calendarPopoverSourceLabel(calendarLabel?: string | null, sourceLabel?: string | null): string | null {
+  const source = usefulCalendarLabel(sourceLabel);
+  if (source) return source;
+  return usefulCalendarLabel(calendarLabel);
+}
+
+function usefulCalendarLabel(label?: string | null): string | null {
+  const value = label?.trim();
+  if (!value || value.toLowerCase() === "calendar") return null;
+  return value;
 }
 
 function formatEventTime(event: CalendarEvent): string {

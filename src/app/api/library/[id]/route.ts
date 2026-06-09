@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getVaultPath } from "@/lib/bridge/vault";
-import { getLibraryArtifact, getLibraryArtifactByPath } from "@/lib/library/library";
+import { getLibraryArtifact, getLibraryArtifactByPath, getLibraryComments } from "@/lib/library/library";
+import { evalAttrsForArtifact } from "@/lib/library/recommendations";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -19,7 +20,9 @@ export async function GET(
     if (!artifact) {
       return NextResponse.json({ error: "Artifact not found" }, { status: 404 });
     }
-    return NextResponse.json(artifact);
+    const eval_attrs = evalAttrsForArtifact(vaultPath, artifact) || undefined;
+    const comments = getLibraryComments(vaultPath, artifact.id);
+    return NextResponse.json({ ...artifact, eval_attrs, comments });
   } catch (error) {
     console.error("[library] detail failed:", error);
     return NextResponse.json({ error: "Failed to read artifact" }, { status: 500 });

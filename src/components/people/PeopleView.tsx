@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { ChevronDown, ChevronRight, Inbox, Loader2, Users } from "lucide-react";
+import { ChevronDown, ChevronRight, Inbox, Users } from "lucide-react";
 import { useBridgePeople } from "@/hooks/useBridgePeople";
 import { usePersonDetail } from "@/hooks/usePersonDetail";
 import { useInboxMeetings } from "@/hooks/useInboxMeetings";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useScope } from "@/contexts/ScopeContext";
 import { MobileChromeContent, MobileChromeTopBar } from "@/contexts/MobileChromeContext";
+import { LoadingState } from "@/components/ui/LoadingState";
 import { PersonCard } from "./PersonCard";
 import { PersonMeetingList } from "./PersonMeetingList";
 import { MeetingEntry } from "./MeetingEntry";
@@ -128,7 +129,13 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
   const activePersonDetail = personDetail?.slug === personSlug ? personDetail : null;
 
   // Inbox data — fetched when inbox or suggested is selected
-  const { data: inboxData } = useInboxMeetings(isInboxMode || isSuggestedMode, suggestedName ?? undefined);
+  const { data: inboxData, mutate: mutateInboxMeetings } = useInboxMeetings(isInboxMode || isSuggestedMode, suggestedName ?? undefined);
+
+  useEffect(() => {
+    if (!data) return;
+    if (personSlug) void mutatePersonDetail();
+    if (isInboxMode || isSuggestedMode) void mutateInboxMeetings();
+  }, [data, isInboxMode, isSuggestedMode, mutateInboxMeetings, mutatePersonDetail, personSlug]);
 
   const selectedSuggestedMeeting = useMemo(() => {
     if (!suggestedName || !data?.suggestedMeetings) return null;
@@ -367,9 +374,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
   // Loading state
   if (isLoading && !data) {
     return (
-      <div className="flex-1 flex items-center justify-center text-[var(--text-tertiary)]">
-        <Loader2 className="w-5 h-5 animate-spin" />
-      </div>
+      <LoadingState />
     );
   }
 
@@ -405,7 +410,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
           </div>
           </MobileChromeTopBar>
           <MobileChromeContent className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div data-mobile-scroll-chrome="top-bottom" className="flex-1 overflow-y-auto pb-[var(--hilt-mobile-nav-clearance)]">
+            <div data-mobile-scroll-chrome="top-bottom" className="hilt-mobile-scroll-clearance flex-1 overflow-y-auto">
               <MeetingEntry
                 meeting={selectedMeeting}
                 slug={isInboxMode || isSuggestedMode ? "" : (personSlug ?? "")}
@@ -452,8 +457,8 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
 
     // Level 1: Person list
     return (
-      <div data-mobile-scroll-chrome="bottom" className="flex-1 overflow-y-auto">
-        <div className="px-4 py-4 pb-[var(--hilt-mobile-nav-clearance)] space-y-4">
+      <div data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance flex-1 overflow-y-auto">
+        <div className="px-4 py-4 space-y-4">
           <PeopleListSections
             inboxStats={data.inboxStats}
             isInboxMode={isInboxMode}
@@ -691,11 +696,7 @@ function InboxCard({
 }) {
   return (
     <div
-      className={`rounded-lg border bg-[var(--content-surface)] ${compact ? "px-2.5 pt-1.5 pb-2" : "px-3 pt-2 pb-2.5"} cursor-pointer transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
-        selected
-          ? "border-[var(--interactive-default)]"
-          : "border-[var(--border-default)]"
-      }`}
+      className={`hilt-card ${compact ? "px-2.5 pt-1.5 pb-2" : "px-3 pt-2 pb-2.5"} cursor-pointer transition-all duration-150 ease-out ${selected ? "hilt-card-selected" : ""}`}
       onClick={onClick}
     >
       <div className="flex items-center gap-2.5">
@@ -744,11 +745,7 @@ function SuggestedMeetingCard({
 }) {
   return (
     <div
-      className={`rounded-lg border border-dashed bg-[var(--content-surface)] ${compact ? "px-2.5 pt-1.5 pb-2" : "px-3 pt-2 pb-2.5"} cursor-pointer transition-all duration-150 ease-out hover:shadow-sm hover:border-[var(--border-hover)] ${
-        selected
-          ? "border-[var(--interactive-default)]"
-          : "border-[var(--border-default)]"
-      }`}
+      className={`hilt-card ${compact ? "px-2.5 pt-1.5 pb-2" : "px-3 pt-2 pb-2.5"} cursor-pointer transition-all duration-150 ease-out ${selected ? "hilt-card-selected" : ""}`}
       onClick={onClick}
     >
       <div className="flex items-center gap-2.5">

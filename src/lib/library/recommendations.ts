@@ -1,8 +1,10 @@
 import fs from "fs";
 import path from "path";
-import type { ConnectionSuggestion, LibraryArtifactDetail, RecommendedArtifact } from "./types";
+import type { ConnectionSuggestion, LibraryArtifactDetail, LibraryEvalAttrs, RecommendedArtifact } from "./types";
 import { listLibraryArtifactDetails } from "./library";
 import { markdownToPlain } from "./markdown";
+import { evaluateArtifact, structuralSubstance } from "./library-eval";
+import { buildSemanticContext, scoreArtifactSemantic, type SemanticContext } from "./semantic-relevance";
 
 interface ContextSignal {
   kind: "project" | "task" | "area" | "person" | "recent_save";
@@ -94,6 +96,15 @@ function tokenize(text: string): string[] {
     .filter((word) => word.length >= 4 && !STOPWORDS.has(word))));
 }
 
+/** @internal Exposed for the calibration/diagnostic scripts (token contextFit head-to-head). */
+export function __debugActiveContextSignals(vaultPath: string, artifacts: LibraryArtifactDetail[]): ContextSignal[] {
+  return activeContextSignals(vaultPath, artifacts);
+}
+/** @internal Exposed for diagnostics — the token-overlap contextFit for one artifact. */
+export function __debugTokenContextFit(artifact: LibraryArtifactDetail, signals: ContextSignal[]): number {
+  return scoreAgainstSignals(artifact, signals).score;
+}
+
 function scoreAgainstSignals(artifact: LibraryArtifactDetail, signals: ContextSignal[]): { score: number; matches: Array<{ label: string; kind: ContextSignal["kind"]; terms: string[]; score: number }> } {
   const artifactText = markdownToPlain([
     artifact.title,
@@ -130,73 +141,118 @@ function connectionSuggestionsForArtifact(artifact: LibraryArtifactDetail): Conn
     : [];
 }
 
-function recencyBonus(date: string): number {
-  const time = new Date(date).getTime();
-  if (!Number.isFinite(time)) return 0;
-  const ageDays = (Date.now() - time) / (24 * 60 * 60 * 1000);
-  if (ageDays <= 7) return 0.12;
-  if (ageDays <= 30) return 0.07;
-  if (ageDays <= 90) return 0.03;
-  return 0;
+/** Substance for an item: a model-judged grade if present, else the structural proxy from the source. */
+function substanceFor(artifact: LibraryArtifactDetail): number {
+  const fm = artifact.raw_frontmatter;
+  const graded = typeof fm.substance === "number" ? fm.substance : null;
+  if (graded !== null && graded >= 0 && graded <= 1) return graded;
+  const sourceChars = Number(fm.extracted_chars || fm.cached_source_chars || 0) || (artifact.content?.length || 0);
+  const findingsCount = (artifact.content?.match(/^\s*(?:[-*]|\d+\.)\s+/gm) || []).length;
+  return structuralSubstance({
+    format: typeof fm.format === "string" ? fm.format : null,
+    sourceChars,
+    videoDurationSeconds: typeof fm.video_duration_seconds === "number" ? fm.video_duration_seconds : null,
+    findingsCount,
+  });
 }
 
-function whyForArtifact(artifact: LibraryArtifactDetail, matches: ReturnType<typeof scoreAgainstSignals>["matches"], score: number): string {
-  const parts: string[] = [];
-  const suggestions = connectionSuggestionsForArtifact(artifact);
-  const topSuggestion = suggestions[0];
-  if (topSuggestion) {
-    parts.push(`Suggested tie-in to ${topSuggestion.label}: ${topSuggestion.relationship}`);
+/**
+ * "For You" = the L3 eval applied across the library. Relevance and tier come from the structural eval
+ * (woven connections + active-context fit); we surface the legible `why` and drop `archive`-tier items.
+ * The eval is dynamic — recomputed each call against the current active context, never stamped.
+ */
+function scoreArtifact(vaultPath: string, artifact: LibraryArtifactDetail, signals: ContextSignal[], semanticCtx: SemanticContext): RecommendedArtifact {
+  const contextScore = scoreAgainstSignals(artifact, signals);
+  const topContext = contextScore.matches.find((match) => match.kind !== "recent_save");
+  // Topical fit: PREFER embedding cosine, fall back to token-overlap. Measured on the real
+  // vault (scripts/library-semantic-headtohead.ts): the token-overlap fit sums across ~80
+  // active-context signals UNCAPPED (mean ~1.37, 97% ≥0.45), so it saturates the eval's 0.3
+  // relevance cap for ~everyone — it differentiates nothing. The embedding cosine fit (mean
+  // ~0.20, a real 0→0.45 gradient) is the signal that actually separates on-topic from not.
+  // So for embedded items (saved refs) we REPLACE token with semantic; candidates aren't
+  // embedded (semantic === null) and keep the token fallback — the best available there.
+  const semantic = scoreArtifactSemantic(vaultPath, artifact, semanticCtx);
+  let contextFit = contextScore.score;
+  let contextLabel = topContext?.label ?? null;
+  if (semantic) {
+    contextFit = semantic.score;
+    contextLabel = semantic.label ?? contextLabel;
   }
-  const topContext = matches.find((match) => match.kind !== "recent_save");
-  const recentSave = matches.find((match) => match.kind === "recent_save");
-  if (topContext) {
-    parts.push(`Matches ${topContext.kind.replace("_", " ")} context on ${topContext.terms.slice(0, 3).join(", ")}.`);
-  }
-  if (recentSave) {
-    parts.push(`Echoes recent saves around ${recentSave.terms.slice(0, 3).join(", ")}.`);
-  }
-  if (artifact.lifecycle_status === "candidate") {
-    parts.push(`Candidate review item with ${(artifact.relevance_score || 0).toFixed(2)} source score.`);
-  } else {
-    parts.push("Saved reference worth recapping into active context.");
-  }
-  if (!matches.length && score >= 0.45) {
-    parts.unshift("High source score even without a strong current-context match.");
-  }
-  return parts.slice(0, 3).join(" ");
+  const evaluation = evaluateArtifact({
+    connections: connectionSuggestionsForArtifact(artifact),
+    contextFit,
+    contextLabel,
+    createdAt: artifact.created_at,
+    substance: substanceFor(artifact),
+    // `reconnected_at` is stamped whenever the connection judge runs (success OR abstain) — positive
+    // evidence we looked, the precondition for ever flagging a zero-tie item to_archive.
+    analyzed: typeof artifact.raw_frontmatter.reconnected_at === "string" && artifact.raw_frontmatter.reconnected_at.length > 0,
+  });
+  const matchedTerms = Array.from(new Set(contextScore.matches.flatMap((match) => match.terms))).slice(0, 8);
+  const evalAttrs: LibraryEvalAttrs = {
+    worth: evaluation.worth,
+    relevance: evaluation.relevance,
+    substance: evaluation.substance,
+    freshness: evaluation.freshness,
+    lifecycle: evaluation.lifecycle,
+    why: evaluation.why,
+  };
+  return {
+    ...artifact,
+    eval_attrs: evalAttrs,
+    relevance_score: evaluation.worth,
+    why: evaluation.why,
+    worth: evaluation.worth,
+    relevance: evaluation.relevance,
+    substance: evaluation.substance,
+    freshness: evaluation.freshness,
+    lifecycle: evaluation.lifecycle,
+    matched_terms: matchedTerms,
+  };
+}
+
+/**
+ * Score every study item against the current active context — worth = relevance × substance × freshness.
+ * Cheap/structural (no model calls). Powers For You, the inspection report, and the workbench list API.
+ */
+export function evaluateLibrary(vaultPath: string, opts: { limit?: number } = {}): RecommendedArtifact[] {
+  const artifacts = listLibraryArtifactDetails(vaultPath, { limit: opts.limit ?? 3000, includeCandidates: true }).artifacts;
+  const signals = activeContextSignals(vaultPath, artifacts);
+  const semanticCtx = buildSemanticContext(vaultPath, artifacts);
+  return artifacts
+    .filter((artifact) => artifact.lifecycle_status !== "expired" && artifact.lifecycle_status !== "skipped")
+    // keep is a stash, out of the worth-ranked feed; worth scoring applies only to study items.
+    .filter((artifact) => artifact.library_mode !== "keep")
+    .map((artifact) => scoreArtifact(vaultPath, artifact, signals, semanticCtx));
+}
+
+/** Score a given list of artifacts against the active context — signals built once. Used by the feed's
+ *  eval-filter path (worth slider, lifecycle) so it filters the already-source/pipeline-filtered set. */
+export function scoreArtifacts(vaultPath: string, artifacts: LibraryArtifactDetail[]): RecommendedArtifact[] {
+  const all = listLibraryArtifactDetails(vaultPath, { limit: 3000, includeCandidates: true }).artifacts;
+  const signals = activeContextSignals(vaultPath, all);
+  const semanticCtx = buildSemanticContext(vaultPath, all);
+  return artifacts.map((artifact) => scoreArtifact(vaultPath, artifact, signals, semanticCtx));
+}
+
+/** Eval attributes for a single study item (for the detail metadata panel). null for keep items. */
+export function evalAttrsForArtifact(vaultPath: string, artifact: LibraryArtifactDetail): LibraryEvalAttrs | null {
+  if (artifact.library_mode === "keep") return null;
+  const all = listLibraryArtifactDetails(vaultPath, { limit: 3000, includeCandidates: true }).artifacts;
+  const signals = activeContextSignals(vaultPath, all);
+  const semanticCtx = buildSemanticContext(vaultPath, all);
+  const scored = scoreArtifact(vaultPath, artifact, signals, semanticCtx);
+  return { worth: scored.worth, relevance: scored.relevance, substance: scored.substance, freshness: scored.freshness, lifecycle: scored.lifecycle, why: scored.why };
 }
 
 export function getRecommendations(vaultPath: string, limit = 10): { items: RecommendedArtifact[]; generated_at: string; context_summary: string } {
-  const artifacts = listLibraryArtifactDetails(vaultPath, { limit: 200, includeCandidates: true }).artifacts;
-  const signals = activeContextSignals(vaultPath, artifacts);
   const effectiveLimit = Math.max(1, Math.min(limit, FOR_YOU_MAX_ITEMS));
-  const items = artifacts
-    .filter((artifact) => artifact.lifecycle_status !== "expired" && artifact.lifecycle_status !== "skipped")
-    .map((artifact) => {
-      const contextScore = scoreAgainstSignals(artifact, signals);
-      // LLM-judged connections no longer carry a per-suggestion score; treat each surviving
-      // connection as a fixed, capped signal (presence of a genuine tie is itself the signal).
-      const suggestedConnectionScore = Math.min(0.3, connectionSuggestionsForArtifact(artifact).length * 0.12);
-      const sourceScore = Math.min(0.35, (artifact.relevance_score || 0) * 0.35);
-      const candidateBonus = artifact.lifecycle_status === "candidate" ? 0.12 : 0;
-      const savedRecapBonus = artifact.lifecycle_status === "saved" ? 0.06 : 0;
-      const score = Number((contextScore.score + suggestedConnectionScore + sourceScore + candidateBonus + savedRecapBonus + recencyBonus(artifact.created_at)).toFixed(3));
-      const priority: RecommendedArtifact["priority"] = score >= 0.7 ? "must_read" : score >= 0.38 ? "recommended" : "interesting";
-      const matchedTerms = Array.from(new Set(contextScore.matches.flatMap((match) => match.terms))).slice(0, 8);
-      return {
-        ...artifact,
-        relevance_score: score,
-        why: whyForArtifact(artifact, contextScore.matches, score),
-        priority,
-        matched_terms: matchedTerms,
-      };
-    })
-    .sort((a, b) => (b.relevance_score || 0) - (a.relevance_score || 0))
+  const items = evaluateLibrary(vaultPath, { limit: 200 })
+    .sort((a, b) => (b.worth || 0) - (a.worth || 0))
     .slice(0, effectiveLimit);
-
   return {
     items,
     generated_at: new Date().toISOString(),
-    context_summary: "Ranked against active projects, current weekly tasks, North Stars, people notes, and recent saved references.",
+    context_summary: "Ranked by worth (relevance × substance × freshness) against active projects, weekly tasks, North Stars, people notes, and recent saves.",
   };
 }

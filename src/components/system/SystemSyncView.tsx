@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, CheckCircle2, Clock3, FileWarning, FolderSync, Loader2, RefreshCw, ServerOff } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, FileWarning, FolderSync, HardDrive, Loader2, RefreshCw, ServerOff } from "lucide-react";
 import { SecondaryIconButton, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
-import type { SystemSyncMachineResult, SystemSyncMachineSnapshot, SystemSyncResponse } from "@/lib/system/sync";
+import { LoadingState } from "@/components/ui/LoadingState";
+import type { SystemSyncDiskSummary, SystemSyncMachineResult, SystemSyncMachineSnapshot, SystemSyncResponse } from "@/lib/system/sync";
 
 interface SystemSyncViewProps {
   modeSwitcher: ReactNode;
@@ -16,6 +17,7 @@ export function SystemSyncView({ modeSwitcher }: SystemSyncViewProps) {
   const [loading, setLoading] = useState(() => !cachedSystemSyncSnapshot);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastForcedRefreshAt, setLastForcedRefreshAt] = useState<string | null>(null);
 
   const load = useCallback(async (options: { force?: boolean } = {}) => {
     try {
@@ -29,6 +31,7 @@ export function SystemSyncView({ modeSwitcher }: SystemSyncViewProps) {
       if (!response.ok) throw new Error(data?.error || `Request failed: ${response.status}`);
       cachedSystemSyncSnapshot = data as SystemSyncResponse;
       setSnapshot(cachedSystemSyncSnapshot);
+      if (options.force) setLastForcedRefreshAt(new Date().toISOString());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load sync status");
     } finally {
@@ -60,18 +63,16 @@ export function SystemSyncView({ modeSwitcher }: SystemSyncViewProps) {
         <span>{snapshot.summary.needed_files} needed</span>
         <span>{snapshot.summary.pull_errors} errors</span>
         <span>{snapshot.summary.conflict_count} conflicts</span>
+        {lastForcedRefreshAt ? <span>refreshed {relativeTime(lastForcedRefreshAt)}</span> : null}
       </div>
     );
-  }, [snapshot]);
+  }, [lastForcedRefreshAt, snapshot]);
 
   if (loading && !snapshot) {
     return (
       <div className="flex h-full min-h-0 flex-col bg-[var(--bg-primary)]">
         <SyncToolbar modeSwitcher={modeSwitcher} summary={summary} loading={loading} refreshing={refreshing} onRefresh={() => void load({ force: true })} />
-        <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-secondary)]">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          Loading sync status
-        </div>
+        <LoadingState label="Loading sync status" />
       </div>
     );
   }
@@ -99,7 +100,7 @@ export function SystemSyncView({ modeSwitcher }: SystemSyncViewProps) {
           {error}
         </div>
       ) : null}
-      <div data-mobile-scroll-chrome="bottom" className="flex-1 overflow-auto px-4 pb-[calc(var(--hilt-mobile-nav-clearance)+1rem)] pt-[13px]">
+      <div data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-4 flex-1 overflow-auto px-4 pt-[13px]">
         {machines.length === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">
             No sync machines
@@ -153,7 +154,7 @@ function SyncMachineCard({ result }: { result: SystemSyncMachineResult }) {
   const title = machineTitle(result);
   if (!result.enabled) {
     return (
-      <div className="rounded-lg bg-[var(--content-surface)] p-4 content-card-shadow">
+      <div className="hilt-card hilt-card-elevated p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-[var(--text-primary)]">{title}</div>
@@ -173,7 +174,7 @@ function SyncMachineCard({ result }: { result: SystemSyncMachineResult }) {
   const folder = result.folder;
 
   return (
-    <div className="rounded-lg bg-[var(--content-surface)] p-4 content-card-shadow">
+    <div className="hilt-card hilt-card-elevated p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-[var(--text-primary)]">{title}</div>
@@ -193,17 +194,33 @@ function SyncMachineCard({ result }: { result: SystemSyncMachineResult }) {
 
       {folder ? (
         <>
-          <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Metric label="in sync" value={String(folder.inSyncFiles)} detail={formatBytes(folder.inSyncBytes)} />
             <Metric label="needed" value={String(folder.needFiles)} detail={formatBytes(folder.needBytes)} tone={folder.needFiles > 0 ? "amber" : undefined} />
             <Metric label="conflicts" value={String(folder.conflicts.count)} detail={folder.conflicts.truncated ? "truncated" : "visible"} tone={folder.conflicts.count > 0 ? "amber" : undefined} />
+            <Metric
+              label="ignored"
+              value={formatBytes(folder.disk.ignoredBytes ?? 0)}
+              detail={`${folder.disk.ignoredPathCount} paths`}
+              tone={(folder.disk.ignoredBytes ?? 0) > 0 ? "amber" : undefined}
+            />
           </div>
 
           <div className="mt-4 space-y-2 text-xs">
             <InfoRow icon={<FolderSync className="h-3.5 w-3.5" />} label={folder.id} value={`${folder.type} · ${folder.state}${folder.paused ? " · paused" : ""}`} />
+            <InfoRow icon={<RefreshCw className="h-3.5 w-3.5" />} label="refreshed" value={relativeTime(result.refreshedAt)} />
             <InfoRow icon={<Clock3 className="h-3.5 w-3.5" />} label="state changed" value={folder.stateChanged ? relativeTime(folder.stateChanged) : "unknown"} />
+            <InfoRow icon={<Clock3 className="h-3.5 w-3.5" />} label="last scan" value={folder.lastScan ? relativeTime(folder.lastScan) : "unknown"} />
+            {folder.lastFile?.filename ? (
+              <InfoRow
+                icon={<FileWarning className="h-3.5 w-3.5" />}
+                label="last file"
+                value={`${folder.lastFile.deleted ? "deleted " : ""}${folder.lastFile.filename}`}
+              />
+            ) : null}
             <InfoRow icon={<CheckCircle2 className="h-3.5 w-3.5" />} label="versioning" value={folder.versioning.enabled ? `${folder.versioning.type || "enabled"} · ${folder.versioning.maxAgeDays ?? "?"}d` : "off"} />
             <InfoRow icon={<FileWarning className="h-3.5 w-3.5" />} label="ignore parity" value={folder.ignore.includePresent && folder.ignore.sharedHash ? "shared include present" : "missing shared include"} tone={folder.ignore.includePresent && folder.ignore.sharedHash ? undefined : "amber"} />
+            <InfoRow icon={<HardDrive className="h-3.5 w-3.5" />} label="local disk" value={diskSummary(folder.disk)} tone={(folder.disk.ignoredBytes ?? 0) > folder.inSyncBytes ? "amber" : undefined} />
           </div>
 
           <div className="mt-4 flex flex-wrap gap-1.5">
@@ -285,6 +302,12 @@ function formatBytes(value: number): string {
     unit += 1;
   }
   return `${next >= 10 || unit === 0 ? Math.round(next) : next.toFixed(1)} ${units[unit]}`;
+}
+
+function diskSummary(disk: SystemSyncDiskSummary): string {
+  const total = disk.totalBytes === null ? "unknown" : formatBytes(disk.totalBytes);
+  const ignored = disk.ignoredBytes === null ? "unknown ignored" : `${formatBytes(disk.ignoredBytes)} ignored`;
+  return `${total} total · ${ignored}`;
 }
 
 function relativeTime(value: string): string {

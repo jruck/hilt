@@ -1,8 +1,10 @@
 import * as path from "path";
 import * as fs from "fs";
 import * as http from "http";
+import { loadEnvConfig } from "@next/env";
 import { EventServer } from "./event-server";
 import { getScopeWatcher, getInboxWatcher, getBridgeWatcher } from "./watchers";
+import { startCalendarSyncDaemon } from "../src/lib/calendar/daemon";
 import { startGranolaSyncDaemon } from "../src/lib/granola/daemon";
 import { isGraphEnabled, getGraphMarkerPath } from "../src/lib/graph/config";
 import { isSemanticEnabled } from "../src/lib/semantic/config";
@@ -13,6 +15,8 @@ import type {
 } from "./watchers";
 import type { GraphRunner } from "../src/lib/graph/runner";
 import type { SemanticRunner } from "../src/lib/semantic/runner";
+
+loadEnvConfig(process.cwd());
 
 const PREFERRED_PORT = parseInt(process.env.WS_PORT || "3001", 10);
 const PORT_FILE = path.join(process.env.HOME || "~", ".hilt-ws-port");
@@ -250,6 +254,7 @@ async function startServer() {
 
   bridgeWatcher.start();
   startGranolaSyncDaemon();
+  const stopCalendarSyncDaemon = startCalendarSyncDaemon();
 
   fs.watchFile(CALENDAR_MARKER_FILE, { interval: 1000 }, (curr, prev) => {
     if (curr.mtimeMs > 0 && curr.mtimeMs !== prev.mtimeMs) {
@@ -392,6 +397,7 @@ async function startServer() {
     scopeWatcher.stop();
     inboxWatcher.stop();
     bridgeWatcher.stop();
+    stopCalendarSyncDaemon();
     fs.unwatchFile(CALENDAR_MARKER_FILE);
     eventServer.close();
     httpServer.close(() => {

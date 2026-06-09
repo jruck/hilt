@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
 import * as path from "path";
+import { LoadingState } from "@/components/ui/LoadingState";
 
 interface ImageViewerProps {
   filePath: string;
@@ -17,11 +17,9 @@ export function ImageViewer({ filePath, scopePath }: ImageViewerProps) {
   const imageUrl = `/api/docs/raw?path=${encodeURIComponent(filePath)}&scope=${encodeURIComponent(scopePath)}`;
 
   return (
-    <div data-mobile-scroll-chrome="bottom" className="flex-1 overflow-auto flex items-center justify-center p-12 bg-[var(--content-surface)]">
+    <div data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-12 flex-1 overflow-auto flex items-center justify-center bg-[var(--content-surface)] px-12 pt-12 sm:pb-12">
       {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-[var(--text-tertiary)]" />
-        </div>
+        <LoadingState size="lg" className="absolute inset-0" />
       )}
 
       {error && (

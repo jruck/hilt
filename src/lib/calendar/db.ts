@@ -310,8 +310,8 @@ export function queryCalendarEvents(filters: {
   const params: SqlValue[] = [filters.end.getTime(), filters.start.getTime()];
   const where = [
     "e.visible = 1",
-    "e.sort_start <= ?",
-    "e.sort_end >= ?",
+    "e.sort_start < ?",
+    "e.sort_end > ?",
     "c.selected = 1",
     "TRIM(e.title) NOT IN ('!', '-')",
     "LOWER(TRIM(e.title)) NOT LIKE 'canceled: %'",
@@ -384,8 +384,8 @@ export function queryCalendarAvailabilityBlocks(filters: {
   const params: SqlValue[] = [filters.end.getTime(), filters.start.getTime()];
   const where = [
     "e.visible = 1",
-    "e.sort_start <= ?",
-    "e.sort_end >= ?",
+    "e.sort_start < ?",
+    "e.sort_end > ?",
     "c.selected = 1",
     "e.source_id = 'evercommerce'",
     "TRIM(e.title) IN ('!', '-')",
@@ -415,8 +415,8 @@ export function queryCalendarHolidayEvents(filters: {
     SELECT e.* FROM calendar_events e
     WHERE e.visible = 1
       AND e.source_id = 'us-holidays'
-      AND e.sort_start <= ?
-      AND e.sort_end >= ?
+      AND e.sort_start < ?
+      AND e.sort_end > ?
     ORDER BY e.sort_start ASC, e.title ASC
   `).all(filters.end.getTime(), filters.start.getTime()) as EventRow[];
   return rows.map(rowToEvent);

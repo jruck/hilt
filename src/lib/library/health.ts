@@ -1,7 +1,7 @@
 import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
-import { readDeadLetters } from "./dead-letter";
+import { deadLetterArtifactUrls, deadLetterResolved, readDeadLetters } from "./dead-letter";
 import { listLibrarySources } from "./library";
 import { libraryLaunchAgentsDir, librarySchedulerJobs, schedulerJobScheduleLabel, type LibrarySchedulerJobDefinition } from "./scheduler-jobs";
 import { readSourceState } from "./source-config";
@@ -75,9 +75,8 @@ function isBenignSchedulerStderr(stderr: string | null): boolean {
   const normalized = stderr
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line) => !/^\(Use `node --trace-deprecation/.test(line));
-  return normalized.length > 0 && normalized.every((line) => /\[DEP0205\] DeprecationWarning: `module\.register\(\)` is deprecated/.test(line));
+    .filter(Boolean);
+  return normalized.length > 0 && normalized.every(isKnownSchedulerNoiseLine);
 }
 
 function firstActionableStderrLine(stderr: string | null): string | null {
@@ -86,8 +85,13 @@ function firstActionableStderrLine(stderr: string | null): string | null {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .filter((line) => !/^\(Use `node --trace-deprecation/.test(line))
-    .find((line) => !/\[DEP0205\] DeprecationWarning: `module\.register\(\)` is deprecated/.test(line)) || null;
+    .find((line) => !isKnownSchedulerNoiseLine(line)) || null;
+}
+
+function isKnownSchedulerNoiseLine(line: string): boolean {
+  return /^\(Use `node --trace-deprecation/.test(line)
+    || /\[DEP0205\] DeprecationWarning: `module\.register\(\)` is deprecated/.test(line)
+    || /^npm notice\b/.test(line);
 }
 
 function schedulerStatus(job: ReturnType<typeof librarySchedulerJobs>[number], options: HealthOptions): LibrarySchedulerJobSummary {
@@ -120,7 +124,7 @@ function schedulerStatus(job: ReturnType<typeof librarySchedulerJobs>[number], o
     : lastExitCode !== null && lastExitCode !== 0
       ? `Last run exited with code ${lastExitCode}.`
       : stderrBytes > 0 && stderrIsBenign
-        ? "Completed successfully; stderr only contains known Node/tsx deprecation noise."
+        ? "Completed successfully; stderr only contains known scheduler noise."
       : stderrBytes > 0
           ? `Completed with stderr: ${actionableStderr || "expand for details."}`
           : "Loaded and clean.";
@@ -168,16 +172,13 @@ function deadLetterSummary(vaultPath: string, state: ReturnType<typeof readSourc
   const entries = readDeadLetters(vaultPath);
   const since = Date.now() - 24 * 60 * 60 * 1000;
   const bySource = new Map<string, number>();
+  const artifactUrls = entries.some((entry) => entry.artifact_url) ? deadLetterArtifactUrls(vaultPath) : undefined;
   let unresolved = 0;
   for (const entry of entries) {
     bySource.set(entry.source_id, (bySource.get(entry.source_id) || 0) + 1);
-    // A failure is "resolved" once its source has had a successful run after it — those are
-    // transient blips that self-healed, so they shouldn't read as standing warnings.
-    const entryTime = new Date(entry.at).getTime();
-    const successAt = state[entry.source_id]?.last_success_at;
-    const successTime = successAt ? new Date(successAt).getTime() : 0;
-    const healed = Number.isFinite(successTime) && successTime > entryTime;
-    if (!healed) unresolved += 1;
+    // Source-level failures resolve after a later source success; artifact failures resolve
+    // only once that artifact exists in saved, archived, or candidate storage.
+    if (!deadLetterResolved(entry, state, artifactUrls)) unresolved += 1;
   }
   return {
     total: entries.length,

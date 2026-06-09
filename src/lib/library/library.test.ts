@@ -11,6 +11,7 @@ import { fetchRaindropArtifacts } from "./adapters/raindrop";
 import { fetchYouTubeArtifacts } from "./adapters/youtube";
 import { buildCandidateMarkdown, listCandidates } from "./candidate-cache";
 import { parseConnectionJudgment } from "./connection-prompt";
+import { unresolvedDeadLetterSources } from "./dead-letter";
 import * as digestion from "./digestion";
 import { digestArtifact } from "./digestion";
 import { getLibraryOperationalHealth } from "./health";
@@ -21,15 +22,21 @@ import { buildMediaMarkdown } from "./media";
 import { parseOpenGraphHtml } from "./media-enrichment";
 import { markLibraryArtifactsRead } from "./read-state";
 import { PIPELINE_VERSION } from "./pipeline";
-import { getRecommendations } from "./recommendations";
+import { getRecommendations, scoreArtifacts } from "./recommendations";
+import { findReweavePendingTargets } from "./reweave-pending";
+import { evaluateArtifact, structuralSubstance } from "./library-eval";
+import { artifactTaxonomy } from "./taxonomy";
 import { buildDurableReferenceMarkdown, findArchivedReferenceByUrl, listArchivedReferences, listSavedReferences, parseReferenceFile } from "./references";
 import { addToReviewQueue, getActiveBatchNotes, readReviewQueue, setReviewStatus } from "./review-queue";
 import { parseReweaveOutput } from "./reweave-prompt";
 import { runIngestion } from "./runner";
+import { librarySchedulerJobs } from "./scheduler-jobs";
 import { loadSources } from "./source-config";
 import { parseTimedTranscript } from "./transcript";
 import { buildLibraryItemUrl, buildLibraryUrl, libraryItemIdFromScope, libraryItemScope, parseLibraryControls } from "./url";
-import type { ConnectionSuggestion, LibrarySourceConfig, ProcessedArtifact } from "./types";
+import { buildWorkbenchRows } from "./workbench";
+import type { ConnectionSuggestion, LibrarySourceConfig, ProcessedArtifact, RawArtifact } from "./types";
+import { detectYouTubeContentForm, parseYouTubeDurationSeconds } from "./youtube-clip-detector";
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-library-state-"));
 // Keep the suite offline and deterministic: the LLM connection judge must never invoke the
@@ -697,6 +704,356 @@ test("fetches YouTube playlist videos as candidate artifacts", async () => {
     globalThis.fetch = originalFetch;
     if (originalToken === undefined) delete process.env.YOUTUBE_OAUTH_ACCESS_TOKEN;
     else process.env.YOUTUBE_OAUTH_ACCESS_TOKEN = originalToken;
+  }
+});
+
+test("resolves YouTube channel pages from canonical link before embedded channel IDs", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.YOUTUBE_OAUTH_ACCESS_TOKEN;
+  delete process.env.YOUTUBE_OAUTH_ACCESS_TOKEN;
+  const source: LibrarySourceConfig = {
+    id: "youtube-dwarkesh-patel",
+    name: "Dwarkesh Patel",
+    channel: "youtube",
+    url: "https://www.youtube.com/@DwarkeshPatel",
+    enabled: true,
+    cadence: "hourly",
+    intent: "discovery",
+    retention: { mode: "candidate", candidate_ttl_days: 30, auto_promote_threshold: 0.85 },
+    backfill: { enabled: true, mode: "checkpointed" },
+    tags: ["youtube"],
+    filters: { include_topics: [], exclude_topics: [] },
+    metadata: {},
+    path: "",
+  };
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input));
+    if (url.hostname === "www.youtube.com" && url.pathname === "/@DwarkeshPatel") {
+      return new Response(`
+        <script>{"channelId":"UCZa18YV7qayTh-MRIrBhDpA"}</script>
+        <link rel="canonical" href="https://www.youtube.com/channel/UCXl4i9dYBrFOabk0xGmbkRA">
+      `, { status: 200 });
+    }
+    assert.equal(url.pathname, "/feeds/videos.xml");
+    assert.equal(url.searchParams.get("channel_id"), "UCXl4i9dYBrFOabk0xGmbkRA");
+    return new Response(`<?xml version="1.0" encoding="UTF-8"?>
+      <feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt="http://www.youtube.com/xml/schemas/2015">
+        <entry>
+          <title>Proper main-channel episode</title>
+          <link rel="alternate" href="https://www.youtube.com/watch?v=abc123def45"/>
+          <published>2026-06-05T00:00:00Z</published>
+        </entry>
+      </feed>
+    `, { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const batch = await fetchYouTubeArtifacts(source, { limit: 1 });
+    assert.equal(batch.artifacts.length, 1);
+    assert.equal(batch.artifacts[0].title, "Proper main-channel episode");
+    assert.equal(batch.artifacts[0].metadata.channel_id, "UCXl4i9dYBrFOabk0xGmbkRA");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) delete process.env.YOUTUBE_OAUTH_ACCESS_TOKEN;
+    else process.env.YOUTUBE_OAUTH_ACCESS_TOKEN = originalToken;
+  }
+});
+
+test("resolves YouTube handles through channels.list for Data API uploads", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.YOUTUBE_OAUTH_ACCESS_TOKEN;
+  process.env.YOUTUBE_OAUTH_ACCESS_TOKEN = "test-token";
+  const source: LibrarySourceConfig = {
+    id: "youtube-dwarkesh-patel",
+    name: "Dwarkesh Patel",
+    channel: "youtube",
+    url: "https://www.youtube.com/@DwarkeshPatel",
+    enabled: true,
+    cadence: "hourly",
+    intent: "discovery",
+    retention: { mode: "candidate", candidate_ttl_days: 30, auto_promote_threshold: 0.85 },
+    backfill: { enabled: true, mode: "checkpointed" },
+    tags: ["youtube"],
+    filters: { include_topics: [], exclude_topics: [] },
+    metadata: { fetch_strategy: "youtube_data_api" },
+    path: "",
+  };
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/youtube/v3/channels") {
+      assert.equal(url.searchParams.get("forHandle"), "@DwarkeshPatel");
+      return new Response(JSON.stringify({
+        items: [{ id: "UCXl4i9dYBrFOabk0xGmbkRA" }],
+      }), { status: 200 });
+    }
+    assert.equal(url.pathname, "/youtube/v3/playlistItems");
+    assert.equal(url.searchParams.get("playlistId"), "UUXl4i9dYBrFOabk0xGmbkRA");
+    return new Response(JSON.stringify({
+      items: [{
+        snippet: {
+          title: "Proper main-channel episode",
+          channelTitle: "Dwarkesh Patel",
+          description: "A full episode from the main channel.",
+          resourceId: { videoId: "abc123def45" },
+        },
+        contentDetails: {
+          videoId: "abc123def45",
+          videoPublishedAt: "2026-06-05T00:00:00Z",
+        },
+      }],
+    }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const batch = await fetchYouTubeArtifacts(source, { limit: 1 });
+    assert.equal(batch.artifacts.length, 1);
+    assert.equal(batch.artifacts[0].author, "Dwarkesh Patel");
+    assert.equal(batch.artifacts[0].metadata.channel_id, "UCXl4i9dYBrFOabk0xGmbkRA");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) delete process.env.YOUTUBE_OAUTH_ACCESS_TOKEN;
+    else process.env.YOUTUBE_OAUTH_ACCESS_TOKEN = originalToken;
+  }
+});
+
+test("YouTube clip detector parses ISO 8601 video durations", () => {
+  assert.equal(parseYouTubeDurationSeconds("PT1H16M8S"), 4568);
+  assert.equal(parseYouTubeDurationSeconds("PT53S"), 53);
+  assert.equal(parseYouTubeDurationSeconds("P1DT2M3S"), 86523);
+  assert.equal(parseYouTubeDurationSeconds("not-a-duration"), null);
+});
+
+test("YouTube clip detector suppresses high-confidence clips from dedicated clip channels", () => {
+  const result = detectYouTubeContentForm({
+    title: "How Did Italy Cope With the Fall of Rome? - Ada Palmer",
+    description: "A short excerpt from the Dwarkesh podcast. Watch the full episode: https://youtu.be/fullEpisode1",
+    channelTitle: "Dwarkesh Clips",
+    sourceId: "youtube-dwarkesh-patel",
+    sourceName: "Dwarkesh Patel",
+    sourceIntent: "discovery",
+    sourceSignal: "youtube_channel_upload",
+    durationSeconds: 228,
+  });
+
+  assert.equal(result.content_form, "clip");
+  assert.equal(result.confidence_label, "high");
+  assert.equal(result.policy_action, "suppress");
+  assert.ok(result.signals.includes("channel_mentions_clips"));
+  assert.ok(result.signals.includes("description_links_full_episode"));
+});
+
+test("YouTube clip detector suppresses short-form videos when discovery sources carry Shorts markers", () => {
+  const result = detectYouTubeContentForm({
+    title: "The one word that defines every great founder",
+    description: "David Senra on company building. #shorts #podcast",
+    channelTitle: "Sequoia Capital",
+    sourceId: "youtube-sequoia-capital",
+    sourceName: "Sequoia Capital",
+    sourceIntent: "discovery",
+    sourceSignal: "youtube_channel_upload",
+    durationSeconds: 41,
+  });
+
+  assert.equal(result.content_form, "short");
+  assert.equal(result.policy_action, "suppress");
+  assert.ok(result.signals.includes("shorts_marker"));
+  assert.ok(result.signals.includes("duration_under_90s"));
+});
+
+test("YouTube clip detector flags ambiguous podcast excerpts for review before suppression", () => {
+  const result = detectYouTubeContentForm({
+    title: "\"Zero token architecture\"",
+    description: "Kelsey Hightower on The Pragmatic Engineer podcast.",
+    channelTitle: "The Pragmatic Engineer",
+    sourceId: "youtube-pragmatic-engineer",
+    sourceName: "The Pragmatic Engineer",
+    sourceIntent: "discovery",
+    sourceSignal: "youtube_channel_upload",
+    durationSeconds: 53,
+  });
+
+  assert.equal(result.content_form, "clip");
+  assert.equal(result.confidence_label, "medium");
+  assert.equal(result.policy_action, "label_review");
+  assert.ok(result.signals.includes("short_podcast_excerpt_description"));
+});
+
+test("YouTube clip detector sends very short discovery uploads to review without stronger clip evidence", () => {
+  const result = detectYouTubeContentForm({
+    title: "AI still needs humans",
+    description: "#ai #artificialintelligence #futureofwork",
+    channelTitle: "Lenny's Podcast",
+    sourceId: "youtube-lennys-podcast",
+    sourceName: "Lenny's Podcast",
+    sourceIntent: "discovery",
+    sourceSignal: "youtube_channel_upload",
+    durationSeconds: 56,
+  });
+
+  assert.equal(result.content_form, "standalone_short");
+  assert.equal(result.confidence_label, "medium");
+  assert.equal(result.policy_action, "label_review");
+  assert.ok(result.signals.includes("very_short_discovery_upload"));
+});
+
+test("YouTube clip detector processes long episode-shaped videos", () => {
+  const result = detectYouTubeContentForm({
+    title: "Learning Go with Eric Jang",
+    description: "00:00:00 Intro\n00:05:12 Learning Go\n00:40:00 Production systems",
+    channelTitle: "Full Stack Radio",
+    sourceId: "youtube-full-stack-radio",
+    sourceName: "Full Stack Radio",
+    sourceIntent: "discovery",
+    sourceSignal: "youtube_channel_upload",
+    durationSeconds: 4568,
+  });
+
+  assert.equal(result.content_form, "episode");
+  assert.equal(result.policy_action, "process");
+  assert.ok(result.signals.includes("duration_over_20m"));
+  assert.ok(result.signals.includes("description_has_chapters"));
+});
+
+test("YouTube clip detector does not suppress explicit user saves", () => {
+  const result = detectYouTubeContentForm({
+    title: "A useful short explanation",
+    description: "Useful short clip. #shorts",
+    channelTitle: "Useful Channel",
+    sourceId: "youtube-bookmarks",
+    sourceName: "YouTube Bookmarks",
+    sourceIntent: "explicit_save",
+    sourceSignal: "youtube_bookmark_playlist",
+    durationSeconds: 58,
+  });
+
+  assert.equal(result.content_form, "short");
+  assert.equal(result.policy_action, "label_only");
+});
+
+test("library YouTube clip admin filter includes skipped auto-skip candidates with evidence", () => {
+  const vault = tempVault();
+  const cacheDir = path.join(vault, "references", ".cache", "library-candidates");
+  fs.mkdirSync(cacheDir, { recursive: true });
+
+  const clip = processedYouTubeArtifact();
+  clip.source = { ...clip.source, id: "youtube-fixture-clips", name: "Fixture Clips" };
+  clip.raw = {
+    ...clip.raw,
+    url: "https://www.youtube.com/watch?v=clip1234567",
+    title: "Short excerpt from a longer episode",
+    author: "Fixture Clips",
+  };
+  clip.description = "Watch the full episode after this short excerpt.";
+  clip.summary = "Watch the full episode after this short excerpt.";
+  clip.video_duration_seconds = 181;
+
+  const episode = processedYouTubeArtifact();
+  episode.raw = {
+    ...episode.raw,
+    url: "https://www.youtube.com/watch?v=episode1234",
+    title: "Full episode with chapters",
+    author: "Fixture Channel",
+  };
+  episode.description = "00:00:00 Intro\n00:10:00 Main topic";
+  episode.summary = "00:00:00 Intro\n00:10:00 Main topic";
+  episode.video_duration_seconds = 3600;
+
+  fs.writeFileSync(path.join(cacheDir, "clip.md"), buildCandidateMarkdown(clip).replace("status: candidate", "status: skipped"), "utf-8");
+  fs.writeFileSync(path.join(cacheDir, "episode.md"), buildCandidateMarkdown(episode), "utf-8");
+
+  const suppress = listLibraryArtifactDetails(vault, { youtube_clip_policy: "suppress" });
+  assert.equal(suppress.total, 1);
+  assert.equal(suppress.artifacts[0].title, "Short excerpt from a longer episode");
+  assert.equal(suppress.artifacts[0].lifecycle_status, "skipped");
+  assert.equal(suppress.artifacts[0].youtube_clip?.policy_action, "suppress");
+  assert.ok(suppress.artifacts[0].youtube_clip?.signals.includes("channel_mentions_clips"));
+
+  const workbench = buildWorkbenchRows(vault);
+  assert.equal(workbench.facets.youtube_clip_policy.suppress, 1);
+  assert.equal(workbench.facets.youtube_clip_policy.process, 1);
+});
+
+test("YouTube metadata preflight persists clip evidence for library review filters", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.YOUTUBE_OAUTH_ACCESS_TOKEN;
+  const originalSummarizeDisabled = process.env.LIBRARY_SUMMARIZE_DISABLED;
+  process.env.YOUTUBE_OAUTH_ACCESS_TOKEN = "test-token";
+  process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  const vault = tempVault();
+  writeSource(vault, "youtube.yaml", `
+id: youtube-sequoia-capital
+name: Sequoia Capital
+channel: youtube
+url: fixture://youtube
+enabled: true
+intent: discovery
+signal: youtube_channel_upload
+retention:
+  mode: candidate
+  candidate_ttl_days: 30
+  auto_promote_threshold: 0.99
+tags: [youtube]
+fixtures:
+  - url: https://www.youtube.com/watch?v=clip1234567
+    title: The one word that defines every great founder
+    date: "2026-06-05T00:00:00Z"
+    metadata:
+      format: video
+`);
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input));
+    assert.equal(url.pathname, "/youtube/v3/videos");
+    assert.equal(url.searchParams.get("id"), "clip1234567");
+    return new Response(JSON.stringify({
+      items: [{
+        id: "clip1234567",
+        snippet: {
+          title: "The one word that defines every great founder",
+          description: "David Senra on company building. #shorts Watch the full episode on the channel.",
+          channelId: "UC123",
+          channelTitle: "Sequoia Capital",
+          publishedAt: "2026-06-05T00:00:00Z",
+          tags: ["founders", "podcast"],
+        },
+        contentDetails: { duration: "PT41S" },
+        status: { privacyStatus: "public" },
+      }],
+    }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const report = await runIngestion(vault, { useSummarize: false });
+    assert.equal(report.candidates, 1);
+    assert.deepEqual(report.errors, []);
+    assert.equal(report.sources[0].youtube_clip_review?.metadata_checked, 1);
+    assert.equal(report.sources[0].youtube_clip_review?.metadata_enriched, 1);
+    assert.equal(report.sources[0].youtube_clip_review?.policy_actions.suppress, 1);
+    assert.equal(report.sources[0].youtube_clip_review?.content_forms.short, 1);
+    assert.equal(report.sources[0].artifacts[0].youtube_clip_policy, "suppress");
+    assert.equal(report.sources[0].artifacts[0].youtube_content_form, "short");
+
+    const [candidate] = listCandidates(vault);
+    assert.equal(candidate.raw_frontmatter.youtube_metadata_at ? true : false, true);
+    assert.equal(candidate.raw_frontmatter.youtube_channel_title, "Sequoia Capital");
+    assert.equal(candidate.raw_frontmatter.youtube_duration_seconds, 41);
+    assert.equal(candidate.raw_frontmatter.video_duration_seconds, 41);
+    assert.equal(candidate.raw_frontmatter.youtube_description_has_shorts_marker, true);
+    assert.equal(candidate.raw_frontmatter.youtube_description_links_full_episode, true);
+    assert.equal((candidate.raw_frontmatter.youtube_clip as Record<string, unknown>).policy_action, "suppress");
+
+    const suppress = listLibraryArtifactDetails(vault, { youtube_clip_policy: "suppress" });
+    assert.equal(suppress.total, 1);
+    assert.equal(suppress.artifacts[0].youtube_clip?.policy_action, "suppress");
+    assert.ok(suppress.artifacts[0].youtube_clip?.signals.includes("shorts_marker"));
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) delete process.env.YOUTUBE_OAUTH_ACCESS_TOKEN;
+    else process.env.YOUTUBE_OAUTH_ACCESS_TOKEN = originalToken;
+    if (originalSummarizeDisabled === undefined) delete process.env.LIBRARY_SUMMARIZE_DISABLED;
+    else process.env.LIBRARY_SUMMARIZE_DISABLED = originalSummarizeDisabled;
   }
 });
 
@@ -1602,6 +1959,40 @@ fixtures:
   assert.equal(listSavedReferences(vault).length, 1);
 });
 
+test("YouTube bookmark ingestion does not filter newly saved old videos by publish date", async () => {
+  process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  const vault = tempVault();
+  writeSource(vault, "youtube-bookmarks.yaml", `
+id: youtube-bookmarks
+name: YouTube Bookmarks
+channel: fixture
+url: youtube://playlist/PLBOOKMARKS
+enabled: true
+intent: explicit_save
+signal: youtube_bookmark_playlist
+fixtures:
+  - url: https://www.youtube.com/watch?v=RkQQ7WEor7w
+    title: Older video bookmarked today
+    date: 2026-06-02T21:45:13.000Z
+    content: This video was published before the last check but appeared in the fetched bookmark window today.
+    metadata:
+      signal: youtube_bookmark_playlist
+      video_id: RkQQ7WEor7w
+`);
+  fs.writeFileSync(path.join(vault, "meta", "sources", ".source-state.json"), JSON.stringify({
+    "youtube-bookmarks": { last_checked_at: "2026-06-05T01:34:09.622Z" },
+  }, null, 2), "utf-8");
+
+  const report = await runIngestion(vault, { useSummarize: false });
+  assert.equal(report.saved, 1);
+  assert.equal(listSavedReferences(vault).length, 1);
+
+  const duplicateReport = await runIngestion(vault, { useSummarize: false });
+  assert.equal(duplicateReport.saved, 0);
+  assert.equal(duplicateReport.duplicates, 1);
+  assert.equal(listSavedReferences(vault).length, 1);
+});
+
 test("dry-run ingestion reports intended writes without mutating vault state", async () => {
   process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
   const vault = tempVault();
@@ -1637,7 +2028,7 @@ fixtures:
   assert.equal(fs.existsSync(path.join(vault, "meta", "sources", ".source-state.json")), false);
 });
 
-test("for-you recommendations are capped and explain active-context matches", async () => {
+test("for-you surfaces relevant items by worth and buries off-topic filler", async () => {
   process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
   const vault = tempVault();
   fs.mkdirSync(path.join(vault, "projects", "agentic-product"), { recursive: true });
@@ -1676,10 +2067,106 @@ ${fixtures.map((fixture) => `  - url: ${fixture.url}
 
   await runIngestion(vault, { useSummarize: false });
   const recommendations = getRecommendations(vault, 50);
-  assert.equal(recommendations.items.length, 8);
+  // The eval discriminates by worth: the on-topic item leads and outranks every off-topic filler item.
+  assert.ok(recommendations.items.length >= 1 && recommendations.items.length <= 8);
   assert.equal(recommendations.items[0].title, "Agentic Product Discovery Loops");
-  assert.match(recommendations.items[0].why, /Matches/);
+  const onTopic = recommendations.items.find((item) => item.title === "Agentic Product Discovery Loops");
+  const offTopicMax = Math.max(0, ...recommendations.items.filter((item) => item.title.startsWith("Off Topic")).map((item) => item.worth || 0));
+  assert.ok((onTopic?.worth || 0) > offTopicMax, "on-topic item outranks all off-topic filler by worth");
+  assert.equal("priority" in recommendations.items[0], false, "artificial priority buckets are not part of the recommendation contract");
+  assert.equal(recommendations.items[0].eval_attrs?.worth, recommendations.items[0].worth);
+  assert.equal(recommendations.items[0].eval_attrs?.freshness, recommendations.items[0].freshness);
+  assert.match(recommendations.items[0].why, /relevance|substance/i);
   assert.ok(recommendations.items[0].matched_terms.includes("agentic"));
+});
+
+test("scoreArtifacts attaches eval attrs for card/list progressive disclosure", async () => {
+  process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  const vault = tempVault();
+  fs.mkdirSync(path.join(vault, "projects", "library"), { recursive: true });
+  fs.writeFileSync(path.join(vault, "projects", "library", "index.md"), "# Library\n\nActive reference library eval work.\n", "utf-8");
+  writeSource(vault, "eval-source.yaml", `
+id: eval-source
+name: Eval Source
+channel: fixture
+url: fixture://eval-source
+enabled: true
+intent: discovery
+tags: [library]
+fixtures:
+  - url: https://example.com/eval
+    title: Library Eval Notes
+    date: 2026-05-28
+    content: Reference library eval work with relevance, substance, freshness, and worth.
+    metadata: {}
+`);
+
+  await runIngestion(vault, { useSummarize: false });
+  const artifact = listLibraryArtifactDetails(vault, { includeCandidates: true }).artifacts[0];
+  const scored = scoreArtifacts(vault, [artifact])[0];
+  assert.ok(scored.eval_attrs);
+  assert.equal(scored.eval_attrs.worth, scored.worth);
+  assert.equal(scored.eval_attrs.relevance, scored.relevance);
+  assert.equal(scored.eval_attrs.substance, scored.substance);
+  assert.equal(scored.eval_attrs.freshness, scored.freshness);
+  assert.equal("priority" in scored, false);
+});
+
+test("disposition: a per-item keep signal beats a source's study default", () => {
+  // raindrop-bookmarks defaults library_mode: study. A Talent/Art collection item must still be keep —
+  // the source default must NOT short-circuit the per-item classification (the precedence bug).
+  const studyDefaultSource: LibrarySourceConfig = {
+    id: "raindrop-bookmarks", name: "Raindrop", channel: "raindrop", url: "raindrop://b", enabled: true,
+    cadence: "hourly",
+    intent: "explicit_save", library_mode: "study", tags: [], metadata: {},
+    retention: { mode: "durable", candidate_ttl_days: 30, auto_promote_threshold: 0.85 },
+    backfill: { enabled: true, mode: "checkpointed" },
+    filters: { include_topics: [], exclude_topics: [] },
+    path: "",
+  };
+  const mk = (title: string, metadata: Record<string, unknown>) => {
+    const raw: RawArtifact = { url: "https://x.com/a", title, content: "", date: "2026-01-01", metadata };
+    return artifactTaxonomy(raw, studyDefaultSource).library_mode;
+  };
+
+  assert.equal(mk("Aristide Benoist — Creative Developer", { source_collection: "Talent" }), "keep");
+  assert.equal(mk("Some artist", { source_collection: "Art" }), "keep");
+  assert.equal(mk("Cool portfolio", { tags: ["portfolio"] }), "keep");
+  // A normal study item in the same study-default source stays study.
+  assert.equal(mk("Agentic product discovery loops", { source_collection: "AI" }), "study");
+  // An ambiguous title word must NOT trigger keep (no title-word matching).
+  assert.equal(mk("Billie Eilish: Tiny Desk Concert", {}), "study");
+  assert.equal(mk("State of the art AI agents", {}), "study");
+  // An explicit per-item mode wins over everything.
+  assert.equal(mk("Whatever", { source_collection: "Talent", library_mode: "study" }), "study");
+});
+
+test("library eval computes worth = relevance × substance × freshness", () => {
+  const fp = (label: string) => ({ target: `projects/${label}/index`, label, relationship: "informs" });
+  const old = "2020-01-01T00:00:00Z";
+
+  const strong = evaluateArtifact({ connections: [fp("a"), fp("b"), fp("c")], contextFit: 0.2, createdAt: old, substance: 0.8 });
+  // Same ties, thin substance → much lower worth. Substance is sovereign — it independently moves worth.
+  const thin = evaluateArtifact({ connections: [fp("a"), fp("b"), fp("c")], contextFit: 0.2, createdAt: old, substance: 0.15 });
+  assert.ok(strong.worth > thin.worth, "substance independently lowers worth");
+  assert.ok(strong.relevance > 0.5);
+  assert.match(strong.why, /relevance/);
+
+  // No ties + no context → ~zero relevance → ~zero worth no matter how substantial the source.
+  const irrelevant = evaluateArtifact({ connections: [], contextFit: 0, createdAt: old, substance: 0.9, analyzed: true });
+  assert.ok(irrelevant.worth < 0.05, "irrelevant scores ~0 worth despite high substance");
+  assert.equal(irrelevant.lifecycle, "to_archive"); // analyzed + low worth → flagged for review (not moved)
+
+  // An un-analyzed low-worth item is NEVER flagged — we don't bury what we didn't look at.
+  assert.equal(evaluateArtifact({ connections: [], contextFit: 0, createdAt: old, substance: 0.9, analyzed: false }).lifecycle, "active");
+});
+
+test("structural substance reflects source depth, not digest length", () => {
+  const tweet = structuralSubstance({ format: "tweet", sourceChars: 200 });
+  const longform = structuralSubstance({ format: "long-form-guide", sourceChars: 15000, findingsCount: 7 });
+  const video2h = structuralSubstance({ format: "video", videoDurationSeconds: 7200 });
+  assert.ok(tweet <= 0.3, "a tweet is low-substance");
+  assert.ok(longform > tweet && video2h > tweet, "a long guide and a 2h talk out-score a tweet");
 });
 
 test("digestion abstains from fabricating connections when the LLM judge is disabled", async () => {
@@ -1726,10 +2213,11 @@ test("digestion abstains from fabricating connections when the LLM judge is disa
     // The assessment why carries no appended connection reasoning when the judge abstains.
     assert.equal(processed.assessment.why, "The source action is configured as explicit save intent.");
 
-    // The rendered Connections section is empty — never a stray "- " placeholder bullet.
+    // With no connections, the candidate omits the Connections heading entirely — never a stray
+    // "- " placeholder bullet — going straight from the digest body to Raw Content.
     const candidateMarkdown = buildCandidateMarkdown(processed);
-    assert.match(candidateMarkdown, /## Suggested Connections\n\n\n\n## Raw Content/);
-    assert.doesNotMatch(candidateMarkdown, /## Suggested Connections\n\n- /);
+    assert.doesNotMatch(candidateMarkdown, /## Connections/);
+    assert.match(candidateMarkdown, /## Key Points[\s\S]*## Raw Content/);
 
     const referenceMarkdown = buildDurableReferenceMarkdown(processed);
     // With no connections, the durable reference omits the Connections heading entirely —
@@ -1828,10 +2316,10 @@ test("parseConnectionJudgment abstains on empty or unparseable input", () => {
 
 test("connection rendering formats target, null-target, and empty cases", () => {
   const base = buildProcessedArtifactWithConnections([]);
-  // Empty connections render no bullet and no stray dash.
+  // Empty connections omit the Connections heading entirely — no bullet, no stray dash.
   const emptyMd = buildCandidateMarkdown(base);
-  assert.match(emptyMd, /## Suggested Connections\n\n\n\n## Raw Content/);
-  assert.doesNotMatch(emptyMd, /## Suggested Connections\n\n- /);
+  assert.doesNotMatch(emptyMd, /## Connections/);
+  assert.match(emptyMd, /## Key Points[\s\S]*## Raw Content/);
 
   // A targeted connection renders "[[target|label]] - relationship".
   const targeted = buildProcessedArtifactWithConnections([
@@ -2049,6 +2537,105 @@ test("a reweaved durable reference round-trips through parseReferenceFile", () =
   assert.ok(parsed.connections.some((line) => line.includes("Personal Orchestrator")));
 });
 
+test("findReweavePendingTargets queues only active study references and candidates", () => {
+  const vault = tempVault();
+  const candidateDir = path.join(vault, "references", ".cache", "library-candidates");
+  const archiveDir = path.join(vault, "references", ".archive");
+  fs.mkdirSync(candidateDir, { recursive: true });
+  fs.mkdirSync(archiveDir, { recursive: true });
+
+  fs.writeFileSync(path.join(vault, "references", "pending-old.md"), `---
+type: reference
+title: Old Pending
+library_mode: study
+captured_at: '2026-05-01T00:00:00.000Z'
+reweave_pending: true
+---
+# Old Pending
+`, "utf-8");
+  fs.writeFileSync(path.join(vault, "references", "missing-connection-pass.md"), `---
+type: reference
+title: Missing Connection Pass
+library_mode: study
+digestion_status: hot
+captured_at: '2026-05-01T12:00:00.000Z'
+---
+# Missing Connection Pass
+`, "utf-8");
+  fs.writeFileSync(path.join(vault, "references", "already-reconnected.md"), `---
+type: reference
+title: Already Reconnected
+library_mode: study
+digestion_status: hot
+reconnected_at: '2026-05-01T12:00:00.000Z'
+---
+# Already Reconnected
+`, "utf-8");
+  fs.writeFileSync(path.join(candidateDir, "pending-candidate.md"), `---
+type: reference-candidate
+title: Pending Candidate
+status: candidate
+library_mode: study
+digested_at: '2026-05-02T00:00:00.000Z'
+reweave_pending: true
+---
+# Pending Candidate
+`, "utf-8");
+  fs.writeFileSync(path.join(vault, "references", "keep-pending.md"), `---
+type: reference
+title: Keep Pending
+library_mode: keep
+reweave_pending: true
+---
+# Keep Pending
+`, "utf-8");
+  fs.writeFileSync(path.join(candidateDir, "skipped-candidate.md"), `---
+type: reference-candidate
+title: Skipped Pending
+status: skipped
+library_mode: study
+reweave_pending: true
+---
+# Skipped Pending
+`, "utf-8");
+  fs.writeFileSync(path.join(archiveDir, "archived-pending.md"), `---
+type: reference
+title: Archived Pending
+library_mode: study
+reweave_pending: true
+---
+# Archived Pending
+`, "utf-8");
+
+  const targets = findReweavePendingTargets(vault);
+  assert.deepEqual(targets.map((target) => target.relative_path), [
+    "references/pending-old.md",
+    "references/missing-connection-pass.md",
+    "references/.cache/library-candidates/pending-candidate.md",
+  ]);
+  assert.deepEqual(targets.map((target) => target.reason), [
+    "reweave_pending",
+    "missing_connection_pass",
+    "reweave_pending",
+  ]);
+  assert.deepEqual(findReweavePendingTargets(vault, { includeCandidates: false }).map((target) => target.relative_path), [
+    "references/pending-old.md",
+    "references/missing-connection-pass.md",
+  ]);
+  assert.deepEqual(findReweavePendingTargets(vault, { limit: 1 }).map((target) => target.relative_path), [
+    "references/pending-old.md",
+  ]);
+});
+
+test("library scheduler includes a bounded deferred reweave repair job", () => {
+  const job = librarySchedulerJobs("/tmp/hilt-library-test-logs").find((item) => item.id === "reweave-pending");
+  assert.ok(job);
+  assert.equal(job.script, "library:reweave:pending");
+  assert.deepEqual(job.schedule, { hour: 3, minute: 35 });
+  assert.match(job.stdout, /reweave-pending\.out\.log$/);
+  assert.match(job.stderr, /reweave-pending\.err\.log$/);
+});
+
 test("library health summarizes scheduler, source, and dead-letter state", () => {
   const vault = tempVault();
   writeSource(vault, "health.yaml", `
@@ -2065,7 +2652,7 @@ fixtures: []
   }, null, 2), "utf-8");
 
   const health = getLibraryOperationalHealth(vault, { launchctl: () => "last exit code = 0" });
-  assert.equal(health.scheduler.loaded, 5);
+  assert.equal(health.scheduler.loaded, librarySchedulerJobs().length);
   assert.equal(health.sources[0].status, "ok");
   assert.equal(health.dead_letters.total, 0);
   assert.equal(health.dead_letters.unresolved, 0);
@@ -2100,7 +2687,36 @@ fixtures: []
   assert.equal(health.dead_letters.unresolved, 1);
 });
 
-test("library health treats known scheduler deprecation stderr as a notice, not a failure", () => {
+test("dead-letter retry sources include only unresolved failures", () => {
+  const vault = tempVault();
+  fs.mkdirSync(path.join(vault, "references", ".cache"), { recursive: true });
+  fs.mkdirSync(path.join(vault, "references", ".cache", "library-candidates"), { recursive: true });
+  fs.writeFileSync(path.join(vault, "references", ".cache", "library-candidates", "healed-item.md"), `---
+type: reference-candidate
+title: Healed Item
+url: https://example.com/healed-item
+status: candidate
+---
+# Healed Item
+`, "utf-8");
+  fs.writeFileSync(path.join(vault, "references", ".cache", "library-dead-letter.json"), JSON.stringify([
+    { source_id: "healed-source", error: "old fetch failed", at: "2026-05-28T10:00:00.000Z" },
+    { source_id: "stale-source", error: "new fetch failed", at: "2026-05-28T12:00:00.000Z" },
+    { source_id: "stale-source", error: "same source failed again", at: "2026-05-28T12:05:00.000Z" },
+    { source_id: "artifact-source", artifact_url: "https://example.com/healed-item", error: "write failed", at: "2026-05-28T13:00:00.000Z" },
+    { source_id: "artifact-source", artifact_url: "https://example.com/missing-item", error: "write failed", at: "2026-05-28T13:05:00.000Z" },
+  ]), "utf-8");
+
+  const state = {
+    "healed-source": { last_success_at: "2026-05-28T11:00:00.000Z" },
+    "stale-source": { last_success_at: "2026-05-28T11:00:00.000Z" },
+    "artifact-source": { last_success_at: "2026-05-28T14:00:00.000Z" },
+  };
+
+  assert.deepEqual(unresolvedDeadLetterSources(vault, state), ["stale-source", "artifact-source"]);
+});
+
+test("library health treats known scheduler stderr noise as a notice, not a failure", () => {
   const vault = tempVault();
   writeSource(vault, "health.yaml", `
 id: health-source
@@ -2115,7 +2731,15 @@ fixtures: []
   const stderr = path.join(logDir, "job.err.log");
   const stdout = path.join(logDir, "job.out.log");
   const deprecationBlock = "(node:123) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n";
-  fs.writeFileSync(stderr, deprecationBlock.repeat(20), "utf-8");
+  const npmNoticeBlock = [
+    "npm notice",
+    "npm notice New minor version of npm available! 11.12.1 -> 11.16.0",
+    "npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.16.0",
+    "npm notice To update run: npm install -g npm@11.16.0",
+    "npm notice",
+    "",
+  ].join("\n");
+  fs.writeFileSync(stderr, `${deprecationBlock.repeat(12)}${npmNoticeBlock}${deprecationBlock.repeat(12)}`, "utf-8");
   fs.writeFileSync(stdout, "ok\n", "utf-8");
 
   const health = getLibraryOperationalHealth(vault, {
@@ -2130,7 +2754,7 @@ fixtures: []
     }],
   });
   assert.equal(health.scheduler.jobs[0].status, "ok");
-  assert.match(health.scheduler.jobs[0].message || "", /Node\/tsx deprecation noise/);
+  assert.match(health.scheduler.jobs[0].message || "", /known scheduler noise/);
   assert.match(health.scheduler.jobs[0].stderr_excerpt || "", /DEP0205/);
   assert.doesNotMatch(health.scheduler.jobs[0].stderr_excerpt || "", /^nstead/);
   assert.doesNotMatch(health.scheduler.jobs[0].stderr_excerpt || "", /^\(Use `node --trace-deprecation/);

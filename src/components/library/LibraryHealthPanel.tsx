@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, CheckCircle2, ChevronDown, Loader2, RefreshCw } from "lucide-react";
 import { useLibraryHealth } from "@/hooks/useLibrary";
+import { LoadingState } from "@/components/ui/LoadingState";
 import type { LibraryOperationalHealth, LibrarySchedulerJobSummary } from "@/lib/library/types";
 
 function relativeTime(value: string | null): string {
@@ -225,7 +226,7 @@ export function LibraryHealthPanel({
           )}
 
           {!health && (
-            <div className="rounded-md border border-[var(--border-default)] p-3 text-[var(--text-tertiary)]">Health status is loading.</div>
+            <LoadingState label="Loading health status" className="min-h-32" />
           )}
 
           {health && (

@@ -39,14 +39,15 @@ export async function getLocalAppsResponse(
 
   let snapshot: LocalAppsEnabledResponse;
   if (!latest) {
-    snapshot = withScanningFlag(await ensureScan());
+    snapshot = withScanningFlag(await ensureScan(), false);
   } else {
+    const scanWasAlreadyRunning = !!inFlight;
     if (stale && !inFlight) {
       void ensureScan().catch((error) => {
         console.error("[local-apps/scanner] background scan failed:", error);
       });
     }
-    snapshot = withScanningFlag(latest);
+    snapshot = withScanningFlag(latest, scanWasAlreadyRunning);
   }
 
   if (!includePeers) return snapshot;
@@ -151,12 +152,12 @@ export async function scanLocalApps(options: ScanOptions = {}): Promise<LocalApp
   });
 }
 
-function withScanningFlag(snapshot: LocalAppsEnabledResponse): LocalAppsEnabledResponse {
+function withScanningFlag(snapshot: LocalAppsEnabledResponse, isScanning = !!inFlight): LocalAppsEnabledResponse {
   return {
     ...snapshot,
     diagnostics: {
       ...snapshot.diagnostics,
-      is_scanning: !!inFlight,
+      is_scanning: isScanning,
     },
   };
 }

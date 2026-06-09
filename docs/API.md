@@ -354,6 +354,14 @@ HILT_SYNC_SYNCTHING_API_KEY_FILE=/Users/jruck/.hilt/sync/syncthing-api-key
 
 Hilt only calls the local loopback Syncthing REST API and never returns the API key or exposes arbitrary Syncthing API paths.
 
+Each enabled machine snapshot includes daemon reachability, peer connection state, folder status, last scan/file timestamps, versioning, ignore parity, conflict counts, and a local disk summary that separates Syncthing's synced bytes from ignored/generated local weight. Aggregate reads treat `/api/system/machine` feature flags as hints: if a peer is reachable, Hilt probes `/api/system/sync?scope=local` before declaring Sync unavailable.
+
+Live smoke test:
+
+```bash
+npm run test:system:sync-live
+```
+
 ### GET /api/system/sync/conflicts
 
 Returns conflict-copy files for the configured Syncthing folder. Parameters:
@@ -578,7 +586,7 @@ The response includes the weekly file's section order so the Bridge view can ren
 
 **File**: `src/app/api/bridge/briefings/route.ts`
 
-List daily briefing summaries, newest first. Reads `briefings/YYYY-MM-DD.md` from the Bridge vault. If today's ET briefing markdown is missing but Hermes reports that the Morning Briefing cron job failed today, the response prepends a synthetic failed briefing row so the Briefing tab shows today's failure instead of falling back to yesterday.
+List daily briefing summaries, newest first. Reads `briefings/YYYY-MM-DD.md` from the Bridge vault. If today's ET briefing markdown is missing but Hermes reports that the Morning Briefing cron job failed today, the response prepends a synthetic failed briefing row so the Briefing tab shows today's failure instead of falling back to yesterday. Failed rows include the daily job's next run plus any auto-retry watcher `next_run_at` so the UI can distinguish recovery attempts from tomorrow's normal run.
 
 **Response**
 
@@ -596,7 +604,7 @@ Array<{
 
 **File**: `src/app/api/bridge/briefings/[date]/route.ts`
 
-Read one daily briefing by ISO date. Returns rendered markdown content for successful briefing files. If the file is missing and Hermes has a same-day failed Morning Briefing run, returns a failed briefing payload instead of 404.
+Read one daily briefing by ISO date. Returns rendered markdown content for successful briefing files. If the file is missing and Hermes has a same-day failed Morning Briefing run, returns a failed briefing payload instead of 404. The failed payload excludes the retry watcher itself from failure detection and surfaces the watcher's next auto-retry time separately.
 
 **Response**
 
@@ -1307,6 +1315,8 @@ Lists saved references and, by default, unexpired candidates.
 
 When no lifecycle `status` is requested, the list returns saved references plus active `candidate` review items. Skipped, expired, and promoted candidate-cache records stay hidden from the active Library feed unless requested explicitly with `status=skipped`, `status=expired`, or `status=promoted`. When no `mode` is requested, the list defaults to `study` so quiet keep-mode items remain durable and searchable without crowding the main review feed.
 
+Study-mode artifacts include dynamic `eval_attrs` when the list can score them. `eval_attrs.worth` is the compact priority score; `relevance`, `substance`, `freshness`, `lifecycle`, and `why` are the progressive-disclosure breakdown. Keep-mode artifacts omit `eval_attrs`.
+
 **Response**
 
 ```typescript
@@ -1436,12 +1446,13 @@ Runs the shared source runner for selected sources or every enabled source. Cred
   ignoreState?: boolean; // ignore source checkpoints; dryRun implies this
   useCursor?: boolean;   // use source-state/backfill cursor for resumable historical batches
   limit?: number;        // canary/backfill batch cap
+  reweaveTimeoutMs?: number; // optional per-item cap for the Bridge-aware reweave pass
 }
 ```
 
 The response includes `dry_run`, `use_cursor`, `limit`, aggregate counts, per-source `cursor`/`next_cursor`, per-source counts, and per-artifact statuses. In dry-run mode, `saved`, `candidate`, `promoted`, and `skipped` mean "would write" outcomes; the vault is not mutated.
 
-The Library UI uses this route for `Check sources`, separate from local list revalidation and `/api/library/health` status refresh. If a source is selected in the Library source rail, the check runs only that source. Otherwise it runs enabled hourly sources with a small batch limit.
+The Library UI uses this route for `Check sources`, separate from local list revalidation and `/api/library/health` status refresh. If a source is selected in the Library source rail, the check runs only that source. Otherwise it runs enabled hourly sources with a small batch limit. Manual UI checks pass a short `reweaveTimeoutMs` so long transcript/vault-weave work can fall back to `reweave_pending` instead of blocking visible source refresh; scheduler/backfill jobs may omit it to use the deeper default.
 
 ### GET /api/sources/status
 
@@ -1517,7 +1528,7 @@ Newsletters use the `superhuman-news` source id and `mcp-remote` against `https:
 
 ### GET /api/library/recommendations
 
-Returns the file-native For You ranking over recent saved references and unexpired candidates. The v0 ranker caps responses at eight items, scores against active projects, current weekly tasks, North Stars, people notes, recent saves, and persisted `connection_suggestions`, and returns `why`, `priority`, and `matched_terms`.
+Returns the file-native For You ranking over recent saved references and unexpired candidates. The v0 ranker caps responses at eight items, scores against active projects, current weekly tasks, North Stars, people notes, recent saves, and persisted `connection_suggestions`, and returns numeric eval fields (`worth`, `relevance`, `substance`, `freshness`, `lifecycle`, `eval_attrs`), `why`, and `matched_terms`. It does not return artificial priority labels such as `must_read`, `recommended`, or `interesting`.
 
 ### GET /api/search
 

@@ -4,7 +4,10 @@ import { fetchArtifactBatchForSource } from "./adapters";
 import { loadSources, readSourceState, writeSourceState } from "./source-config";
 import { processArtifact } from "./processor";
 import { isoNow } from "./utils";
-import type { ArtifactFetchBatch, IngestionReport, IngestionSourceResult, LibrarySourceConfig, RawArtifact } from "./types";
+import { persistedYouTubeClip } from "./youtube-frontmatter";
+import { isMutedSender, readMutedSenders } from "./library-mute";
+import { enrichYouTubeArtifacts } from "./youtube-metadata";
+import type { ArtifactFetchBatch, IngestionReport, IngestionSourceResult, LibrarySourceConfig, RawArtifact, YouTubeClipIngestionSummary, YouTubeClipReviewAttrs } from "./types";
 
 function afterSince(artifact: RawArtifact, since?: string): boolean {
   if (!since) return true;
@@ -15,7 +18,35 @@ function afterSince(artifact: RawArtifact, since?: string): boolean {
 }
 
 function usesFetchedWindowForIncrementalChecks(source: LibrarySourceConfig): boolean {
-  return source.metadata.incremental_mode === "window" || source.signal === "twitter_bookmark";
+  return source.metadata.incremental_mode === "window"
+    || source.signal === "twitter_bookmark"
+    || source.signal === "youtube_bookmark_playlist";
+}
+
+function emptyYouTubeClipSummary(): YouTubeClipIngestionSummary {
+  return {
+    metadata_checked: 0,
+    metadata_enriched: 0,
+    policy_actions: {
+      process: 0,
+      suppress: 0,
+      label_review: 0,
+      label_only: 0,
+    },
+    content_forms: {
+      episode: 0,
+      clip: 0,
+      short: 0,
+      standalone_short: 0,
+      unknown: 0,
+    },
+  };
+}
+
+function recordYouTubeClip(summary: YouTubeClipIngestionSummary | undefined, clip: YouTubeClipReviewAttrs | undefined): void {
+  if (!summary || !clip) return;
+  summary.policy_actions[clip.policy_action] += 1;
+  summary.content_forms[clip.content_form] += 1;
 }
 
 function sourceResult(source: LibrarySourceConfig): IngestionSourceResult {
@@ -31,6 +62,7 @@ function sourceResult(source: LibrarySourceConfig): IngestionSourceResult {
     skipped: 0,
     duplicates: 0,
     errors: [],
+    youtube_clip_review: source.channel === "youtube" ? emptyYouTubeClipSummary() : undefined,
     artifacts: [],
   };
 }
@@ -42,6 +74,7 @@ export interface RunIngestionOptions {
   limit?: number;
   ignoreState?: boolean;
   useCursor?: boolean;
+  reweaveTimeoutMs?: number;
 }
 
 function hasNextCursor(batch: ArtifactFetchBatch): boolean {
@@ -54,6 +87,7 @@ export async function runIngestion(
 ): Promise<IngestionReport> {
   const started = isoNow();
   const state = readSourceState(vaultPath);
+  const mutedSenders = readMutedSenders(vaultPath);
   const limit = Number.isFinite(options.limit) && Number(options.limit) > 0 ? Number(options.limit) : null;
   const useCursor = Boolean(options.useCursor);
   const sources = loadSources(vaultPath)
@@ -85,7 +119,7 @@ export async function runIngestion(
       result.cursor = sourceCursor;
       const batch = await fetchArtifactBatchForSource(source, { cursor: sourceCursor, limit });
       result.next_cursor = batch.next_cursor ?? null;
-      const artifacts = batch.artifacts
+      const fetchedArtifacts = batch.artifacts
         .filter((artifact) => (
           options.ignoreState ||
           options.dryRun ||
@@ -94,15 +128,32 @@ export async function runIngestion(
           afterSince(artifact, state[source.id]?.last_checked_at)
         ))
         .slice(0, limit ?? undefined);
+      const preflight = await enrichYouTubeArtifacts(source, fetchedArtifacts);
+      const artifacts = preflight.artifacts;
       result.checked = true;
       result.fetched = artifacts.length;
+      if (result.youtube_clip_review) {
+        result.youtube_clip_review.metadata_checked = preflight.checked;
+        result.youtube_clip_review.metadata_enriched = preflight.enriched;
+      }
+      if (preflight.errors.length) {
+        result.errors.push(...preflight.errors);
+      }
       report.checked += 1;
 
       for (const artifact of artifacts) {
+        // Muted senders: skip before any fetch/digest/reweave so we never spend tokens on them.
+        const sender = artifact.author || (typeof artifact.metadata.author === "string" ? artifact.metadata.author : null);
+        if (isMutedSender(mutedSenders, sender)) {
+          result.skipped += 1;
+          report.skipped += 1;
+          continue;
+        }
         try {
           const processed = await processArtifact(vaultPath, artifact, source, {
             useSummarize: options.useSummarize,
             dryRun: options.dryRun,
+            reweaveTimeoutMs: options.reweaveTimeoutMs,
           });
           if (processed.status === "candidate") {
             result.candidates += 1;
@@ -120,12 +171,16 @@ export async function runIngestion(
             result.duplicates += 1;
             report.duplicates += 1;
           }
+          const youtubeClip = processed.youtube_clip || persistedYouTubeClip(artifact.metadata.youtube_clip);
+          recordYouTubeClip(result.youtube_clip_review, youtubeClip);
           result.artifacts.push({
             url: artifact.url,
             title: artifact.title,
             status: processed.status,
             path: processed.path,
             reason: processed.reason,
+            youtube_clip_policy: youtubeClip?.policy_action,
+            youtube_content_form: youtubeClip?.content_form,
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);

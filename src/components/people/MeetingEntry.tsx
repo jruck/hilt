@@ -20,9 +20,11 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import type { PersonCalendarCandidate, PersonMeeting } from "@/lib/types";
+import { LoadingState } from "@/components/ui/LoadingState";
 import { TranscriptView } from "./TranscriptView";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useScope } from "@/contexts/ScopeContext";
+import { useEventSocketContext } from "@/contexts/EventSocketContext";
 
 const BridgeTaskEditor = dynamic(
   () => import("../bridge/BridgeTaskEditor").then((mod) => mod.BridgeTaskEditor),
@@ -63,6 +65,8 @@ type NotesSectionKey = "myNotes" | "aiNotes";
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 
 const SAVE_DEBOUNCE_MS = 700;
+const LIVE_TRANSCRIPT_REFRESH_MS = 2_000;
+const LIVE_TRANSCRIPT_RECENT_MS = 8 * 60 * 60_000;
 
 function SaveIndicator({ state, error }: { state: SaveState; error: string | null }) {
   if (state === "idle") return null;
@@ -252,9 +256,16 @@ function formatNextCandidateDate(candidate: PersonCalendarCandidate): string {
   });
 }
 
+function shouldLiveRefreshTranscript(meeting: PersonMeeting): boolean {
+  if (meeting.source !== "granola") return false;
+  const timestamp = Date.parse(meeting.time || (meeting.date ? `${meeting.date}T00:00:00` : ""));
+  return Number.isFinite(timestamp) && Date.now() - timestamp <= LIVE_TRANSCRIPT_RECENT_MS;
+}
+
 export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, onSaved, onSelectCalendarCandidate }: MeetingEntryProps) {
   const haptics = useHaptics();
   const { navigateTo } = useScope();
+  const { connected: eventSocketConnected, on: onSocketEvent } = useEventSocketContext();
   const editorAreaRef = useRef<HTMLDivElement>(null);
   const isNext = meeting.source === "next";
   const selectedCalendarCandidate = meeting.calendarCandidates?.find((candidate) =>
@@ -354,6 +365,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
 
   // Reset transcript state when meeting changes
   useEffect(() => {
+    transcriptRequestId.current += 1;
     transcriptFetched.current = false;
     setTranscriptContent(null);
     setTranscriptLoading(false);
@@ -560,21 +572,50 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
   const [transcriptContent, setTranscriptContent] = useState<string | null>(null);
   const [transcriptLoading, setTranscriptLoading] = useState(false);
   const transcriptFetched = useRef(false);
+  const transcriptRequestId = useRef(0);
+  const liveRefreshTranscript = shouldLiveRefreshTranscript(meeting);
+
+  const loadTranscript = useCallback(async (showLoading: boolean) => {
+    if (!hasTranscript || !meeting.transcriptPath) return;
+    const requestId = ++transcriptRequestId.current;
+    if (showLoading) setTranscriptLoading(true);
+    try {
+      const scope = vaultPath || "/";
+      const res = await fetch(`/api/docs/file?path=${encodeURIComponent(meeting.transcriptPath)}&scope=${encodeURIComponent(scope)}`, {
+        cache: "no-store",
+      });
+      const data = await res.json().catch(() => null);
+      if (requestId !== transcriptRequestId.current) return;
+      if (typeof data?.content === "string") setTranscriptContent(data.content);
+      else if (data?.content === null) setTranscriptContent(null);
+    } catch {
+      // Leave the last visible transcript in place during transient refresh failures.
+    } finally {
+      if (showLoading && requestId === transcriptRequestId.current) setTranscriptLoading(false);
+    }
+  }, [hasTranscript, meeting.transcriptPath, vaultPath]);
 
   useEffect(() => {
     if (activeTab === "transcript" && hasTranscript && !transcriptFetched.current) {
       transcriptFetched.current = true;
-      setTranscriptLoading(true);
-      const scope = vaultPath || "/";
-      fetch(`/api/docs/file?path=${encodeURIComponent(meeting.transcriptPath!)}&scope=${encodeURIComponent(scope)}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.content) setTranscriptContent(data.content);
-        })
-        .catch(() => {})
-        .finally(() => setTranscriptLoading(false));
+      void loadTranscript(true);
     }
-  }, [activeTab, hasTranscript, meeting.transcriptPath, vaultPath]);
+  }, [activeTab, hasTranscript, loadTranscript]);
+
+  useEffect(() => {
+    if (activeTab !== "transcript" || !hasTranscript || !liveRefreshTranscript) return;
+    const interval = window.setInterval(() => {
+      void loadTranscript(false);
+    }, LIVE_TRANSCRIPT_REFRESH_MS);
+    return () => window.clearInterval(interval);
+  }, [activeTab, hasTranscript, liveRefreshTranscript, loadTranscript]);
+
+  useEffect(() => {
+    if (!eventSocketConnected) return;
+    return onSocketEvent("bridge", "people-changed", () => {
+      if (activeTab === "transcript" && hasTranscript) void loadTranscript(false);
+    });
+  }, [activeTab, eventSocketConnected, hasTranscript, loadTranscript, onSocketEvent]);
 
   const saveErrorBar = saveState === "error" ? (
     <div className="flex-shrink-0 flex items-center gap-3 px-4 py-2 bg-red-500/10 border-b border-red-500/20">
@@ -874,10 +915,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
 
         {activeTab === "transcript" && hasTranscript && (
           transcriptLoading ? (
-            <div className="flex items-center gap-2 text-xs text-[var(--text-tertiary)] py-2">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Loading transcript...
-            </div>
+            <LoadingState label="Loading transcript" size="sm" className="min-h-16 py-2 text-xs" />
           ) : transcriptContent ? (
             <TranscriptView content={transcriptContent} />
           ) : (

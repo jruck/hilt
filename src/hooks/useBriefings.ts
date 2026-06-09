@@ -27,6 +27,7 @@ export interface BriefingRunFailure {
   jobName: string;
   runAt: string;
   nextRunAt: string | null;
+  autoRetryNextRunAt: string | null;
   error: string;
   outputPath: string | null;
 }

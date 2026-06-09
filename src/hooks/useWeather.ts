@@ -1,9 +1,9 @@
 "use client";
 
-import useSWR from "swr";
+import useSWR, { mutate as mutateCache } from "swr";
 import type { WeatherForecastResponse } from "@/lib/weather/types";
 
-interface WeatherForecastQuery {
+export interface WeatherForecastQuery {
   start: string;
   end: string;
 }
@@ -20,6 +20,11 @@ export function useWeatherForecast(query: WeatherForecastQuery | null) {
     keepPreviousData: true,
     revalidateOnFocus: false,
   });
+}
+
+export async function prefetchWeatherForecast(query: WeatherForecastQuery): Promise<void> {
+  const key = weatherForecastKey(query);
+  await mutateCache(key, fetcher<WeatherForecastResponse>(key), { revalidate: false });
 }
 
 function weatherForecastKey(query: WeatherForecastQuery): string {

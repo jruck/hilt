@@ -31,7 +31,7 @@ INTENT — match the treatment to WHY it was saved (infer from the content, URL,
 - AESTHETIC / inspiration → a couple of plain lines on what it is;
 - a NEWSLETTER → a single-story issue is just an essay (treat it as an idea); an aggregator issue must be summarized MORE concisely than the original — never a paragraph or heading per story, never a mirror of its contents — synthesize only the 1-2 threads that actually matter;
 - a FAILED or blocked capture → one honest line that it couldn't be retrieved, and why if known.
-Never inflate a trivial save into a framework or invent significance that isn't there.`;
+Never inflate a trivial save into a framework or invent significance that isn't there. If the source is itself a numbered or listed set of findings, preserve the concrete numbered claims rather than collapsing the capture around only the first item.`;
 
 /**
  * L1 — the digest prompt: CAPTURE_VOICE as a single-shot instruction for the `summarize` CLI. No

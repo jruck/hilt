@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
       ignoreState: body.ignoreState === true || body.dryRun === true,
       useCursor: body.useCursor === true,
       limit: Number.isFinite(Number(body.limit)) ? Number(body.limit) : undefined,
+      reweaveTimeoutMs: Number.isFinite(Number(body.reweaveTimeoutMs)) ? Number(body.reweaveTimeoutMs) : undefined,
     });
     const status = report.blocked.length ? 424 : 200;
     return NextResponse.json(report, { status });

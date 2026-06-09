@@ -6,6 +6,7 @@ import { extractBullets, extractConnections, extractHeading, extractSection, fro
 import { buildMediaMarkdown, cachedSourceContent, stripDetailsWrapper } from "./media";
 import { PIPELINE_VERSION } from "./pipeline";
 import { friendlyNewsletterSender, semanticTags, uniqueTags, validLibraryMode } from "./taxonomy";
+import { youtubeFrontmatter } from "./youtube-frontmatter";
 
 const REFERENCES_DIR = "references";
 export const MANUAL_SOURCE_ID = "manual";
@@ -105,7 +106,11 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
     updated_at: updated,
     lifecycle_status: "saved",
     pipeline_version: typeof data.pipeline_version === "string" ? data.pipeline_version : undefined,
-    video_duration_seconds: typeof data.video_duration_seconds === "number" ? data.video_duration_seconds : undefined,
+    video_duration_seconds: typeof data.video_duration_seconds === "number"
+      ? data.video_duration_seconds
+      : typeof data.youtube_duration_seconds === "number"
+        ? data.youtube_duration_seconds
+        : undefined,
     is_unread: false,
     read_at: null,
     content: body.trim(),
@@ -227,6 +232,7 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
     connection_suggestions: processed.connection_suggestions?.length ? processed.connection_suggestions : undefined,
     connection_reasoning: processed.connection_reasoning || undefined,
     reweave_candidates: processed.reweave_candidates?.length ? processed.reweave_candidates : undefined,
+    reweave_pending: processed.reweave_pending ? true : undefined,
     relevance_signals: source.intent === "explicit_save" ? [{
       type: source.signal || "explicit_save",
       channel: source.channel,
@@ -236,6 +242,7 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
       channel: source.channel,
       at: captured,
     }] : undefined,
+    ...youtubeFrontmatter(processed),
   };
 
   for (const key of Object.keys(frontmatter)) {

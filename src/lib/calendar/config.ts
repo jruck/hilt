@@ -64,6 +64,10 @@ export function getCalendarMarkerPath(): string {
   return path.join(getCalendarDataDir(), "calendar-sync-event.json");
 }
 
+export function getCalendarSyncLockPath(): string {
+  return path.join(getCalendarDataDir(), "calendar-sync.lock");
+}
+
 export function getSyncPastDays(): number {
   return boundedInt(process.env.HILT_CALENDAR_SYNC_PAST_DAYS, 730, 1, 3650);
 }

@@ -7,7 +7,13 @@ import { closeCalendarDbForTests, replaceSourceEvents, upsertCalendar } from "..
 import type { CalendarEvent, CalendarEventInput } from "../calendar/types";
 import { attachGranolaMeetingNotes, findHiltCalendarMatch } from "./calendar-links";
 import { closeGranolaSyncDbForTests, upsertGranolaDocument } from "./db";
-import { augmentExistingMarkdown, buildNoteMarkdown, buildTranscriptMarkdown, computeMeetingPaths } from "./markdown";
+import {
+  augmentExistingMarkdown,
+  buildNoteMarkdown,
+  buildTranscriptMarkdown,
+  computeMeetingPaths,
+  writeTranscriptMarkdownIfChanged,
+} from "./markdown";
 import { normalizeGranolaDocument } from "./normalize";
 
 let tempDir = "";
@@ -111,6 +117,49 @@ describe("Granola markdown", () => {
       reason: "test",
     });
     assert.match(transcript || "", /folders:\n  - Team meetings/);
+  });
+
+  it("rewrites existing transcript bodies when Granola returns more rows", () => {
+    const initialDoc = normalizeGranolaDocument(
+      {
+        id: "doc_live",
+        title: "Live Meeting",
+        created_at: "2026-06-04T14:00:00.000Z",
+        updated_at: "2026-06-04T14:05:00.000Z",
+      },
+      [{ text: "First partial row.", source: "microphone", start_timestamp: "2026-06-04T14:00:10.000Z" }],
+    );
+    const paths = computeMeetingPaths(tempDir, initialDoc);
+    const match = {
+      hiltCalendarEventId: "cal_live",
+      method: "title-time" as const,
+      confidence: 0.8,
+      reason: "test",
+    };
+    const initial = buildTranscriptMarkdown(initialDoc, paths, match)!.replace(
+      "type: transcript",
+      "type: transcript\ncustom_flag: keep-me",
+    );
+    fs.mkdirSync(path.dirname(paths.transcriptPath), { recursive: true });
+    fs.writeFileSync(paths.transcriptPath, initial, "utf-8");
+
+    const updatedDoc = normalizeGranolaDocument(
+      {
+        id: "doc_live",
+        title: "Live Meeting",
+        created_at: "2026-06-04T14:00:00.000Z",
+        updated_at: "2026-06-04T14:07:00.000Z",
+      },
+      [
+        { text: "First partial row.", source: "microphone", start_timestamp: "2026-06-04T14:00:10.000Z" },
+        { text: "Second live row.", source: "system", start_timestamp: "2026-06-04T14:06:10.000Z" },
+      ],
+    );
+
+    assert.equal(writeTranscriptMarkdownIfChanged(paths.transcriptPath, updatedDoc, paths, match, false), true);
+    const rewritten = fs.readFileSync(paths.transcriptPath, "utf-8");
+    assert.match(rewritten, /custom_flag: keep-me/);
+    assert.match(rewritten, /Second live row\./);
   });
 });
 

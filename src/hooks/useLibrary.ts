@@ -27,6 +27,23 @@ export interface UseLibraryOptions {
   unread?: boolean | null;
   q?: string | null;
   limit?: number;
+  // Eval workbench filters (narrow the feed).
+  pipeline_version?: string | null;
+  digested_with?: string | null;
+  connection_state?: string | null;
+  substance_graded?: string | null;
+  reweave_pending?: boolean | null;
+  lifecycle?: string | null;
+  worth_min?: number | null;
+  feedback?: string | null;
+  youtube_clip_policy?: string | null;
+}
+
+export interface LibraryFacets {
+  total: number;
+  facets: Record<string, Record<string, number>>;
+  worths: number[];
+  muted: Array<{ email: string; name: string }>;
 }
 
 interface LibraryListResponse {
@@ -46,9 +63,23 @@ function libraryParams(options: UseLibraryOptions, offset?: number, limit?: numb
   if (options.status) params.set("status", options.status);
   if (options.unread) params.set("unread", "true");
   if (options.q) params.set("q", options.q);
+  if (options.pipeline_version) params.set("pipeline_version", options.pipeline_version);
+  if (options.digested_with) params.set("digested_with", options.digested_with);
+  if (options.connection_state) params.set("connection_state", options.connection_state);
+  if (options.substance_graded) params.set("substance_graded", options.substance_graded);
+  if (options.reweave_pending != null) params.set("reweave_pending", options.reweave_pending ? "true" : "false");
+  if (options.lifecycle) params.set("lifecycle", options.lifecycle);
+  if (options.feedback) params.set("feedback", options.feedback);
+  if (options.youtube_clip_policy) params.set("youtube_clip_policy", options.youtube_clip_policy);
+  if (typeof options.worth_min === "number") params.set("worth_min", String(options.worth_min));
   params.set("limit", String(limit || options.limit || 80));
   if (typeof offset === "number") params.set("offset", String(offset));
   return params;
+}
+
+export function useLibraryFacets() {
+  const { data } = useSWR<LibraryFacets>("/api/library/workbench", fetcher);
+  return { facets: data?.facets || {}, total: data?.total || 0, worths: data?.worths || [], muted: data?.muted || [] };
 }
 
 export function useLibrary(options: UseLibraryOptions = {}) {
@@ -173,6 +204,7 @@ export async function ingestLibrarySources(options: {
   ignoreState?: boolean;
   useCursor?: boolean;
   limit?: number;
+  reweaveTimeoutMs?: number;
 } = {}) {
   const res = await fetch("/api/sources/ingest", {
     method: "POST",

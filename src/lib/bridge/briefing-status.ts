@@ -14,6 +14,7 @@ export interface BriefingRunFailure {
   jobName: string;
   runAt: string;
   nextRunAt: string | null;
+  autoRetryNextRunAt: string | null;
   error: string;
   outputPath: string | null;
 }
@@ -62,6 +63,31 @@ function getHomeDir(options?: HermesStatusOptions): string {
   return options?.homeDir ?? os.homedir();
 }
 
+function getEasternDateTime(date = new Date()): { date: string; minutes: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: ET_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  const hour = parts.find((part) => part.type === "hour")?.value;
+  const minute = parts.find((part) => part.type === "minute")?.value;
+  if (!year || !month || !day || !hour || !minute) {
+    return { date: date.toISOString().slice(0, 10), minutes: date.getHours() * 60 + date.getMinutes() };
+  }
+  return {
+    date: `${year}-${month}-${day}`,
+    minutes: Number(hour) * 60 + Number(minute),
+  };
+}
+
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
@@ -80,7 +106,13 @@ function classifyError(error: string): BriefingFailureKind {
   return "unknown";
 }
 
-function isBriefingJob(job: HermesCronJob): boolean {
+function isBriefingRetryWatchJob(job: HermesCronJob): boolean {
+  const name = asString(job.name)?.toLowerCase() ?? "";
+  const script = asString(job.script)?.toLowerCase() ?? "";
+  return name.includes("briefing retry watch") || script.includes("briefing-retry-watch");
+}
+
+function isMorningBriefingJob(job: HermesCronJob): boolean {
   const name = asString(job.name)?.toLowerCase() ?? "";
   const skill = asString(job.skill)?.toLowerCase() ?? "";
   const script = asString(job.script)?.toLowerCase() ?? "";
@@ -88,12 +120,28 @@ function isBriefingJob(job: HermesCronJob): boolean {
     ? job.skills.map((item) => asString(item)?.toLowerCase()).filter(Boolean)
     : [];
 
-  return (
+  return !isBriefingRetryWatchJob(job) && (
     name.includes("morning briefing") ||
     skill === "briefing" ||
     script.includes("briefing") ||
     skills.includes("briefing")
   );
+}
+
+function findAutoRetryNextRunAt(jobs: HermesCronJob[], date: string): string | null {
+  const retryJob = jobs.find(isBriefingRetryWatchJob);
+  const nextRunAt = retryJob ? asString(retryJob.next_run_at) : null;
+  if (!nextRunAt) return null;
+
+  const nextRunDate = new Date(nextRunAt);
+  if (Number.isNaN(nextRunDate.getTime())) return nextRunAt;
+
+  const nextRunEastern = getEasternDateTime(nextRunDate);
+  const startMinutes = 6 * 60 + 30;
+  const stopMinutes = 17 * 60;
+  if (nextRunEastern.date !== date) return null;
+  if (nextRunEastern.minutes < startMinutes || nextRunEastern.minutes >= stopMinutes) return null;
+  return nextRunAt;
 }
 
 async function findCronOutputPath(homeDir: string, jobId: string, date: string): Promise<string | null> {
@@ -125,8 +173,9 @@ export async function getHermesBriefingFailureForDate(
     return null;
   }
 
-  const failedJobs = (parsed.jobs ?? [])
-    .filter(isBriefingJob)
+  const jobs = parsed.jobs ?? [];
+  const failedJobs = jobs
+    .filter(isMorningBriefingJob)
     .filter((job) => asString(job.last_status) === "error")
     .filter((job) => {
       const runAt = asString(job.last_run_at);
@@ -154,6 +203,7 @@ export async function getHermesBriefingFailureForDate(
     jobName: asString(job.name) ?? "Morning Briefing",
     runAt,
     nextRunAt: asString(job.next_run_at),
+    autoRetryNextRunAt: findAutoRetryNextRunAt(jobs, date),
     error,
     outputPath: await findCronOutputPath(homeDir, jobId, date),
   };

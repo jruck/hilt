@@ -15,6 +15,7 @@ import { ImageViewer } from "./ImageViewer";
 import { PDFViewer } from "./PDFViewer";
 import { CSVTableViewer } from "./CSVTableViewer";
 import { CodeViewer } from "./CodeViewer";
+import { LoadingState } from "@/components/ui/LoadingState";
 import type { FileNode } from "@/lib/types";
 
 // File extensions by type
@@ -46,9 +47,7 @@ const DocsEditor = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 className="w-6 h-6 animate-spin text-[var(--text-tertiary)]" />
-      </div>
+      <LoadingState size="lg" />
     ),
   }
 );
@@ -362,9 +361,7 @@ export function DocsContentPane({
   // Loading
   if (isLoading && !content) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 className="w-6 h-6 animate-spin text-[var(--text-tertiary)]" />
-      </div>
+      <LoadingState size="lg" />
     );
   }
 
@@ -567,7 +564,7 @@ export function DocsContentPane({
         <div
           ref={scrollContainerRef}
           data-mobile-scroll-chrome={markdownHeaderChromeEnabled ? "top-bottom" : "bottom"}
-          className="flex-1 overflow-auto"
+          className="hilt-mobile-scroll-clearance flex-1 overflow-auto"
         >
           <DocsEditor
             markdown={displayContent}
@@ -577,7 +574,7 @@ export function DocsContentPane({
             scopePath={scopePath}
             fileTree={fileTree}
             onNavigateToFile={onNavigateToFile}
-            contentPadding={isMobile ? "px-2 pb-2 pt-4" : undefined}
+            contentPadding={isMobile ? "hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-2 px-2 pt-4" : undefined}
             scrollChrome={markdownHeaderChromeEnabled ? "top-bottom" : "bottom"}
           />
         </div>

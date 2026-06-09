@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useRef, useState } from "react";
 import { useTheme } from "@/hooks/useTheme";
+import { LoadingState } from "@/components/ui/LoadingState";
 
 type TwitterWidgetTheme = "light" | "dark";
 
@@ -120,9 +121,7 @@ function XPostEmbedComponent({ postId, embedUrl, title = "X post" }: XPostEmbedP
         <div className="relative flow-root min-h-[420px]">
           <div ref={containerRef} className="flow-root" />
           {status === "loading" ? (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl border border-[var(--border-default)] bg-[var(--bg-secondary)] text-sm text-[var(--text-tertiary)]">
-              Loading X media...
-            </div>
+            <LoadingState label="Loading X media" className="pointer-events-none absolute inset-0 min-h-[420px]" />
           ) : null}
         </div>
       ) : null}

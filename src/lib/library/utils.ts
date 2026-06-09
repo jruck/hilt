@@ -66,7 +66,7 @@ export function ensureDir(dir: string): void {
 
 export function atomicWriteFile(filePath: string, content: string): void {
   ensureDir(path.dirname(filePath));
-  const tmp = `${filePath}.tmp.${Date.now()}`;
+  const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}.${crypto.randomBytes(6).toString("hex")}`;
   fs.writeFileSync(tmp, content, "utf-8");
   fs.renameSync(tmp, filePath);
 }

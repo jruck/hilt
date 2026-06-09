@@ -35,6 +35,7 @@ const NEXT_CALENDAR_FIELDS = [
 ];
 const BRIDGE_PREFS_FILE = ".hilt-preferences.json";
 const HIDDEN_SUGGESTIONS_KEY = "people.hiddenSuggestions";
+const PERSON_SERIES_HISTORY_CACHE_TTL_MS = 30_000;
 
 type SuggestedPersonType = "person" | "group";
 
@@ -63,6 +64,15 @@ interface PersonSeriesHistory {
   historicalCount: number;
   lastSeenAt: string | null;
 }
+
+interface PersonSeriesHistoryCacheEntry {
+  expiresAt: number;
+  histories: PersonSeriesHistory[];
+  signature: string;
+  vaultPath: string;
+}
+
+let personSeriesHistoryCache: PersonSeriesHistoryCacheEntry | null = null;
 
 function readBridgePrefs(vaultPath: string): Record<string, unknown> {
   try {
@@ -495,7 +505,7 @@ export function attachPeopleNoteTargetsToCalendarEvents<T extends CalendarEvent>
   now = new Date(),
 ): T[] {
   if (!events.length) return events;
-  const histories = buildPersonSeriesHistories(vaultPath);
+  const histories = cachedPersonSeriesHistories(vaultPath);
   if (!histories.length) return events;
 
   return events.map((event) => {
@@ -509,7 +519,46 @@ export function resolveCalendarEventNoteTargets(
   event: CalendarEvent,
   now = new Date(),
 ): CalendarEventNoteTarget[] {
-  return resolveCalendarEventNoteTargetsFromHistories(event, buildPersonSeriesHistories(vaultPath), now);
+  return resolveCalendarEventNoteTargetsFromHistories(event, cachedPersonSeriesHistories(vaultPath), now);
+}
+
+function cachedPersonSeriesHistories(vaultPath: string): PersonSeriesHistory[] {
+  const now = Date.now();
+  const signature = personSeriesHistorySignature(vaultPath);
+  if (
+    personSeriesHistoryCache
+    && personSeriesHistoryCache.vaultPath === vaultPath
+    && personSeriesHistoryCache.signature === signature
+    && personSeriesHistoryCache.expiresAt > now
+  ) {
+    return personSeriesHistoryCache.histories;
+  }
+
+  const histories = buildPersonSeriesHistories(vaultPath);
+  personSeriesHistoryCache = {
+    expiresAt: now + PERSON_SERIES_HISTORY_CACHE_TTL_MS,
+    histories,
+    signature,
+    vaultPath,
+  };
+  return histories;
+}
+
+function personSeriesHistorySignature(vaultPath: string): string {
+  return [
+    path.resolve(vaultPath),
+    directorySignature(path.join(vaultPath, "people")),
+    directorySignature(path.join(vaultPath, "meetings")),
+  ].join(":");
+}
+
+function directorySignature(dir: string): string {
+  try {
+    const stat = fs.statSync(dir);
+    return `${stat.mtimeMs}:${stat.size}`;
+  } catch {
+    return "missing";
+  }
 }
 
 function buildPersonSeriesHistories(vaultPath: string): PersonSeriesHistory[] {

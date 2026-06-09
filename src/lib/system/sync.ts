@@ -1,14 +1,19 @@
 import { createHash } from "crypto";
+import { execFile } from "child_process";
 import { readdir, readFile, stat } from "fs/promises";
 import path from "path";
+import { promisify } from "util";
 import { discoverSystemMachines, fetchPeerJson } from "./peers";
 import { loadSystemSyncSettings, type SystemSyncProvider, type SystemSyncSettings } from "./sync-settings";
 import type { SystemMachine } from "./types";
 
+const execFileAsync = promisify(execFile);
 const SHARED_IGNORE_FILENAME = ".hilt-syncthing-ignore";
 const LOCAL_IGNORE_FILENAME = ".stignore";
 const CONFLICT_PATTERN = ".sync-conflict-";
 const MAX_CONFLICTS = 200;
+const MAX_IGNORED_PATHS = 200;
+const MAX_DISPLAYED_IGNORED_PATHS = 5;
 const SKIP_DIRS = new Set([
   ".git",
   ".next",
@@ -72,6 +77,15 @@ interface SyncthingFolderStatus {
   stateChanged?: string;
 }
 
+interface SyncthingFolderStats {
+  lastScan?: string;
+  lastFile?: {
+    at?: string;
+    filename?: string;
+    deleted?: boolean;
+  };
+}
+
 interface SyncthingFolderErrors {
   errors?: Array<{ path?: string; error?: string }>;
 }
@@ -110,6 +124,12 @@ export interface SystemSyncFolderSnapshot {
   paused: boolean;
   state: string;
   stateChanged: string | null;
+  lastScan: string | null;
+  lastFile: {
+    at: string | null;
+    filename: string | null;
+    deleted: boolean;
+  } | null;
   globalBytes: number;
   globalFiles: number;
   inSyncBytes: number;
@@ -136,6 +156,21 @@ export interface SystemSyncFolderSnapshot {
   };
   errors: Array<{ path: string | null; error: string | null }>;
   conflicts: SystemSyncConflictSummary;
+  disk: SystemSyncDiskSummary;
+}
+
+export interface SystemSyncDiskPath {
+  path: string;
+  sizeBytes: number;
+}
+
+export interface SystemSyncDiskSummary {
+  totalBytes: number | null;
+  syncedBytes: number;
+  ignoredBytes: number | null;
+  otherBytes: number | null;
+  ignoredPathCount: number;
+  largestIgnoredPaths: SystemSyncDiskPath[];
 }
 
 export interface SystemSyncMachineSnapshot {
@@ -192,6 +227,12 @@ export interface SystemSyncResponse {
     pull_errors: number;
   };
 }
+
+type PeerSyncFetcher = (
+  machine: SystemMachine,
+  path: string,
+  options?: RequestInit & { timeoutMs?: number },
+) => Promise<LocalSystemSyncResponse>;
 
 export type LocalSystemSyncConflictsResponse =
   | {
@@ -262,15 +303,24 @@ export async function readLocalSystemSync(options: { force?: boolean; machine?: 
 
 export async function readSystemSync(options: { includePeers?: boolean; force?: boolean } = {}): Promise<SystemSyncResponse> {
   const machines = await discoverSystemMachines({ includePeers: options.includePeers });
+  return readSystemSyncForMachines(machines, { force: options.force });
+}
+
+export async function readSystemSyncForMachines(
+  machines: SystemMachine[],
+  options: { force?: boolean; peerFetcher?: PeerSyncFetcher } = {},
+): Promise<SystemSyncResponse> {
+  const peerFetcher = options.peerFetcher ?? fetchPeerJson;
   const results = await Promise.all(machines.map(async (machine) => {
     try {
       if (machine.self) return machineResultFromLocal(await readLocalSystemSync({ force: options.force }));
-      if (machine.features?.sync !== true) return disabledMachine(machine, "Sync not available on this Hilt peer");
       const params = options.force ? "?scope=local&force=true" : "?scope=local";
-      const response = await fetchPeerJson<LocalSystemSyncResponse>(machine, `/api/system/sync${params}`, { timeoutMs: 8_000 });
+      const response = await peerFetcher(machine, `/api/system/sync${params}`, { timeoutMs: 8_000 });
       return machineResultFromLocal(response, machine);
     } catch (error) {
-      return disabledMachine(machine, error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      const staleHint = machine.features?.sync !== true ? "Sync feature hint was stale or unavailable. " : "";
+      return disabledMachine(machine, `${staleHint}${message}`);
     }
   }));
 
@@ -420,19 +470,23 @@ export async function readLocalSyncthingSnapshot(machine: SystemMachine, setting
     const apiKey = (await readFile(settings.apiKeyFile, "utf-8")).trim();
     if (!apiKey) throw new Error("Syncthing API key file is empty");
 
-    const [version, status, connections, folderConfig, folderStatus, folderErrors, ignores] = await Promise.all([
+    const [version, status, connections, folderConfig, folderStatus, folderStats, folderErrors, ignores] = await Promise.all([
       readSyncthingJson<SyncthingVersion>("/rest/system/version", settings, apiKey),
       readSyncthingJson<SyncthingStatus>("/rest/system/status", settings, apiKey),
       readSyncthingJson<SyncthingConnections>("/rest/system/connections", settings, apiKey),
       readSyncthingJson<SyncthingFolderConfig>(`/rest/config/folders/${encodeURIComponent(settings.folderId)}`, settings, apiKey),
       readSyncthingJson<SyncthingFolderStatus>(`/rest/db/status?folder=${encodeURIComponent(settings.folderId)}`, settings, apiKey),
+      readSyncthingJson<Record<string, SyncthingFolderStats>>("/rest/stats/folder", settings, apiKey),
       readSyncthingJson<SyncthingFolderErrors>(`/rest/folder/errors?folder=${encodeURIComponent(settings.folderId)}`, settings, apiKey),
       readSyncthingJson<SyncthingIgnores>(`/rest/db/ignores?folder=${encodeURIComponent(settings.folderId)}`, settings, apiKey),
     ]);
 
     if (!folderConfig.path) throw new Error(`Syncthing folder ${settings.folderId} has no path`);
-    const conflicts = await collectConflictFiles(folderConfig.path);
-    const ignore = await readIgnoreState(folderConfig.path, ignores);
+    const [conflicts, ignore, disk] = await Promise.all([
+      collectConflictFiles(folderConfig.path),
+      readIgnoreState(folderConfig.path, ignores),
+      readDiskSummary(folderConfig.path, folderStatus.localBytes ?? 0),
+    ]);
 
     return {
       machine,
@@ -446,7 +500,7 @@ export async function readLocalSyncthingSnapshot(machine: SystemMachine, setting
         startTime: status.startTime ?? null,
         error: null,
       },
-      folder: folderSnapshot(settings.folderId, folderConfig, folderStatus, folderErrors, ignore, conflicts),
+      folder: folderSnapshot(settings.folderId, folderConfig, folderStatus, folderStats[settings.folderId], folderErrors, ignore, conflicts, disk),
       peers: peerStatuses(folderConfig, connections, status.myID),
       refreshedAt,
       error: null,
@@ -476,9 +530,11 @@ function folderSnapshot(
   folderId: string,
   config: SyncthingFolderConfig,
   status: SyncthingFolderStatus,
+  stats: SyncthingFolderStats | undefined,
   errors: SyncthingFolderErrors,
   ignore: SystemSyncFolderSnapshot["ignore"],
   conflicts: SystemSyncConflictSummary,
+  disk: SystemSyncDiskSummary,
 ): SystemSyncFolderSnapshot {
   return {
     id: config.id || folderId,
@@ -488,6 +544,12 @@ function folderSnapshot(
     paused: config.paused === true,
     state: status.state || "unknown",
     stateChanged: status.stateChanged || null,
+    lastScan: stats?.lastScan || null,
+    lastFile: stats?.lastFile ? {
+      at: stats.lastFile.at || null,
+      filename: stats.lastFile.filename || null,
+      deleted: stats.lastFile.deleted === true,
+    } : null,
     globalBytes: status.globalBytes ?? 0,
     globalFiles: status.globalFiles ?? 0,
     inSyncBytes: status.inSyncBytes ?? 0,
@@ -508,7 +570,75 @@ function folderSnapshot(
     ignore,
     errors: normalizeFolderErrors(errors),
     conflicts,
+    disk,
   };
+}
+
+async function readDiskSummary(rootPath: string, syncedBytes: number): Promise<SystemSyncDiskSummary> {
+  const ignoredPaths = await findIgnoredPaths(rootPath);
+  const [totalBytes, ignoredSizes] = await Promise.all([
+    duBytes(rootPath),
+    Promise.all(ignoredPaths.map(async (ignoredPath) => ({
+      path: path.relative(rootPath, ignoredPath) || ".",
+      sizeBytes: await duBytes(ignoredPath),
+    }))),
+  ]);
+  const validIgnoredSizes = ignoredSizes.filter((item): item is SystemSyncDiskPath => typeof item.sizeBytes === "number");
+  const ignoredBytes = validIgnoredSizes.reduce((total, item) => total + item.sizeBytes, 0);
+  const otherBytes = typeof totalBytes === "number" ? Math.max(0, totalBytes - ignoredBytes - syncedBytes) : null;
+
+  return {
+    totalBytes,
+    syncedBytes,
+    ignoredBytes,
+    otherBytes,
+    ignoredPathCount: ignoredPaths.length,
+    largestIgnoredPaths: validIgnoredSizes
+      .sort((a, b) => b.sizeBytes - a.sizeBytes)
+      .slice(0, MAX_DISPLAYED_IGNORED_PATHS),
+  };
+}
+
+async function findIgnoredPaths(rootPath: string): Promise<string[]> {
+  const ignoredPaths: string[] = [];
+
+  async function walk(dir: string): Promise<void> {
+    if (ignoredPaths.length >= MAX_IGNORED_PATHS) return;
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (ignoredPaths.length >= MAX_IGNORED_PATHS) return;
+      if (!entry.isDirectory()) continue;
+      const fullPath = path.join(dir, entry.name);
+      if (SKIP_DIRS.has(entry.name)) {
+        ignoredPaths.push(fullPath);
+        continue;
+      }
+      await walk(fullPath);
+    }
+  }
+
+  await walk(rootPath);
+  return ignoredPaths;
+}
+
+async function duBytes(targetPath: string): Promise<number | null> {
+  try {
+    const { stdout } = await execFileAsync("/usr/bin/du", ["-sk", targetPath], {
+      encoding: "utf-8",
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+    });
+    const kb = Number(stdout.trim().split(/\s+/)[0]);
+    return Number.isFinite(kb) ? kb * 1024 : null;
+  } catch {
+    return null;
+  }
 }
 
 async function readIgnoreState(rootPath: string, ignores: SyncthingIgnores): Promise<SystemSyncFolderSnapshot["ignore"]> {

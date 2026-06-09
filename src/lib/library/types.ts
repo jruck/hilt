@@ -5,6 +5,13 @@ export type CandidateStatus = "candidate" | "promoted" | "skipped" | "expired";
 export type LibraryLifecycleStatus = "candidate" | "saved" | "skipped" | "expired" | "promoted";
 export type LibraryMode = "study" | "keep";
 export type LibraryModeFilter = LibraryMode | "all";
+/**
+ * Lifecycle state — orthogonal to disposition (`library_mode`). `active` = normal circulation;
+ * `to_archive` = the eval flagged it as probably-not-worth-your-time, a non-destructive review bucket
+ * that stays in the main folder; `archived` = manually moved to `.archive/`. The eval only ever suggests
+ * `to_archive`; moves to `archived` are always manual. See docs/plans/reference-library-roadmap.md.
+ */
+export type LibraryLifecycle = "active" | "to_archive" | "archived";
 export type PromotionReason = "explicit_signal" | "manual_save" | "for_you_selected" | "briefing_selected" | "auto_threshold";
 
 export interface LibrarySourceAuth {
@@ -128,6 +135,9 @@ export interface ProcessedArtifact {
   digest_markdown?: string;
   description?: string;
   video_duration_seconds?: number;
+  youtube_clip?: YouTubeClipReviewAttrs;
+  /** A study item that got only the L1 digest (reweave couldn't run) — flagged for re-upgrade. */
+  reweave_pending?: boolean;
   assessment: {
     save_recommendation: SaveRecommendation;
     why: string;
@@ -229,6 +239,40 @@ export interface LibraryArtifact {
   expires_at?: string | null;
   is_unread: boolean;
   read_at: string | null;
+  /** Dynamic L3 eval attributes for study items. Computed on read, never stamped into this shape. */
+  eval_attrs?: LibraryEvalAttrs;
+  /** Dynamic YouTube clip review attributes. Computed on read, never stamped by the filter UI. */
+  youtube_clip?: YouTubeClipReviewAttrs;
+}
+
+/** A single feedback comment on a library item. Stored as a list in frontmatter `feedback`. */
+export interface LibraryComment {
+  id: string;
+  text: string;
+  created_at: string;
+  updated_at?: string;
+  /** When this comment was actioned by /process-library-feedback. Absent = unprocessed. */
+  processed_at?: string;
+}
+
+/** L3 eval attributes for one study item — computed on demand, never stamped. */
+export interface LibraryEvalAttrs {
+  worth: number;
+  relevance: number;
+  substance: number;
+  freshness: number;
+  lifecycle: LibraryLifecycle;
+  why: string;
+}
+
+export interface YouTubeClipReviewAttrs {
+  content_form: "episode" | "clip" | "short" | "standalone_short" | "unknown";
+  confidence: number;
+  confidence_label: "high" | "medium" | "low";
+  policy_action: "process" | "suppress" | "label_review" | "label_only";
+  clip_score: number;
+  episode_score: number;
+  signals: string[];
 }
 
 export interface LibraryArtifactDetail extends LibraryArtifact {
@@ -236,6 +280,10 @@ export interface LibraryArtifactDetail extends LibraryArtifact {
   key_points: string[];
   connections: string[];
   raw_frontmatter: Record<string, unknown>;
+  /** Attached by the detail route for the metadata panel; absent for keep items. */
+  eval_attrs?: LibraryEvalAttrs;
+  /** Feedback comments from Hilt's DATA_DIR store, attached by the detail route. */
+  comments?: LibraryComment[];
 }
 
 export interface LibrarySearchResult extends LibraryArtifact {
@@ -338,6 +386,7 @@ export interface IngestionSourceResult {
   skipped: number;
   duplicates: number;
   errors: string[];
+  youtube_clip_review?: YouTubeClipIngestionSummary;
   artifacts: IngestionArtifactResult[];
 }
 
@@ -347,6 +396,15 @@ export interface IngestionArtifactResult {
   status: "candidate" | "saved" | "promoted" | "duplicate" | "skipped" | "error";
   path?: string;
   reason?: string;
+  youtube_clip_policy?: YouTubeClipReviewAttrs["policy_action"];
+  youtube_content_form?: YouTubeClipReviewAttrs["content_form"];
+}
+
+export interface YouTubeClipIngestionSummary {
+  metadata_checked: number;
+  metadata_enriched: number;
+  policy_actions: Record<YouTubeClipReviewAttrs["policy_action"], number>;
+  content_forms: Record<YouTubeClipReviewAttrs["content_form"], number>;
 }
 
 export interface IngestionReport {
@@ -392,6 +450,11 @@ export interface LibraryAuthVerificationReport {
 
 export interface RecommendedArtifact extends LibraryArtifact {
   why: string;
-  priority: "must_read" | "recommended" | "interesting";
+  /** L3 eval — worth = relevance × substance × freshness, and its components, for the current context. */
+  worth: number;
+  relevance: number;
+  substance: number;
+  freshness: number;
+  lifecycle: LibraryLifecycle;
   matched_terms: string[];
 }

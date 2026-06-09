@@ -101,7 +101,8 @@ interface BriefingRunFailure {
   jobId: string;           // Hermes cron job id
   jobName: string;         // Usually "Morning Briefing"
   runAt: string;           // ISO timestamp from Hermes jobs.json
-  nextRunAt: string | null;
+  nextRunAt: string | null;     // Next normal Morning Briefing run
+  autoRetryNextRunAt: string | null; // Next no-agent retry watcher tick, if installed
   error: string;           // Raw Hermes error string
   outputPath: string | null; // Latest Hermes cron markdown output for this date/job
 }
@@ -320,6 +321,9 @@ interface SystemSyncMachineSnapshot {
     path: string;
     type: string;
     state: string;
+    stateChanged: string | null;
+    lastScan: string | null;
+    lastFile: { at: string | null; filename: string | null; deleted: boolean } | null;
     inSyncFiles: number;
     inSyncBytes: number;
     needFiles: number;
@@ -329,6 +333,14 @@ interface SystemSyncMachineSnapshot {
     maxConflicts: number | null;
     ignore: { includePresent: boolean; localHash: string | null; sharedHash: string | null };
     conflicts: { count: number; truncated: boolean; files: Array<{ path: string; modifiedAt: string | null; sizeBytes: number | null }> };
+    disk: {
+      totalBytes: number | null;
+      syncedBytes: number;
+      ignoredBytes: number | null;
+      otherBytes: number | null;
+      ignoredPathCount: number;
+      largestIgnoredPaths: Array<{ path: string; sizeBytes: number }>;
+    };
   } | null;
   peers: Array<{ deviceId: string; label: string; connected: boolean; address: string | null }>;
   refreshedAt: string;
@@ -752,6 +764,7 @@ interface LibraryArtifact {
   destination?: string;
   is_unread: boolean;      // Hilt-local read state, not markdown frontmatter
   read_at: string | null;  // ISO timestamp when the current user last marked it read
+  eval_attrs?: LibraryEvalAttrs; // Dynamic worth eval for study items; absent for keep items
   connections: string[];
   raw_frontmatter?: {
     thumbnail?: string;
@@ -761,6 +774,21 @@ interface LibraryArtifact {
   };
 }
 ```
+
+`eval_attrs` is computed at read time for `study` items and is never a markdown storage field in this shape:
+
+```typescript
+interface LibraryEvalAttrs {
+  worth: number;       // relevance × substance × freshness
+  relevance: number;   // active-context and first-party connection fit
+  substance: number;   // source depth / idea density
+  freshness: number;   // recency multiplier
+  lifecycle: "active" | "to_archive" | "archived";
+  why: string;         // Compact explanation for the scores
+}
+```
+
+The UI uses `worth` as the compact priority signal in normal reading surfaces. Admin/eval review surfaces can progressively disclose the component scores (`relevance`, `substance`, `freshness`) and the non-destructive `to_archive` lifecycle flag. Artificial label buckets such as `must_read`, `recommended`, and `interesting` are not part of the artifact contract.
 
 Library read state is stored outside the bridge vault in `${DATA_DIR}/library-read-state/<vault-hash>.json`. The first Library API read creates a baseline timestamp so historical stock is treated as already seen; newly ingested artifacts become unread until marked read by the UI. Unread status is based on source-aware arrival metadata (`captured_at`/`saved_at` for saved references, `digested_at` for candidates) with stable source dates as fallback, not file modification time, so redigestion, metadata repair, and formatting cleanup do not light up old stock as "New." `/api/library?unread=true` applies the same local read state before filtering, which powers the Library `New` ranking without adding unread flags to reference markdown. `/api/library/unread` returns a boolean shell hint for the top-level Library nav dot.
 
@@ -812,7 +840,11 @@ Notes are authored as `docs/review-notes/<version>.md` and carried into the queu
 ```typescript
 interface RecommendedArtifact extends LibraryArtifact {
   why: string;
-  priority: "must_read" | "recommended" | "interesting";
+  worth: number;
+  relevance: number;
+  substance: number;
+  freshness: number;
+  lifecycle: "active" | "to_archive" | "archived";
   matched_terms: string[];
 }
 ```

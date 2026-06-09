@@ -10,15 +10,18 @@ import { NavBar } from "./NavBar";
 import { AppHud } from "./AppHud";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBriefingUnread } from "@/hooks/useBriefingUnread";
+import { prefetchCalendarCaches } from "@/hooks/useCalendar";
 import { useLibraryUnread } from "@/hooks/useLibrary";
+import { prefetchWeatherForecast } from "@/hooks/useWeather";
 import { PullToRefresh } from "./PullToRefresh";
 import { MobileChromeProvider } from "@/contexts/MobileChromeContext";
+import { CALENDAR_EVENT_OPEN_EVENT, PENDING_CALENDAR_EVENT_STORAGE_KEY, type CalendarEventOpenDetail } from "@/lib/calendar/deeplink";
 import { isSystemMode, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode, type SystemMode } from "@/lib/system/navigation";
 
 const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.DocsView })), { ssr: false });
 const BridgeView = dynamic(() => import("./bridge/BridgeView").then(m => ({ default: m.BridgeView })), { ssr: false });
 const BriefingsView = dynamic(() => import("./briefings/BriefingsView").then(m => ({ default: m.BriefingsView })), { ssr: false });
-const CalendarView = dynamic(() => import("./calendar/CalendarView").then(m => ({ default: m.CalendarView })), { ssr: false });
+const CalendarView = dynamic(() => loadCalendarViewModule().then(m => ({ default: m.CalendarView })), { ssr: false });
 const LibraryView = dynamic(() => import("./library/LibraryView").then(m => ({ default: m.LibraryView })), { ssr: false });
 const PeopleView = dynamic(() => import("./people/PeopleView").then(m => ({ default: m.PeopleView })), { ssr: false });
 const SystemView = dynamic(() => import("./system").then(m => ({ default: m.SystemView })), { ssr: false });
@@ -26,6 +29,89 @@ const SystemView = dynamic(() => import("./system").then(m => ({ default: m.Syst
 const SYSTEM_MODE_STORAGE_KEY = "hilt-system-mode";
 const PEOPLE_SCOPE_STORAGE_KEY = "hilt-people-scope";
 const HUD_VISIBILITY_STORAGE_KEY = "hilt-app-hud-visible";
+const CALENDAR_WARMUP_DELAY_MS = 1_200;
+const CALENDAR_WARMUP_IDLE_TIMEOUT_MS = 4_000;
+
+type BridgeTaskOpenRequest = { taskId: string; token: number };
+type IdleCallbackHandle = number;
+type IdleWindow = Window & {
+  cancelIdleCallback?: (handle: IdleCallbackHandle) => void;
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => IdleCallbackHandle;
+};
+
+let calendarWarmupPromise: Promise<void> | null = null;
+
+function loadCalendarViewModule() {
+  return import("./calendar/CalendarView");
+}
+
+function warmCalendarTabResources(): Promise<void> {
+  if (calendarWarmupPromise) return calendarWarmupPromise;
+  const { eventRange, weatherRange } = defaultCalendarWarmupRanges();
+  calendarWarmupPromise = Promise.allSettled([
+    loadCalendarViewModule(),
+    prefetchCalendarCaches(eventRange),
+    prefetchWeatherForecast(weatherRange),
+  ]).then(() => undefined);
+  return calendarWarmupPromise;
+}
+
+function defaultCalendarWarmupRanges(): {
+  eventRange: { start: Date; end: Date };
+  weatherRange: { start: string; end: string };
+} {
+  const today = new Date();
+  const mode = window.matchMedia("(max-width: 767px)").matches ? "day" : "week";
+  const start = startOfLocalDay(today);
+  if (mode === "week") start.setDate(start.getDate() - start.getDay());
+  const end = new Date(start);
+  end.setDate(start.getDate() + (mode === "week" ? 6 : 0));
+  end.setHours(23, 59, 59, 999);
+  return {
+    eventRange: { start, end },
+    weatherRange: {
+      start: localDateKey(start),
+      end: localDateKey(end),
+    },
+  };
+}
+
+function startOfLocalDay(date: Date): Date {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function localDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function scheduleIdleWarmup(callback: () => void): () => void {
+  const win = window as IdleWindow;
+  let timeoutId: number | null = null;
+  let idleHandle: IdleCallbackHandle | null = null;
+  timeoutId = window.setTimeout(() => {
+    timeoutId = null;
+    if (win.requestIdleCallback) {
+      idleHandle = win.requestIdleCallback(callback, { timeout: CALENDAR_WARMUP_IDLE_TIMEOUT_MS });
+      return;
+    }
+    callback();
+  }, CALENDAR_WARMUP_DELAY_MS);
+
+  return () => {
+    if (timeoutId) window.clearTimeout(timeoutId);
+    if (idleHandle !== null) win.cancelIdleCallback?.(idleHandle);
+  };
+}
+
+function shouldSkipCalendarWarmup(): boolean {
+  const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+  return connection?.saveData === true;
+}
 
 function getStoredPeopleScope(): string {
   if (typeof window === "undefined") return "/__inbox__";
@@ -116,6 +202,14 @@ export function Board() {
     localStorage.setItem(HUD_VISIBILITY_STORAGE_KEY, String(hudVisible));
   }, [hudVisible, isHydrated]);
 
+  useEffect(() => {
+    if (!isHydrated || viewMode === "calendar") return undefined;
+    return scheduleIdleWarmup(() => {
+      if (shouldSkipCalendarWarmup()) return;
+      void warmCalendarTabResources();
+    });
+  }, [isHydrated, viewMode]);
+
   // Persist view mode to server when it changes (skip during initial hydration)
   useEffect(() => {
     if (isHydrated) {
@@ -157,6 +251,27 @@ export function Board() {
   // Search state
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [addTaskTrigger, setAddTaskTrigger] = useState(0);
+  const [bridgeTaskOpenRequest, setBridgeTaskOpenRequest] = useState<BridgeTaskOpenRequest | null>(null);
+
+  const openBridgeTaskFromHud = useCallback((taskId: string) => {
+    setViewMode("bridge");
+    setBridgeTaskOpenRequest((current) => ({
+      taskId,
+      token: (current?.token ?? 0) + 1,
+    }));
+  }, [setViewMode]);
+
+  const openCalendarEventFromHud = useCallback((detail: CalendarEventOpenDetail) => {
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem(PENDING_CALENDAR_EVENT_STORAGE_KEY, JSON.stringify(detail));
+    }
+    setViewMode("calendar");
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        window.dispatchEvent(new CustomEvent(CALENDAR_EVENT_OPEN_EVENT, { detail }));
+      });
+    }
+  }, [setViewMode]);
 
   // Pull-to-refresh: full page reload (simplest, most reliable for PWA)
   const handleRefresh = useCallback(async () => {
@@ -238,7 +353,9 @@ export function Board() {
         {viewMode === "bridge" ? (
           <BridgeView
             addTaskTrigger={addTaskTrigger}
+            openTaskRequest={bridgeTaskOpenRequest}
             hudVisible={hudVisible}
+            onOpenCalendarEvent={openCalendarEventFromHud}
             onHudVisibleChange={setHudVisible}
             searchQuery={searchQuery}
             onNavigateToProject={(project) => {
@@ -278,6 +395,8 @@ export function Board() {
         {viewMode === "bridge" ? (
           <BridgeView
             addTaskTrigger={addTaskTrigger}
+            openTaskRequest={bridgeTaskOpenRequest}
+            onOpenCalendarEvent={openCalendarEventFromHud}
             searchQuery={searchQuery}
             onNavigateToProject={(project) => {
               navigateTo("docs", project.path);
@@ -310,7 +429,14 @@ export function Board() {
         </div>
         </div>}
       </div>
-      {hudVisible && !isMobile && <AppHud placement="bottom" onCollapse={() => setHudVisible(false)} />}
+      {hudVisible && !isMobile && (
+        <AppHud
+          placement="bottom"
+          onCollapse={() => setHudVisible(false)}
+          onOpenCalendarEvent={openCalendarEventFromHud}
+          onOpenTask={openBridgeTaskFromHud}
+        />
+      )}
     </div>
     </MobileChromeProvider>
   );

@@ -297,12 +297,21 @@ interface GenerateContentResponse {
   candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
 }
 
-/** Retry once on 429/5xx with a short backoff (deterministic delay, no jitter). */
-async function withRetry(fn: () => Promise<Response>): Promise<Response> {
-  const res = await fn();
-  if (res.status === 429 || res.status >= 500) {
-    await new Promise((r) => setTimeout(r, 1200));
-    return fn();
+/**
+ * Retry 429/5xx with exponential backoff, honoring a `Retry-After` header when present.
+ * Rides out per-minute rate throttling (RPM) instead of crashing the run on the first
+ * 429; a persistent daily-quota 429 (RPD) eventually exhausts the retries and surfaces.
+ * Backoff: Retry-After seconds, else 2/4/8/16/32s (capped 60s). No jitter (deterministic).
+ */
+async function withRetry(fn: () => Promise<Response>, maxRetries = 5): Promise<Response> {
+  let res = await fn();
+  for (let attempt = 1; attempt <= maxRetries && (res.status === 429 || res.status >= 500); attempt++) {
+    const retryAfter = Number(res.headers.get("retry-after"));
+    const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+      ? Math.min(120_000, retryAfter * 1000)
+      : Math.min(60_000, 1000 * 2 ** attempt);
+    await new Promise((r) => setTimeout(r, waitMs));
+    res = await fn();
   }
   return res;
 }

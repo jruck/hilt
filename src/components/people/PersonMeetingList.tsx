@@ -2,7 +2,6 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { ArrowLeft, CalendarDays, Check, Copy, EyeOff, FolderOpen, Inbox, MoreVertical, Network, Settings } from "lucide-react";
-import { useIsMobile } from "@/hooks/useIsMobile";
 import { useScope } from "@/contexts/ScopeContext";
 import { isGraphEnabled } from "@/lib/graph/config";
 import { buildGraphScope } from "@/components/graph/graph-deeplink";
@@ -65,7 +64,6 @@ export function PersonMeetingList({
   const [actionPending, setActionPending] = useState<"promote" | "hide" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
-  const isMobile = useIsMobile();
   useMobileChromeVisibilityLock(showConfig || showSuggestedActions || showPromoteForm || showCalendarMenu || showActionsMenu || actionPending !== null);
   const mobileHeaderChromeEnabled = !(showConfig || showSuggestedActions || showPromoteForm || showCalendarMenu || showActionsMenu || actionPending !== null);
   const calendarCandidates = person?.calendarLinks.candidates ?? [];
@@ -482,7 +480,7 @@ export function PersonMeetingList({
         className="flex min-h-0 flex-1 flex-col overflow-hidden"
       >
         {/* Meeting List */}
-        <div data-mobile-scroll-chrome="top-bottom" className={`flex-1 overflow-y-auto ${isMobile ? "pb-[var(--hilt-mobile-nav-clearance)]" : ""}`}>
+        <div data-mobile-scroll-chrome="top-bottom" className="hilt-mobile-scroll-clearance flex-1 overflow-y-auto">
           {displayMeetings.length === 0 ? (
             <div className="flex items-center justify-center h-full text-[var(--text-tertiary)] text-sm">
               No meetings yet

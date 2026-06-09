@@ -7,6 +7,7 @@ import { execFileSync } from "node:child_process";
 
 const API_BASE = "https://api.granola.ai";
 const USER_AGENT = "HiltGranolaSync/0.1";
+const TRANSCRIPT_CONCURRENCY = 4;
 
 main().catch((error) => {
   process.stdout.write(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }) + "\n");
@@ -24,17 +25,37 @@ async function main() {
   const docs = options.ids.length
     ? await fetchDocumentsBatch(accessToken, options.ids)
     : await fetchRecentDocuments(accessToken, options.days, options.limit);
-  const folderMap = await fetchFolderMap(accessToken).catch(() => new Map());
+  const liveDocs = docs.filter((rawDoc) => rawDoc && !rawDoc.deleted_at);
+  const [folderMap, transcripts] = await Promise.all([
+    fetchFolderMap(accessToken).catch(() => new Map()),
+    options.transcripts
+      ? mapLimit(liveDocs, TRANSCRIPT_CONCURRENCY, (rawDoc) => fetchTranscript(accessToken, rawDoc.id).catch(() => []))
+      : Promise.resolve(liveDocs.map(() => [])),
+  ]);
 
   const output = [];
-  for (const rawDoc of docs) {
-    if (!rawDoc || rawDoc.deleted_at) continue;
+  for (let i = 0; i < liveDocs.length; i++) {
+    const rawDoc = liveDocs[i];
     const folders = folderMap.get(rawDoc.id);
     if (folders?.length) rawDoc._hilt_folders = folders;
-    const transcript = options.transcripts ? await fetchTranscript(accessToken, rawDoc.id).catch(() => []) : [];
-    output.push({ raw: rawDoc, transcript });
+    output.push({ raw: rawDoc, transcript: transcripts[i] || [] });
   }
   process.stdout.write(JSON.stringify({ ok: true, docs: output }) + "\n");
+}
+
+async function mapLimit(items, limit, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 function parseArgs(argv) {

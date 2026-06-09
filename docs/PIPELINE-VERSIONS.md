@@ -54,8 +54,18 @@ in place and the previous behavior is recovered from git. Mapping each version t
 how you "run" an old version: check out the ref.
 
 **Current = `v2.1` — a TEST iteration over the published `v2` baseline.** `v2` remains the published
-baseline; `v2.1` fixes X long-post extraction and numbered-list preservation for newly ingested or
-explicitly repaired items. It is not a full-library backfill target unless later promoted.
+baseline; `v2.1` is **the onion**: a single shared voice core (`capture-voice.ts` →
+`CAPTURE_VOICE`) now feeds BOTH the cheap L1 `summarize` digest (`DIGEST_PROMPT`) and the in-vault L2
+`REWEAVE_PROMPT`, so candidates and saved items speak in the same voice. Processing is now **one path
+gated only by intent** (`shouldWeaveConnections = library_mode === "study"`): study items (candidate
+OR saved) get the full reweave (free-form digest + connections); `keep` items get the clean L1 digest
+only. A study reweave that can't run degrades to L1 and is flagged `reweave_pending` for re-upgrade.
+The daily `library:reweave:pending` scheduler job repairs that queue in small bounded batches; the
+backfill orchestrator also re-includes pending items during larger sweeps.
+(The earlier `LIBRARY_CANDIDATE_REWEAVE` flag and the candidate-vs-saved branch were removed.) It also
+folds in the earlier X long-post extraction + numbered-list preservation fixes.
+It is not a full-library backfill target unless later promoted; the candidate sweep runs via
+`scripts/library-backfill.ts --include-candidates`.
 
 ## Version history
 
@@ -67,7 +77,7 @@ explicitly repaired items. It is not a full-library backfill target unless later
 | v1.3 | test | Intent-aware reweave: ideas-first voice, treatment modes, X long-form/thread/embed, self-reference filter, omit-empty-connections | uncommitted working tree (this session) |
 | v1.4 | test | Concision & density: executive-brief discipline (bullets/tables over prose walls), newsletter synthesis, connections lean first-party + deduped | uncommitted working tree (this session) |
 | v2 | **published baseline** | The `v1.4` protocol verbatim, promoted on full-library backfill. Every durable reference is being reanalyzed to v2 (`scripts/library-backfill.ts`); v1.4 items re-stamped without reweave | uncommitted working tree (this session) |
-| **v2.1 (current)** | test | X long-post repair: verify bookmarked X posts through xurl, prefer `note_tweet`, preserve numbered findings as takeaways, and keep redigest output on normal free-form body conventions | uncommitted working tree (this session) |
+| **v2.1 (current)** | test | **The onion** — shared `CAPTURE_VOICE` core feeds both L1 digest and L2 reweave; candidates can be reweaved with connections (`LIBRARY_CANDIDATE_REWEAVE`); free-form candidate render drops the rigid Summary/Key Points/Assessment scaffold. Also: X long-post repair (verify via xurl, prefer `note_tweet`, preserve numbered findings) | uncommitted working tree (this session) |
 
 > **Re-base note (2026-06-01):** earlier this work was numbered v1–v5 as if each step shipped. It
 > didn't — only the *digest era* (now folded into **v1**) was ever applied across the whole library.
@@ -194,24 +204,46 @@ explicitly repaired items. It is not a full-library backfill target unless later
 
 ---
 
-### v2.1 — X long-post extraction + numbered-list preservation (test)
+### v2.1 — The onion: one shared voice core for both layers (test)
 
-- **Summary:** A small extraction-and-digest fix over `v2` for X/Twitter bookmarks whose bookmark-list
-  response is only the truncated public `text` field.
-- **What changed:**
-  - `digestArtifact` now verifies the bookmarked X post itself through the configured xurl path and
-    prefers full `note_tweet.text` before summarizing or caching source text.
-  - Thread/list roots that cannot be verified as complete are no longer allowed to become "hot" just
-    because they contain 80+ characters of source metadata.
-  - `DIGEST_PROMPT` now says that if the source is already a numbered/listed set of findings, the
-    concrete claims should be preserved as takeaways rather than collapsing the digest around item 1.
-  - `scripts/library-redigest.ts` now mirrors normal ingestion's body conventions: it keeps
-    `digest_markdown` when the reweave produces it and stamps the active `PIPELINE_VERSION`.
-- **Why:** The Ahrefs AI-search post (`2061796432534003866`) had a 10-item `note_tweet`, but the
-  bookmark window supplied only item 1. The old note summarized that first item confidently and marked
-  the capture hot.
+- **Summary:** A single voice core now feeds **both** layers of the capture skill, so candidates and
+  saved items are written in the same voice — and candidates can now be reweaved with connections.
+  Previously only the L2 reweave carried the good "v2" voice; candidates got a cheap single-shot
+  `DIGEST_PROMPT` rendered with a rigid template, so they still looked like "v1".
+- **What changed (the onion):**
+  - **`capture-voice.ts` is the single source of voice.** It exports `CAPTURE_VOICE` (the shared
+    voice / density / intent spec) and `DIGEST_PROMPT` (= `CAPTURE_VOICE` + "output the body, no
+    connections"). The numbered-list-preservation nuance is folded into `CAPTURE_VOICE` itself.
+  - **`pipeline.ts` retired its inline rigid `DIGEST_PROMPT`** (the "2-4 sentence summary + literal
+    `Key takeaways:` + 3-6 bullets" template) and now re-exports `DIGEST_PROMPT` from
+    `capture-voice.ts`. `PIPELINE_VERSION` stays `v2.1`.
+  - **`REWEAVE_PROMPT` (L2) now embeds `CAPTURE_VOICE`** for its digest guidance, keeping its vault
+    intro, its disciplined CONNECTIONS section, and the exact JSON contract `parseReweaveOutput`
+    expects. The voice is no longer duplicated between the two prompts.
+  - **Candidates can be reweaved.** With `LIBRARY_CANDIDATE_REWEAVE=1` (default OFF), discovery
+    candidates go down the SAME single `reweaveArtifact` call saved items use — a free-form
+    `digest_markdown` plus first-party / library connections — with no extra LLM pass. On reweave-null
+    the candidate degrades to the L1 free-form `DIGEST_PROMPT` body, never the old summary/key-points
+    template.
+  - **Candidate render mirrors the durable form.** `buildCandidateMarkdown` renders the free-form
+    `digest_markdown` (or legacy Summary/Key Points fallback) + an omit-when-empty `## Connections`
+    section, dropping the rigid `## Summary / ## Key Points / ## Assessment / ## Suggested
+    Connections` scaffold. Media + Raw Content are kept; score / recommendation / `description` live
+    in frontmatter (so a free-form body round-trips to a non-empty feed summary).
+  - **Backfill orchestrator fixes:** `scripts/library-backfill.ts` now tracks `TARGET_VERSION` from the
+    live `PIPELINE_VERSION` (was hardcoded `"v2"`, which made every fresh `v2.1` reweave count as a
+    failure and triggered the 3x-retry quota waste), and gained `--include-candidates` to sweep
+    `references/.cache/library-candidates/` (which also picks up the ~5 unstamped saved refs).
+    `scripts/library-reweave.ts` now accepts `type: reference-candidate` files and re-stamps them.
+- **Also folded in (earlier v2.1 work):** X long-post repair — `digestArtifact` verifies the
+  bookmarked X post through the configured xurl path and prefers full `note_tweet.text`; thread/list
+  roots that can't be verified complete no longer become "hot" on 80+ chars of metadata; the
+  numbered/listed-findings preservation rule (now living in `CAPTURE_VOICE`).
+- **Why:** the voice fix only ever reached saved items; candidates were a parallel rigid path. Folding
+  both layers onto one `CAPTURE_VOICE` means shedding L2 degrades gracefully to L1 — same voice, fewer
+  layers — instead of a separate look.
 - **Git ref:** uncommitted working tree (this session). `PIPELINE_VERSION = "v2.1"` in `pipeline.ts`.
 
 ---
 
-*Last updated: 2026-06-02*
+*Last updated: 2026-06-03*

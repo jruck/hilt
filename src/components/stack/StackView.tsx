@@ -9,6 +9,7 @@ import { StackContentPane } from "./StackContentPane";
 import { StackSummary } from "./StackSummary";
 import { MCPServerDetail } from "./MCPServerDetail";
 import { PluginDetail } from "./PluginDetail";
+import { LoadingState } from "@/components/ui/LoadingState";
 import type { ConfigLayer, ConfigFile, MCPServerConfig, PluginConfig } from "@/lib/claude-config/types";
 
 // Sidebar width constraints
@@ -197,9 +198,7 @@ export function StackView({ scopePath, searchQuery = "" }: StackViewProps) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-[var(--text-secondary)]">Loading configuration stack...</div>
-      </div>
+      <LoadingState label="Loading configuration stack" />
     );
   }
 
@@ -285,7 +284,7 @@ export function StackView({ scopePath, searchQuery = "" }: StackViewProps) {
     // Tree panel (default on mobile)
     return (
       <div className="flex flex-col h-full">
-        <div data-mobile-scroll-chrome="bottom" className="flex-1 overflow-y-auto pt-1.5 pb-[var(--hilt-mobile-nav-clearance)]">
+        <div data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance flex-1 overflow-y-auto pt-1.5">
           <StackFileTree
             layers={stack.layers}
             mcpServers={stack.mcpServers}

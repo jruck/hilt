@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
 import * as path from "path";
+import { LoadingState } from "@/components/ui/LoadingState";
 
 interface PDFViewerProps {
   filePath: string;
@@ -19,9 +19,7 @@ export function PDFViewer({ filePath, scopePath }: PDFViewerProps) {
   return (
     <div className="flex-1 relative p-12">
       {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[var(--content-surface)]">
-          <Loader2 className="w-8 h-8 animate-spin text-[var(--text-tertiary)]" />
-        </div>
+        <LoadingState size="lg" className="absolute inset-0 bg-[var(--content-surface)]" />
       )}
 
       {error && (

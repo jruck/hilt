@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { queryCalendarEvents } from "../calendar/db";
 import { getGranolaDaemonStatePath, getGranolaFastPollMs, getGranolaPollMs, granolaDaemonEnabled } from "./config";
+import { hasRecentOpenGranolaMeeting } from "./db";
 import { runGranolaSync } from "./sync";
 
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -45,7 +46,7 @@ function nextPollMs(): number {
       const title = event.title.trim();
       return !event.allDay && title !== "!" && title !== "-";
     });
-    return hasActiveMeetingWindow ? getGranolaFastPollMs() : getGranolaPollMs();
+    return hasActiveMeetingWindow || hasRecentOpenGranolaMeeting() ? getGranolaFastPollMs() : getGranolaPollMs();
   } catch {
     return getGranolaPollMs();
   }

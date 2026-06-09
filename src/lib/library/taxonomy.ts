@@ -69,6 +69,39 @@ const KEEP_HOST_TERMS = [
   "store.",
 ];
 
+// Curatorial labels the user organizes by (e.g. a Raindrop "talent" or "art" collection). These mark
+// a save as a stash-for-retrieval rather than ideas to study. Matched ONLY against collection / tag /
+// folder labels — never against title words, where they'd be too ambiguous ("state of the art", a post
+// about product *design*, etc.). Physical-object KEEP_TERMS above are safe to match in titles too.
+const KEEP_COLLECTION_TERMS = new Set([
+  "talent",
+  "talents",
+  "hiring",
+  "candidates",
+  "recruiting",
+  "people",
+  "art",
+  "artist",
+  "artists",
+  "artwork",
+  "design",
+  "designer",
+  "designers",
+  "portfolio",
+  "portfolios",
+  "aesthetic",
+  "aesthetics",
+  "inspiration",
+  "inspo",
+  "moodboard",
+  "illustration",
+  "photography",
+  "typography",
+  "branding",
+  "fonts",
+  "interiors",
+]);
+
 function normalizeTag(value: unknown): string | null {
   if (typeof value !== "string" && typeof value !== "number") return null;
   const tag = String(value).trim().replace(/^#/, "");
@@ -155,10 +188,11 @@ function looksLikeKeep(raw: RawArtifact, sourceTags: string[], sourceCollection:
     sourceCollection,
     sourceFolder,
   ]).map((tag) => tag.toLowerCase());
-  if (taxonomyTerms.some((tag) => KEEP_TERMS.has(tag))) return true;
-
-  const titleWords = (raw.title.toLowerCase().match(/[a-z0-9][a-z0-9-]{2,}/g) || []);
-  if (titleWords.some((word) => KEEP_TERMS.has(word))) return true;
+  // Keep is driven ONLY by precise, user-curated signals: collection/tag/folder labels (talent, art,
+  // products…) and shopping hosts. Title-word matching is deliberately NOT used — a bare word like
+  // "desk" silently pulled "Tiny Desk Concert" out of the feed. A genuine product with no collection/
+  // tag/host simply stays study (visible, low-worth) rather than being wrongly hidden.
+  if (taxonomyTerms.some((tag) => KEEP_TERMS.has(tag) || KEEP_COLLECTION_TERMS.has(tag))) return true;
 
   try {
     const host = new URL(raw.url).hostname.toLowerCase();
@@ -184,8 +218,12 @@ export function artifactTaxonomy(raw: RawArtifact, source: LibrarySourceConfig):
     ...source.tags,
     ...toStringArray(raw.metadata.semantic_tags),
   ]);
-  const explicitMode = modeFromMetadata(raw.metadata) || sourceDefaultMode(source);
-  const libraryMode = explicitMode || (looksLikeKeep(raw, sourceTags, collection.label, sourceFolder) ? "keep" : "study");
+  // Precedence: explicit per-item mode > per-item keep classification > source default > study.
+  // A source's blanket default (e.g. raindrop-bookmarks = study) must NOT override a clear per-item keep
+  // signal like a Talent/Art collection — otherwise looksLikeKeep never gets consulted.
+  const itemMode = modeFromMetadata(raw.metadata);
+  const contentKeep = looksLikeKeep(raw, sourceTags, collection.label, sourceFolder) ? "keep" : null;
+  const libraryMode: LibraryMode = itemMode || contentKeep || sourceDefaultMode(source) || "study";
 
   return {
     semantic_tags: semantic,

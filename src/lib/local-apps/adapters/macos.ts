@@ -1,4 +1,6 @@
 import { execFile } from "child_process";
+import fs from "fs";
+import path from "path";
 import { promisify } from "util";
 import type { Listener, ObservedService, ProcessInfo } from "../types";
 
@@ -6,14 +8,52 @@ const execFileAsync = promisify(execFile);
 
 async function run(command: string, args: string[], timeout = 2500): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync(command, args, {
+    const { stdout } = await execFileAsync(commandPath(command), args, {
       encoding: "utf-8",
       timeout,
       maxBuffer: 4 * 1024 * 1024,
     });
     return stdout.trim();
   } catch {
-    return null;
+    try {
+      const { stdout } = await execFileAsync("/bin/zsh", ["-lc", shellCommand(command, args)], {
+        encoding: "utf-8",
+        timeout: timeout + 1500,
+        maxBuffer: 4 * 1024 * 1024,
+      });
+      return stdout.trim();
+    } catch {
+      return null;
+    }
+  }
+}
+
+function commandPath(command: string): string {
+  for (const dir of (process.env.PATH || "").split(path.delimiter)) {
+    const candidate = path.join(dir, command);
+    if (fileExists(candidate)) return candidate;
+  }
+
+  const candidates: Record<string, string[]> = {
+    lsof: ["/usr/sbin/lsof"],
+    ps: ["/bin/ps"],
+  };
+  return candidates[command]?.find(fileExists) || command;
+}
+
+function shellCommand(command: string, args: string[]): string {
+  return [commandPath(command), ...args].map(shellQuote).join(" ");
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function fileExists(candidate: string): boolean {
+  try {
+    return !!candidate && fs.existsSync(candidate);
+  } catch {
+    return false;
   }
 }
 
@@ -143,6 +183,7 @@ async function readProcess(pid: number, fallbackCommand: string): Promise<Proces
 
 export async function collectMacosServices(): Promise<ObservedService[]> {
   const raw = await run("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcLunPT"], 5000);
+  if (raw === null) throw new Error("lsof failed while collecting local app listeners");
   if (!raw) return [];
 
   const listeners = parseLsof(raw);

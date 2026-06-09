@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ExternalLink, Loader2, Locate, X } from "lucide-react";
+import { ExternalLink, Locate, X } from "lucide-react";
+import { LoadingState } from "@/components/ui/LoadingState";
 import type { GraphEdgeKind, GraphNode, GraphNodeType } from "@/lib/graph/types";
 import {
   EDGE_KIND_LABEL,
@@ -156,9 +157,7 @@ export function GraphInspector({ target, onClose, onOpen, onSelectNeighbor, onFo
       {/* Connections */}
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
         {loading ? (
-          <div className="flex items-center gap-2 py-4 text-xs text-[var(--text-tertiary)]">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading connections…
-          </div>
+          <LoadingState label="Loading connections" size="sm" className="min-h-16 justify-start py-4 text-xs" />
         ) : error ? (
           <div className="py-4 text-xs text-[var(--text-tertiary)]">Couldn&apos;t load connections.</div>
         ) : groups.length === 0 ? (

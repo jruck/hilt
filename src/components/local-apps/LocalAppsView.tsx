@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { openExternal } from "@/lib/openExternal";
 import { SecondaryIconButton, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
+import { LoadingState } from "@/components/ui/LoadingState";
 import { preserveLocalAppsPreviews } from "@/lib/local-apps/preview-merge";
 import type { LocalAppsMachineSnapshot, LocalAppsResponse, Service, ServiceGroup } from "@/lib/local-apps/types";
 
@@ -132,10 +133,7 @@ export function LocalAppsView({ searchQuery = "", modeSwitcher }: LocalAppsViewP
     return (
       <div className="flex h-full flex-col bg-[var(--bg-primary)]">
         {modeSwitcher ? <SecondaryToolbar left={modeSwitcher} /> : null}
-        <div className="flex flex-1 items-center justify-center text-[var(--text-secondary)]">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          Scanning local apps
-        </div>
+        <LoadingState label="Scanning local apps" />
       </div>
     );
   }
@@ -233,15 +231,15 @@ export function LocalAppsView({ searchQuery = "", modeSwitcher }: LocalAppsViewP
           </div>
         ) : null}
 
-        <div data-mobile-scroll-chrome="bottom" className="flex-1 overflow-auto px-4 pb-[calc(var(--hilt-mobile-nav-clearance)+1rem)] pt-[13px]">
+        <div data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-4 flex-1 overflow-auto px-4 pb-4 pt-[13px]">
           {machines.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">
               No matching local apps
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-6 pb-2">
               {machines.map((machine) => (
-                <section key={machine.id}>
+                <section key={machine.id} className="pb-2">
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <h2 className="truncate text-sm font-semibold text-[var(--text-primary)]">{machineTitle(machine)}</h2>
@@ -249,14 +247,25 @@ export function LocalAppsView({ searchQuery = "", modeSwitcher }: LocalAppsViewP
                         {machine.groups.length} apps · {machineServiceCount(machine)} services
                         {machine.machine.tailscale_ip4 ? ` · ${machine.machine.tailscale_ip4}` : ""}
                       </p>
+                      {machineStatusMessage(machine) ? (
+                        <p className="mt-1 truncate text-xs text-red-500">
+                          {machineStatusMessage(machine)}
+                        </p>
+                      ) : null}
                     </div>
                     {machine.diagnostics.is_scanning ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--text-tertiary)]" /> : null}
                   </div>
-                  <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-4">
-                    {machine.groups.map((group) => (
-                      <AppCard key={`${machine.id}:${group.id}`} app={{ machine, group }} />
-                    ))}
-                  </div>
+                  {machine.groups.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-[var(--border-default)] px-3 py-4 text-xs text-[var(--text-tertiary)]">
+                      No visible apps found
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-3 pb-2 md:grid-cols-3 2xl:grid-cols-4">
+                      {machine.groups.map((group) => (
+                        <AppCard key={`${machine.id}:${group.id}`} app={{ machine, group }} />
+                      ))}
+                    </div>
+                  )}
                 </section>
               ))}
             </div>
@@ -279,9 +288,9 @@ function AppCard({ app }: { app: AppTile }) {
   const previewStatus = previewStatusLabel(previewService);
 
   return (
-    <article className="content-card-shadow group overflow-hidden rounded-2xl bg-[var(--content-surface)]">
+    <article className="hilt-card hilt-card-elevated group overflow-visible">
       <button
-        className="relative block aspect-[16/9] w-full overflow-hidden bg-[var(--content-surface)] text-left"
+        className="relative block aspect-[16/9] w-full overflow-hidden rounded-[calc(0.5rem-1px)] bg-[var(--content-surface)] text-left"
         onClick={() => group.primary_url && openExternal(group.primary_url)}
         disabled={!group.primary_url}
         title={group.primary_url || "No URL available"}
@@ -382,6 +391,11 @@ function filterGroups(
 
 function machineServiceCount(machine: LocalAppsMachineSnapshot): number {
   return machine.groups.reduce((sum, group) => sum + group.services.filter((service) => service.visible).length, 0);
+}
+
+function machineStatusMessage(machine: LocalAppsMachineSnapshot): string | null {
+  if (machine.error) return machine.error;
+  return machine.diagnostics.errors[0] || null;
 }
 
 function machineTitle(machine: LocalAppsMachineSnapshot): string {

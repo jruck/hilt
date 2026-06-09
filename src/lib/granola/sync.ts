@@ -27,6 +27,7 @@ import {
   discoverExistingMeetingFiles,
   writeAugmentedMarkdown,
   writeMarkdownIfChanged,
+  writeTranscriptMarkdownIfChanged,
 } from "./markdown";
 import { fetchGranolaDocumentsFromRemote } from "./remote";
 import type { GranolaSyncRunInput, GranolaSyncRunReport, GranolaSyncStatus } from "./types";
@@ -158,10 +159,9 @@ async function runGranolaSyncInner(input: GranolaSyncRunInput): Promise<GranolaS
 
       if (doc.transcript.length) {
         if (existingTranscript && shouldAugment) {
-          if (writeAugmentedMarkdown(transcriptPath, { ...fields, note: `[[${noteRelativePath}]]` }, dryRun)) report.augmentedTranscripts++;
+          if (writeTranscriptMarkdownIfChanged(transcriptPath, doc, paths, match, dryRun)) report.augmentedTranscripts++;
         } else if (!existingTranscript && shouldCreate) {
-          const transcriptMarkdown = buildTranscriptMarkdown(doc, paths, match);
-          if (transcriptMarkdown && writeMarkdownIfChanged(transcriptPath, transcriptMarkdown, dryRun)) report.createdTranscripts++;
+          if (writeTranscriptMarkdownIfChanged(transcriptPath, doc, paths, match, dryRun)) report.createdTranscripts++;
         }
       }
 

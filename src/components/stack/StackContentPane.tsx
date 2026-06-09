@@ -6,6 +6,7 @@ import { useConfigFile } from "@/hooks/useClaudeStack";
 import { Edit2, Save, X, Copy, Check, AlertTriangle, ChevronRight, Loader2, FolderOpen } from "lucide-react";
 import { CodeViewer } from "@/components/docs/CodeViewer";
 import { DocsEditToggle } from "@/components/docs/DocsEditToggle";
+import { LoadingState } from "@/components/ui/LoadingState";
 import type { ConfigFile, ConfigLayer, ConfigFileType } from "@/lib/claude-config/types";
 
 // Dynamic import for MDXEditor (no SSR)
@@ -14,9 +15,7 @@ const DocsEditor = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 className="w-6 h-6 animate-spin text-[var(--text-tertiary)]" />
-      </div>
+      <LoadingState size="lg" />
     ),
   }
 );
@@ -332,7 +331,7 @@ export function StackContentPane({
         </div>
 
         {/* Content - always in edit mode */}
-        <div ref={scrollContainerRef} data-mobile-scroll-chrome="bottom" className="flex-1 overflow-auto pb-[var(--hilt-mobile-nav-clearance)]">
+        <div ref={scrollContainerRef} data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance flex-1 overflow-auto">
           {isMarkdown ? (
             <DocsEditor
               markdown={createContent}
@@ -359,9 +358,7 @@ export function StackContentPane({
   // Loading
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Loader2 className="w-6 h-6 animate-spin text-[var(--text-tertiary)]" />
-      </div>
+      <LoadingState size="lg" />
     );
   }
 
@@ -460,7 +457,7 @@ export function StackContentPane({
       </div>
 
       {/* Content */}
-      <div ref={scrollContainerRef} data-mobile-scroll-chrome="bottom" className="flex-1 overflow-auto pb-[var(--hilt-mobile-nav-clearance)]">
+      <div ref={scrollContainerRef} data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance flex-1 overflow-auto">
         {isMarkdown ? (
           <DocsEditor
             markdown={displayContent}

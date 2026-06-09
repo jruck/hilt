@@ -39,11 +39,12 @@ export function BriefingFailureCard({
 }: BriefingFailureCardProps) {
   const runAt = formatDateTime(run.runAt);
   const nextRunAt = formatDateTime(run.nextRunAt);
+  const autoRetryNextRunAt = formatDateTime(run.autoRetryNextRunAt);
   const error = readableError(run.error);
   const retryQueued = retryStatus === "queued";
 
   return (
-    <div className="rounded-lg border border-amber-500/25 bg-[var(--content-surface)] overflow-hidden">
+    <div className="hilt-card hilt-card-warning overflow-hidden">
       <div className="border-b border-amber-500/20 bg-amber-500/5 px-4 py-3 flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
@@ -73,10 +74,16 @@ export function BriefingFailureCard({
           <span className="rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2 py-1">
             {run.kind === "quota" ? "Quota or usage limit" : "Generation error"}
           </span>
+          {autoRetryNextRunAt && (
+            <span className="inline-flex items-center gap-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2 py-1">
+              <Clock3 className="h-3 w-3" />
+              Auto retry {autoRetryNextRunAt}
+            </span>
+          )}
           {nextRunAt && (
             <span className="inline-flex items-center gap-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2 py-1">
               <Clock3 className="h-3 w-3" />
-              Next scheduled run {nextRunAt}
+              Daily run {nextRunAt}
             </span>
           )}
         </div>

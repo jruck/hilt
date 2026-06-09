@@ -66,6 +66,29 @@ export function buildTranscriptMarkdown(doc: GranolaDocument, paths: MeetingPath
   return stringifyMarkdown(buildTranscriptFrontmatter(doc, paths.noteRelativePath, match), body);
 }
 
+export function writeTranscriptMarkdownIfChanged(
+  filePath: string,
+  doc: GranolaDocument,
+  paths: MeetingPaths,
+  match: GranolaCalendarMatch,
+  dryRun: boolean,
+): boolean {
+  if (!doc.transcript.length) return false;
+  const body = formatTranscriptMarkdown(doc.transcript, doc.title);
+  const fields = buildTranscriptFrontmatter(doc, paths.noteRelativePath, match);
+  let next = stringifyMarkdown(fields, body);
+
+  if (fs.existsSync(filePath)) {
+    const existing = fs.readFileSync(filePath, "utf-8");
+    const parsed = matter(existing);
+    next = stringifyMarkdown({ ...parsed.data, ...fields }, body);
+    if (existing === next) return false;
+  }
+
+  if (!dryRun) atomicWriteFile(filePath, next);
+  return true;
+}
+
 export function augmentExistingMarkdown(content: string, fields: Record<string, unknown>): { content: string; changed: boolean } {
   const parsed = matter(content);
   const nextData = { ...parsed.data };

@@ -24,7 +24,7 @@ export interface CalendarSetupStatus extends CalendarHealth {
   configured: boolean;
 }
 
-interface CalendarEventQuery {
+export interface CalendarEventQuery {
   start: Date;
   end: Date;
   sourceIds?: string[];
@@ -37,12 +37,17 @@ const fetcher = async <T>(url: string): Promise<T> => {
   return response.json() as Promise<T>;
 };
 
+const CALENDAR_DEDUPING_INTERVAL_MS = 60 * 1000;
+
 export function useCalendarSetupStatus() {
   return useSWR<CalendarSetupStatus>("/api/calendar/setup/status", fetcher);
 }
 
 export function useCalendarSources() {
-  return useSWR<CalendarSourcesResponse>("/api/calendar/sources", fetcher);
+  return useSWR<CalendarSourcesResponse>("/api/calendar/sources", fetcher, {
+    dedupingInterval: CALENDAR_DEDUPING_INTERVAL_MS,
+    revalidateOnFocus: false,
+  });
 }
 
 export function useCalendarHealth() {
@@ -51,8 +56,18 @@ export function useCalendarHealth() {
 
 export function useCalendarEvents(query: CalendarEventQuery) {
   return useSWR<CalendarEventsResponse>(calendarEventsKey(query), fetcher, {
+    dedupingInterval: CALENDAR_DEDUPING_INTERVAL_MS,
     keepPreviousData: true,
+    revalidateOnFocus: false,
   });
+}
+
+export async function prefetchCalendarCaches(query: CalendarEventQuery): Promise<void> {
+  const eventsKey = calendarEventsKey(query);
+  await Promise.allSettled([
+    mutateCache("/api/calendar/sources", fetcher<CalendarSourcesResponse>("/api/calendar/sources"), { revalidate: false }),
+    mutateCache(eventsKey, fetcher<CalendarEventsResponse>(eventsKey), { revalidate: false }),
+  ]);
 }
 
 export async function syncCalendarSources(sourceIds?: string[]): Promise<CalendarSyncReport> {

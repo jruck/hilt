@@ -26,6 +26,7 @@ import type {
 } from "@/lib/map/local-types";
 import { heatForWindow } from "@/lib/map/activity-heat";
 import { SecondaryIconButton, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
+import { LoadingState } from "@/components/ui/LoadingState";
 
 const WINDOWS: ActivityWindow[] = ["24h", "7d", "30d", "all"];
 
@@ -804,7 +805,7 @@ export function MapView({
 
       <div className={`grid min-h-0 flex-1 ${layoutColumns}`}>
           <main className="flex min-h-0 flex-col overflow-hidden">
-            <div className="flex min-h-[420px] flex-1 flex-col overflow-hidden px-3 pb-[calc(var(--hilt-mobile-nav-clearance)+0.75rem)] pt-[13px]">
+            <div className="hilt-mobile-fixed-clearance hilt-mobile-fixed-extra-3 flex min-h-[420px] flex-1 flex-col overflow-hidden px-3 pt-[13px] sm:pb-3">
               {selectedId !== "root" && selectedPath.length > 0 && (
                 <div className="mb-2 flex min-h-7 min-w-0 items-center gap-1 text-xs text-[var(--text-tertiary)]">
                   <button
@@ -897,15 +898,13 @@ export function MapView({
                   </div>
                 )}
                 {isGraphLoading && !graph && (
-                  <div className="absolute inset-0 grid place-items-center bg-[var(--bg-secondary)]/70 text-sm text-[var(--text-secondary)]">
-                    Loading map...
-                  </div>
+                  <LoadingState label="Loading map" className="absolute inset-0 bg-[var(--bg-secondary)]/70" />
                 )}
               </div>
             </div>
           </main>
 
-          <aside data-mobile-scroll-chrome="bottom" className={`${selectedId === "root" ? "max-md:hidden" : ""} min-h-0 overflow-auto bg-[var(--bg-primary)] px-3 pb-[calc(var(--hilt-mobile-nav-clearance)+0.75rem)] pt-[13px]`}>
+          <aside data-mobile-scroll-chrome="bottom" className={`hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-3 ${selectedId === "root" ? "max-md:hidden" : ""} min-h-0 overflow-auto bg-[var(--bg-primary)] px-3 pt-[13px] sm:pb-3`}>
             <button
               onClick={() => {
                 setSelectedId("root");
@@ -953,14 +952,14 @@ export function MapView({
                   className="w-full rounded-md border border-[var(--border-default)] px-3 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                   disabled={isSessionsLoading}
                 >
-                  {isSessionsLoading ? "Loading..." : "Load more"}
+                  {isSessionsLoading ? <LoadingState label="Loading more" size="sm" className="min-h-0 text-sm" /> : "Load more"}
                 </button>
               )}
             </div>
           </aside>
 
           {selectedSessionId && (
-            <aside data-mobile-scroll-chrome="bottom" className="min-h-0 overflow-auto bg-[var(--bg-primary)] px-3 pb-[calc(var(--hilt-mobile-nav-clearance)+0.75rem)] pt-[13px]">
+            <aside data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-3 min-h-0 overflow-auto bg-[var(--bg-primary)] px-3 pt-[13px] sm:pb-3">
               <div>
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex min-w-0 flex-col gap-2">
@@ -991,7 +990,7 @@ export function MapView({
                 </div>
 
                 {isDetailLoading && (
-                  <div className="mt-3 text-sm text-[var(--text-secondary)]">Loading session history...</div>
+                  <LoadingState label="Loading session history" size="sm" className="mt-3 min-h-16" />
                 )}
 
                 {detailError && (

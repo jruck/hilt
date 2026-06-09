@@ -92,6 +92,16 @@ export function semanticRefitTimeoutMs(): number {
   return boundedInt(process.env.SEMANTIC_REFIT_TIMEOUT_MS, 120_000, 1_000, 1_800_000);
 }
 
+/**
+ * Backfill concurrency — how many items' embed/extract network calls are in flight at
+ * once. The per-item DB writes stay safe (better-sqlite3 is synchronous; JS serializes
+ * them), so this only overlaps network waits. The bottleneck is sequential Flash
+ * extraction, so this is the difference between a ~hours and a ~30-60min full cold-start.
+ */
+export function semanticConcurrency(): number {
+  return boundedInt(process.env.SEMANTIC_CONCURRENCY, 8, 1, 32);
+}
+
 /** Offline kill switch for the topic LABELER (mirrors LIBRARY_CONNECTIONS_DISABLED=1). */
 export function isSemanticLabelDisabled(): boolean {
   return truthy(process.env.SEMANTIC_LABEL_DISABLED);

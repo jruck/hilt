@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { FileNode } from "@/lib/types";
 import type { FolderSortOrder } from "@/hooks/useDocs";
+import { LoadingState } from "@/components/ui/LoadingState";
 import { DocsTreeItem } from "./DocsTreeItem";
 
 interface DocsFileTreeProps {
@@ -152,11 +153,15 @@ export function DocsFileTree({
   return (
     <div className={`flex flex-col h-full bg-[var(--bg-primary)] ${isMobile ? "" : "border-r border-[var(--border-default)]"}`}>
       {/* Tree content */}
-      <div className={`flex-1 overflow-auto py-1 ${isMobile ? "pb-[var(--hilt-mobile-nav-clearance)]" : ""}`}>
+      <div data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance flex-1 overflow-auto py-1">
         {!displayTree ? (
-          <div className="flex items-center justify-center h-full text-[var(--text-tertiary)] text-sm">
-            {isLoading ? "Loading..." : searchQuery?.trim() ? "No matching files" : "Select a scope to browse files"}
-          </div>
+          isLoading ? (
+            <LoadingState label="Loading files" />
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">
+              {searchQuery?.trim() ? "No matching files" : "Select a scope to browse files"}
+            </div>
+          )
         ) : displayTree.children?.length === 0 ? (
           <div className="flex items-center justify-center h-full text-[var(--text-tertiary)] text-sm">
             {searchQuery?.trim() ? "No matching files" : "No files in this folder"}

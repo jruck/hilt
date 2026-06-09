@@ -6,9 +6,23 @@ import type { LibraryArtifact, LibrarySourceFacetSummary, LibrarySourceSummary }
 import { formatVideoDuration } from "@/lib/library/media";
 import { artifactDisplayTags } from "@/lib/library/taxonomy";
 import { libraryChannelSource, librarySourceChannel, type LibraryModeControl } from "@/lib/library/url";
-import { useInfiniteLibrary, useLibrarySources } from "@/hooks/useLibrary";
-import { Bookmark, FileText } from "lucide-react";
+import { useInfiniteLibrary, useLibraryFacets, useLibrarySources } from "@/hooks/useLibrary";
+import { LoadingState } from "@/components/ui/LoadingState";
+
+export interface LibraryEvalFilters {
+  lifecycle?: string | null;
+  connection_state?: string | null;
+  digested_with?: string | null;
+  pipeline_version?: string | null;
+  substance_graded?: string | null;
+  reweave_pending?: boolean | null;
+  worth_min?: number | null;
+  feedback?: string | null;
+  youtube_clip_policy?: string | null;
+}
+import { Bookmark, Check, CircleDot, FileText } from "lucide-react";
 import { SECONDARY_TOOLBAR_BODY_GUTTER_CLASS } from "@/components/layout/SecondaryToolbar";
+import { EvalMetricPills, formatEvalScore } from "./EvalMetricPills";
 import { LibraryArtifactDetailPane } from "./LibraryArtifactDetailPane";
 
 const SOURCE_WIDTH_KEY = "hilt-library-source-width";
@@ -90,6 +104,33 @@ function sortYoutubeSources(sources: LibrarySourceSummary[]): LibrarySourceSumma
   return [...sources].sort((a, b) => youtubeSourceRank(a) - youtubeSourceRank(b) || a.name.localeCompare(b.name));
 }
 
+function evalFacetLabel(facetKey: string, value: string): string {
+  if (facetKey === "youtube_clip_policy") {
+    if (value === "label_review") return "Needs review";
+    if (value === "suppress") return "Auto-skipped";
+    if (value === "label_only") return "Explicit save";
+    if (value === "process") return "Process";
+  }
+  if (facetKey === "youtube_content_form") {
+    if (value === "standalone_short") return "Short upload";
+  }
+  return value;
+}
+
+function clipPolicyLabel(policy: string): string {
+  if (policy === "label_review") return "Clip review";
+  if (policy === "suppress") return "Auto-skip";
+  if (policy === "label_only") return "Saved clip";
+  return "YouTube";
+}
+
+function clipPolicyClass(policy: string): string {
+  if (policy === "suppress") return "border-red-500/25 bg-red-500/10 text-red-600 dark:text-red-300";
+  if (policy === "label_review") return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  if (policy === "label_only") return "border-blue-500/25 bg-blue-500/10 text-blue-600 dark:text-blue-300";
+  return "border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]";
+}
+
 export function SourceNav({
   selectedSource,
   selectedTag,
@@ -100,6 +141,8 @@ export function SourceNav({
   onTagSelect,
   onStatusSelect,
   onModeSelect,
+  evalFilters,
+  onEvalFilterChange,
   className = "",
   style,
 }: {
@@ -112,6 +155,8 @@ export function SourceNav({
   onTagSelect?: (source: string | null, tag: string | null) => void;
   onStatusSelect?: (status: "all" | "saved" | "candidate") => void;
   onModeSelect?: (mode: LibraryModeControl) => void;
+  evalFilters?: LibraryEvalFilters;
+  onEvalFilterChange?: (next: LibraryEvalFilters) => void;
   className?: string;
   style?: CSSProperties;
 }) {
@@ -132,6 +177,12 @@ export function SourceNav({
     tag: selectedTag,
     q: searchQuery || null,
   });
+  const { facets: evalFacets, worths: evalWorths, muted: mutedSenders } = useLibraryFacets();
+  const [mutedOpen, setMutedOpen] = useState(false);
+  // Local slider value for live feedback; the feed query only commits on release (not every drag tick).
+  const [worthSlider, setWorthSlider] = useState(evalFilters?.worth_min ?? 0);
+  useEffect(() => { setWorthSlider(evalFilters?.worth_min ?? 0); }, [evalFilters?.worth_min]);
+  const worthCount = worthSlider > 0 ? evalWorths.filter((w) => w >= worthSlider).length : evalWorths.length;
   const allCount = allStatusSources.reduce((sum, source) => sum + source.artifact_count + source.candidate_count, 0);
   const savedCount = allStatusSources.reduce((sum, source) => sum + source.artifact_count, 0);
   const candidateCount = allStatusSources.reduce((sum, source) => sum + source.candidate_count, 0);
@@ -205,8 +256,34 @@ export function SourceNav({
     </div>
   );
 
+  const evalActive = Boolean(evalFilters && (evalFilters.lifecycle || evalFilters.connection_state || evalFilters.digested_with || evalFilters.pipeline_version || evalFilters.substance_graded || evalFilters.feedback || evalFilters.youtube_clip_policy || (typeof evalFilters.worth_min === "number" && evalFilters.worth_min > 0)));
+  const renderEvalGroup = (label: string, facetKey: string, stateKey: keyof LibraryEvalFilters) => {
+    const opts = Object.entries(evalFacets[facetKey] || {}).filter(([value]) => value !== "(none)").sort((a, b) => b[1] - a[1]);
+    if (!opts.length || !onEvalFilterChange) return null;
+    const current = evalFilters?.[stateKey] as string | null | undefined;
+    return (
+      <div className="mb-2">
+        <div className="mb-1 px-3 text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">{label}</div>
+        <div className="flex flex-wrap gap-1 px-3">
+          {opts.map(([value, count]) => {
+            const active = current === value;
+            return (
+              <button
+                key={value}
+                onClick={() => onEvalFilterChange({ ...evalFilters, [stateKey]: active ? null : value })}
+                className={`rounded-full border px-2 py-0.5 text-[11px] ${active ? "border-[var(--text-tertiary)] bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`}
+              >
+                {evalFacetLabel(facetKey, value)} <span className="text-[var(--text-tertiary)]">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <aside data-testid="library-source-nav" className={`overflow-y-auto bg-[var(--bg-primary)] p-3 ${className}`} style={style}>
+    <aside data-mobile-scroll-chrome="bottom" data-testid="library-source-nav" className={`hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-3 overflow-y-auto bg-[var(--bg-primary)] px-3 pt-3 sm:pb-3 ${className}`} style={style}>
       {onStatusSelect && (
         <div className="mb-4 border-b border-[var(--border-default)] pb-3">
           <div className="mb-1 px-3 text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Status</div>
@@ -272,6 +349,27 @@ export function SourceNav({
           </div>
         )}
       </div>
+      {mutedSenders.length > 0 && (
+        <div className="mt-2">
+          <button
+            onClick={() => setMutedOpen((value) => !value)}
+            className="flex w-full items-center justify-between gap-2 rounded-md px-3 py-1.5 text-left text-xs text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
+          >
+            <span>Show muted</span>
+            <span className="shrink-0 tabular-nums">{mutedSenders.length} {mutedOpen ? "▾" : "▸"}</span>
+          </button>
+          {mutedOpen && (
+            <div className="ml-3 space-y-0.5 border-l border-[var(--border-default)] pl-2">
+              {mutedSenders.map((m) => (
+                <div key={m.email} title={m.email} className="flex items-center justify-between gap-2 px-2 py-1 text-xs text-[var(--text-tertiary)]">
+                  <span className="min-w-0 truncate">{m.name}</span>
+                  <span className="shrink-0 text-[10px] uppercase tracking-wide">muted</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {onModeSelect && (
         <div className="mt-4 border-t border-[var(--border-default)] pt-3">
           <div className="mb-1 px-3 text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Mode</div>
@@ -289,6 +387,36 @@ export function SourceNav({
           </div>
         </div>
       )}
+      {onEvalFilterChange && Object.keys(evalFacets).length > 0 && (
+        <div className="mt-4 border-t border-[var(--border-default)] pt-3">
+          <div className="mb-3 flex items-center justify-between px-3">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Admin filters</span>
+            {evalActive && (
+              <button onClick={() => onEvalFilterChange({})} className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">clear</button>
+            )}
+          </div>
+          {renderEvalGroup("Lifecycle", "lifecycle", "lifecycle")}
+          {renderEvalGroup("Feedback", "feedback", "feedback")}
+          {renderEvalGroup("YouTube clips", "youtube_clip_policy", "youtube_clip_policy")}
+          {renderEvalGroup("Connections", "connection_state", "connection_state")}
+          {renderEvalGroup("Substance", "substance", "substance_graded")}
+          {renderEvalGroup("Digest", "digested_with", "digested_with")}
+          {renderEvalGroup("Version", "pipeline_version", "pipeline_version")}
+          <div className="mt-2 px-3">
+            <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">
+              <span>Min worth <span className="tabular-nums normal-case text-[var(--text-secondary)]">{worthCount}</span></span>
+              <span className="tabular-nums">{formatEvalScore(worthSlider)}</span>
+            </div>
+            <input
+              type="range" min={0} max={1} step={0.05} value={worthSlider}
+              onChange={(event) => setWorthSlider(Number(event.target.value))}
+              onPointerUp={() => onEvalFilterChange({ ...evalFilters, worth_min: worthSlider || null })}
+              onKeyUp={() => onEvalFilterChange({ ...evalFilters, worth_min: worthSlider || null })}
+              className="w-full accent-[var(--text-secondary)]"
+            />
+          </div>
+        </div>
+      )}
     </aside>
   );
 }
@@ -303,6 +431,7 @@ export function ArtifactList({
   isLoadingMore,
   onLoadMore,
   header,
+  showEvalBreakdown = false,
   className = "",
   style,
 }: {
@@ -315,6 +444,7 @@ export function ArtifactList({
   isLoadingMore: boolean;
   onLoadMore: () => void;
   header?: ReactNode;
+  showEvalBreakdown?: boolean;
   className?: string;
   style?: CSSProperties;
 }) {
@@ -356,7 +486,7 @@ export function ArtifactList({
   }, [maybeLoadMore]);
 
   return (
-    <div ref={parentRef} onScroll={handleScroll} data-mobile-scroll-chrome="top-bottom" data-testid="library-artifact-list" className={`overflow-y-auto bg-[var(--bg-primary)] ${className}`} style={style}>
+    <div ref={parentRef} onScroll={handleScroll} data-mobile-scroll-chrome="top-bottom" data-testid="library-artifact-list" className={`hilt-mobile-scroll-clearance overflow-y-auto bg-[var(--bg-primary)] ${className}`} style={style}>
       {artifacts.length > 0 || header ? (
         <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
           {virtualItems.map((virtualRow) => {
@@ -384,10 +514,11 @@ export function ArtifactList({
                   className="absolute left-0 top-0 flex min-h-20 w-full items-center justify-center border-b border-[var(--border-default)] px-3 py-4 text-xs text-[var(--text-tertiary)]"
                   style={{ transform: `translateY(${virtualRow.start}px)` }}
                 >
-                  {isLoadingMore ? "Loading more..." : `${artifacts.length} of ${total} loaded`}
+                  {isLoadingMore ? <LoadingState label="Loading more" size="sm" className="min-h-0 text-xs" /> : `${artifacts.length} of ${total} loaded`}
                 </div>
               );
             }
+            const clipReview = artifact.youtube_clip && artifact.youtube_clip.policy_action !== "process" ? artifact.youtube_clip : null;
             return (
               <button
                 key={artifact.id}
@@ -423,9 +554,20 @@ export function ArtifactList({
                   <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-tertiary)]">
                     <span className="truncate">{artifact.source_name || artifact.channel}</span>
                     <span>{artifact.created_at?.slice(0, 10)}</span>
-                    <span className={`rounded-full px-1.5 py-0.5 ${artifact.lifecycle_status === "candidate" ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-[var(--bg-secondary)] text-[var(--text-secondary)]"}`}>
+                    <EvalMetricPills
+                      evalAttrs={artifact.eval_attrs}
+                      breakdown={showEvalBreakdown}
+                      showArchiveFlag={showEvalBreakdown}
+                    />
+                    <span className="inline-flex items-center gap-1 text-[var(--text-secondary)]">
+                      {artifact.lifecycle_status === "candidate" ? <CircleDot className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
                       {artifact.lifecycle_status === "candidate" ? "Candidate" : "Saved"}
                     </span>
+                    {clipReview && (
+                      <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] leading-none ${clipPolicyClass(clipReview.policy_action)}`} title={clipReview.signals.join(", ")}>
+                        {clipPolicyLabel(clipReview.policy_action)}
+                      </span>
+                    )}
                   </div>
                   {artifactDisplayTags(artifact).length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1.5">
@@ -440,7 +582,11 @@ export function ArtifactList({
           })}
         </div>
       ) : (
-        <div className="p-5 text-sm text-[var(--text-tertiary)]">{isLoading ? "Loading library..." : "No artifacts match this source or search."}</div>
+        isLoading ? (
+          <LoadingState label="Loading library" className="min-h-40 p-5" />
+        ) : (
+          <div className="p-5 text-sm text-[var(--text-tertiary)]">No artifacts match this source or search.</div>
+        )
       )}
       {artifacts.length > 0 && !hasMore && (
         <div className="border-t border-[var(--border-default)] p-3 text-center text-xs text-[var(--text-tertiary)]">

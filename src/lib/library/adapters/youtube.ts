@@ -11,15 +11,54 @@ function extractVideoId(url: string): string | null {
 
 async function resolveChannelId(source: LibrarySourceConfig): Promise<string> {
   if (typeof source.metadata.channel_id === "string") return source.metadata.channel_id;
+  const urlChannelId = source.url.match(/youtube\.com\/channel\/(UC[A-Za-z0-9_-]+)/)?.[1];
+  if (urlChannelId) return urlChannelId;
+  const handle = youtubeHandleFromSource(source);
+  if (handle) {
+    const apiChannelId = await resolveChannelIdByHandle(handle);
+    if (apiChannelId) return apiChannelId;
+  }
   const response = await fetch(source.url);
   if (!response.ok) throw new Error(`YouTube channel page fetch failed: ${response.status}`);
   const html = await response.text();
-  const id = html.match(/"channelId":"(UC[^"]+)"/)?.[1]
-    || html.match(/"browseId":"(UC[^"]+)"/)?.[1]
+  const id = html.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/channel\/(UC[^"]+)"/)?.[1]
+    || html.match(/<meta itemprop="channelId" content="([^"]+)"/)?.[1]
     || html.match(/"externalId":"(UC[^"]+)"/)?.[1]
-    || html.match(/<meta itemprop="channelId" content="([^"]+)"/)?.[1];
+    || html.match(/"browseId":"(UC[^"]+)"/)?.[1]
+    || html.match(/"channelId":"(UC[^"]+)"/)?.[1];
   if (!id) throw new Error(`Unable to resolve YouTube channel ID for ${source.url}`);
   return id;
+}
+
+function youtubeHandleFromSource(source: LibrarySourceConfig): string | null {
+  const configured = source.metadata.handle;
+  if (typeof configured === "string" && configured.trim()) return configured.trim().replace(/^@?/, "@");
+  try {
+    const parsed = new URL(source.url);
+    const match = parsed.pathname.match(/^\/(@[^/?#]+)/);
+    return match ? decodeURIComponent(match[1]).replace(/^@?/, "@") : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveChannelIdByHandle(handle: string): Promise<string | null> {
+  const token = await youtubeAccessToken().catch(() => null);
+  if (!token) return null;
+  const fetchWithToken = async (accessToken: string): Promise<Response> => {
+    const url = new URL("https://www.googleapis.com/youtube/v3/channels");
+    url.searchParams.set("part", "id");
+    url.searchParams.set("forHandle", handle);
+    return fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  };
+  let response = await fetchWithToken(token);
+  if (!response.ok && process.env.YOUTUBE_OAUTH_ACCESS_TOKEN) {
+    const refreshed = await refreshGoogleAccessToken().catch(() => null);
+    if (refreshed) response = await fetchWithToken(refreshed);
+  }
+  if (!response.ok) return null;
+  const json = await response.json() as { items?: Array<{ id?: string }> };
+  return json.items?.find((item) => typeof item.id === "string" && item.id.startsWith("UC"))?.id || null;
 }
 
 function optionLimit(source: LibrarySourceConfig, options: FetchArtifactsOptions, fallback: number): number {

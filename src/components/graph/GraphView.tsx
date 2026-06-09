@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Loader2, Network } from "lucide-react";
 import { SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
+import { LoadingState } from "@/components/ui/LoadingState";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useScope } from "@/contexts/ScopeContext";
 import { isGraphEnabled } from "@/lib/graph/config";
@@ -488,8 +489,7 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
   } else if (meta.loading && !meta.meta) {
     body = (
       <CenteredPanel>
-        <Loader2 className="h-5 w-5 animate-spin text-[var(--text-tertiary)]" />
-        <div className="text-sm text-[var(--text-secondary)]">Loading graph</div>
+        <LoadingState label="Loading graph" className="min-h-0 flex-none" />
       </CenteredPanel>
     );
   } else if (meta.meta && meta.meta.builtAt == null) {
@@ -500,8 +500,7 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
       const pct = total > 0 ? Math.min(99, Math.round((placed / total) * 100)) : null;
       body = (
         <CenteredPanel>
-          <Loader2 className="h-5 w-5 animate-spin text-[var(--text-tertiary)]" />
-          <div className="text-sm font-medium text-[var(--text-primary)]">Building graph index…</div>
+          <LoadingState label="Building graph index" className="min-h-0 flex-none text-[var(--text-primary)]" />
           <div className="text-xs text-[var(--text-tertiary)]">
             {meta.meta.layoutPhase ?? "Laying out"}
             {pct != null ? ` · ${pct}%` : ""}

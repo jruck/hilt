@@ -46,7 +46,7 @@ export function getGranolaPollMs(): number {
 }
 
 export function getGranolaFastPollMs(): number {
-  return boundedInt(process.env.HILT_GRANOLA_SYNC_FAST_POLL_MS, 15_000, 5_000, 300_000);
+  return boundedInt(process.env.HILT_GRANOLA_SYNC_FAST_POLL_MS, 5_000, 5_000, 300_000);
 }
 
 export function getGranolaDefaultDaysBack(): number {

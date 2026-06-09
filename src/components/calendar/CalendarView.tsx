@@ -16,6 +16,7 @@ import {
   CloudSnow,
   CloudSun,
   Clock,
+  LayoutGrid,
   LayoutList,
   Loader2,
   MoreHorizontal,
@@ -53,16 +54,37 @@ import {
   PENDING_CALENDAR_EVENT_STORAGE_KEY,
   type CalendarEventOpenDetail,
 } from "@/lib/calendar/deeplink";
+import { calendarSourcesNeedSync } from "@/lib/calendar/freshness";
+import { LoadingState } from "@/components/ui/LoadingState";
+import { displayCalendarEventTitle } from "@/lib/calendar/title";
 import type { CalendarDefinition, CalendarEvent, CalendarSource } from "@/lib/calendar/types";
 import { isVisibleCalendarForegroundEvent } from "@/lib/calendar/visibility";
 import type { WeatherForecastDay, WeatherIconKey } from "@/lib/weather/types";
 
 type CalendarMode = "day" | "week" | "month" | "agenda";
 type CalendarPeriodPosition = "before" | "today" | "after";
+type MiniMonthDay = {
+  date: string;
+  day: number;
+  inMonth: boolean;
+};
+type MiniMonthModel = {
+  key: string;
+  label: string;
+  offset: number;
+  days: MiniMonthDay[];
+};
+type MiniMonthActiveRange = {
+  mode: CalendarMode;
+  monthKey: string;
+  start: string;
+  end: string;
+};
 type HiltScheduleEvent = CalendarEventExternal & {
   hiltEvent?: CalendarEvent;
   joinLabel?: string | null;
   sourceText?: string;
+  calendarColor?: string;
   calendarLabel?: string;
   sourceLabel?: string;
   availabilityWarning?: boolean;
@@ -118,7 +140,21 @@ const TIME_GRID_FRAME_CHROME_PX = 122;
 const TIME_GRID_HOUR_LABEL_OFFSET_PX = 9;
 const TIME_GRID_INITIAL_LABEL_PADDING_PX = 4;
 const TIME_GRID_INITIAL_SCROLL_SETTLE_MS = 3500;
+const TIME_GRID_EVENT_FIT_PADDING_MINUTES = 8;
+const TIME_GRID_MIN_VISIBLE_FIT_MINUTES = 6 * 60;
+const TIME_GRID_MIN_HEIGHT = 960;
+const TIME_GRID_MAX_HEIGHT = 3600;
 const MOBILE_CALENDAR_MEDIA_QUERY = "(max-width: 640px)";
+const MINI_MONTHS_VISIBLE_STORAGE_KEY = "hilt-calendar-mini-months-visible";
+const MINI_MONTH_PAST_MONTHS = 12;
+const MINI_MONTH_FUTURE_MONTHS = 12;
+const MINI_MONTH_OFFSETS = Array.from(
+  { length: MINI_MONTH_PAST_MONTHS + MINI_MONTH_FUTURE_MONTHS + 1 },
+  (_, index) => index - MINI_MONTH_PAST_MONTHS,
+);
+const MINI_MONTH_WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
+const MINI_MONTH_LABEL_FORMATTER = new Intl.DateTimeFormat(undefined, { timeZone: TIME_ZONE, month: "long", year: "numeric" });
+const MINI_MONTH_DAY_LABEL_FORMATTER = new Intl.DateTimeFormat(undefined, { timeZone: TIME_ZONE, weekday: "long", month: "long", day: "numeric", year: "numeric" });
 const EVERCOMMERCE_WORKDAY_START_HOUR = 9;
 const EVERCOMMERCE_WORKDAY_END_HOUR = 17;
 const EMPTY_SOURCES: CalendarSource[] = [];
@@ -127,6 +163,14 @@ const EMPTY_EVENTS: CalendarEvent[] = [];
 const EMPTY_WEATHER_DAYS: WeatherForecastDay[] = [];
 const DEFAULT_WEEK_GRID_HEIGHT = 1440;
 const HOURS_PER_DAY = 24;
+const MINUTES_PER_DAY = HOURS_PER_DAY * 60;
+
+interface TimeGridFit {
+  kind: "fallback" | "fit";
+  gridHeight: number;
+  scrollMinute: number;
+  signature: string;
+}
 
 function todayPlainDate(): string {
   return Temporal.Now.plainDateISO(TIME_ZONE).toString();
@@ -134,6 +178,33 @@ function todayPlainDate(): string {
 
 function defaultCalendarMode(): CalendarMode {
   return typeof window !== "undefined" && window.matchMedia(MOBILE_CALENDAR_MEDIA_QUERY).matches ? "day" : "week";
+}
+
+function isCalendarMobileViewport(): boolean {
+  return typeof window !== "undefined" && window.matchMedia(MOBILE_CALENDAR_MEDIA_QUERY).matches;
+}
+
+function defaultMiniMonthsVisible(): boolean {
+  if (typeof window === "undefined" || isCalendarMobileViewport()) return false;
+  try {
+    return window.localStorage.getItem(MINI_MONTHS_VISIBLE_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function useCalendarMobileViewport(): boolean {
+  const [isMobile, setIsMobile] = useState(isCalendarMobileViewport);
+
+  useEffect(() => {
+    const media = window.matchMedia(MOBILE_CALENDAR_MEDIA_QUERY);
+    setIsMobile(media.matches);
+    const onChange = (event: MediaQueryListEvent) => setIsMobile(event.matches);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  return isMobile;
 }
 
 function shouldIgnoreCalendarPeriodGesture(target: EventTarget | null): boolean {
@@ -155,11 +226,64 @@ function dateFromPlainDate(date: string, time = "12:00"): Date {
   return new Date(zoned.epochMilliseconds);
 }
 
+function formatMiniMonthLabel(monthDate: string): string {
+  return MINI_MONTH_LABEL_FORMATTER.format(dateFromPlainDate(monthDate));
+}
+
+function formatMiniMonthDayLabel(date: string): string {
+  return MINI_MONTH_DAY_LABEL_FORMATTER.format(dateFromPlainDate(date));
+}
+
+function buildMiniMonth(anchorDate: string, monthOffset: number): MiniMonthModel {
+  const month = Temporal.PlainDate.from(anchorDate).with({ day: 1 }).add({ months: monthOffset });
+  const firstCell = month.subtract({ days: month.dayOfWeek % 7 });
+  const days = Array.from({ length: 42 }, (_, index) => {
+    const day = firstCell.add({ days: index });
+    return {
+      date: day.toString(),
+      day: day.day,
+      inMonth: day.year === month.year && day.month === month.month,
+    };
+  });
+  return { key: month.toString(), label: formatMiniMonthLabel(month.toString()), offset: monthOffset, days };
+}
+
+function isMiniMonthBeforeCurrentMonth(monthDate: string, today: string): boolean {
+  const month = Temporal.PlainDate.from(monthDate).with({ day: 1 });
+  const currentMonth = Temporal.PlainDate.from(today).with({ day: 1 });
+  return Temporal.PlainDate.compare(month, currentMonth) < 0;
+}
+
+function miniMonthActiveRange(mode: CalendarMode, selectedDate: string): MiniMonthActiveRange {
+  const range = plainDateRangeAround(mode, selectedDate);
+  const selectedMonth = Temporal.PlainDate.from(selectedDate).with({ day: 1 }).toString();
+  return { ...range, mode, monthKey: selectedMonth };
+}
+
+function miniMonthDateIsActive(day: MiniMonthDay, month: MiniMonthModel, activeRange: MiniMonthActiveRange): boolean {
+  if (month.key !== activeRange.monthKey) return false;
+  if (day.date < activeRange.start || day.date > activeRange.end) return false;
+  if (activeRange.mode === "month" || activeRange.mode === "agenda") return day.inMonth;
+  return true;
+}
+
+function parseCssPixelValue(value: string, fallback: number): number {
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  const numeric = Number.parseFloat(trimmed);
+  if (!Number.isFinite(numeric)) return fallback;
+  if (trimmed.endsWith("rem")) {
+    const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize);
+    return numeric * (Number.isFinite(rootFontSize) ? rootFontSize : 16);
+  }
+  return numeric;
+}
+
 function rangeAround(mode: CalendarMode, date: string): { start: Date; end: Date } {
   let start = Temporal.PlainDate.from(date);
   let end = start;
   if (mode === "day") {
-    end = start.add({ days: 1 });
+    end = start;
   } else if (mode === "week") {
     start = start.subtract({ days: start.dayOfWeek % 7 });
     end = start.add({ days: 6 });
@@ -221,7 +345,7 @@ function calendarEventToScheduleEvent(event: CalendarEvent, options: {
   ].filter(Boolean) as string[];
   return {
     id: event.id,
-    title: event.title,
+    title: displayCalendarEventTitle(event.title),
     start: scheduleDateFromEventStart(event),
     end: scheduleDateFromEventEnd(event),
     calendarId: event.calendarId,
@@ -231,6 +355,7 @@ function calendarEventToScheduleEvent(event: CalendarEvent, options: {
     _options: { disableDND: true, disableResize: true, additionalClasses },
     joinLabel: join ? JOIN_LABELS[join.kind] : null,
     sourceText,
+    calendarColor: options.calendar?.color,
     calendarLabel: options.calendar?.name,
     sourceLabel: options.source?.label,
     availabilityWarning: options.availabilityWarning,
@@ -271,6 +396,14 @@ function holidayDateKeys(events: CalendarEvent[]): Set<string> {
     }
   }
   return dates;
+}
+
+function isPublicHolidayEvent(event: CalendarEvent): boolean {
+  return event.sourceId === "us-holidays" && /\bpublic holiday\b/i.test(event.description || "");
+}
+
+function businessClosureDateKeys(events: CalendarEvent[]): Set<string> {
+  return holidayDateKeys(events.filter(isPublicHolidayEvent));
 }
 
 function isEverCommerceBusinessDay(day: Temporal.PlainDate, holidays: Set<string>): boolean {
@@ -518,17 +651,15 @@ function useResolvedDarkTheme(): boolean {
   return isDark;
 }
 
-function useResponsiveWeekGridHeight(ref: React.RefObject<HTMLElement | null>): number {
-  const [height, setHeight] = useState(DEFAULT_WEEK_GRID_HEIGHT);
+function useVisibleTimeGridHeight(ref: React.RefObject<HTMLElement | null>): number {
+  const [height, setHeight] = useState(DEFAULT_WEEK_GRID_HEIGHT / (HOURS_PER_DAY / INITIAL_VISIBLE_TIME_GRID_HOURS));
 
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
     const update = () => {
       const rect = element.getBoundingClientRect();
-      const visibleGridHeight = Math.max(560, Math.round(rect.height - TIME_GRID_FRAME_CHROME_PX));
-      const next = Math.max(DEFAULT_WEEK_GRID_HEIGHT, visibleGridHeight * (HOURS_PER_DAY / INITIAL_VISIBLE_TIME_GRID_HOURS));
-      setHeight(next);
+      setHeight(Math.max(560, Math.round(rect.height - TIME_GRID_FRAME_CHROME_PX)));
     };
     update();
     const observer = new ResizeObserver(update);
@@ -543,7 +674,99 @@ function useResponsiveWeekGridHeight(ref: React.RefObject<HTMLElement | null>): 
   return height;
 }
 
-function scrollToInitialTimeGridSlice(frame: HTMLElement | null, gridHeight: number): boolean {
+function useTimeGridFit(
+  visibleGridHeight: number,
+  mode: CalendarMode,
+  events: CalendarEvent[],
+  visibleRange: { start: Date; end: Date },
+): TimeGridFit {
+  return useMemo(() => {
+    const defaultGridHeight = Math.max(
+      DEFAULT_WEEK_GRID_HEIGHT,
+      visibleGridHeight * (HOURS_PER_DAY / INITIAL_VISIBLE_TIME_GRID_HOURS),
+    );
+    if (mode !== "day" && mode !== "week") {
+      return {
+        kind: "fallback",
+        gridHeight: defaultGridHeight,
+        scrollMinute: INITIAL_TIME_GRID_HOUR * 60,
+        signature: `fallback:${mode}:${Math.round(defaultGridHeight)}`,
+      };
+    }
+
+    const fit = timedEventBounds(events, visibleRange);
+    if (!fit) {
+      return {
+        kind: "fallback",
+        gridHeight: defaultGridHeight,
+        scrollMinute: INITIAL_TIME_GRID_HOUR * 60,
+        signature: `fallback:${mode}:${Math.round(defaultGridHeight)}`,
+      };
+    }
+
+    const paddedStart = Math.max(0, fit.startMinute - TIME_GRID_EVENT_FIT_PADDING_MINUTES);
+    const paddedEnd = Math.min(MINUTES_PER_DAY, fit.endMinute + TIME_GRID_EVENT_FIT_PADDING_MINUTES);
+    const spanMinutes = Math.max(TIME_GRID_MIN_VISIBLE_FIT_MINUTES, paddedEnd - paddedStart);
+    const scrollMinute = Math.max(0, Math.min(paddedStart, MINUTES_PER_DAY - spanMinutes));
+    const gridHeight = clamp(
+      visibleGridHeight * (MINUTES_PER_DAY / spanMinutes),
+      TIME_GRID_MIN_HEIGHT,
+      TIME_GRID_MAX_HEIGHT,
+    );
+
+    return {
+      kind: "fit",
+      gridHeight: Math.round(gridHeight),
+      scrollMinute: Math.round(scrollMinute),
+      signature: `fit:${mode}:${fit.signature}:${Math.round(gridHeight)}:${Math.round(scrollMinute)}`,
+    };
+  }, [events, mode, visibleGridHeight, visibleRange]);
+}
+
+function timedEventBounds(events: CalendarEvent[], visibleRange: { start: Date; end: Date }): {
+  startMinute: number;
+  endMinute: number;
+  signature: string;
+} | null {
+  const rangeStart = visibleRange.start.getTime();
+  const rangeEnd = visibleRange.end.getTime();
+  let startMinute = MINUTES_PER_DAY;
+  let endMinute = 0;
+  const signatureParts: string[] = [];
+
+  for (const event of events) {
+    if (event.allDay || event.sortEnd < rangeStart || event.sortStart > rangeEnd) continue;
+    const start = Temporal.Instant.from(event.start).toZonedDateTimeISO(TIME_ZONE);
+    const end = Temporal.Instant.from(event.end).toZonedDateTimeISO(TIME_ZONE);
+    const multiDay = Temporal.PlainDate.compare(start.toPlainDate(), end.toPlainDate()) !== 0;
+    const eventStart = multiDay ? 0 : zonedMinuteOfDay(start);
+    const eventEnd = multiDay ? MINUTES_PER_DAY : zonedMinuteOfDay(end, true);
+    if (eventEnd <= eventStart) continue;
+    startMinute = Math.min(startMinute, eventStart);
+    endMinute = Math.max(endMinute, eventEnd);
+    signatureParts.push(`${event.id}:${event.start}:${event.end}`);
+  }
+
+  if (!signatureParts.length) return null;
+  return {
+    startMinute,
+    endMinute,
+    signature: signatureParts.sort().join("|"),
+  };
+}
+
+function zonedMinuteOfDay(time: Temporal.ZonedDateTime, end = false): number {
+  if (end && time.hour === 0 && time.minute === 0 && time.second === 0 && time.millisecond === 0) {
+    return MINUTES_PER_DAY;
+  }
+  const rawMinute = time.hour * 60 + time.minute + (time.second * 1000 + time.millisecond) / 60_000;
+  return Math.min(
+    MINUTES_PER_DAY,
+    Math.max(0, end ? Math.ceil(rawMinute) : Math.floor(rawMinute)),
+  );
+}
+
+function scrollToTimeGridSlice(frame: HTMLElement | null, fit: TimeGridFit): boolean {
   const viewContainer = frame?.querySelector(".sx__view-container");
   const weekGrid = frame?.querySelector(".sx__week-grid");
   const weekHeader = frame?.querySelector(".sx__week-header");
@@ -555,20 +778,20 @@ function scrollToInitialTimeGridSlice(frame: HTMLElement | null, gridHeight: num
   const weekGridRect = weekGrid.getBoundingClientRect();
   const weekGridContentTop = weekGridRect.top - viewRect.top + viewContainer.scrollTop;
   const stickyHeaderHeight = weekHeader.getBoundingClientRect().height;
-  const pixelsPerHour = (weekGridRect.height || gridHeight) / HOURS_PER_DAY;
+  const labelOffset = fit.kind === "fallback" ? TIME_GRID_HOUR_LABEL_OFFSET_PX + TIME_GRID_INITIAL_LABEL_PADDING_PX : 0;
+  const pixelsPerMinute = (weekGridRect.height || fit.gridHeight) / MINUTES_PER_DAY;
   const targetTop = weekGridContentTop
-    + INITIAL_TIME_GRID_HOUR * pixelsPerHour
-    - TIME_GRID_HOUR_LABEL_OFFSET_PX
-    - TIME_GRID_INITIAL_LABEL_PADDING_PX
+    + fit.scrollMinute * pixelsPerMinute
+    - labelOffset
     - stickyHeaderHeight;
 
   viewContainer.scrollTo({ top: Math.max(0, targetTop), behavior: "auto" });
   return true;
 }
 
-function watchInitialTimeGridScroll(
+function watchTimeGridScroll(
   frame: HTMLElement | null,
-  gridHeight: number,
+  fit: TimeGridFit,
   fallbackScroll: () => void,
 ): () => void {
   if (!frame) return () => undefined;
@@ -609,7 +832,7 @@ function watchInitialTimeGridScroll(
     frameId = window.requestAnimationFrame(() => {
       frameId = 0;
       if (disposed || userInteracted) return;
-      didScroll = scrollToInitialTimeGridSlice(frame, gridHeight) || didScroll;
+      didScroll = scrollToTimeGridSlice(frame, fit) || didScroll;
       attachResizeObserver();
     });
   }
@@ -636,14 +859,85 @@ function watchInitialTimeGridScroll(
   return cleanup;
 }
 
+function clearCurrentCalendarDayMarker(cell: HTMLElement) {
+  delete cell.dataset.hiltCurrentCalendarDay;
+  delete cell.dataset.hiltSelectedDateGridDay;
+  delete cell.dataset.hiltClearSelectedDay;
+  cell.style.removeProperty("background");
+}
+
+function markCurrentCalendarDayCell(cell: HTMLElement) {
+  cell.dataset.hiltCurrentCalendarDay = "true";
+  cell.style.background = "var(--hilt-calendar-active-day-bg)";
+}
+
+function syncCurrentCalendarDay(frame: HTMLElement | null, today: string): () => void {
+  if (!frame) return () => undefined;
+
+  let frameId = 0;
+  const apply = () => {
+    frameId = 0;
+    frame.querySelectorAll<HTMLElement>([
+      ".sx__date-grid-day[data-hilt-current-calendar-day]",
+      ".sx__date-grid-day[data-hilt-selected-date-grid-day]",
+      ".sx__time-grid-day[data-hilt-current-calendar-day]",
+      ".sx__time-grid-day[data-hilt-clear-selected-day]",
+    ].join(", ")).forEach(clearCurrentCalendarDayMarker);
+
+    frame.querySelectorAll<HTMLElement>(".sx__time-grid-day.is-selected").forEach((cell) => {
+      if (cell.dataset.timeGridDate === today) return;
+      cell.dataset.hiltClearSelectedDay = "true";
+      cell.style.background = "transparent";
+    });
+
+    const dateGridToday = frame.querySelector<HTMLElement>(`.sx__date-grid-day[data-date-grid-date="${today}"]`);
+    const timeGridToday = frame.querySelector<HTMLElement>(`.sx__time-grid-day[data-time-grid-date="${today}"]`);
+    if (dateGridToday) markCurrentCalendarDayCell(dateGridToday);
+    if (timeGridToday) markCurrentCalendarDayCell(timeGridToday);
+  };
+  const queueApply = () => {
+    if (frameId) window.cancelAnimationFrame(frameId);
+    frameId = window.requestAnimationFrame(apply);
+  };
+
+  queueApply();
+  const observer = new MutationObserver(queueApply);
+  observer.observe(frame, { childList: true, subtree: true });
+
+  return () => {
+    if (frameId) window.cancelAnimationFrame(frameId);
+    observer.disconnect();
+    frame.querySelectorAll<HTMLElement>([
+      ".sx__date-grid-day[data-hilt-current-calendar-day]",
+      ".sx__date-grid-day[data-hilt-selected-date-grid-day]",
+      ".sx__time-grid-day[data-hilt-current-calendar-day]",
+      ".sx__time-grid-day[data-hilt-clear-selected-day]",
+    ].join(", ")).forEach(clearCurrentCalendarDayMarker);
+  };
+}
+
+function scrollTimeString(minute: number): string {
+  const bounded = Math.max(0, Math.min(MINUTES_PER_DAY - 1, Math.round(minute)));
+  const hours = Math.floor(bounded / 60);
+  const minutes = bounded % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
 export function CalendarView() {
   const { connected, subscribe, unsubscribe, on } = useEventSocketContext();
   const { scopePath } = useScope();
   const deepLink = useMemo(() => parseCalendarEventDeepLink(scopePath), [scopePath]);
   const [mode, setMode] = useState<CalendarMode>(defaultCalendarMode);
+  const [miniMonthsVisible, setMiniMonthsVisible] = useState(defaultMiniMonthsVisible);
   const [selectedDate, setSelectedDate] = useState(() => parseCalendarEventDeepLink(scopePath)?.date ?? todayPlainDate());
   const [visibleRange, setVisibleRange] = useState(() => rangeAround(defaultCalendarMode(), parseCalendarEventDeepLink(scopePath)?.date ?? todayPlainDate()));
   const [focusedEventId, setFocusedEventId] = useState<string | null>(null);
+  const [pendingEventOpen, setPendingEventOpen] = useState<CalendarEventOpenDetail | null>(null);
+  const currentDate = todayPlainDate();
   const steeredDeepLinkRef = useRef<string | null>(null);
   const openedDeepLinkRef = useRef<string | null>(null);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
@@ -655,7 +949,9 @@ export function CalendarView() {
   const calendarFrameRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const isDarkTheme = useResolvedDarkTheme();
-  const weekGridHeight = useResponsiveWeekGridHeight(calendarFrameRef);
+  const isCalendarMobile = useCalendarMobileViewport();
+  const showMiniMonths = miniMonthsVisible && !isCalendarMobile;
+  const visibleTimeGridHeight = useVisibleTimeGridHeight(calendarFrameRef);
   const [eventsService] = useState(() => createEventsServicePlugin());
   const [calendarControls] = useState(() => createCalendarControlsPlugin());
   const [currentTimePlugin] = useState(() => createCurrentTimePlugin({ fullWeekWidth: true }));
@@ -679,6 +975,8 @@ export function CalendarView() {
     mode === "day" || mode === "week" ? plainDateRangeAround(mode, selectedDate) : null
   ), [mode, selectedDate]);
   const periodPosition = useMemo(() => periodPositionForDate(mode, selectedDate), [mode, selectedDate]);
+  const miniMonths = useMemo(() => MINI_MONTH_OFFSETS.map((offset) => buildMiniMonth(selectedDate, offset)), [selectedDate]);
+  const activeMiniMonthRange = useMemo(() => miniMonthActiveRange(mode, selectedDate), [mode, selectedDate]);
   const weatherQuery = useWeatherForecast(weatherRange);
   const sources = sourcesQuery.data?.sources ?? EMPTY_SOURCES;
   const calendars = sourcesQuery.data?.calendars ?? EMPTY_CALENDARS;
@@ -691,24 +989,25 @@ export function CalendarView() {
   const sourcesById = useMemo(() => new Map(sources.map((source) => [source.id, source])), [sources]);
   const calendarsById = useMemo(() => new Map(calendars.map((calendar) => [calendar.id, calendar])), [calendars]);
   const weatherByDate = useMemo(() => new Map(weatherDays.map((day) => [day.date, day])), [weatherDays]);
-  const holidayDates = useMemo(() => holidayDateKeys(holidayEvents), [holidayEvents]);
+  const businessClosureDates = useMemo(() => businessClosureDateKeys(holidayEvents), [holidayEvents]);
   const evercommerceSelected = calendars.some((calendar) => calendar.sourceId === "evercommerce" && calendar.selected);
   const evercommerceCoverageEvents = useMemo(() => [
     ...availabilityBlocks,
     ...events.filter((event) => event.sourceId === "evercommerce"),
   ], [availabilityBlocks, events]);
   const visibleForegroundEvents = useMemo(() => events.filter(isVisibleCalendarForegroundEvent), [events]);
+  const timeGridFit = useTimeGridFit(visibleTimeGridHeight, mode, visibleForegroundEvents, visibleRange);
   const scheduleEvents = useMemo(() => visibleForegroundEvents.map((event) => calendarEventToScheduleEvent(event, {
     focused: event.id === focusedEventId,
     availabilityWarning: evercommerceSelected
-      && overlapsEverCommerceWorkday(event, holidayDates)
+      && overlapsEverCommerceWorkday(event, businessClosureDates)
       && !isCoveredByEverCommerce(event, evercommerceCoverageEvents),
     calendar: calendarsById.get(event.calendarId) ?? null,
     source: sourcesById.get(event.sourceId) ?? null,
-  })), [calendarsById, evercommerceCoverageEvents, evercommerceSelected, focusedEventId, holidayDates, sourcesById, visibleForegroundEvents]);
+  })), [businessClosureDates, calendarsById, evercommerceCoverageEvents, evercommerceSelected, focusedEventId, sourcesById, visibleForegroundEvents]);
   const backgroundEvents = useMemo(() => availabilityBlocks
-    .filter((event) => occursOnEverCommerceBusinessDay(event, holidayDates))
-    .map(calendarEventToBackgroundEvent), [availabilityBlocks, holidayDates]);
+    .filter((event) => occursOnEverCommerceBusinessDay(event, businessClosureDates))
+    .map(calendarEventToBackgroundEvent), [availabilityBlocks, businessClosureDates]);
   const scheduleCalendars = useMemo(() => calendarsForScheduleX(calendars), [calendars]);
   const [requestedPopover, setRequestedPopover] = useState<EventPopoverPosition | null>(null);
   const requestedScheduleEvent = useMemo(() => (
@@ -748,7 +1047,7 @@ export function CalendarView() {
     timezone: TIME_ZONE,
     dayBoundaries: DAY_BOUNDARIES,
     weekOptions: {
-      gridHeight: weekGridHeight,
+      gridHeight: timeGridFit.gridHeight,
       gridStep: 30,
       eventWidth: 100,
       eventOverlap: false,
@@ -797,8 +1096,8 @@ export function CalendarView() {
       setSelectedDate(detail.date);
       setVisibleRange(rangeAround(mode, detail.date));
     }
-    openFocusedEventPopover(detail.id);
-  }, [mode, openFocusedEventPopover, selectedDate]);
+    setPendingEventOpen(detail);
+  }, [mode, selectedDate]);
 
   useEffect(() => {
     if (!calendarApp) return;
@@ -825,19 +1124,19 @@ export function CalendarView() {
   useLayoutEffect(() => {
     if (!calendarApp) return;
     calendarControls.setWeekOptions({
-      gridHeight: weekGridHeight,
+      gridHeight: timeGridFit.gridHeight,
       gridStep: 30,
       eventWidth: 100,
       eventOverlap: false,
       timeAxisFormatOptions: { hour: "numeric" },
     });
     if (mode === "day" || mode === "week") {
-      return watchInitialTimeGridScroll(
+      return watchTimeGridScroll(
         calendarFrameRef.current,
-        weekGridHeight,
+        timeGridFit,
         () => {
           try {
-            scrollController.scrollTo(`${String(INITIAL_TIME_GRID_HOUR).padStart(2, "0")}:00`);
+            scrollController.scrollTo(scrollTimeString(timeGridFit.scrollMinute));
           } catch {
             // The plugin also owns initialScroll; this call only re-applies it after local layout changes.
           }
@@ -845,7 +1144,12 @@ export function CalendarView() {
       );
     }
     return undefined;
-  }, [calendarApp, calendarControls, mode, scrollController, weekGridHeight]);
+  }, [calendarApp, calendarControls, mode, scrollController, timeGridFit]);
+
+  useLayoutEffect(() => {
+    if (!calendarApp || (mode !== "day" && mode !== "week")) return undefined;
+    return syncCurrentCalendarDay(calendarFrameRef.current, currentDate);
+  }, [calendarApp, currentDate, mode, selectedDate, visibleRange]);
 
   useEffect(() => {
     if (!calendarApp) return;
@@ -873,6 +1177,15 @@ export function CalendarView() {
     openedDeepLinkRef.current = deepLink.id;
     return openFocusedEventPopover(deepLink.id);
   }, [deepLink, events, mode, openFocusedEventPopover, selectedDate]);
+
+  useEffect(() => {
+    if (!pendingEventOpen) return;
+    if (selectedDate !== pendingEventOpen.date) return;
+    if (!events.some((event) => event.id === pendingEventOpen.id)) return;
+    const eventId = pendingEventOpen.id;
+    setPendingEventOpen(null);
+    return openFocusedEventPopover(eventId);
+  }, [events, openFocusedEventPopover, pendingEventOpen, selectedDate]);
 
   useEffect(() => {
     function openCalendarEvent(event: Event) {
@@ -951,13 +1264,19 @@ export function CalendarView() {
 
   useEffect(() => {
     if (autoSyncRef.current || sourcesQuery.isLoading) return;
-    if (!sources.length) return;
-    const configured = sources.every((source) => source.configured);
-    const needsInitialSync = configured && sources.some((source) => !source.lastSyncAt);
-    if (!needsInitialSync) return;
+    if (!calendarSourcesNeedSync(sources)) return;
     autoSyncRef.current = true;
     void runSync(true);
   }, [runSync, sources, sourcesQuery.isLoading]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || isCalendarMobile) return;
+    try {
+      window.localStorage.setItem(MINI_MONTHS_VISIBLE_STORAGE_KEY, miniMonthsVisible ? "true" : "false");
+    } catch {
+      // Local storage can be unavailable in hardened browser contexts.
+    }
+  }, [isCalendarMobile, miniMonthsVisible]);
 
   const handleMode = useCallback((next: CalendarMode) => {
     setMode(next);
@@ -1047,6 +1366,12 @@ export function CalendarView() {
     setVisibleRange(rangeAround(mode, today));
   }, [mode]);
 
+  const selectMiniMonthDate = useCallback((date: string) => {
+    closeEventModal();
+    setSelectedDate(date);
+    setVisibleRange(rangeAround(mode, date));
+  }, [closeEventModal, mode]);
+
   const toggleSource = useCallback(async (sourceId: string, selected: boolean) => {
     const sourceCalendars = calendars.filter((calendar) => calendar.sourceId === sourceId);
     await Promise.all(sourceCalendars.map((calendar) => setCalendarSelected(calendar.id, selected)));
@@ -1111,6 +1436,19 @@ export function CalendarView() {
               <ModeButton mode="agenda" active={mode === "agenda"} onClick={handleMode} icon={<LayoutList className="h-4 w-4" />} />
             </div>
 
+            {!isCalendarMobile ? (
+              <button
+                type="button"
+                className={`calendar-icon-button order-4 ${miniMonthsVisible ? "calendar-icon-button-active" : ""} sm:order-none`}
+                aria-label={miniMonthsVisible ? "Hide mini months" : "Show mini months"}
+                aria-pressed={miniMonthsVisible}
+                data-testid="calendar-mini-months-toggle"
+                onClick={() => setMiniMonthsVisible((visible) => !visible)}
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </button>
+            ) : null}
+
             <div className="order-2 ml-auto flex shrink-0 items-center gap-1 sm:order-none sm:ml-0">
               <CalendarMoreMenu
                 menuRef={moreMenuRef}
@@ -1133,8 +1471,16 @@ export function CalendarView() {
         ) : null}
 
         <div className="relative z-0 flex min-h-0 flex-1 overflow-hidden">
-          <main className="hilt-calendar-main flex min-w-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3 sm:px-5">
-            <div ref={calendarFrameRef} className="h-full min-h-0 overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-sm" data-testid="calendar-frame">
+          <main className="hilt-calendar-main hilt-mobile-fixed-clearance hilt-mobile-fixed-extra-2 flex min-w-0 flex-1 flex-col gap-3 overflow-hidden px-3 pb-3 pt-3 sm:px-5">
+            {showMiniMonths ? (
+              <MiniMonthStrip
+                activeRange={activeMiniMonthRange}
+                months={miniMonths}
+                today={currentDate}
+                onSelectDate={selectMiniMonthDate}
+              />
+            ) : null}
+            <div ref={calendarFrameRef} className="min-h-0 flex-1 overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-sm" data-testid="calendar-frame">
               <div className="hilt-calendar-body h-full min-h-0 p-2 sm:p-3">
                 {calendarApp ? (
                   <div
@@ -1145,7 +1491,7 @@ export function CalendarView() {
                     <ScheduleXCalendar calendarApp={calendarApp} customComponents={customComponents} />
                   </div>
                 ) : (
-                  <div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">Loading calendar</div>
+                  <LoadingState label="Loading calendar" />
                 )}
               </div>
             </div>
@@ -1161,6 +1507,122 @@ export function CalendarView() {
         </div>
       </div>
     </div>
+  );
+}
+
+function MiniMonthStrip({
+  activeRange,
+  months,
+  today,
+  onSelectDate,
+}: {
+  activeRange: MiniMonthActiveRange;
+  months: MiniMonthModel[];
+  today: string;
+  onSelectDate: (date: string) => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const anchorMonthKey = months[MINI_MONTH_PAST_MONTHS]?.key ?? "";
+
+  useLayoutEffect(() => {
+    const scroll = scrollRef.current;
+    if (!scroll) return;
+
+    let frame = 0;
+    const layoutAndAlignToAnchorMonths = () => {
+      const current = scroll.querySelector<HTMLElement>('[data-mini-month-offset="0"]');
+      if (!current) return;
+      const previous = scroll.querySelector<HTMLElement>('[data-mini-month-offset="-1"]');
+      const styles = window.getComputedStyle(scroll);
+      const gap = parseFloat(styles.columnGap || styles.gap || "0") || 0;
+      const paddingLeft = parseFloat(styles.paddingLeft || "0") || 0;
+      const paddingRight = parseFloat(styles.paddingRight || "0") || 0;
+      const availableWidth = Math.max(0, scroll.clientWidth - paddingLeft - paddingRight);
+      const minCardWidth = parseCssPixelValue(styles.getPropertyValue("--calendar-mini-month-min-width"), 208);
+      const maxVisibleCards = Number.parseInt(styles.getPropertyValue("--calendar-mini-month-max-visible"), 10) || 6;
+      const visibleCards = Math.max(
+        1,
+        Math.min(maxVisibleCards, Math.floor((availableWidth + gap) / (minCardWidth + gap))),
+      );
+      const cardWidth = Math.max(1, (availableWidth - gap * (visibleCards - 1)) / visibleCards);
+      scroll.style.setProperty("--calendar-mini-month-card-width", `${cardWidth}px`);
+
+      const target = visibleCards >= 3 ? previous ?? current : current;
+      const scrollRect = scroll.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const leadingGutter = gap || paddingLeft;
+      const nextScrollLeft = scroll.scrollLeft + targetRect.left - scrollRect.left - leadingGutter;
+      scroll.scrollTo({ left: Math.max(0, nextScrollLeft), behavior: "auto" });
+    };
+    const queueAlign = () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(layoutAndAlignToAnchorMonths);
+    };
+
+    queueAlign();
+    const observer = new ResizeObserver(queueAlign);
+    observer.observe(scroll);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [anchorMonthKey]);
+
+  return (
+    <section className="calendar-mini-month-strip" aria-label="Mini month calendars" data-testid="calendar-mini-month-strip">
+      <div ref={scrollRef} className="calendar-mini-month-scroll">
+        {months.map((month) => {
+          const isPastMonth = isMiniMonthBeforeCurrentMonth(month.key, today);
+          return (
+            <article
+              key={month.key}
+              className={`calendar-mini-month ${isPastMonth ? "is-past" : ""}`}
+              style={isPastMonth ? { opacity: 0.6 } : undefined}
+              aria-label={month.label}
+              data-mini-month-offset={month.offset}
+            >
+              <div className="calendar-mini-month-header">{month.label}</div>
+              <div className="calendar-mini-month-weekdays" aria-hidden="true">
+                {MINI_MONTH_WEEKDAYS.map((weekday, index) => (
+                  <div key={`${weekday}-${index}`}>{weekday}</div>
+                ))}
+              </div>
+              <div className="calendar-mini-month-grid">
+                {month.days.map((day, index) => {
+                  const isToday = day.inMonth && day.date === today;
+                  const isActiveRange = miniMonthDateIsActive(day, month, activeRange);
+                  const previousDay = index > 0 ? month.days[index - 1] : null;
+                  const nextDay = index < month.days.length - 1 ? month.days[index + 1] : null;
+                  const isActiveRangeStart = isActiveRange && (index % 7 === 0 || !previousDay || !miniMonthDateIsActive(previousDay, month, activeRange));
+                  const isActiveRangeEnd = isActiveRange && (index % 7 === 6 || !nextDay || !miniMonthDateIsActive(nextDay, month, activeRange));
+                  const className = [
+                    "calendar-mini-month-day",
+                    day.inMonth ? "" : "is-outside",
+                    isActiveRange ? "is-active-range" : "",
+                    isActiveRangeStart ? "is-active-range-start" : "",
+                    isActiveRangeEnd ? "is-active-range-end" : "",
+                    isToday ? "is-today" : "",
+                  ].filter(Boolean).join(" ");
+                  return (
+                    <button
+                      key={day.date}
+                      type="button"
+                      className={className}
+                      aria-current={isToday ? "date" : undefined}
+                      aria-label={formatMiniMonthDayLabel(day.date)}
+                      data-active-range={isActiveRange ? activeRange.mode : undefined}
+                      onClick={() => onSelectDate(day.date)}
+                    >
+                      <span className="calendar-mini-month-day-label">{day.day}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -1279,6 +1741,7 @@ function EventModalContent({
   return (
     <CalendarEventPopoverContent
       availabilityWarning={scheduleEvent?.availabilityWarning}
+      calendarColor={scheduleEvent?.calendarColor}
       calendarLabel={scheduleEvent?.calendarLabel}
       event={scheduleEvent?.hiltEvent ?? null}
       onClose={onClose}

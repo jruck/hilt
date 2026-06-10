@@ -1,5 +1,7 @@
 import fs from "fs";
 import path from "path";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import { loadEnvConfig } from "@next/env";
 import { listLibraryArtifactDetails } from "../src/lib/library/library";
 import { buildKbIndex } from "../src/lib/library/kb-index";
@@ -10,6 +12,7 @@ import { dateTimestamp, isoNow } from "../src/lib/library/utils";
 import type { ConnectionSuggestion, LibraryArtifactDetail } from "../src/lib/library/types";
 
 loadEnvConfig(process.cwd());
+const execFileAsync = promisify(execFile);
 
 /**
  * The editor's memo (Library v2, Workstream 3): the weekly synthesis pass over the period's study
@@ -222,6 +225,16 @@ async function main(): Promise<void> {
   fs.mkdirSync(memoDir, { recursive: true });
   const memoPath = path.join(memoDir, `${today}-editors-memo.md`);
   fs.writeFileSync(memoPath, stringifyMarkdown(frontmatter, body), "utf-8");
+
+  // Remote surface: render to ~/.hilt/reports/memo/ so the memo is always readable at
+  // /api/reports/memo (in Hilt and over the tailnet); the Sunday briefing links here. Best-effort.
+  try {
+    const tsxBin = fs.existsSync("node_modules/.bin/tsx") ? "node_modules/.bin/tsx" : "npx";
+    const prefix = tsxBin === "npx" ? ["tsx"] : [];
+    await execFileAsync(tsxBin, [...prefix, "scripts/report-html.ts", "--md", memoPath, "--out", path.join(process.env.HOME || "~", ".hilt", "reports", "memo", "index.html"), "--title", "Editor's Memo"], { env: process.env, timeout: 60_000 });
+  } catch (error) {
+    console.error("[memo] report render failed:", error instanceof Error ? error.message.slice(0, 200) : error);
+  }
 
   console.log(JSON.stringify({ memo: memoPath, items_considered: items.length, referenced: suggestions.length }, null, 2));
 }

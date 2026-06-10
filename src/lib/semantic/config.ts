@@ -107,6 +107,16 @@ export function isSemanticLabelDisabled(): boolean {
   return truthy(process.env.SEMANTIC_LABEL_DISABLED);
 }
 
+/**
+ * Clusters per labeling call. One call over ALL clusters broke at real scale (847 clusters
+ * → ~480K-token prompt expecting 847 labels in one JSON response → output-limit failure →
+ * the global fail-soft left every topic a "Theme L0-N" placeholder). Batching keeps each
+ * call comfortably inside output limits; a failed batch costs only its own labels.
+ */
+export function semanticLabelBatch(): number {
+  return boundedInt(process.env.SEMANTIC_LABEL_BATCH, 48, 4, 200);
+}
+
 function truthy(v: string | undefined): boolean {
   return v === "1" || v === "true";
 }

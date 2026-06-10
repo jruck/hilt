@@ -17,7 +17,7 @@ import { loadEnvConfig } from "@next/env";
 import { getSemanticDb } from "../src/lib/semantic/db";
 import { isSemanticEnabled, semanticRefitMinNew } from "../src/lib/semantic/config";
 import { createGeminiClient } from "../src/lib/semantic/gemini";
-import { runTopicRefit } from "../src/lib/semantic/topics";
+import { relabelTopics, runTopicRefit } from "../src/lib/semantic/topics";
 
 // Load .env.local so the launchd job sees the same flags as the dev server (see
 // semantic-backfill.ts — without this every scheduled refit silently no-ops).
@@ -43,6 +43,22 @@ async function main(): Promise<void> {
   // Flag short-circuit so a stray installed launchd plist is a no-op when the feature is off.
   if (!isSemanticEnabled() && !force) {
     process.stdout.write("refit skipped — HILT_SEMANTIC_ENABLED is off (use --force for a manual run).\n");
+    return;
+  }
+
+  // Label-only repair: re-run JUST the labeling pass over the existing taxonomy (no
+  // re-cluster, no membership/lineage churn). Default targets placeholder labels only;
+  // --all re-derives every name.
+  //   npm run semantic:refit -- --relabel-only [--all]
+  if (args.includes("--relabel-only")) {
+    const t0 = Date.now();
+    const r = await relabelTopics({ client: createGeminiClient(), all: args.includes("--all") });
+    const secs = ((Date.now() - t0) / 1000).toFixed(1);
+    process.stdout.write(
+      `relabel done in ${secs}s — ${r.relabeled}/${r.targeted} targeted topics relabeled ` +
+        `(${r.topicsTotal} total, ${r.placeholdersRemaining} placeholders remaining).\n`,
+    );
+    if (r.targeted > 0 && r.placeholdersRemaining > 0) process.exitCode = 2; // visible partial failure
     return;
   }
 

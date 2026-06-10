@@ -111,6 +111,15 @@ export function semanticGraphEntityMinSalience(): number {
   return boundedFloat(process.env.SEMANTIC_GRAPH_ENTITY_MIN_SALIENCE, 0.3, 0, 1);
 }
 
+/**
+ * Mention-count floor for an entity to be PLOTTED at all. Measured on the real corpus,
+ * 60% of entities are single-mention noise (2,736 of 4,591) — minting them all flooded the
+ * graph. Gated at the overlay only: `semantic.sqlite` keeps every entity queryable.
+ */
+export function semanticGraphEntityMinMentions(): number {
+  return boundedInt(process.env.SEMANTIC_GRAPH_ENTITY_MIN_MENTIONS, 3, 1, 1000);
+}
+
 /** Cap each item to its top-K entities by salience. Default 5. */
 export function semanticGraphEntityTopK(): number {
   return boundedInt(process.env.SEMANTIC_GRAPH_ENTITY_TOP_K, 5, 1, 50);

@@ -14,7 +14,7 @@ import {
 } from "./db";
 import type { SemanticLlmClient, TopicLabel } from "./gemini";
 import { getTopic } from "./query";
-import { runTopicRefit } from "./topics";
+import { relabelTopics, runTopicRefit } from "./topics";
 import { l2normalize } from "./vector";
 
 const envKeys = ["DATA_DIR", "HILT_SEMANTIC_DB_PATH", "SEMANTIC_VEC_DISABLED"] as const;
@@ -270,6 +270,139 @@ describe("runTopicRefit — orchestrator over fake cluster + label seams", () =>
     await withDb(async (db) => {
       const r = await runTopicRefit({ client: fakeLabelClient(), runClustering: fakeClustering({}, {}), db });
       assert.equal(r.ran, false);
+    });
+  });
+});
+
+describe("two-phase labeling — parents named from their children's labels", () => {
+  test("leaf labels come from excerpts; the root's label input is its child labels, not raw chunks", async () => {
+    await withDb(async (db) => {
+      seedCorpus(db);
+      const leafOf: Record<string, string> = {
+        [chunkId("note:a")]: "L1-0",
+        [chunkId("note:b")]: "L1-0",
+        [chunkId("note:c")]: "L1-1",
+        [chunkId("note:d")]: "L1-1",
+        [chunkId("note:e")]: "L1-2",
+        [chunkId("note:f")]: "L1-2",
+      };
+      const parentOf: Record<string, string> = { "L1-0": "L0-0", "L1-1": "L0-0", "L1-2": "L0-0" };
+
+      // Capture every labelTopics call's inputs; answer leaves + parent from fixtures.
+      const calls: Array<Array<{ clusterId: string; sampleTexts: string[] }>> = [];
+      const fixtures: Record<string, TopicLabel> = {
+        "L1-0": { clusterId: "L1-0", label: "Agent tool-use design", summary: "How agents call tools." },
+        "L1-1": { clusterId: "L1-1", label: "Meeting synthesis", summary: "Granola pipelines." },
+        "L1-2": { clusterId: "L1-2", label: "Vault automation", summary: "File-native workflows." },
+        "L0-0": { clusterId: "L0-0", label: "Personal AI systems", summary: "The umbrella." },
+      };
+      const base = fakeLabelClient(fixtures);
+      const client: SemanticLlmClient = {
+        ...base,
+        async labelTopics(inputs) {
+          calls.push(inputs.map((i) => ({ clusterId: i.clusterId, sampleTexts: [...i.sampleTexts] })));
+          return base.labelTopics(inputs);
+        },
+      };
+
+      await runTopicRefit({ client, runClustering: fakeClustering(leafOf, parentOf), db });
+
+      assert.equal(calls.length, 2, "two phases: leaves, then parents");
+      const [leafCall, parentCall] = calls;
+      assert.deepEqual(leafCall.map((c) => c.clusterId).sort(), ["L1-0", "L1-1", "L1-2"]);
+      assert.ok(leafCall.every((c) => c.sampleTexts.every((s) => s.startsWith("text note:"))), "leaves see raw excerpts");
+      assert.equal(parentCall.length, 1);
+      assert.equal(parentCall[0].clusterId, "L0-0");
+      assert.ok(
+        parentCall[0].sampleTexts.some((s) => s.includes("Agent tool-use design")),
+        "parent input is built from child labels",
+      );
+      assert.ok(parentCall[0].sampleTexts.every((s) => !s.startsWith("text note:")), "parent never sees raw chunks");
+
+      const root = (db.prepare("SELECT label FROM topics WHERE parent_id IS NULL").get() as { label: string }).label;
+      assert.equal(root, "Personal AI systems");
+    });
+  });
+});
+
+describe("relabelTopics — label-only repair (no re-cluster)", () => {
+  test("repairs placeholder labels in place, leaves membership + real labels untouched, bumps the watermark", async () => {
+    await withDb(async (db) => {
+      seedCorpus(db);
+      const leafOf: Record<string, string> = {
+        [chunkId("note:a")]: "L1-0",
+        [chunkId("note:b")]: "L1-0",
+        [chunkId("note:c")]: "L1-1",
+        [chunkId("note:d")]: "L1-1",
+      };
+      const parentOf: Record<string, string> = { "L1-0": "L0-0", "L1-1": "L0-0" };
+
+      // Refit with a labeler that FAILS — every topic lands on the "Theme L*" placeholder.
+      const failing: SemanticLlmClient = {
+        ...fakeLabelClient(),
+        async labelTopics() {
+          throw new Error("output limit");
+        },
+      };
+      await runTopicRefit({ client: failing, runClustering: fakeClustering(leafOf, parentOf), db });
+      const placeholders = (db.prepare("SELECT label FROM topics").all() as Array<{ label: string }>).map((r) => r.label);
+      assert.ok(placeholders.every((l) => /^Theme L\d+-\d+$/.test(l)), "refit fail-soft left placeholders");
+
+      const membershipBefore = getAllItemTopics(db).length;
+      // Back-date the watermark so the repair's fresh stamp is distinguishable even when the
+      // whole test runs inside one millisecond.
+      db.prepare("UPDATE semantic_meta SET value = '2000-01-01T00:00:00.000Z' WHERE key='last_refit_at'").run();
+      const metaBefore = "2000-01-01T00:00:00.000Z";
+
+      // Hand-set ONE topic to a real label — the default repair must not touch it.
+      const keep = (db.prepare("SELECT id FROM topics WHERE parent_id IS NULL").get() as { id: string }).id;
+      db.prepare("UPDATE topics SET label = 'Hand-named root' WHERE id = ?").run(keep);
+
+      // Repair: relabel by topic id ("Fixed <id>"); capture parent-phase inputs.
+      const captured: string[][] = [];
+      const repairClient: SemanticLlmClient = {
+        ...fakeLabelClient(),
+        async labelTopics(inputs) {
+          captured.push(inputs.flatMap((i) => i.sampleTexts));
+          return inputs.map((i) => ({ clusterId: i.clusterId, label: `Fixed ${i.clusterId.slice(0, 12)}`, summary: "repaired" }));
+        },
+      };
+      const r = await relabelTopics({ client: repairClient, db });
+
+      assert.equal(r.placeholdersRemaining, 0, "all placeholders repaired");
+      assert.equal(r.relabeled, r.targeted, "every targeted topic got a label");
+      const rootLabel = (db.prepare("SELECT label FROM topics WHERE id = ?").get(keep) as { label: string }).label;
+      assert.equal(rootLabel, "Hand-named root", "non-placeholder label untouched without --all");
+      assert.equal(getAllItemTopics(db).length, membershipBefore, "membership untouched (no re-cluster)");
+      const metaAfter = (db.prepare("SELECT value FROM semantic_meta WHERE key='last_refit_at'").get() as { value: string }).value;
+      assert.notEqual(metaAfter, metaBefore, "watermark advanced so the graph overlay refreshes");
+      assert.ok(captured[0].every((s) => s.startsWith("text note:")), "leaf repair inputs are member excerpts");
+    });
+  });
+
+  test("--all relabels real names too; empty taxonomy is a no-op", async () => {
+    await withDb(async (db) => {
+      // Empty: no topics → no-op, no throw.
+      const r0 = await relabelTopics({ client: fakeLabelClient(), db });
+      assert.equal(r0.topicsTotal, 0);
+
+      seedCorpus(db);
+      const leafOf: Record<string, string> = { [chunkId("note:a")]: "L1-0", [chunkId("note:b")]: "L1-0" };
+      await runTopicRefit({
+        client: fakeLabelClient({ "L1-0": { clusterId: "L1-0", label: "Real name", summary: "" } }),
+        runClustering: fakeClustering(leafOf, {}),
+        db,
+      });
+      const repair: SemanticLlmClient = {
+        ...fakeLabelClient(),
+        async labelTopics(inputs) {
+          return inputs.map((i) => ({ clusterId: i.clusterId, label: "Renamed", summary: "" }));
+        },
+      };
+      const r = await relabelTopics({ client: repair, db, all: true });
+      assert.equal(r.relabeled >= 1, true);
+      const labels = (db.prepare("SELECT label FROM topics").all() as Array<{ label: string }>).map((x) => x.label);
+      assert.ok(labels.every((l) => l === "Renamed"), "--all re-derives every name");
     });
   });
 });

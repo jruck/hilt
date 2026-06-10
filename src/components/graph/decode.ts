@@ -125,6 +125,68 @@ export function decodeGraphBinary(buffer: ArrayBuffer): DecodedGraph {
   };
 }
 
+/**
+ * Project a decoded payload down to the nodes whose type ordinal is NOT hidden — the
+ * legend's per-type visibility toggles. Pure + index-remapping: positions/colorKeys/
+ * sidecar arrays are filtered in lockstep, links keep only pairs with BOTH endpoints
+ * visible (remapped to the new indices). Layout positions are preserved per node, so
+ * toggling a type never moves anything — it only lifts the veil. No-op (same object)
+ * when nothing is hidden.
+ */
+export function filterDecodedByTypes(decoded: DecodedGraph, hiddenOrdinals: Set<number>): DecodedGraph {
+  if (hiddenOrdinals.size === 0) return decoded;
+  const comps = decoded.hasZ ? 3 : 2;
+  const types = decoded.sidecar.types;
+
+  const oldToNew = new Int32Array(decoded.nodeCount).fill(-1);
+  let kept = 0;
+  for (let i = 0; i < decoded.nodeCount; i++) {
+    if (!hiddenOrdinals.has(types[i] ?? 0)) oldToNew[i] = kept++;
+  }
+  if (kept === decoded.nodeCount) return decoded;
+
+  const positions = new Float32Array(kept * comps);
+  const colorKeys = new Uint8Array(kept);
+  const ids = new Array<string>(kept);
+  const labels = new Array<string>(kept);
+  const newTypes = new Array<number>(kept);
+  const folders = decoded.sidecar.folders ? new Array<number>(kept) : undefined;
+  for (let i = 0; i < decoded.nodeCount; i++) {
+    const ni = oldToNew[i];
+    if (ni === -1) continue;
+    for (let c = 0; c < comps; c++) positions[ni * comps + c] = decoded.positions[i * comps + c];
+    colorKeys[ni] = decoded.colorKeys[i];
+    ids[ni] = decoded.sidecar.ids[i];
+    labels[ni] = decoded.sidecar.labels[i];
+    newTypes[ni] = types[i] ?? 0;
+    if (folders && decoded.sidecar.folders) folders[ni] = decoded.sidecar.folders[i];
+  }
+
+  const linkPairs: number[] = [];
+  for (let e = 0; e < decoded.links.length; e += 2) {
+    const a = oldToNew[decoded.links[e]];
+    const b = oldToNew[decoded.links[e + 1]];
+    if (a === -1 || b === -1 || a === undefined || b === undefined) continue;
+    linkPairs.push(a, b);
+  }
+
+  return {
+    ...decoded,
+    nodeCount: kept,
+    edgeCount: linkPairs.length / 2,
+    positions,
+    colorKeys,
+    links: Float32Array.from(linkPairs),
+    sidecar: {
+      ...decoded.sidecar,
+      ids,
+      labels,
+      types: newTypes,
+      ...(folders ? { folders } : {}),
+    },
+  };
+}
+
 /** Read a Float32Array view honoring byte alignment (slices when misaligned). */
 function readFloat32(buffer: ArrayBuffer, byteOffset: number, length: number): Float32Array {
   if (length === 0) return new Float32Array(0);

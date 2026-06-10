@@ -806,6 +806,16 @@ export function getTopicRow(id: string, db = getSemanticDb()): TopicRow | null {
   return (db.prepare("SELECT * FROM topics WHERE id = ?").get(id) as TopicRow | undefined) ?? null;
 }
 
+/** Update just a topic's label/summary in place (the label-only repair path — no re-cluster). */
+export function updateTopicLabel(id: string, label: string, summary: string | null, db = getSemanticDb()): void {
+  db.prepare("UPDATE topics SET label = ?, summary = ?, updated_at = ? WHERE id = ?").run(
+    label,
+    summary,
+    new Date().toISOString(),
+    id,
+  );
+}
+
 /** Topics with a centroid (leaf topics carry one) — the incremental-assignment corpus. */
 export interface TopicCentroid {
   id: string;

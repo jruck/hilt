@@ -10,6 +10,7 @@ import { isGraphEnabled } from "@/lib/graph/config";
 import type { GraphScope } from "@/lib/graph/types";
 import { libraryItemScope } from "@/lib/library/url";
 import { budgetForDevice, type GraphBudget } from "./device-budget";
+import { filterDecodedByTypes } from "./decode";
 import { CosmosRenderer } from "./CosmosRenderer";
 import { GraphInspector, type InspectorTarget } from "./GraphInspector";
 import { GraphToolbar } from "./GraphToolbar";
@@ -37,6 +38,12 @@ interface GraphViewProps {
 
 /** Stale-focus banner cases (deleted/expired/not-yet-indexed nodes). */
 type FocusFallback = { focusId: string; reason: "missing" } | null;
+
+/** localStorage key for the legend's per-type visibility toggles. */
+const HIDDEN_TYPES_KEY = "hilt-graph-hidden-types";
+
+/** The synthetic topic-label fallback — placeholder-named topics get no label priority. */
+const PLACEHOLDER_TOPIC_LABEL = /^Theme L\d+-\d+$/;
 
 /**
  * Knowledge graph (System -> Graph), desktop-first cosmos.gl (WebGL2) renderer.
@@ -84,6 +91,30 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
   const [scope, setScope] = useState<GraphScope>(() => coerceScope(parsed.scope ?? budget.defaultScope));
   const [showTags, setShowTags] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // Per-type visibility toggles (legend). Persisted so a curated view survives reloads
+  // (same localStorage pattern as the library detail metadata panel).
+  const [hiddenTypes, setHiddenTypes] = useState<Set<GraphNodeType>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const raw = window.localStorage.getItem(HIDDEN_TYPES_KEY);
+      return new Set(raw ? (JSON.parse(raw) as GraphNodeType[]) : []);
+    } catch {
+      return new Set();
+    }
+  });
+  const toggleType = useCallback((type: GraphNodeType) => {
+    setHiddenTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      try {
+        window.localStorage.setItem(HIDDEN_TYPES_KEY, JSON.stringify([...next]));
+      } catch {
+        /* private mode etc. — toggles still work for the session */
+      }
+      return next;
+    });
+  }, []);
   const [focusFallback, setFocusFallback] = useState<FocusFallback>(null);
   // Inspector selection: a click selects (opens the inspector) rather than navigating
   // away, so the graph stays explorable. selectedIndexRef keeps the canvas highlight
@@ -171,7 +202,18 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
     scheduleReposition();
   }, [labelSet, scheduleReposition]);
 
-  const decoded = graphData.data;
+  // Per-type visibility (the legend's show/hide toggles): filter the decoded payload
+  // BEFORE the renderer sees it, so positions/colors/labels/click-through all agree.
+  // Layout positions are preserved per node — toggling never moves anything.
+  const decoded = useMemo(() => {
+    const raw = graphData.data;
+    if (!raw || hiddenTypes.size === 0) return raw;
+    const hiddenOrdinals = new Set<number>();
+    NODE_TYPE_BY_ORDINAL.forEach((t, ord) => {
+      if (hiddenTypes.has(t)) hiddenOrdinals.add(ord);
+    });
+    return filterDecodedByTypes(raw, hiddenOrdinals);
+  }, [graphData.data, hiddenTypes]);
   const nodeCount = decoded?.nodeCount ?? 0;
 
   // Single coloring: by node type (what each entity IS). Notes get a neutral hue so the
@@ -336,10 +378,20 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
     renderer.setData(decoded.positions, decoded.links, colors, sizes, metaArr);
     if (selectedIndexRef.current != null) renderer.highlightNeighbors(selectedIndexRef.current);
 
-    // Label the top-K hubs by degree — landmarks readable at any zoom without text soup.
-    // Fewer on mobile (small screen + jetsam). Hovered/focused labels handled separately.
+    // Label the top-K hubs — landmarks readable at any zoom without text soup. Named
+    // TOPICS get up to half the slots (highest-degree first): the themes are the legible
+    // layer the user actually wants, but raw degree alone hands every slot to mega-hub
+    // entities/items. Placeholder-labeled topics ("Theme L0-8") earn no priority. The
+    // remaining slots go to the highest-degree nodes of any type, as before.
     const K = Math.min(budget.aggressiveLOD ? 10 : 24, nodeCount);
-    const topIdx = Array.from({ length: nodeCount }, (_, i) => i).sort((a, b) => degrees[b] - degrees[a]).slice(0, K);
+    const topicOrdinal = NODE_TYPE_BY_ORDINAL.indexOf("topic");
+    const byDegree = Array.from({ length: nodeCount }, (_, i) => i).sort((a, b) => degrees[b] - degrees[a]);
+    const namedTopics = byDegree
+      .filter((i) => metaArr[i].typeOrdinal === topicOrdinal && !PLACEHOLDER_TOPIC_LABEL.test(metaArr[i].label))
+      .slice(0, Math.floor(K / 2));
+    const reserved = new Set(namedTopics);
+    const rest = byDegree.filter((i) => !reserved.has(i)).slice(0, K - namedTopics.length);
+    const topIdx = [...namedTopics, ...rest];
     renderer.trackLabels(topIdx);
     const set = topIdx.map((index) => ({ id: metaArr[index].id, label: metaArr[index].label, index }));
     labelSetRef.current = set;
@@ -468,6 +520,9 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
             onRefresh={handleRefresh}
             refreshing={refreshing}
             stalenessLabel={stalenessLabel}
+            semanticBuilt={meta.meta?.semanticBuilt ?? false}
+            hiddenTypes={hiddenTypes}
+            onToggleType={toggleType}
           />
         ) : null
       }

@@ -25,6 +25,7 @@ import type Database from "better-sqlite3";
 import {
   graphSemanticOverlayEnabled,
   semanticGraphCooccurMinItems,
+  semanticGraphEntityMinMentions,
   semanticGraphEntityMinSalience,
   semanticGraphEntityTopK,
   semanticGraphSimilarityMin,
@@ -168,11 +169,19 @@ export function buildSemanticOverlay(opts: BuildSemanticOverlayOptions = {}): Se
     });
   }
 
-  // ---- item_topic edges (top-K topics per item above the score floor) ----
+  // ---- item_topic edges (top-K LEAF topics per item above the score floor) ----
+  // Leaf-only: an item's membership in a PARENT theme is derivable (item → leaf →
+  // topic_parent → parent), so item→parent edges are pure redundancy — and they're what
+  // inflated the mega-root's degree to corpus scale (a 1,148-member root collected an
+  // edge per member, pinning it at MAX size and owning the label layer). With leaf-only
+  // membership a parent's degree reflects its CHILD COUNT (structure), not its transitive
+  // item mass — the de-emphasis half of the root-granularity ruling (see CHANGELOG).
+  const parentTopicIds = new Set(topics.map((t) => t.parentId).filter((p): p is string => Boolean(p)));
+  const leafItemTopics = itemTopics.filter((e) => !parentTopicIds.has(e.topicId));
   const topicMinScore = semanticGraphTopicMinScore();
   const topicTopK = semanticGraphTopicTopK();
   const builtTopicNodeIds = new Set(topicNodeEntries.map((e) => e.node.id));
-  for (const [itemId, edges] of groupTopK(itemTopics, (e) => e.itemId, (e) => e.score, topicMinScore, topicTopK)) {
+  for (const [itemId, edges] of groupTopK(leafItemTopics, (e) => e.itemId, (e) => e.score, topicMinScore, topicTopK)) {
     if (!liveNodeIds.has(itemId)) continue; // item endpoint must be a real graph node
     const src = itemSourceFile.get(itemId) ?? null;
     for (const e of edges) {
@@ -186,8 +195,12 @@ export function buildSemanticOverlay(opts: BuildSemanticOverlayOptions = {}): Se
     }
   }
 
-  // ---- Entity nodes ----
+  // ---- Entity nodes (mention floor: single-mention noise stays queryable, unplotted) ----
+  // Gated entities also lose their item_entity/co_occurrence edges via the
+  // builtEntityNodeIds endpoint check below — no dangling edges by construction.
+  const entityMinMentions = semanticGraphEntityMinMentions();
   for (const e of entities) {
+    if (e.mentionCount < entityMinMentions) continue;
     const nodeId = entityNodeId(e.id);
     entityNodeEntries.push({
       node: {
@@ -197,7 +210,7 @@ export function buildSemanticOverlay(opts: BuildSemanticOverlayOptions = {}): Se
         refPath: null,
         degree: 0,
         colorKey: "entity",
-        attrs: { entityId: e.id, entityType: e.type, aliases: e.aliases, salienceTotal: e.salienceTotal },
+        attrs: { entityId: e.id, entityType: e.type, aliases: e.aliases, salienceTotal: e.salienceTotal, mentionCount: e.mentionCount },
       },
       sourceFile: null,
     });

@@ -93,8 +93,13 @@ a steering-loop decision, not a tonight decision.
   follow-up once event volume exists.
 - **Steering-loop "pre-authorized actions"** (auto-applied free re-scores): not enabled — the
   pre-authorization list is empty until the user grants standing approvals. Loop is propose-only.
-- **Morning report surfacing**: written to the vault (readable in Docs; agent/briefing-accessible).
-  A pinned Library-top card is deferred — small UI lift, queued behind verification.
+- **Morning report surfacing**: RESOLVED 2026-06-10 — the Hermes briefing gather
+  (`<vault>/meta/skills/briefing/scripts/gather.sh`) now feeds the full morning report into the 06:00
+  briefing context (steering writes it by ~05:15), and the briefing skill's Library section leads with
+  proposals awaiting verdict + links `[Full library report](/api/reports/morning)` (same-origin, works
+  in Hilt and over the tailnet). A pinned Library-top card remains optional polish. The WEEKLY memo is
+  not yet folded into the briefing — it surfaces as a library item; fold it in if Sunday briefings feel
+  incomplete.
 
 ## Verification round (6-agent adversarial workflow + spec critic, 2026-06-09 ~23:45)
 

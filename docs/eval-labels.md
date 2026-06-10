@@ -23,8 +23,13 @@ Format: `date · item · user verdict · root cause · resolution · round`
   motivating McKinsey item (`8ac367e73505647e`) routed correctly — and shows relevance 0.753 (Product
   Factory tie), i.e. a HIGH-value item the old logic would have archive-flagged off a stub. Validates
   the user's ruling.
-- **Still open from this ruling:** the bounded re-extraction pass that empties the bucket (data work,
-  scheduled separately).
+- **Re-fetch drain built same day** (`library:refetch`, daily 04:45, capped 10/run × 2 attempts,
+  zero Claude window). First runs recovered 0/4 — diagnosis: the X auth path only existed for the
+  twitter-bookmarks source (`metadata.xurl_path`); Raindrop-saved X posts silently skipped the API.
+  **Fixed with a global `XURL_BIN` fallback → 19 of 29 fetchable items recovered same session**
+  (bucket 29 → 10; the rest are genuine paywalls/dead URLs that exhaust their cap and stay visibly
+  held). Recovered items get `reweave_pending` so their stub-judged connections rerun against real
+  source overnight. Unfetchable ≠ low-quality, per the user's ruling.
 
 ### 2026-06-09 · "this was a clip, not wanted" (YouTube candidate `06dc883689d36ff0`)
 - **User verdict:** junk — short-form clip should never have entered the feed.

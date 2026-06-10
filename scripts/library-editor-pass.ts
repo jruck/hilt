@@ -69,9 +69,26 @@ async function main(): Promise<void> {
       console.log(JSON.stringify({ skipped: "rate_limited" }));
       return;
     }
+    // A transient API failure (e.g. a 401 from an OAuth refresh race — seen 2026-06-10 07:25) is
+    // BENIGN here: serving falls back to yesterday's cache (≤30h) then the deterministic funnel.
+    // Exit clean with a compact note instead of dumping the whole prompt to stderr and ambering
+    // the health panel for a designed-for miss.
+    const envelope = (e?.stdout || "").match(/"is_error":true.*?"api_error_status":(\d+)/);
+    if (envelope) {
+      console.log(JSON.stringify({ skipped: "api_error", status: Number(envelope[1]) }));
+      return;
+    }
     throw error;
   }
   if (detectRateLimitInEnvelope(stdout).limited) { console.log(JSON.stringify({ skipped: "rate_limited" })); return; }
+  // Exit-0 envelopes can also carry is_error (the CLI succeeded at running, the API call failed).
+  try {
+    const parsedEnvelope = JSON.parse(stdout.trim()) as { is_error?: boolean; api_error_status?: number };
+    if (parsedEnvelope?.is_error === true) {
+      console.log(JSON.stringify({ skipped: "api_error", status: parsedEnvelope.api_error_status ?? null }));
+      return;
+    }
+  } catch { /* not an envelope — let the pick parser decide */ }
 
   const text = extractModelText(stdout);
   let picks: EditorPick[];

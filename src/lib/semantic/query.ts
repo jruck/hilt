@@ -276,7 +276,7 @@ export function listAllItemEntities(db = getSemanticDb()): ItemEntityEdge[] {
     .all() as ItemEntityEdge[];
 }
 
-/** One entity node projection (canonical name/type/summary + aliases + total salience). */
+/** One entity node projection (canonical name/type/summary + aliases + salience + mentions). */
 export interface EntityNodeRow {
   id: string;
   type: string;
@@ -284,6 +284,8 @@ export interface EntityNodeRow {
   summary: string | null;
   aliases: string[];
   salienceTotal: number;
+  /** Corpus-wide mention count — the overlay's node-mint floor (single-mention noise gate). */
+  mentionCount: number;
 }
 
 /** Every entity, for minting the entity nodes in one pass (aliases joined). */
@@ -291,7 +293,7 @@ export function listAllEntities(db = getSemanticDb()): EntityNodeRow[] {
   const rows = db
     .prepare(
       `SELECT e.id AS id, e.type AS type, e.canonical_name AS canonicalName, e.summary AS summary,
-              COALESCE(SUM(ie.salience), 0) AS salienceTotal
+              COALESCE(SUM(ie.salience), 0) AS salienceTotal, e.mention_count AS mentionCount
        FROM entities e LEFT JOIN item_entities ie ON ie.entity_id = e.id
        GROUP BY e.id ORDER BY e.id`,
     )

@@ -17,7 +17,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { extractModelText, resolveClaudeBin, runClaude } from "@/lib/library/connections";
-import { isSemanticDisabled, isSemanticLabelDisabled, semanticDim, semanticRefitTimeoutMs } from "./config";
+import { isSemanticDisabled, isSemanticLabelDisabled, semanticDim, semanticLabelBatch, semanticRefitTimeoutMs } from "./config";
 import { EXTRACTION_PROMPT, EXTRACTION_RESPONSE_SCHEMA, parseExtractionOutput } from "./extraction-prompt";
 import { SEMANTIC_EMBEDDING_MODEL, semanticExtractModel, semanticTaxonomyModel } from "./pipeline";
 import { TOPIC_LABEL_PROMPT, parseTopicLabels } from "./topic-label-prompt";
@@ -198,17 +198,27 @@ export function createGeminiClient(opts: GeminiClientOptions = {}): SemanticLlmC
   const taxonomyModel = opts.taxonomyModel || semanticTaxonomyModel();
 
   /**
-   * One labeling call over ALL clusters (the low-frequency global pass). Dispatches by
-   * SEMANTIC_TAXONOMY_MODEL (ruling R7): a `claude:` prefix shells the Claude CLI via the
-   * library's runner; anything else POSTs Gemini. Fail-soft like extraction — SEMANTIC_-
-   * LABEL_DISABLED, a missing key, an HTTP/CLI error, or an unparseable body all yield `[]`
-   * (the orchestrator then synthesizes fallback labels), never a throw. Hard-blocks live
-   * calls under test (tests inject the fake labeler via createFakeSemanticClient).
+   * Label ALL clusters in BATCHES of `semanticLabelBatch()` (default 48). The original
+   * one-call-over-everything design broke at real scale (847 clusters → ~480K-token prompt
+   * expecting 847 labels in one response → output-limit failure → every topic left a
+   * placeholder), so batching is correctness here, not an optimization. Sequential calls
+   * (shared low-tier key); a failed batch retries once, then fail-softs for ITS clusters
+   * only — the other batches' labels still land. Dispatch + global kill-switches unchanged.
    */
   async function labelTopicsOnce(inputs: TopicLabelInput[]): Promise<TopicLabel[]> {
     if (inputs.length === 0) return [];
     if (isSemanticDisabled() || isSemanticLabelDisabled()) return [];
     if (isTestEnv()) return []; // belt-and-suspenders: never fire a live label call under test
+    return runLabelBatches(inputs, semanticLabelBatch(), labelOneBatch);
+  }
+
+  /**
+   * One labeling call over ONE batch of clusters. Dispatches by SEMANTIC_TAXONOMY_MODEL
+   * (ruling R7): a `claude:` prefix shells the Claude CLI via the library's runner;
+   * anything else POSTs Gemini. Fail-soft like extraction — a missing key, an HTTP/CLI
+   * error, or an unparseable body all yield `[]`, never a throw.
+   */
+  async function labelOneBatch(inputs: TopicLabelInput[]): Promise<TopicLabel[]> {
     const userText = buildLabelUserText(inputs);
 
     if (taxonomyModel.startsWith("claude:")) {
@@ -278,6 +288,40 @@ export function createGeminiClient(opts: GeminiClientOptions = {}): SemanticLlmC
     extractEntities: extractOnce,
     labelTopics: labelTopicsOnce,
   };
+}
+
+/**
+ * Run the labeler over inputs in sequential batches, retrying a failed/empty batch once,
+ * merging whatever labels each batch produced. Per-batch fail-soft: a batch that fails both
+ * tries contributes nothing (its clusters fall back to synthetic labels downstream) while
+ * every other batch's labels still land. Exported for direct unit testing.
+ */
+export async function runLabelBatches(
+  inputs: TopicLabelInput[],
+  batchSize: number,
+  callOne: (batch: TopicLabelInput[]) => Promise<TopicLabel[]>,
+): Promise<TopicLabel[]> {
+  const out: TopicLabel[] = [];
+  const size = Math.max(1, batchSize);
+  for (let i = 0; i < inputs.length; i += size) {
+    const batch = inputs.slice(i, i + size);
+    let labels: TopicLabel[] = [];
+    try {
+      labels = await callOne(batch);
+    } catch {
+      labels = [];
+    }
+    if (labels.length === 0) {
+      // One retry — a transient failure shouldn't strand a whole batch on placeholders.
+      try {
+        labels = await callOne(batch);
+      } catch {
+        labels = [];
+      }
+    }
+    out.push(...labels);
+  }
+  return out;
 }
 
 /** Render the per-cluster excerpts into the user message handed to the labeler. */

@@ -416,6 +416,24 @@ export function listLibrarySources(vaultPath: string, options: Omit<LibraryListO
     state[source.id]?.last_success_at || null,
     state[source.id]?.blocked_reason || null,
   ));
+  // The Editor's Memo writes first-class library items but has no source yaml — surface it as its
+  // own sidebar source (same pattern as Manual) so memos are browsable as a stream.
+  const memoArtifacts = all.filter((artifact) => artifact.source_id === "library-memo");
+  if (memoArtifacts.length && !summaries.some((source) => source.id === "library-memo")) {
+    summaries.unshift(summarizeSourceArtifacts(
+      {
+        id: "library-memo",
+        name: "Editor's Memo",
+        channel: "manual",
+        enabled: true,
+        intent: "explicit_save",
+      },
+      memoArtifacts,
+      pendingReviewIds,
+      null,
+      null,
+    ));
+  }
   if (!summaries.some((source) => source.id === MANUAL_SOURCE_ID)) {
     const manualArtifacts = all.filter((artifact) => artifact.source_id === MANUAL_SOURCE_ID);
     if (manualArtifacts.length) {

@@ -116,15 +116,19 @@ function seedSemanticCorpus(semanticDb: ReturnType<typeof getSemanticDb>, dim = 
   upsertItemTopic("person:ada", "T-agents", 0.9, "refit", semanticDb);
   upsertItemTopic("note:n1", "T-agents", 0.8, "refit", semanticDb);
   upsertItemTopic("ref:r1", "T-hiring", 0.7, "refit", semanticDb);
+  // A PARENT membership (refit writes these too) — must NOT mint an edge (leaf-only rule).
+  upsertItemTopic("person:ada", "T-root", 0.95, "refit", semanticDb);
   // A below-floor membership that must NOT mint an edge (score 0.3 < 0.5 default).
   upsertItemTopic("ref:r1", "T-agents", 0.3, "refit", semanticDb);
   // An item_topic for the excluded external ref — its endpoint isn't a graph node ⇒ dropped.
   upsertItemTopic("ref:external", "T-agents", 0.9, "refit", semanticDb);
 
   // Entities: two ideas co-occurring across ada + note (count 2 ⇒ co_occurrence edge).
-  upsertEntity({ id: "E-arch", type: "idea", canonicalName: "agent architecture" }, semanticDb);
-  upsertEntity({ id: "E-tools", type: "idea", canonicalName: "tool use" }, semanticDb);
-  upsertEntity({ id: "E-recruit", type: "idea", canonicalName: "recruiting" }, semanticDb);
+  // mentionCount ≥ the plot floor (default 3) so they all mint; the gating test below
+  // seeds its own single-mention entity to assert the floor.
+  upsertEntity({ id: "E-arch", type: "idea", canonicalName: "agent architecture", mentionCount: 5 }, semanticDb);
+  upsertEntity({ id: "E-tools", type: "idea", canonicalName: "tool use", mentionCount: 4 }, semanticDb);
+  upsertEntity({ id: "E-recruit", type: "idea", canonicalName: "recruiting", mentionCount: 3 }, semanticDb);
   upsertItemEntity("person:ada", "E-arch", 0.9, semanticDb);
   upsertItemEntity("person:ada", "E-tools", 0.8, semanticDb);
   upsertItemEntity("note:n1", "E-arch", 0.85, semanticDb);
@@ -179,6 +183,12 @@ describe("semantic overlay", () => {
       const adaTopicEdge = adaEdges.find((e) => e.kind === "item_topic" && e.target === topicNodeId("T-agents"));
       assert.ok(adaTopicEdge, "person→T-agents item_topic edge");
       assert.equal(adaTopicEdge!.weight, 0.9);
+      // Leaf-only: the higher-scoring PARENT membership (ada→T-root 0.95) mints no edge —
+      // parents are reachable via topic_parent, never via direct item membership.
+      assert.ok(
+        !adaEdges.some((e) => e.kind === "item_topic" && e.target === topicNodeId("T-root")),
+        "item→parent membership dropped (leaf-only item_topic edges)",
+      );
       // The below-floor ref:r1→T-agents (0.3) edge must be absent.
       const r1Edges = getEdgesForNode("ref:r1", graphDb);
       assert.ok(!r1Edges.some((e) => e.kind === "item_topic" && e.target === topicNodeId("T-agents")), "below-floor item_topic dropped");
@@ -213,6 +223,27 @@ describe("semantic overlay", () => {
       assert.equal(meta.topicNodeCount, 3);
       assert.equal(meta.entityNodeCount, 3);
       assert.equal(meta.semanticBuilt, true);
+    });
+  });
+
+  test("entity mention floor: a single-mention entity is not plotted and mints no edges", () => {
+    withSeededDbs(({ graphDb, semanticDb }) => {
+      seedVaultNodes(graphDb);
+      seedSemanticCorpus(semanticDb);
+      // A 1-mention entity with an above-salience-floor mention on a live item: without the
+      // mention gate it would mint a node + an item_entity edge. With the floor (3) it must not.
+      upsertEntity({ id: "E-noise", type: "source", canonicalName: "one-off citation", mentionCount: 1 }, semanticDb);
+      upsertItemEntity("note:n1", "E-noise", 0.9, semanticDb);
+
+      const result = buildSemanticOverlay({ db: graphDb, semanticDb });
+      assert.equal(result.entityNodes, 3, "the single-mention entity is gated out of the plot");
+      assert.equal(getNodeById(entityNodeId("E-noise"), graphDb), null, "no node minted");
+      const noiseEdges = (graphDb.prepare("SELECT COUNT(*) AS c FROM graph_edges WHERE source_id = ? OR target_id = ?")
+        .get(entityNodeId("E-noise"), entityNodeId("E-noise")) as { c: number }).c;
+      assert.equal(noiseEdges, 0, "no edges reference the gated entity");
+      // It stays fully queryable on the semantic side (gate is graph-only).
+      const row = semanticDb.prepare("SELECT canonical_name FROM entities WHERE id = 'E-noise'").get() as { canonical_name: string };
+      assert.equal(row.canonical_name, "one-off citation");
     });
   });
 

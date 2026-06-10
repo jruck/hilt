@@ -75,6 +75,17 @@ export function librarySchedulerJobs(logDir = librarySchedulerLogDir()): Library
       stderr: path.join(logDir, "cleanup.err.log"),
     },
     {
+      id: "refetch",
+      label: "com.hilt.library.refetch",
+      // The needs_refetch drain (steering round 1): bounded daily retry of failed source captures —
+      // fetch + Gemini digest only (zero Claude window; recovered items get reweave_pending and the
+      // 03:35 drain weaves them next night). Attempt-capped so dead sources stop consuming fetches.
+      script: "library:refetch",
+      schedule: { hour: 4, minute: 45 },
+      stdout: path.join(logDir, "refetch.out.log"),
+      stderr: path.join(logDir, "refetch.err.log"),
+    },
+    {
       id: "steering",
       label: "com.hilt.library.steering",
       // The Library v2 steering loop: scorecard + feedback clustering + judge/formula disagreements →

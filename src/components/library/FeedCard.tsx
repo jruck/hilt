@@ -6,12 +6,14 @@ import type { PromotionReason } from "@/lib/library/types";
 import type { ReviewQueueStatus } from "@/lib/library/review-queue";
 import { formatVideoDuration } from "@/lib/library/media";
 import { artifactDisplayTags } from "@/lib/library/taxonomy";
-import { Archive, Bookmark, Check, ChevronDown, CircleDashed, CircleDot, ExternalLink, FileText, Mail, MoreHorizontal, Play, Rss, ThumbsDown, X } from "lucide-react";
+import { Archive, Bookmark, Check, ChevronDown, CircleDashed, CircleDot, ExternalLink, FileText, Mail, MoreHorizontal, Play, Rss, Sparkles, ThumbsDown, X } from "lucide-react";
 import { archiveArtifact, promoteCandidate, skipCandidate } from "@/hooks/useLibrary";
 import { EvalMetricPills } from "./EvalMetricPills";
 
-function ChannelIcon({ channel }: { channel: LibraryArtifact["channel"] }) {
+function ChannelIcon({ channel, sourceId }: { channel: LibraryArtifact["channel"]; sourceId?: string | null }) {
   const cls = "h-4 w-4";
+  // The Editor's Memo is the library writing to YOU — give it the agent sparkle, not a file icon.
+  if (sourceId === "library-memo") return <Sparkles className={`${cls} text-amber-500`} />;
   if (channel === "youtube") return <Play className={cls} />;
   if (channel === "rss") return <Rss className={cls} />;
   if (channel === "email") return <Mail className={cls} />;
@@ -126,7 +128,7 @@ export function FeedCard({
         <div className="text-xs text-[var(--text-tertiary)]">
           <div className="flex min-w-0 items-center gap-2">
             {artifact.is_unread && <span aria-label="Unread" title="Unread" className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />}
-            <ChannelIcon channel={artifact.channel} />
+            <ChannelIcon channel={artifact.channel} sourceId={artifact.source_id} />
             <span className="truncate">{artifact.source_name || artifact.channel || "Reference"}</span>
             <span className="shrink-0">{artifact.created_at?.slice(0, 10)}</span>
           </div>

@@ -13,8 +13,9 @@ import { budgetForDevice, type GraphBudget } from "./device-budget";
 import { filterDecodedByTypes } from "./decode";
 import { CosmosRenderer } from "./CosmosRenderer";
 import { GraphInspector, type InspectorTarget } from "./GraphInspector";
+import { GraphLegendPanel } from "./GraphLegendPanel";
 import { GraphToolbar } from "./GraphToolbar";
-import { NODE_TYPE_BY_ORDINAL } from "./graph-labels";
+import { NODE_TYPE_BY_ORDINAL, effectiveHiddenTypes } from "./graph-labels";
 import { buildGraphScope, parseGraphScope } from "./graph-deeplink";
 import type { GraphNodeType } from "@/lib/graph/types";
 import {
@@ -39,11 +40,37 @@ interface GraphViewProps {
 /** Stale-focus banner cases (deleted/expired/not-yet-indexed nodes). */
 type FocusFallback = { focusId: string; reason: "missing" } | null;
 
-/** localStorage key for the legend's per-type visibility toggles. */
+/** localStorage keys for the legend mixer's per-type hide/solo state. */
 const HIDDEN_TYPES_KEY = "hilt-graph-hidden-types";
+const SOLO_TYPES_KEY = "hilt-graph-solo-types";
 
 /** The synthetic topic-label fallback — placeholder-named topics get no label priority. */
 const PLACEHOLDER_TOPIC_LABEL = /^Theme L\d+-\d+$/;
+
+function loadTypeSet(key: string): Set<GraphNodeType> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(key);
+    return new Set(raw ? (JSON.parse(raw) as GraphNodeType[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Toggle `type` in a copy of `prev` (null = clear) and persist; returns the new set. */
+function toggleInPersistedSet(prev: Set<GraphNodeType>, type: GraphNodeType | null, key: string): Set<GraphNodeType> {
+  const next = type === null ? new Set<GraphNodeType>() : new Set(prev);
+  if (type !== null) {
+    if (next.has(type)) next.delete(type);
+    else next.add(type);
+  }
+  try {
+    window.localStorage.setItem(key, JSON.stringify([...next]));
+  } catch {
+    /* private mode etc. — toggles still work for the session */
+  }
+  return next;
+}
 
 /**
  * Knowledge graph (System -> Graph), desktop-first cosmos.gl (WebGL2) renderer.
@@ -91,29 +118,20 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
   const [scope, setScope] = useState<GraphScope>(() => coerceScope(parsed.scope ?? budget.defaultScope));
   const [showTags, setShowTags] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  // Per-type visibility toggles (legend). Persisted so a curated view survives reloads
-  // (same localStorage pattern as the library detail metadata panel).
-  const [hiddenTypes, setHiddenTypes] = useState<Set<GraphNodeType>>(() => {
-    if (typeof window === "undefined") return new Set();
-    try {
-      const raw = window.localStorage.getItem(HIDDEN_TYPES_KEY);
-      return new Set(raw ? (JSON.parse(raw) as GraphNodeType[]) : []);
-    } catch {
-      return new Set();
-    }
-  });
+  // Per-type visibility mixer (legend panel): hide + SOLO, audio-console semantics —
+  // any solo shows ONLY the soloed types (multi-solo unions) and suspends hides.
+  // Both persisted so a curated view survives reloads.
+  const [hiddenTypes, setHiddenTypes] = useState<Set<GraphNodeType>>(() => loadTypeSet(HIDDEN_TYPES_KEY));
+  const [soloTypes, setSoloTypes] = useState<Set<GraphNodeType>>(() => loadTypeSet(SOLO_TYPES_KEY));
   const toggleType = useCallback((type: GraphNodeType) => {
-    setHiddenTypes((prev) => {
-      const next = new Set(prev);
-      if (next.has(type)) next.delete(type);
-      else next.add(type);
-      try {
-        window.localStorage.setItem(HIDDEN_TYPES_KEY, JSON.stringify([...next]));
-      } catch {
-        /* private mode etc. — toggles still work for the session */
-      }
-      return next;
-    });
+    setHiddenTypes((prev) => toggleInPersistedSet(prev, type, HIDDEN_TYPES_KEY));
+  }, []);
+  const toggleSolo = useCallback((type: GraphNodeType) => {
+    setSoloTypes((prev) => toggleInPersistedSet(prev, type, SOLO_TYPES_KEY));
+  }, []);
+  const resetTypeFilters = useCallback(() => {
+    setHiddenTypes(() => toggleInPersistedSet(new Set(), null, HIDDEN_TYPES_KEY));
+    setSoloTypes(() => toggleInPersistedSet(new Set(), null, SOLO_TYPES_KEY));
   }, []);
   const [focusFallback, setFocusFallback] = useState<FocusFallback>(null);
   // Inspector selection: a click selects (opens the inspector) rather than navigating
@@ -202,19 +220,34 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
     scheduleReposition();
   }, [labelSet, scheduleReposition]);
 
-  // Per-type visibility (the legend's show/hide toggles): filter the decoded payload
-  // BEFORE the renderer sees it, so positions/colors/labels/click-through all agree.
-  // Layout positions are preserved per node — toggling never moves anything.
+  // Per-type visibility (the legend mixer): resolve hide+solo into the effective hidden
+  // set, then filter the decoded payload BEFORE the renderer sees it, so positions/
+  // colors/labels/click-through all agree. Positions are preserved — toggling never
+  // moves anything (the layout stays the whole-graph equilibrium by design).
+  const effectiveHidden = useMemo(() => effectiveHiddenTypes(hiddenTypes, soloTypes), [hiddenTypes, soloTypes]);
   const decoded = useMemo(() => {
     const raw = graphData.data;
-    if (!raw || hiddenTypes.size === 0) return raw;
+    if (!raw || effectiveHidden.size === 0) return raw;
     const hiddenOrdinals = new Set<number>();
     NODE_TYPE_BY_ORDINAL.forEach((t, ord) => {
-      if (hiddenTypes.has(t)) hiddenOrdinals.add(ord);
+      if (effectiveHidden.has(t)) hiddenOrdinals.add(ord);
     });
     return filterDecodedByTypes(raw, hiddenOrdinals);
-  }, [graphData.data, hiddenTypes]);
+  }, [graphData.data, effectiveHidden]);
   const nodeCount = decoded?.nodeCount ?? 0;
+
+  // Honest per-type totals for the legend (from the RAW payload, so a hidden type still
+  // shows what it would contribute).
+  const typeCounts = useMemo(() => {
+    const counts = new Map<GraphNodeType, number>();
+    const raw = graphData.data;
+    if (!raw) return counts;
+    for (const ord of raw.sidecar.types) {
+      const t = NODE_TYPE_BY_ORDINAL[ord] ?? "note";
+      counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
+    return counts;
+  }, [graphData.data]);
 
   // Single coloring: by node type (what each entity IS). Notes get a neutral hue so the
   // people/projects/references pop.
@@ -520,9 +553,6 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
             onRefresh={handleRefresh}
             refreshing={refreshing}
             stalenessLabel={stalenessLabel}
-            semanticBuilt={meta.meta?.semanticBuilt ?? false}
-            hiddenTypes={hiddenTypes}
-            onToggleType={toggleType}
           />
         ) : null
       }
@@ -608,8 +638,18 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
             ))}
           </div>
         ) : null}
+        <GraphLegendPanel
+          semanticBuilt={meta.meta?.semanticBuilt ?? false}
+          counts={typeCounts}
+          hiddenTypes={hiddenTypes}
+          soloTypes={soloTypes}
+          onToggleHide={toggleType}
+          onToggleSolo={toggleSolo}
+          onReset={resetTypeFilters}
+          defaultCollapsed={isMobile}
+        />
         {layoutDisabled ? (
-          <div className="pointer-events-none absolute left-3 top-3 rounded-md bg-[var(--bg-tertiary)] px-2 py-1 text-[10px] font-medium text-[var(--text-secondary)]">
+          <div className="pointer-events-none absolute right-10 top-3 rounded-md bg-[var(--bg-tertiary)] px-2 py-1 text-[10px] font-medium text-[var(--text-secondary)]">
             layout disabled
           </div>
         ) : null}

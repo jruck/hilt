@@ -111,6 +111,7 @@ function evalFacetLabel(facetKey: string, value: string): string {
     if (value === "label_only") return "Explicit save";
     if (value === "process") return "Process";
   }
+  if (facetKey === "lifecycle" && value === "needs_refetch") return "Needs re-fetch";
   if (facetKey === "youtube_content_form") {
     if (value === "standalone_short") return "Short upload";
   }

@@ -89,6 +89,10 @@ export interface EvalInputs {
   substance: number;
   /** The connection judge demonstrably ran (e.g. `reconnected_at` set). Gates `to_archive`. */
   analyzed?: boolean;
+  /** Source capture succeeded. false ⇒ the eval is grading a STUB (paywall/fetch failure) — a
+   *  pipeline problem, not a content-quality verdict — so lifecycle routes to needs_refetch and
+   *  to_archive can never fire (user ruling, steering round 1 / eval-labels 2026-06-10). */
+  extraction_ok?: boolean;
 }
 
 export interface WorthResult {
@@ -114,9 +118,16 @@ export function evaluateArtifact(input: EvalInputs, config: LibraryScoringConfig
 
   // Never flag an item we haven't actually analyzed — absence of ties there means "unknown", not "low".
   const analyzed = input.analyzed === true || input.connections.length > 0;
-  const lifecycle: WorthResult["lifecycle"] = analyzed && worth < config.to_archive_worth ? "to_archive" : "active";
+  const lifecycle: WorthResult["lifecycle"] = input.extraction_ok === false
+    ? "needs_refetch"
+    : analyzed && worth < config.to_archive_worth
+      ? "to_archive"
+      : "active";
 
-  return { worth, relevance, substance, freshness, lifecycle, why: buildWhy(firstParty, relevance, substance, freshness, input) };
+  const why = input.extraction_ok === false
+    ? `source capture failed — held for re-fetch · ${buildWhy(firstParty, relevance, substance, freshness, input)}`
+    : buildWhy(firstParty, relevance, substance, freshness, input);
+  return { worth, relevance, substance, freshness, lifecycle, why };
 }
 
 function buildWhy(firstParty: ConnectionSuggestion[], relevance: number, substance: number, freshness: number, input: EvalInputs): string {

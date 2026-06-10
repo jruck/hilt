@@ -18,7 +18,7 @@ export interface WorkbenchRow {
   created_at: string;
   // disposition + eval
   disposition: "study" | "keep";
-  lifecycle: "active" | "to_archive" | "archived";
+  lifecycle: import("./types").LibraryLifecycle;
   worth: number | null;
   relevance: number | null;
   substance: number | null;

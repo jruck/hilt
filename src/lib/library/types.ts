@@ -11,7 +11,9 @@ export type LibraryModeFilter = LibraryMode | "all";
  * that stays in the main folder; `archived` = manually moved to `.archive/`. The eval only ever suggests
  * `to_archive`; moves to `archived` are always manual. See docs/plans/reference-library-roadmap.md.
  */
-export type LibraryLifecycle = "active" | "to_archive" | "archived";
+// needs_refetch (Library v2, steering round 1): the source CAPTURE failed (paywall/fetch error), so
+// the eval's grade describes a stub, not the content — held for re-extraction, never archive-flagged.
+export type LibraryLifecycle = "active" | "to_archive" | "needs_refetch" | "archived";
 export type PromotionReason = "explicit_signal" | "manual_save" | "for_you_selected" | "briefing_selected" | "auto_threshold";
 
 export interface LibrarySourceAuth {

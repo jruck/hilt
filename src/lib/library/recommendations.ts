@@ -188,12 +188,20 @@ function scoreArtifact(vaultPath: string, artifact: LibraryArtifactDetail, signa
     contextFit = semantic.score;
     contextLabel = semantic.label ?? contextLabel;
   }
+  const fm = artifact.raw_frontmatter;
+  // Capture health: the trigger is the EXPLICIT empty-cache marker — the item itself records that no
+  // source was captured, so its grade describes a stub. A warm digestion alone does NOT trigger:
+  // warm items often carry real (if partial) content — inline text, X posts, metadata-rich saves —
+  // and remain honestly gradable. Failed captures route to needs_refetch instead of ever being
+  // archive-flagged (user ruling, steering round 1).
+  const extractionOk = !(artifact.content || "").includes("No cached source content available");
   const evaluation = evaluateArtifact({
     connections: connectionSuggestionsForArtifact(artifact),
     contextFit,
     contextLabel,
     createdAt: artifact.created_at,
     substance: substanceFor(artifact),
+    extraction_ok: extractionOk,
     // `reconnected_at` is stamped whenever the connection judge runs (success OR abstain) — positive
     // evidence we looked, the precondition for ever flagging a zero-tie item to_archive.
     analyzed: typeof artifact.raw_frontmatter.reconnected_at === "string" && artifact.raw_frontmatter.reconnected_at.length > 0,
@@ -300,6 +308,8 @@ export function buildForYouPool(vaultPath: string): { pool: RecommendedArtifact[
   const pool = evaluateLibrary(vaultPath, { limit: 3000 })
     .sort((a, b) => (b.worth || 0) - (a.worth || 0))
     .filter((item) => !negative.has(item.id))
+    // A stub-graded item must never be recommended — its digest may describe a cover blurb.
+    .filter((item) => item.lifecycle !== "needs_refetch")
     .slice(0, config.for_you.pool);
   return { pool, config };
 }

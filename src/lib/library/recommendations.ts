@@ -233,10 +233,67 @@ function scoreArtifact(vaultPath: string, artifact: LibraryArtifactDetail, signa
  * Score every study item against the current active context — worth = relevance × substance × freshness.
  * Cheap/structural (no model calls). Powers For You, the inspection report, and the workbench list API.
  */
-export function evaluateLibrary(vaultPath: string, opts: { limit?: number } = {}): RecommendedArtifact[] {
+// --- Shared-input cache (Plan 004) -----------------------------------------
+// The full artifact load + derived context signals are the dominant per-call
+// cost shared by the scoring entry points below — evalAttrsForArtifact in
+// particular loaded all ~3000 artifacts just to score one detail-pane item.
+// Cache the (artifacts, signals, config) bundle briefly so an interaction
+// burst (a feed render + a detail-pane open + worth-slider drags) reloads once.
+// Invalidation: keyed on vaultPath + the references/candidates directory
+// mtimes (an add, remove, or atomic temp+rename write bumps the dir mtime),
+// with a short TTL ceiling as a backstop. Scores are unchanged — only how the
+// shared inputs are obtained changes.
+type SharedScoringInputs = {
+  artifacts: LibraryArtifactDetail[];
+  signals: ContextSignal[];
+  config: LibraryScoringConfig;
+};
+
+const SHARED_INPUTS_TTL_MS = 2000;
+let sharedInputsCache: { key: string; at: number; value: SharedScoringInputs } | null = null;
+
+function libraryDirFingerprint(vaultPath: string): string {
+  const dirs = [
+    path.join(vaultPath, "references"),
+    path.join(vaultPath, "references", ".cache", "library-candidates"),
+  ];
+  return dirs
+    .map((dir) => {
+      try {
+        return String(fs.statSync(dir).mtimeMs);
+      } catch {
+        return "0";
+      }
+    })
+    .join(":");
+}
+
+function loadSharedScoringInputs(vaultPath: string, limit: number): SharedScoringInputs {
   const config = loadScoringConfig(vaultPath);
-  const artifacts = listLibraryArtifactDetails(vaultPath, { limit: opts.limit ?? 3000, includeCandidates: true }).artifacts;
+  const artifacts = listLibraryArtifactDetails(vaultPath, { limit, includeCandidates: true }).artifacts;
   const signals = activeContextSignals(vaultPath, artifacts, config);
+  return { artifacts, signals, config };
+}
+
+function sharedScoringInputs(vaultPath: string): SharedScoringInputs {
+  const key = `${vaultPath}::${libraryDirFingerprint(vaultPath)}`;
+  const now = Date.now();
+  if (sharedInputsCache && sharedInputsCache.key === key && now - sharedInputsCache.at < SHARED_INPUTS_TTL_MS) {
+    return sharedInputsCache.value;
+  }
+  const value = loadSharedScoringInputs(vaultPath, 3000);
+  sharedInputsCache = { key, at: now, value };
+  return value;
+}
+
+export function evaluateLibrary(vaultPath: string, opts: { limit?: number } = {}): RecommendedArtifact[] {
+  // The default 3000-load is shared with the other scoring entry points, so it
+  // uses the cache; a caller-supplied non-default limit loads directly to
+  // preserve the exact artifact set.
+  const { artifacts, signals, config } =
+    opts.limit === undefined || opts.limit === 3000
+      ? sharedScoringInputs(vaultPath)
+      : loadSharedScoringInputs(vaultPath, opts.limit);
   const semanticCtx = buildSemanticContext(vaultPath, artifacts);
   return artifacts
     .filter((artifact) => artifact.lifecycle_status !== "expired" && artifact.lifecycle_status !== "skipped")
@@ -248,9 +305,7 @@ export function evaluateLibrary(vaultPath: string, opts: { limit?: number } = {}
 /** Score a given list of artifacts against the active context — signals built once. Used by the feed's
  *  eval-filter path (worth slider, lifecycle) so it filters the already-source/pipeline-filtered set. */
 export function scoreArtifacts(vaultPath: string, artifacts: LibraryArtifactDetail[]): RecommendedArtifact[] {
-  const config = loadScoringConfig(vaultPath);
-  const all = listLibraryArtifactDetails(vaultPath, { limit: 3000, includeCandidates: true }).artifacts;
-  const signals = activeContextSignals(vaultPath, all, config);
+  const { artifacts: all, signals, config } = sharedScoringInputs(vaultPath);
   const semanticCtx = buildSemanticContext(vaultPath, all);
   return artifacts.map((artifact) => scoreArtifact(vaultPath, artifact, signals, semanticCtx, config));
 }
@@ -258,9 +313,7 @@ export function scoreArtifacts(vaultPath: string, artifacts: LibraryArtifactDeta
 /** Eval attributes for a single study item (for the detail metadata panel). null for keep items. */
 export function evalAttrsForArtifact(vaultPath: string, artifact: LibraryArtifactDetail): LibraryEvalAttrs | null {
   if (artifact.library_mode === "keep") return null;
-  const config = loadScoringConfig(vaultPath);
-  const all = listLibraryArtifactDetails(vaultPath, { limit: 3000, includeCandidates: true }).artifacts;
-  const signals = activeContextSignals(vaultPath, all, config);
+  const { artifacts: all, signals, config } = sharedScoringInputs(vaultPath);
   const semanticCtx = buildSemanticContext(vaultPath, all);
   const scored = scoreArtifact(vaultPath, artifact, signals, semanticCtx, config);
   return { worth: scored.worth, relevance: scored.relevance, substance: scored.substance, freshness: scored.freshness, lifecycle: scored.lifecycle, why: scored.why };

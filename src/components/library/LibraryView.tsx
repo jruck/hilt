@@ -136,6 +136,9 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
     feedback?: string | null;
     youtube_clip_policy?: string | null;
   }>({});
+  // Type is a BROWSE dimension (like Source/Status/Mode), not an admin filter — separate state so
+  // admin "clear"/active-dot semantics never touch it.
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const pendingFeedScrollAnchorRef = useRef<FeedScrollAnchor | null>(null);
   const pendingReadIdsRef = useRef<Set<string>>(new Set());
@@ -162,6 +165,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
     status: statusFilter === "all" ? null : statusFilter,
     unread: ranking === "new",
     q: searchQuery || null,
+    content_type: typeFilter,
     ...evalFilters,
   }, density === "list" ? 80 : 40);
   const recommendations = useRecommendations(20);
@@ -843,6 +847,8 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
               onTagSelect={selectTag}
               onStatusSelect={selectStatusFilter}
               onModeSelect={selectModeFilter}
+              typeFilter={typeFilter}
+              onTypeSelect={setTypeFilter}
               evalFilters={evalFilters}
               onEvalFilterChange={setEvalFilters}
               className="absolute bottom-3 left-3 top-3 z-20 w-[min(82vw,320px)] rounded-lg border border-[var(--border-default)] content-card-shadow lg:static lg:bottom-auto lg:left-auto lg:top-auto lg:z-auto lg:block lg:w-[var(--library-source-width)] lg:flex-none lg:shrink-0 lg:rounded-none lg:border-0 lg:shadow-none"

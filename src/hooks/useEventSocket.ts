@@ -81,7 +81,12 @@ export function useEventSocket() {
     if (!port || !mountedRef.current) return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${protocol}//localhost:${port}/events`;
+    // Connect to the host the renderer was loaded from — not localhost — so a
+    // renderer served from a remote source (e.g. laptop/phone pointed at a
+    // Mac Mini) reaches that source's ws-server, where navigate intents are
+    // broadcast. The `|| "localhost"` covers the file:// / empty-host case.
+    const host = window.location.hostname || "localhost";
+    const url = `${protocol}//${host}:${port}/events`;
 
     const ws = new WebSocket(url);
 

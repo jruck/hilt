@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { atomicWriteFile } from "./library/utils";
 import type { Source } from "./types";
 
 // Use DATA_DIR env var if set, otherwise use local ./data
@@ -39,7 +40,7 @@ function readInboxFile(): InboxItem[] {
 
 function writeInboxFile(items: InboxItem[]) {
   ensureDataDir();
-  fs.writeFileSync(INBOX_FILE, JSON.stringify(items, null, 2));
+  atomicWriteFile(INBOX_FILE, JSON.stringify(items, null, 2));
 }
 
 export async function createInboxItem(
@@ -157,7 +158,7 @@ function readPreferencesFile(): UserPreferences {
 
 function writePreferencesFile(prefs: UserPreferences) {
   ensureDataDir();
-  fs.writeFileSync(PREFERENCES_FILE, JSON.stringify(prefs, null, 2));
+  atomicWriteFile(PREFERENCES_FILE, JSON.stringify(prefs, null, 2));
 }
 
 // Pinned folders
@@ -403,7 +404,7 @@ function readSourcesFile(): Source[] {
 
 function writeSourcesFile(sources: Source[]) {
   ensureDataDir();
-  fs.writeFileSync(SOURCES_FILE, JSON.stringify(sources, null, 2));
+  atomicWriteFile(SOURCES_FILE, JSON.stringify(sources, null, 2));
 }
 
 function generateSourceId(): string {

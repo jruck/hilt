@@ -237,6 +237,8 @@ export interface LibraryArtifact {
   source_folder: string | null;
   source_folder_id: string | null;
   library_mode: LibraryMode;
+  /** Content format stamped at ingest (video/tweet/newsletter/code/…) — drives the content-type icon. */
+  format?: string | null;
   thumbnail: string | null;
   author: string | null;
   url: string | null;

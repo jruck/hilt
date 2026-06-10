@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 import { useEventSocket } from "../useEventSocket";
 
 // Mock WebSocket
@@ -173,6 +173,62 @@ describe("useEventSocket", () => {
 
     it("resets state on disconnect", () => {
       // On disconnect, connected=false, clientId=null
+    });
+  });
+
+  // Plan 005 regression: the event socket must connect to the host the
+  // renderer was loaded from (the selected source), not a hardcoded localhost,
+  // so navigate intents from a remote source's ws-server reach this client.
+  describe("websocket url host", () => {
+    function captureUrls(): string[] {
+      const urls: string[] = [];
+      class CaptureWS extends MockWebSocket {
+        constructor(url: string) {
+          super(url);
+          urls.push(url);
+        }
+      }
+      // @ts-expect-error - Mocking global WebSocket
+      global.WebSocket = CaptureWS;
+      return urls;
+    }
+
+    function withLocation(
+      loc: { protocol: string; hostname: string },
+      run: () => Promise<void>,
+    ): Promise<void> {
+      const orig = Object.getOwnPropertyDescriptor(window, "location");
+      Object.defineProperty(window, "location", { configurable: true, value: loc });
+      return run().finally(() => {
+        if (orig) Object.defineProperty(window, "location", orig);
+      });
+    }
+
+    it("connects to window.location.hostname, never localhost", async () => {
+      vi.useRealTimers();
+      const urls = captureUrls();
+      await withLocation(
+        { protocol: "http:", hostname: "mac-mini.tailnet.ts.net" },
+        async () => {
+          renderHook(() => useEventSocket());
+          await waitFor(() => expect(urls.length).toBeGreaterThan(0));
+          expect(urls[0]).toBe("ws://mac-mini.tailnet.ts.net:3001/events");
+          expect(urls.every((u) => !u.includes("localhost"))).toBe(true);
+        },
+      );
+    });
+
+    it("uses wss when the page is served over https", async () => {
+      vi.useRealTimers();
+      const urls = captureUrls();
+      await withLocation(
+        { protocol: "https:", hostname: "hilt.example.ts.net" },
+        async () => {
+          renderHook(() => useEventSocket());
+          await waitFor(() => expect(urls.length).toBeGreaterThan(0));
+          expect(urls[0]).toBe("wss://hilt.example.ts.net:3001/events");
+        },
+      );
     });
   });
 });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as fs from "fs";
 import * as path from "path";
+import { atomicWriteFile } from "@/lib/library/utils";
 import type { DocsFileResponse, DocsSaveResponse } from "@/lib/types";
 
 // Extensions that are viewable in the editor
@@ -241,8 +242,9 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Write the file
-    fs.writeFileSync(filePath, content, "utf-8");
+    // Write the file atomically (temp file + rename) so a crash or full disk
+    // mid-write never leaves the user's document truncated or corrupted.
+    atomicWriteFile(filePath, content);
 
     // Get new mod time
     const stats = fs.statSync(filePath);

@@ -99,6 +99,7 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
     source_folder: sourceFolder,
     source_folder_id: sourceFolderId,
     library_mode: validLibraryMode(data.library_mode),
+    format: typeof data.format === "string" ? data.format : null,
     thumbnail: typeof data.thumbnail === "string" ? data.thumbnail : null,
     author,
     url,

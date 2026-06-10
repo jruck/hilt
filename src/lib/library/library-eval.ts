@@ -41,7 +41,7 @@ export interface SubstanceSignals {
 const FORMAT_BASE: Record<string, number> = {
   tweet: 0.2, "tweet-thread": 0.4, link: 0.3, bookmark: 0.3, newsletter: 0.45, article: 0.55,
   "x-article": 0.5, video: 0.55, "long-form-guide": 0.8, book: 0.85, "podcast-notes": 0.6,
-  "video-workshop-transcript": 0.72, "slide-deck": 0.5, document: 0.5, image: 0.15,
+  "video-workshop-transcript": 0.72, "slide-deck": 0.5, document: 0.5, image: 0.15, code: 0.45,
 };
 
 /**

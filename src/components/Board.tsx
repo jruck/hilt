@@ -5,6 +5,7 @@ import { useScope } from "@/contexts/ScopeContext";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
 import dynamic from "next/dynamic";
 import type { ViewPrefix } from "@/lib/url-utils";
+import { chooseLandingView } from "@/lib/landing-view";
 import { ViewMode } from "./ViewToggle";
 import { NavBar } from "./NavBar";
 import { AppHud } from "./AppHud";
@@ -186,15 +187,22 @@ export function Board() {
 
   // Hydrate after mount
   useEffect(() => {
-    // Always open to Bridge when no view prefix in URL (e.g., Electron app startup)
+    // Open to Briefing when briefings exist, else Bridge (e.g. Electron app
+    // startup with no view prefix). Falls back to Bridge on any failure.
+    let cancelled = false;
     if (!urlViewMode) {
-      replaceViewMode("bridge");
+      chooseLandingView().then((view) => {
+        if (!cancelled) replaceViewMode(view);
+      });
     }
 
     setHudVisible(localStorage.getItem(HUD_VISIBILITY_STORAGE_KEY) === "true");
 
     const frame = window.requestAnimationFrame(() => setIsHydrated(true));
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
   }, [replaceViewMode, urlViewMode]);
 
   useEffect(() => {

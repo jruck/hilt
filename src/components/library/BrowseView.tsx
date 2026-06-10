@@ -5,6 +5,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { LibraryArtifact, LibrarySourceFacetSummary, LibrarySourceSummary } from "@/lib/library/types";
 import { formatVideoDuration } from "@/lib/library/media";
 import { artifactDisplayTags } from "@/lib/library/taxonomy";
+import { CONTENT_TYPE_LABELS, type LibraryContentType } from "@/lib/library/content-type";
+import { ContentTypeIcon } from "./ContentTypeIcon";
 import { libraryChannelSource, librarySourceChannel, type LibraryModeControl } from "@/lib/library/url";
 import { useInfiniteLibrary, useLibraryFacets, useLibrarySources } from "@/hooks/useLibrary";
 import { LoadingState } from "@/components/ui/LoadingState";
@@ -27,6 +29,7 @@ import { LibraryArtifactDetailPane } from "./LibraryArtifactDetailPane";
 
 const SOURCE_WIDTH_KEY = "hilt-library-source-width";
 const LIST_WIDTH_KEY = "hilt-library-list-width";
+const ADMIN_FILTERS_OPEN_KEY = "hilt-library-admin-filters-open";
 const DEFAULT_SOURCE_WIDTH = 220;
 const MIN_SOURCE_WIDTH = 180;
 const MAX_SOURCE_WIDTH = 320;
@@ -105,6 +108,7 @@ function sortYoutubeSources(sources: LibrarySourceSummary[]): LibrarySourceSumma
 }
 
 function evalFacetLabel(facetKey: string, value: string): string {
+  if (facetKey === "content_type") return CONTENT_TYPE_LABELS[value as keyof typeof CONTENT_TYPE_LABELS] || value;
   if (facetKey === "youtube_clip_policy") {
     if (value === "label_review") return "Needs review";
     if (value === "suppress") return "Auto-skipped";
@@ -142,6 +146,8 @@ export function SourceNav({
   onTagSelect,
   onStatusSelect,
   onModeSelect,
+  typeFilter,
+  onTypeSelect,
   evalFilters,
   onEvalFilterChange,
   className = "",
@@ -156,6 +162,8 @@ export function SourceNav({
   onTagSelect?: (source: string | null, tag: string | null) => void;
   onStatusSelect?: (status: "all" | "saved" | "candidate") => void;
   onModeSelect?: (mode: LibraryModeControl) => void;
+  typeFilter?: string | null;
+  onTypeSelect?: (type: string | null) => void;
   evalFilters?: LibraryEvalFilters;
   onEvalFilterChange?: (next: LibraryEvalFilters) => void;
   className?: string;
@@ -180,6 +188,17 @@ export function SourceNav({
   });
   const { facets: evalFacets, worths: evalWorths, muted: mutedSenders } = useLibraryFacets();
   const [mutedOpen, setMutedOpen] = useState(false);
+  // Admin filters collapse: default closed, last state remembered. SSR-safe — initialize closed,
+  // hydrate from localStorage in an effect.
+  const [adminOpen, setAdminOpen] = useState(false);
+  useEffect(() => {
+    try { setAdminOpen(localStorage.getItem(ADMIN_FILTERS_OPEN_KEY) === "1"); } catch { /* ignore */ }
+  }, []);
+  const toggleAdminOpen = () => setAdminOpen((value) => {
+    const next = !value;
+    try { localStorage.setItem(ADMIN_FILTERS_OPEN_KEY, next ? "1" : "0"); } catch { /* ignore */ }
+    return next;
+  });
   // Local slider value for live feedback; the feed query only commits on release (not every drag tick).
   const [worthSlider, setWorthSlider] = useState(evalFilters?.worth_min ?? 0);
   useEffect(() => { setWorthSlider(evalFilters?.worth_min ?? 0); }, [evalFilters?.worth_min]);
@@ -373,6 +392,37 @@ export function SourceNav({
           </div>
         )}
       </div>
+      {onTypeSelect && Object.keys(evalFacets.content_type || {}).length > 0 && (
+        <div className="mt-4 border-t border-[var(--border-default)] pt-3">
+          <div className="mb-1 px-3 text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Type</div>
+          <div className="space-y-1">
+            <button onClick={() => onTypeSelect(null)} className={sourceButtonClass(!typeFilter)}>
+              <span className="min-w-0 truncate">All types</span>
+              <CountBadge count={Object.values(evalFacets.content_type || {}).reduce((sum, count) => sum + count, 0)} />
+            </button>
+            {Object.entries(evalFacets.content_type || {})
+              .filter(([, count]) => count > 0)
+              // Count order, except the memo anchors the bottom — it's a different beast, not a peer volume-wise.
+              .sort((a, b) => (a[0] === "memo" ? 1 : b[0] === "memo" ? -1 : b[1] - a[1]))
+              .map(([value, count]) => {
+                const active = typeFilter === value;
+                return (
+                  <button
+                    key={value}
+                    onClick={() => onTypeSelect(active ? null : value)}
+                    className={sourceButtonClass(active)}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <ContentTypeIcon type={value as LibraryContentType} className="h-4 w-4 shrink-0" accent={false} />
+                      <span className="truncate">{evalFacetLabel("content_type", value)}</span>
+                    </span>
+                    <CountBadge count={count} />
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+      )}
       {onModeSelect && (
         <div className="mt-4 border-t border-[var(--border-default)] pt-3">
           <div className="mb-1 px-3 text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Mode</div>
@@ -393,11 +443,20 @@ export function SourceNav({
       {onEvalFilterChange && Object.keys(evalFacets).length > 0 && (
         <div className="mt-4 border-t border-[var(--border-default)] pt-3">
           <div className="mb-3 flex items-center justify-between px-3">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Admin filters</span>
+            <button
+              onClick={toggleAdminOpen}
+              className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            >
+              <span>Admin filters</span>
+              {/* A dot marks active admin filters while collapsed, so a filtered feed is never a mystery. */}
+              {!adminOpen && evalActive && <span aria-label="Filters active" className="h-1.5 w-1.5 rounded-full bg-amber-500" />}
+              <span className="normal-case">{adminOpen ? "\u25be" : "\u25b8"}</span>
+            </button>
             {evalActive && (
               <button onClick={() => onEvalFilterChange({})} className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">clear</button>
             )}
           </div>
+          {adminOpen && (<>
           {renderEvalGroup("Lifecycle", "lifecycle", "lifecycle")}
           {renderEvalGroup("Feedback", "feedback", "feedback")}
           {renderEvalGroup("YouTube clips", "youtube_clip_policy", "youtube_clip_policy")}
@@ -418,6 +477,7 @@ export function SourceNav({
               className="w-full accent-[var(--text-secondary)]"
             />
           </div>
+          </>)}
         </div>
       )}
     </aside>

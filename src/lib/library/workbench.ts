@@ -3,6 +3,7 @@ import { listStoredFeedback } from "./library-feedback";
 import { readMutedSenders } from "./library-mute";
 import { friendlyNewsletterSender } from "./taxonomy";
 import { evaluateLibrary } from "./recommendations";
+import { contentTypeForArtifact, type LibraryContentType } from "./content-type";
 
 /**
  * Workbench data — a flat, inspectable row per library item exposing every signal across the pipeline
@@ -32,6 +33,7 @@ export interface WorkbenchRow {
   substance_graded: boolean;
   youtube_clip_policy: string | null;
   youtube_content_form: string | null;
+  content_type: LibraryContentType;
 }
 
 export interface WorkbenchData {
@@ -81,6 +83,7 @@ export function buildWorkbenchRows(vaultPath: string): WorkbenchData {
       substance_graded: typeof fm.substance === "number",
       youtube_clip_policy: a.youtube_clip?.policy_action || null,
       youtube_content_form: a.youtube_clip?.content_form || null,
+      content_type: contentTypeForArtifact(a),
     };
   });
 
@@ -89,12 +92,13 @@ export function buildWorkbenchRows(vaultPath: string): WorkbenchData {
   const hasUnprocessed = new Set(stored.filter((s) => s.comments.some((c) => !c.processed_at)).map((s) => s.id));
 
   const facets: Record<string, Record<string, number>> = {
-    disposition: {}, lifecycle: {}, pipeline_version: {}, digested_with: {}, connection_state: {}, substance: {}, feedback: {}, youtube_clip_policy: {}, youtube_content_form: {},
+    disposition: {}, lifecycle: {}, content_type: {}, pipeline_version: {}, digested_with: {}, connection_state: {}, substance: {}, feedback: {}, youtube_clip_policy: {}, youtube_content_form: {},
   };
   const bump = (facet: string, key: string) => { facets[facet][key] = (facets[facet][key] || 0) + 1; };
   for (const r of rows) {
     bump("disposition", r.disposition);
     bump("lifecycle", r.lifecycle);
+    bump("content_type", r.content_type);
     bump("pipeline_version", r.pipeline_version || "(none)");
     bump("digested_with", r.digested_with || "(none)");
     bump("connection_state", r.connection_state);

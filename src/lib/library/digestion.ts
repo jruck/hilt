@@ -8,6 +8,7 @@ import { isoNow, scoreClamp } from "./utils";
 import { isXVideoUrl, isYouTubeUrl, looksLikeThreadRoot } from "./media";
 import { enrichRawArtifactMedia } from "./media-enrichment";
 import { buildKbIndex, reweaveArtifact } from "./connections";
+import { CODE_URL_RE, VIDEO_URL_RE } from "./content-type";
 import { extractBullets } from "./markdown";
 import { DIGEST_PROMPT } from "./pipeline";
 import { artifactTaxonomy } from "./taxonomy";
@@ -453,6 +454,10 @@ function inferFormat(raw: RawArtifact, source: LibrarySourceConfig): string {
   if (source.channel === "youtube") return "video";
   if (source.channel === "twitter") return "tweet";
   if (source.channel === "email") return "newsletter";
+  // Content-aware before the channel default (icon-system rule 3): a YouTube link or a repo saved
+  // through Raindrop/manual is a video/code item, not a generic bookmark.
+  if (VIDEO_URL_RE.test(raw.url)) return "video";
+  if (CODE_URL_RE.test(raw.url)) return "code";
   if (source.channel === "raindrop") return "bookmark";
   return "article";
 }

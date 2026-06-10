@@ -454,6 +454,14 @@ This section tracks design decisions and refinements over time. Each entry shoul
 
 **Pattern**: Place a filter or control at the narrowest scope where it's relevant. If a capability was built generically but in practice serves one channel/section, its UI belongs inside that section — promote it to global only when a second real use appears.
 
+### 2026-06-10: Browse Dimensions vs. Admin Filters
+
+**What changed**: The content-type filter launched inside Admin filters, then moved to a top-level sidebar section (under Sources) with its own state; Admin filters became collapsible (closed by default, state remembered, amber dot when active-but-collapsed).
+
+**Principle**: The sidebar has two species of control. **Browse dimensions** (Status, Sources, Type, Mode) are how the user navigates the collection — top-level, always visible, full-width rows with icon + label + count, an "All" row at top, each with independent state. **Admin filters** (pipeline/eval inspection) are diagnostic — collapsed by default, never entangled with browse state; "clear" resets only admin filters. A new filter belongs to admin only if it inspects the *system*; if it slices the *content*, it's a browse dimension.
+
+**Detail rules learned**: accent colors (e.g. the memo's amber sparkle) belong on cards where attention is the point, not in sidebar chrome; special items (Editor's Memo) anchor the bottom of count-sorted lists rather than sorting as volume peers.
+
 ---
 
 *This document should grow as design work continues. After UI changes are committed, consider what preferences or principles the changes reveal and add them here.*

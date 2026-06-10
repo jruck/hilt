@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appendLibraryEvents } from "@/lib/library/events";
+import { CONTENT_TYPE_LABELS, type LibraryContentType } from "@/lib/library/content-type";
 import { getVaultPath } from "@/lib/bridge/vault";
 import { listLibraryArtifactDetails, summarizeArtifact, type LibraryListOptions } from "@/lib/library/library";
 import { scoreArtifacts } from "@/lib/library/recommendations";
@@ -38,6 +39,8 @@ export async function GET(request: NextRequest) {
     const reweavePendingParam = params.get("reweave_pending");
     const feedbackParam = params.get("feedback");
     const youtubeClipPolicyParam = params.get("youtube_clip_policy");
+    const rawContentType = params.get("content_type");
+    const contentTypeParam = rawContentType && rawContentType in CONTENT_TYPE_LABELS ? rawContentType as LibraryContentType : null;
     const baseOptions: LibraryListOptions = {
       source: params.get("source"),
       channel: params.get("channel"),
@@ -56,6 +59,7 @@ export async function GET(request: NextRequest) {
       reweave_pending: reweavePendingParam === "true" ? true : reweavePendingParam === "false" ? false : null,
       feedback: feedbackParam === "none" || feedbackParam === "unprocessed" || feedbackParam === "processed" ? feedbackParam : null,
       youtube_clip_policy: youtubeClipPolicyParam === "process" || youtubeClipPolicyParam === "suppress" || youtubeClipPolicyParam === "label_review" || youtubeClipPolicyParam === "label_only" ? youtubeClipPolicyParam : null,
+      content_type: contentTypeParam,
     };
 
     // Eval-filter path (lifecycle / worth) scores the source+pipeline-filtered set, then paginates.

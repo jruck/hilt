@@ -6,21 +6,11 @@ import type { PromotionReason } from "@/lib/library/types";
 import type { ReviewQueueStatus } from "@/lib/library/review-queue";
 import { formatVideoDuration } from "@/lib/library/media";
 import { artifactDisplayTags } from "@/lib/library/taxonomy";
-import { Archive, Bookmark, Check, ChevronDown, CircleDashed, CircleDot, ExternalLink, FileText, Mail, MoreHorizontal, Play, Rss, Sparkles, ThumbsDown, X } from "lucide-react";
+import { Archive, Check, ChevronDown, CircleDashed, CircleDot, ExternalLink, FileText, MoreHorizontal, Play, ThumbsDown, X } from "lucide-react";
+import { contentTypeForArtifact } from "@/lib/library/content-type";
+import { ContentTypeIcon } from "./ContentTypeIcon";
 import { archiveArtifact, promoteCandidate, skipCandidate } from "@/hooks/useLibrary";
 import { EvalMetricPills } from "./EvalMetricPills";
-
-function ChannelIcon({ channel, sourceId }: { channel: LibraryArtifact["channel"]; sourceId?: string | null }) {
-  const cls = "h-4 w-4";
-  // The Editor's Memo is the library writing to YOU — give it the agent sparkle, not a file icon.
-  if (sourceId === "library-memo") return <Sparkles className={`${cls} text-amber-500`} />;
-  if (channel === "youtube") return <Play className={cls} />;
-  if (channel === "rss") return <Rss className={cls} />;
-  if (channel === "email") return <Mail className={cls} />;
-  if (channel === "twitter") return <X className={cls} />;
-  if (channel === "raindrop") return <Bookmark className={cls} />;
-  return <FileText className={cls} />;
-}
 
 function clipPolicyLabel(policy: string): string {
   if (policy === "label_review") return "Clip review";
@@ -128,7 +118,7 @@ export function FeedCard({
         <div className="text-xs text-[var(--text-tertiary)]">
           <div className="flex min-w-0 items-center gap-2">
             {artifact.is_unread && <span aria-label="Unread" title="Unread" className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />}
-            <ChannelIcon channel={artifact.channel} sourceId={artifact.source_id} />
+            <ContentTypeIcon type={contentTypeForArtifact(artifact)} />
             <span className="truncate">{artifact.source_name || artifact.channel || "Reference"}</span>
             <span className="shrink-0">{artifact.created_at?.slice(0, 10)}</span>
           </div>

@@ -38,6 +38,7 @@ export interface UseLibraryOptions {
   worth_min?: number | null;
   feedback?: string | null;
   youtube_clip_policy?: string | null;
+  content_type?: string | null;
 }
 
 export interface LibraryFacets {
@@ -72,6 +73,7 @@ function libraryParams(options: UseLibraryOptions, offset?: number, limit?: numb
   if (options.lifecycle) params.set("lifecycle", options.lifecycle);
   if (options.feedback) params.set("feedback", options.feedback);
   if (options.youtube_clip_policy) params.set("youtube_clip_policy", options.youtube_clip_policy);
+  if (options.content_type) params.set("content_type", options.content_type);
   if (typeof options.worth_min === "number") params.set("worth_min", String(options.worth_min));
   // Impression attribution: only the Feed view declares itself, so served-event logging
   // (metric 4 baseline) never fires for Browse, agents, or ad-hoc API consumers.

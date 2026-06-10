@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 
 export async function POST(request: Request) {
   try {
@@ -11,7 +11,9 @@ export async function POST(request: Request) {
 
     // Use macOS 'open' command to reveal in Finder
     // -R flag reveals (selects) the file in Finder
-    exec(`open -R "${path}"`, (error) => {
+    // execFile (not exec) passes the path as an argv element, so shell
+    // metacharacters in user-supplied paths are inert (no shell injection).
+    execFile("open", ["-R", path], (error) => {
       if (error) {
         console.error("Failed to reveal in Finder:", error);
       }

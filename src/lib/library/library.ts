@@ -6,6 +6,7 @@ import { findSavedReferenceById, listSavedReferences, MANUAL_SOURCE_ID, MANUAL_S
 import { applyLibraryReadState, isLibraryArtifactUnread, readLibraryReadState } from "./read-state";
 import { addStoredComment, deleteStoredComment, editStoredComment, getStoredComments, listStoredFeedback, markStoredCommentsProcessed } from "./library-feedback";
 import { isMutedSender, readMutedSenders } from "./library-mute";
+import { contentTypeForArtifact, type LibraryContentType } from "./content-type";
 import { readReviewQueue } from "./review-queue";
 import { loadSources, readSourceState } from "./source-config";
 import { compareDatesDesc, dateTimestamp, ensureDir, hashId, isoNow, walkMarkdown } from "./utils";
@@ -36,6 +37,7 @@ export interface LibraryListOptions {
   reweave_pending?: boolean | null;
   feedback?: "none" | "unprocessed" | "processed" | null;
   youtube_clip_policy?: YouTubeClipReviewAttrs["policy_action"] | null;
+  content_type?: LibraryContentType | null;
 }
 
 const candidateStatuses = new Set<LibraryLifecycleStatus>(["candidate", "skipped", "expired", "promoted"]);
@@ -100,6 +102,7 @@ function candidateToArtifact(vaultPath: string, candidate: ReferenceCandidate): 
     source_folder: candidate.source_folder,
     source_folder_id: candidate.source_folder_id,
     library_mode: candidate.library_mode,
+    format: candidate.format || null,
     thumbnail: candidate.thumbnail,
     author: candidate.author,
     url: candidate.url,
@@ -200,6 +203,7 @@ function filterArtifacts(artifacts: LibraryArtifactDetail[], options: LibraryLis
     if (before && dateTimestamp(artifact.created_at) > before) return false;
     if (options.q && !matchesText(artifact, options.q)) return false;
     if (options.pipeline_version && String(artifact.raw_frontmatter.pipeline_version || "") !== options.pipeline_version) return false;
+    if (options.content_type && contentTypeForArtifact(artifact) !== options.content_type) return false;
     if (options.digested_with && String(artifact.raw_frontmatter.digested_with || "") !== options.digested_with) return false;
     if (options.youtube_clip_policy && artifact.youtube_clip?.policy_action !== options.youtube_clip_policy) return false;
     if (options.reweave_pending != null && (artifact.raw_frontmatter.reweave_pending === true) !== options.reweave_pending) return false;
@@ -416,24 +420,6 @@ export function listLibrarySources(vaultPath: string, options: Omit<LibraryListO
     state[source.id]?.last_success_at || null,
     state[source.id]?.blocked_reason || null,
   ));
-  // The Editor's Memo writes first-class library items but has no source yaml — surface it as its
-  // own sidebar source (same pattern as Manual) so memos are browsable as a stream.
-  const memoArtifacts = all.filter((artifact) => artifact.source_id === "library-memo");
-  if (memoArtifacts.length && !summaries.some((source) => source.id === "library-memo")) {
-    summaries.unshift(summarizeSourceArtifacts(
-      {
-        id: "library-memo",
-        name: "Editor's Memo",
-        channel: "manual",
-        enabled: true,
-        intent: "explicit_save",
-      },
-      memoArtifacts,
-      pendingReviewIds,
-      null,
-      null,
-    ));
-  }
   if (!summaries.some((source) => source.id === MANUAL_SOURCE_ID)) {
     const manualArtifacts = all.filter((artifact) => artifact.source_id === MANUAL_SOURCE_ID);
     if (manualArtifacts.length) {
@@ -451,6 +437,25 @@ export function listLibrarySources(vaultPath: string, options: Omit<LibraryListO
         null,
       ));
     }
+  }
+  // The Editor's Memo writes first-class library items but has no source yaml — surface it as its
+  // own sidebar source (same pattern as Manual) so memos are browsable as a stream. Unshifted
+  // LAST so it sits ABOVE Manual at the top of the sidebar.
+  const memoArtifacts = all.filter((artifact) => artifact.source_id === "library-memo");
+  if (memoArtifacts.length && !summaries.some((source) => source.id === "library-memo")) {
+    summaries.unshift(summarizeSourceArtifacts(
+      {
+        id: "library-memo",
+        name: "Editor's Memo",
+        channel: "manual",
+        enabled: true,
+        intent: "explicit_save",
+      },
+      memoArtifacts,
+      pendingReviewIds,
+      null,
+      null,
+    ));
   }
   return summaries;
 }

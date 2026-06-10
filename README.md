@@ -63,7 +63,7 @@ Operational inspection for the machine and agent environment. System contains Se
 
 ### Navigation
 
-Top-level navigation is intentionally small: Briefing, Bridge, Calendar, People, Library, Docs, and System. URLs are routeable (`/briefings`, `/bridge`, `/calendar`, `/people`, `/library`, `/docs/...`, `/system/...`) so views can be bookmarked or opened by agents. Hilt still opens Bridge by default until Briefing is strong enough to be the landing surface. The macOS app supports back/forward navigation and can be controlled from scripts through the local navigation endpoint.
+Top-level navigation is intentionally small: Briefing, Bridge, Calendar, People, Library, Docs, and System. URLs are routeable (`/briefings`, `/bridge`, `/calendar`, `/people`, `/library`, `/docs/...`, `/system/...`) so views can be bookmarked or opened by agents. Hilt opens to **Briefing** by default, falling back to Bridge when no briefings exist yet. The macOS app supports back/forward navigation and can be controlled from scripts through the local navigation endpoint.
 
 ### CLI Navigation
 

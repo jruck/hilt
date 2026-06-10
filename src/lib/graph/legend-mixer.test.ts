@@ -24,7 +24,7 @@ describe("effectiveHiddenTypes — hide/solo mixer semantics", () => {
     assert.ok(out.has("entity"), "previously-hidden type also hidden (solo set is exact)");
   });
 
-  test("multi-solo unions, like soloing two mixer tracks", () => {
+  test("defensive: a multi-solo set unions (UI enforces single-select, the function tolerates any set)", () => {
     const out = effectiveHiddenTypes(set(), set("topic", "project"));
     assert.ok(!out.has("topic") && !out.has("project"), "both soloed types visible");
     assert.ok(out.has("entity") && out.has("note"), "the rest hidden");

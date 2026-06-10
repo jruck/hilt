@@ -57,6 +57,15 @@ function loadTypeSet(key: string): Set<GraphNodeType> {
   }
 }
 
+/** Persist a type set; tolerate storage failure (private mode etc. — session still works). */
+function persistTypeSet(key: string, set: Set<GraphNodeType>): void {
+  try {
+    window.localStorage.setItem(key, JSON.stringify([...set]));
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Toggle `type` in a copy of `prev` (null = clear) and persist; returns the new set. */
 function toggleInPersistedSet(prev: Set<GraphNodeType>, type: GraphNodeType | null, key: string): Set<GraphNodeType> {
   const next = type === null ? new Set<GraphNodeType>() : new Set(prev);
@@ -64,11 +73,7 @@ function toggleInPersistedSet(prev: Set<GraphNodeType>, type: GraphNodeType | nu
     if (next.has(type)) next.delete(type);
     else next.add(type);
   }
-  try {
-    window.localStorage.setItem(key, JSON.stringify([...next]));
-  } catch {
-    /* private mode etc. — toggles still work for the session */
-  }
+  persistTypeSet(key, next);
   return next;
 }
 
@@ -126,8 +131,15 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
   const toggleType = useCallback((type: GraphNodeType) => {
     setHiddenTypes((prev) => toggleInPersistedSet(prev, type, HIDDEN_TYPES_KEY));
   }, []);
+  // Solo is single-select: clicking a type solos exactly it (replacing any prior solo);
+  // clicking the soloed type again clears. (effectiveHiddenTypes handles any set shape,
+  // but the UI only ever produces 0 or 1.)
   const toggleSolo = useCallback((type: GraphNodeType) => {
-    setSoloTypes((prev) => toggleInPersistedSet(prev, type, SOLO_TYPES_KEY));
+    setSoloTypes((prev) => {
+      const next = prev.has(type) ? new Set<GraphNodeType>() : new Set<GraphNodeType>([type]);
+      persistTypeSet(SOLO_TYPES_KEY, next);
+      return next;
+    });
   }, []);
   const resetTypeFilters = useCallback(() => {
     setHiddenTypes(() => toggleInPersistedSet(new Set(), null, HIDDEN_TYPES_KEY));

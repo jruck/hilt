@@ -27,10 +27,11 @@ interface GraphLegendPanelProps {
 
 /**
  * Always-on-canvas legend + visibility mixer (left-docked; the inspector owns the right).
- * Each node type is a channel strip: swatch + name + count, an eye (mute/hide) and an "S"
- * (solo — show ONLY the soloed types; multi-solo unions, exactly like an audio console).
- * Solo overrides hide until cleared. Edge kinds stay informational below, collapsed by
- * default to keep the strip compact on a vertical screen.
+ * Each node type is a channel strip: swatch + name + count, an eye (mute/hide) and
+ * binoculars (solo — show ONLY that type). Solo is SINGLE-SELECT: soloing a type replaces
+ * any prior solo; clicking the soloed type again clears it. Solo overrides hide until
+ * cleared. Edge kinds stay informational below, collapsed by default to keep the strip
+ * compact on a vertical screen.
  */
 export function GraphLegendPanel({
   semanticBuilt,
@@ -118,7 +119,7 @@ export function GraphLegendPanel({
                     ? "bg-amber-500/20 text-amber-600 dark:text-amber-400"
                     : "text-[var(--text-tertiary)] opacity-0 hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)] group-hover:opacity-100"
                 } ${soloActive ? "opacity-100" : ""}`}
-                title={soloed ? "Unsolo" : `Solo ${NODE_TYPE_LABEL[type]} (show only)`}
+                title={soloed ? "Unsolo" : `Solo ${NODE_TYPE_LABEL[type]} (show only this type)`}
                 data-testid={`graph-solo-${type}`}
               >
                 <Binoculars className="h-3.5 w-3.5" />

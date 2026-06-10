@@ -445,6 +445,11 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [decoded, nodeCount, scheduleReposition]);
 
+  // External refs (library artifact id, Docs file path, person slug) aren't graph node ids — on a
+  // focus miss, resolve server-side ONCE and re-enter via the canonical focus URL. The attempted
+  // set prevents resolve→navigate→miss loops when the resolved node is LOD-filtered out anyway.
+  const resolveAttemptedRef = useRef<Set<string>>(new Set());
+
   // Deep-link focus: once data arrives, zoom to the focused node (two-phase, like
   // calendar). If absent from the payload, show the stale-focus banner — never throw.
   useEffect(() => {
@@ -453,9 +458,28 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
       if (!parsed.focusId) setFocusFallback(null);
       return;
     }
-    const idx = idToIndexRef.current.get(parsed.focusId);
+    const focusId = parsed.focusId;
+    const idx = idToIndexRef.current.get(focusId);
     if (idx == null) {
-      setFocusFallback({ focusId: parsed.focusId, reason: "missing" });
+      if (!resolveAttemptedRef.current.has(focusId)) {
+        resolveAttemptedRef.current.add(focusId);
+        let cancelled = false;
+        fetch(`/api/system/graph/resolve?ref=${encodeURIComponent(focusId)}`)
+          .then((response) => (response.ok ? response.json() : null))
+          .then((json: { node_id?: string } | null) => {
+            if (cancelled) return;
+            if (typeof json?.node_id === "string" && json.node_id && json.node_id !== focusId) {
+              navigateTo("system", buildGraphScope({ focus: json.node_id, scope: parsed.scope ?? undefined }));
+            } else {
+              setFocusFallback({ focusId, reason: "missing" });
+            }
+          })
+          .catch(() => {
+            if (!cancelled) setFocusFallback({ focusId, reason: "missing" });
+          });
+        return () => { cancelled = true; };
+      }
+      setFocusFallback({ focusId, reason: "missing" });
       return;
     }
     setFocusFallback(null);

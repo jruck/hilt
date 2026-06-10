@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Eye, EyeOff } from "lucide-react";
+import { Binoculars, ChevronDown, ChevronUp, Eye, EyeOff } from "lucide-react";
 import type { GraphEdgeKind, GraphNodeType } from "@/lib/graph/types";
 import { EDGE_KIND_DESCRIPTION, EDGE_KIND_LABEL, NODE_TYPE_DOT, NODE_TYPE_LABEL } from "./graph-labels";
 
@@ -113,7 +113,7 @@ export function GraphLegendPanel({
               <button
                 type="button"
                 onClick={() => onToggleSolo(type)}
-                className={`h-5 w-5 shrink-0 rounded text-[10px] font-bold leading-none transition-colors ${
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ${
                   soloed
                     ? "bg-amber-500/20 text-amber-600 dark:text-amber-400"
                     : "text-[var(--text-tertiary)] opacity-0 hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)] group-hover:opacity-100"
@@ -121,7 +121,7 @@ export function GraphLegendPanel({
                 title={soloed ? "Unsolo" : `Solo ${NODE_TYPE_LABEL[type]} (show only)`}
                 data-testid={`graph-solo-${type}`}
               >
-                S
+                <Binoculars className="h-3.5 w-3.5" />
               </button>
               <button
                 type="button"

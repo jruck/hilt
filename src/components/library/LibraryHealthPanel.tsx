@@ -188,6 +188,14 @@ export function LibraryHealthPanel({
             <div>
               <div className="font-semibold text-[var(--text-primary)]">Library Health</div>
               <div data-testid="library-health-checked" className="text-[var(--text-tertiary)]">{health ? `${summaryText(health)} · ${checkedLabel(health.checked_at)}` : "Loading status"}</div>
+              {health && (
+                <div data-testid="library-health-reweave" className="mt-0.5 text-[var(--text-tertiary)]">
+                  Reweave backlog {health.reweave.backlog}
+                  {health.reweave.backlog > 0 ? ` (${health.reweave.pending} pending · ${health.reweave.version_behind} behind)` : ""}
+                  {" · drained "}{health.reweave.last_drained_at ? `${relativeTime(health.reweave.last_drained_at)} ago` : "never"}
+                  {health.reweave.last_throttled_at ? ` · last throttle ${relativeTime(health.reweave.last_throttled_at)} ago` : ""}
+                </div>
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
               {onCheckSources && (

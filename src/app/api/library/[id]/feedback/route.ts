@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getVaultPath } from "@/lib/bridge/vault";
 import { addLibraryComment, editLibraryComment, deleteLibraryComment } from "@/lib/library/library";
+import { appendLibraryEvents } from "@/lib/library/events";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,6 +13,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const vaultPath = await getVaultPath();
     const body = await request.json().catch(() => ({}));
     const comment = addLibraryComment(vaultPath, id, typeof body.text === "string" ? body.text : "");
+    appendLibraryEvents(vaultPath, [{ type: "feedback_left", artifact_id: id }]);
     return NextResponse.json({ comment });
   } catch (error) {
     console.error("[library] add comment failed:", error);

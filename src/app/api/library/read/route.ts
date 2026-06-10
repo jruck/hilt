@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getVaultPath } from "@/lib/bridge/vault";
 import { markLibraryArtifactsRead, markLibraryArtifactsUnread } from "@/lib/library/read-state";
+import { appendLibraryEvents } from "@/lib/library/events";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -21,6 +22,9 @@ export async function POST(request: NextRequest) {
     const result = body.unread === true
       ? markLibraryArtifactsUnread(vaultPath, ids)
       : markLibraryArtifactsRead(vaultPath, ids);
+    if (body.unread !== true) {
+      appendLibraryEvents(vaultPath, ids.map((id) => ({ type: "read" as const, artifact_id: id })));
+    }
     return NextResponse.json(result);
   } catch (error) {
     console.error("[library/read] mark failed:", error);

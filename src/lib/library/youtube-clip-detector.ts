@@ -150,11 +150,16 @@ export function detectYouTubeContentForm(input: YouTubeClipDetectionInput): YouT
   }
 
   let policyAction: YouTubeClipPolicyAction = "process";
+  // Consolidated policy (2026-06): the human-review phase validated EVERY label_review and suppress
+  // verdict as a genuine clip/short (100% precision across both episode-clips and standalone
+  // shorts), so detected clip/short forms and confident standalone shorts now suppress directly
+  // instead of asking for review. Explicit user saves are NEVER suppressed (label_only) — a
+  // deliberately bookmarked clip always comes through. label_review remains in the taxonomy as the
+  // valve for future detector iterations.
   if (contentForm === "clip" || contentForm === "short") {
-    if (explicitSignal) policyAction = "label_only";
-    else policyAction = confidence >= 0.75 ? "suppress" : "label_review";
+    policyAction = explicitSignal ? "label_only" : "suppress";
   } else if (contentForm === "standalone_short" && confidence >= 0.6) {
-    policyAction = explicitSignal ? "label_only" : "label_review";
+    policyAction = explicitSignal ? "label_only" : "suppress";
   }
 
   return {

@@ -57,7 +57,11 @@ export function librarySchedulerJobs(logDir = librarySchedulerLogDir()): Library
     {
       id: "reweave-pending",
       label: "com.hilt.library.reweave-pending",
-      script: "library:reweave:pending",
+      // The SINGLE automated reweave mechanism: a bounded nightly drain (sequential, capped at 40/run)
+      // that sweeps version-behind, reweave_pending, and missing-connection study items overnight without
+      // bursting the shared Claude Max window. Replaces ad-hoc daytime backfills, which collide with
+      // interactive sessions on the same OAuth (library-backfill.ts stays for explicit manual sweeps).
+      script: "library:reweave:nightly",
       schedule: { hour: 3, minute: 35 },
       stdout: path.join(logDir, "reweave-pending.out.log"),
       stderr: path.join(logDir, "reweave-pending.err.log"),
@@ -69,6 +73,27 @@ export function librarySchedulerJobs(logDir = librarySchedulerLogDir()): Library
       schedule: { hour: 4, minute: 15 },
       stdout: path.join(logDir, "cleanup.out.log"),
       stderr: path.join(logDir, "cleanup.err.log"),
+    },
+    {
+      id: "steering",
+      label: "com.hilt.library.steering",
+      // The Library v2 steering loop: scorecard + feedback clustering + judge/formula disagreements →
+      // the morning report (meta/library-reports/). Proposals only — never applies changes. Runs after
+      // the nightly drain + cleanup so it reports on their results, before the morning briefing.
+      script: "library:steering",
+      schedule: { hour: 5, minute: 10 },
+      stdout: path.join(logDir, "steering.out.log"),
+      stderr: path.join(logDir, "steering.err.log"),
+    },
+    {
+      id: "weekly-memo",
+      label: "com.hilt.library.weekly-memo",
+      // The editor's memo (Library v2 Workstream 3): Sunday synthesis of the week's intake into
+      // cross-item through-lines tied to active projects. One bounded agentic call.
+      script: "library:memo",
+      schedule: { hour: 5, minute: 30, weekday: 0 },
+      stdout: path.join(logDir, "weekly-memo.out.log"),
+      stderr: path.join(logDir, "weekly-memo.err.log"),
     },
     {
       id: "recommendations",

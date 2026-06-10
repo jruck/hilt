@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getVaultPath } from "@/lib/bridge/vault";
 import { listCandidates } from "@/lib/library/candidate-cache";
 import { promoteCandidate } from "@/lib/library/promotion";
+import { appendLibraryEvents } from "@/lib/library/events";
 import type { PromotionReason } from "@/lib/library/types";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,7 @@ export async function POST(
       return NextResponse.json({ error: "Candidate not found" }, { status: 404 });
     }
     const promoted_to = await promoteCandidate(vaultPath, candidate, reason);
+    appendLibraryEvents(vaultPath, [{ type: "promoted", artifact_id: id, meta: { reason } }]);
     return NextResponse.json({ ok: true, promoted_to });
   } catch (error) {
     console.error("[library/candidates/promote] failed:", error);

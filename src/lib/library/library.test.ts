@@ -11,6 +11,7 @@ import { fetchRaindropArtifacts } from "./adapters/raindrop";
 import { fetchYouTubeArtifacts } from "./adapters/youtube";
 import { buildCandidateMarkdown, listCandidates } from "./candidate-cache";
 import { parseConnectionJudgment } from "./connection-prompt";
+import { detectRateLimit, detectRateLimitInEnvelope } from "./connections";
 import { unresolvedDeadLetterSources } from "./dead-letter";
 import * as digestion from "./digestion";
 import { digestArtifact } from "./digestion";
@@ -862,7 +863,9 @@ test("YouTube clip detector suppresses short-form videos when discovery sources 
   assert.ok(result.signals.includes("duration_under_90s"));
 });
 
-test("YouTube clip detector flags ambiguous podcast excerpts for review before suppression", () => {
+test("YouTube clip detector suppresses ambiguous podcast excerpts under the consolidated policy", () => {
+  // Consolidated 2026-06 after the review phase validated every label_review verdict as a real
+  // clip: medium-confidence clips suppress directly instead of asking for review.
   const result = detectYouTubeContentForm({
     title: "\"Zero token architecture\"",
     description: "Kelsey Hightower on The Pragmatic Engineer podcast.",
@@ -876,11 +879,11 @@ test("YouTube clip detector flags ambiguous podcast excerpts for review before s
 
   assert.equal(result.content_form, "clip");
   assert.equal(result.confidence_label, "medium");
-  assert.equal(result.policy_action, "label_review");
+  assert.equal(result.policy_action, "suppress");
   assert.ok(result.signals.includes("short_podcast_excerpt_description"));
 });
 
-test("YouTube clip detector sends very short discovery uploads to review without stronger clip evidence", () => {
+test("YouTube clip detector suppresses very short discovery uploads under the consolidated policy", () => {
   const result = detectYouTubeContentForm({
     title: "AI still needs humans",
     description: "#ai #artificialintelligence #futureofwork",
@@ -894,7 +897,7 @@ test("YouTube clip detector sends very short discovery uploads to review without
 
   assert.equal(result.content_form, "standalone_short");
   assert.equal(result.confidence_label, "medium");
-  assert.equal(result.policy_action, "label_review");
+  assert.equal(result.policy_action, "suppress");
   assert.ok(result.signals.includes("very_short_discovery_upload"));
 });
 
@@ -979,8 +982,12 @@ test("YouTube metadata preflight persists clip evidence for library review filte
   const originalFetch = globalThis.fetch;
   const originalToken = process.env.YOUTUBE_OAUTH_ACCESS_TOKEN;
   const originalSummarizeDisabled = process.env.LIBRARY_SUMMARIZE_DISABLED;
+  const originalClipSuppress = process.env.LIBRARY_YOUTUBE_CLIP_SUPPRESS;
   process.env.YOUTUBE_OAUTH_ACCESS_TOKEN = "test-token";
   process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  // Kill switch ON: this test exercises the label-only persistence path (frontmatter evidence on a
+  // written candidate); default-on enforcement is covered by the suppression-skip test below.
+  process.env.LIBRARY_YOUTUBE_CLIP_SUPPRESS = "0";
   const vault = tempVault();
   writeSource(vault, "youtube.yaml", `
 id: youtube-sequoia-capital
@@ -1048,6 +1055,73 @@ fixtures:
     assert.equal(suppress.total, 1);
     assert.equal(suppress.artifacts[0].youtube_clip?.policy_action, "suppress");
     assert.ok(suppress.artifacts[0].youtube_clip?.signals.includes("shorts_marker"));
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) delete process.env.YOUTUBE_OAUTH_ACCESS_TOKEN;
+    else process.env.YOUTUBE_OAUTH_ACCESS_TOKEN = originalToken;
+    if (originalSummarizeDisabled === undefined) delete process.env.LIBRARY_SUMMARIZE_DISABLED;
+    else process.env.LIBRARY_SUMMARIZE_DISABLED = originalSummarizeDisabled;
+    if (originalClipSuppress === undefined) delete process.env.LIBRARY_YOUTUBE_CLIP_SUPPRESS;
+    else process.env.LIBRARY_YOUTUBE_CLIP_SUPPRESS = originalClipSuppress;
+  }
+});
+
+test("ingestion skips suppressed clips before digestion (enforced by default)", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.YOUTUBE_OAUTH_ACCESS_TOKEN;
+  const originalSummarizeDisabled = process.env.LIBRARY_SUMMARIZE_DISABLED;
+  process.env.YOUTUBE_OAUTH_ACCESS_TOKEN = "test-token";
+  process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  const vault = tempVault();
+  writeSource(vault, "youtube.yaml", `
+id: youtube-sequoia-capital
+name: Sequoia Capital
+channel: youtube
+url: fixture://youtube
+enabled: true
+intent: discovery
+signal: youtube_channel_upload
+retention:
+  mode: candidate
+  candidate_ttl_days: 30
+  auto_promote_threshold: 0.99
+tags: [youtube]
+fixtures:
+  - url: https://www.youtube.com/watch?v=clip1234567
+    title: The one word that defines every great founder
+    date: "2026-06-05T00:00:00Z"
+    metadata:
+      format: video
+`);
+
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    items: [{
+      id: "clip1234567",
+      snippet: {
+        title: "The one word that defines every great founder",
+        description: "David Senra on company building. #shorts Watch the full episode on the channel.",
+        channelId: "UC123",
+        channelTitle: "Sequoia Capital",
+        publishedAt: "2026-06-05T00:00:00Z",
+        tags: ["founders", "podcast"],
+      },
+      contentDetails: { duration: "PT41S" },
+      status: { privacyStatus: "public" },
+    }],
+  }), { status: 200 })) as typeof fetch;
+
+  try {
+    const report = await runIngestion(vault, { useSummarize: false });
+    assert.equal(report.candidates, 0);
+    assert.equal(report.skipped, 1);
+    assert.deepEqual(report.errors, []);
+    // The skip is fully audited: per-artifact status + reason, and the clip rollup still counts it.
+    assert.equal(report.sources[0].artifacts[0].status, "skipped");
+    assert.equal(report.sources[0].artifacts[0].reason, "youtube_clip_suppressed");
+    assert.equal(report.sources[0].artifacts[0].youtube_clip_policy, "suppress");
+    assert.equal(report.sources[0].youtube_clip_review?.policy_actions.suppress, 1);
+    // Nothing was written: suppression happens BEFORE digestion, so no candidate file exists.
+    assert.equal(listCandidates(vault).length, 0);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalToken === undefined) delete process.env.YOUTUBE_OAUTH_ACCESS_TOKEN;
@@ -2627,10 +2701,64 @@ reweave_pending: true
   ]);
 });
 
+test("detectRateLimitInEnvelope never flags a successful result, even one ABOUT rate limits", () => {
+  // The notcrawl poison pill: a successful reweave digest of a "rate-limit-aware" crawler contains
+  // the phrase "rate-limit". A success envelope must NOT read as a usage limit.
+  const successEnvelope = JSON.stringify({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    result: JSON.stringify({
+      digest_markdown: "## Summary\nA rate-limit-aware sync against the official Notion API (handles 429 quota errors).",
+      description: "Local-first Notion crawler with rate-limit aware crawling.",
+    }),
+  });
+  assert.deepEqual(detectRateLimitInEnvelope(successEnvelope), { limited: false, resetAt: null });
+
+  // An is_error envelope whose text signals a usage limit IS flagged, with the reset time parsed.
+  const limitEnvelope = JSON.stringify({
+    type: "result",
+    subtype: "error_during_execution",
+    is_error: true,
+    result: "Claude AI usage limit reached. Your limit will reset at 2026-06-10T01:00:00Z.",
+  });
+  const limitHit = detectRateLimitInEnvelope(limitEnvelope);
+  assert.equal(limitHit.limited, true);
+  assert.equal(limitHit.resetAt, "2026-06-10T01:00:00Z");
+
+  // An is_error envelope with a NON-limit failure (e.g. a tool crash) is not a rate limit.
+  const errorEnvelope = JSON.stringify({
+    type: "result",
+    subtype: "error_during_execution",
+    is_error: true,
+    result: "Execution failed: tool error while reading a file.",
+  });
+  assert.deepEqual(detectRateLimitInEnvelope(errorEnvelope), { limited: false, resetAt: null });
+
+  // Non-envelope stdout under --output-format json is an error surface — sniff it raw.
+  assert.equal(detectRateLimitInEnvelope("Claude AI usage limit reached|1765324800").limited, true);
+  assert.deepEqual(detectRateLimitInEnvelope(""), { limited: false, resetAt: null });
+
+  // JSON that is NOT the result envelope (an API error blob, an array) is an error surface too —
+  // the absence of is_error must not read as "not limited".
+  const apiErrorBlob = JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "Rate limit exceeded" } });
+  assert.equal(detectRateLimitInEnvelope(apiErrorBlob).limited, true);
+  assert.equal(detectRateLimitInEnvelope(JSON.stringify(["usage limit reached"])).limited, true);
+  assert.equal(detectRateLimitInEnvelope(JSON.stringify({ unrelated: "fine" })).limited, false);
+});
+
+test("detectRateLimit flags error text and parses epoch reset times", () => {
+  assert.equal(detectRateLimit("429 too many requests").limited, true);
+  assert.equal(detectRateLimit("everything is fine").limited, false);
+  const epochHit = detectRateLimit("usage limit reached, reset 1765324800");
+  assert.equal(epochHit.limited, true);
+  assert.equal(epochHit.resetAt, new Date(1765324800 * 1000).toISOString());
+});
+
 test("library scheduler includes a bounded deferred reweave repair job", () => {
   const job = librarySchedulerJobs("/tmp/hilt-library-test-logs").find((item) => item.id === "reweave-pending");
   assert.ok(job);
-  assert.equal(job.script, "library:reweave:pending");
+  assert.equal(job.script, "library:reweave:nightly");
   assert.deepEqual(job.schedule, { hour: 3, minute: 35 });
   assert.match(job.stdout, /reweave-pending\.out\.log$/);
   assert.match(job.stderr, /reweave-pending\.err\.log$/);

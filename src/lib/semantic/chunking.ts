@@ -5,7 +5,10 @@
  *
  * Scope is enforced by reusing the graph's `scanVault` (graph/build.ts): it walks
  * only INCLUDED_DIRS (which includes `references/` = saved Library refs) and skips
- * dotdirs + `.cache` + the `libraries/` sub-vault — exactly the locked scope.
+ * dotdirs + `.cache` + the `libraries/` sub-vault. Library CANDIDATES (under the
+ * dotdir-excluded `references/.cache`) are pulled separately via the candidate-cache
+ * API (`collectCandidateItems`) so the library eval gets a real semantic fit for the
+ * review queue too — mirroring how the graph pulls its candidate nodes.
  *
  * item_id IS the graph node id (ruling R1), computed with the same dir-based scheme
  * as graph/build's (private) nodeIdForResolvedPath, via its exported id helpers — so
@@ -16,6 +19,7 @@ import * as crypto from "crypto";
 import * as path from "path";
 import {
   NORTH_STAR_NODE_ID,
+  candidateNodeId,
   classifyFile,
   noteNodeId,
   personNodeId,
@@ -25,6 +29,7 @@ import {
   scanVault,
   type ScannedFile,
 } from "@/lib/graph/build";
+import { listCandidates } from "@/lib/library/candidate-cache";
 import { extractHeading, parseMarkdownFile } from "@/lib/library/markdown";
 import { boundedInt } from "./config";
 
@@ -136,12 +141,55 @@ export function buildItemChunks(file: ScannedFile): ItemChunks | null {
   };
 }
 
-/** Scan the vault (locked scope) and build items + chunks for every file. */
+/**
+ * Library candidates as items. They live under `references/.cache` (dotdir-excluded from
+ * `scanVault`), so they're pulled through the candidate-cache API instead — the same source
+ * the graph's candidate nodes use, and the same id scheme (`cand:<artifactId>`, R1). Only
+ * `status: candidate` files are collected; promoted/expired/skipped ones drop out, and the
+ * runner's reconcile backstop then treats the vanished item as a removal.
+ */
+export function collectCandidateItems(root = resolveVaultRoot()): ItemChunks[] {
+  let candidates: ReturnType<typeof listCandidates>;
+  try {
+    candidates = listCandidates(root, "candidate");
+  } catch {
+    return [];
+  }
+  const out: ItemChunks[] = [];
+  for (const c of candidates) {
+    const item = candidateItemChunks(c, root);
+    if (item) out.push(item);
+  }
+  return out;
+}
+
+/** Build the item + chunks for ONE parsed candidate (shared by the bulk collect + the runner). */
+export function candidateItemChunks(c: ReturnType<typeof listCandidates>[number], root: string): ItemChunks | null {
+  const absPath = path.join(root, c.path);
+  const assembled = `${c.title}\n\n${c.content}`;
+  const normalized = normalizeForChunking(assembled);
+  if (!normalized) return null;
+  const itemId = candidateNodeId(c.id);
+  return {
+    itemId,
+    scope: "library",
+    kind: "candidate",
+    sourcePath: absPath,
+    sourceFile: absPath,
+    title: c.title,
+    url: c.url || null,
+    contentHash: crypto.createHash("sha256").update(normalized).digest("hex"),
+    chunks: chunkText(assembled).map((text, ordinal) => ({ id: `${itemId}:${ordinal}`, ordinal, text })),
+  };
+}
+
+/** Scan the vault (locked scope) and build items + chunks for every file, plus candidates. */
 export function collectItems(root = resolveVaultRoot()): ItemChunks[] {
   const out: ItemChunks[] = [];
   for (const file of scanVault(root)) {
     const item = buildItemChunks(file);
     if (item) out.push(item);
   }
+  out.push(...collectCandidateItems(root));
   return out;
 }

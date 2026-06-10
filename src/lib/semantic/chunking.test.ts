@@ -54,6 +54,9 @@ describe("chunking — vault scan", () => {
       const longBody = Array.from({ length: 12 }, (_, i) => `Sentence number ${i} about agents and tools.`).join(" ");
       write(root, "meetings/2026-06-01/sync.md", `---\ntitle: Weekly sync\n---\n${longBody}`);
       write(root, "references/an-article.md", "---\ntitle: An Article\nurl: https://example.com/x\n---\nSummary body.");
+      // Candidates ARE collected (via the candidate-cache API, not the dir walk) — status=candidate only:
+      write(root, "references/.cache/library-candidates/2026-06-10-pending.md", "---\ntype: reference-candidate\ntitle: Pending Cand\nstatus: candidate\nurl: https://example.com/c\n---\nDiscovery body.");
+      write(root, "references/.cache/library-candidates/2026-06-10-skipped.md", "---\ntype: reference-candidate\ntitle: Skipped Cand\nstatus: skipped\n---\nGone body.");
       // Must be excluded:
       write(root, "libraries/repo/readme.md", "# external\n\nlots of text");
       write(root, "references/.cache/junk.md", "# cached\n\nignore me");
@@ -80,9 +83,21 @@ describe("chunking — vault scan", () => {
       assert.equal(ref!.scope, "library");
       assert.equal(ref!.url, "https://example.com/x");
 
+      // candidate: cand: id, library scope, candidate kind; status≠candidate dropped
+      const cand = items.find((i) => i.kind === "candidate");
+      assert.ok(cand, "pending candidate present");
+      assert.ok(cand!.itemId.startsWith("cand:"), "graph-aligned cand: id (R1)");
+      assert.equal(cand!.scope, "library");
+      assert.equal(cand!.title, "Pending Cand");
+      assert.equal(cand!.url, "https://example.com/c");
+      assert.ok(!items.some((i) => i.title === "Skipped Cand"), "non-candidate status excluded");
+
       // exclusions
       assert.ok(!items.some((i) => i.sourceFile.includes("/libraries/")), "libraries/ excluded");
-      assert.ok(!items.some((i) => i.sourceFile.includes("/.cache/")), ".cache excluded");
+      assert.ok(
+        !items.some((i) => i.sourceFile.includes("/.cache/") && i.kind !== "candidate"),
+        ".cache excluded except the candidate cache",
+      );
     });
   });
 });

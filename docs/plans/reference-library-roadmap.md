@@ -1,5 +1,9 @@
 # Reference Library — Eval Architecture & Build Plan
 
+> **v2 plan:** the next act — steering loop, engagement logging, insight memos, For You funnel, read
+> index — is specified in [`library-v2.md`](library-v2.md). The eval model below (disposition / worth /
+> lifecycle) remains canonical and is unchanged by v2.
+
 ## What this is
 
 The Reference Library ingests external references into the Bridge vault as markdown — both items the

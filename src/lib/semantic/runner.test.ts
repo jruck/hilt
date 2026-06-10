@@ -183,12 +183,51 @@ describe("SemanticRunner", () => {
     });
   });
 
-  test("a path with a dotdir segment (references/.cache candidate) is ignored", async () => {
-    await withRunner(async ({ root, runner, fake }) => {
-      const cand = file(root, "references/.cache/library-candidates/2026-01-01-x.md", "# Cand\n\nbody\n");
+  test("a library candidate is embedded (cand: id) but NOT entity-extracted", async () => {
+    await withRunner(async ({ root, runner, fake, db }) => {
+      const cand = file(
+        root,
+        "references/.cache/library-candidates/2026-01-01-x.md",
+        "---\ntype: reference-candidate\ntitle: Cand X\nstatus: candidate\nurl: https://example.com/x\n---\nDiscovery body about agent tooling.\n",
+      );
       runner.onFileChanged(cand);
       await runner.runWork();
-      assert.equal(fake.calls.embed, 0, "candidate dotdir excluded (derived, not source)");
+      assert.equal(fake.calls.embed, 1, "candidate embeds (1 call)");
+      assert.equal(fake.calls.extract, 0, "candidates skip entity extraction (transient, un-vetted)");
+      const row = db.prepare("SELECT item_id, kind, scope FROM semantic_items").get() as
+        | { item_id: string; kind: string; scope: string }
+        | undefined;
+      assert.ok(row, "candidate item ingested");
+      assert.ok(row!.item_id.startsWith("cand:"), "graph-aligned cand: id (R1)");
+      assert.equal(row!.kind, "candidate");
+      assert.equal(row!.scope, "library");
+    });
+  });
+
+  test("a candidate whose status flips off `candidate` is removed on the next signal", async () => {
+    await withRunner(async ({ root, runner, db }) => {
+      const rel = "references/.cache/library-candidates/2026-01-01-y.md";
+      const cand = file(root, rel, "---\ntype: reference-candidate\ntitle: Cand Y\nstatus: candidate\n---\nBody to embed.\n");
+      runner.onFileChanged(cand);
+      await runner.runWork();
+      const before = Number((db.prepare("SELECT COUNT(*) AS c FROM semantic_items").get() as { c: number }).c);
+      assert.equal(before, 1, "candidate ingested");
+
+      // Promotion/expiry flips the status in place — the item must drop out.
+      file(root, rel, "---\ntype: reference-candidate\ntitle: Cand Y\nstatus: skipped\n---\nBody to embed.\n");
+      runner.onFileChanged(cand);
+      await runner.runWork();
+      const after = Number((db.prepare("SELECT COUNT(*) AS c FROM semantic_items").get() as { c: number }).c);
+      assert.equal(after, 0, "status-flipped candidate removed");
+    });
+  });
+
+  test("a non-candidate dotdir path (references/.cache outside library-candidates) stays ignored", async () => {
+    await withRunner(async ({ root, runner, fake }) => {
+      const junk = file(root, "references/.cache/source-cache/page.md", "# Cached\n\nderived, not source\n");
+      runner.onFileChanged(junk);
+      await runner.runWork();
+      assert.equal(fake.calls.embed, 0, "dotdir derived content excluded");
     });
   });
 });

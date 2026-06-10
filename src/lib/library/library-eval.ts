@@ -1,4 +1,5 @@
 import type { ConnectionSuggestion, LibraryLifecycle } from "./types";
+import { DEFAULT_SCORING_CONFIG, type LibraryScoringConfig } from "./scoring-config";
 
 /**
  * L3 — the "food-taster" eval. For a STUDY item it computes a continuous **worth** score (how much this
@@ -71,8 +72,9 @@ function freshnessDecay(createdAt: string): number {
 }
 
 // Worth below this, on an item we've actually analyzed, suggests `to_archive` (a review flag — never a
-// move). Conservative; calibrated against the real corpus.
-export const TO_ARCHIVE_WORTH = 0.1;
+// move). Conservative; calibrated against the real corpus. NOTE (v2): the live value comes from the
+// vault's versioned scoring config (meta/library-scoring.json) — this export remains as the default.
+export const TO_ARCHIVE_WORTH = DEFAULT_SCORING_CONFIG.to_archive_worth;
 
 export interface EvalInputs {
   /** Woven ties (LLM-judged). */
@@ -99,19 +101,20 @@ export interface WorthResult {
   why: string;
 }
 
-export function evaluateArtifact(input: EvalInputs): WorthResult {
+export function evaluateArtifact(input: EvalInputs, config: LibraryScoringConfig = DEFAULT_SCORING_CONFIG): WorthResult {
   const firstParty = input.connections.filter((c) => isFirstParty(c.target));
   const fp = firstParty.length;
   const other = input.connections.length - fp;
+  const r = config.relevance;
   // Diminishing returns on ties so heavily-connected items don't all pin at the ceiling.
-  const relevance = Number(Math.min(1, 0.32 * Math.sqrt(fp) + 0.08 * other + Math.min(0.3, Math.max(0, input.contextFit))).toFixed(3));
+  const relevance = Number(Math.min(1, r.first_party_coeff * Math.sqrt(fp) + r.other_coeff * other + Math.min(r.context_fit_cap, Math.max(0, input.contextFit))).toFixed(3));
   const substance = Math.max(0, Math.min(1, input.substance));
   const freshness = freshnessDecay(input.createdAt);
   const worth = Number((relevance * substance * freshness).toFixed(3));
 
   // Never flag an item we haven't actually analyzed — absence of ties there means "unknown", not "low".
   const analyzed = input.analyzed === true || input.connections.length > 0;
-  const lifecycle: WorthResult["lifecycle"] = analyzed && worth < TO_ARCHIVE_WORTH ? "to_archive" : "active";
+  const lifecycle: WorthResult["lifecycle"] = analyzed && worth < config.to_archive_worth ? "to_archive" : "active";
 
   return { worth, relevance, substance, freshness, lifecycle, why: buildWhy(firstParty, relevance, substance, freshness, input) };
 }

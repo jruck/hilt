@@ -172,8 +172,12 @@ export async function runColdStart(opts: ColdStartOptions): Promise<ColdStartRes
   });
 
   // Entity layer: per-item extraction (concurrent, idempotent) then one global resolve+reconcile pass.
+  // Candidates are embedded (the eval needs their centroid) but NOT entity-extracted: they're
+  // transient un-vetted discovery content — extraction costs a Flash call each and would mint
+  // junk entities that vanish when the candidate expires.
   if (opts.extractEntities !== false) {
     await mapPool(items, concurrency, async (item) => {
+      if (item.kind === "candidate") return;
       const r = await extractEntities({ itemId: item.itemId, contentHash: item.contentHash, text: itemText(item) }, { client: opts.client, db });
       if (!r.skipped) result.itemsExtracted += 1;
     });

@@ -50,6 +50,7 @@ export function FeedCard({
   onReviewStatus,
   active = false,
   wideLayout = false,
+  reason,
 }: {
   artifact: LibraryArtifact | RecommendedArtifact;
   showEvalBreakdown?: boolean;
@@ -62,6 +63,8 @@ export function FeedCard({
   onReviewStatus?: (id: string, status: ReviewQueueStatus, note?: string) => void | Promise<void>;
   active?: boolean;
   wideLayout?: boolean;
+  /** The editor's stated pick reason (For You v2) — every pick explains itself on the card. */
+  reason?: string;
 }) {
   const isCandidate = artifact.lifecycle_status === "candidate";
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
@@ -130,6 +133,11 @@ export function FeedCard({
         </div>
 
         <h3 className="line-clamp-2 text-base font-semibold leading-snug text-[var(--text-primary)]">{artifact.title}</h3>
+        {reason && (
+          <p className="text-[13px] italic leading-5 text-[var(--text-tertiary)]">
+            {reason}
+          </p>
+        )}
         {artifact.summary && <p className="line-clamp-3 text-sm leading-6 text-[var(--text-secondary)]">{artifact.summary}</p>}
         {displayTags.length > 0 && (
           <div className="flex min-w-0 flex-wrap items-center gap-1">

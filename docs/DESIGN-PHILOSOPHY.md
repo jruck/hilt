@@ -446,6 +446,14 @@ This section tracks design decisions and refinements over time. Each entry shoul
 
 **Pattern**: When a feature's original use case disappears, delete the feature — don't preserve it "just in case." 14 files deleted, zero functionality lost.
 
+### 2026-06-09: Channel-Scoped Controls Nest Under Their Channel
+
+**What changed**: The Library sidebar's "Show muted" list moved from a top-level position (sibling of all sources) into the Newsletters group, visible only when Newsletters is expanded.
+
+**Why**: Muting is sender-email-based — it only applies to newsletters. A control that's only meaningful for one channel reads as noise (or worse, as broader than it is) when placed at the global level.
+
+**Pattern**: Place a filter or control at the narrowest scope where it's relevant. If a capability was built generically but in practice serves one channel/section, its UI belongs inside that section — promote it to global only when a second real use appears.
+
 ---
 
 *This document should grow as design work continues. After UI changes are committed, consider what preferences or principles the changes reveal and add them here.*

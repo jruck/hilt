@@ -583,6 +583,7 @@ The **third derived cache** (`src/lib/semantic/`, flag-gated `HILT_SEMANTIC_ENAB
 | Graph index | `${DATA_DIR}/graph.sqlite` | SQLite (derived cache) | Nodes/edges/positions/meta for System → Graph (flag-gated; markdown stays canonical) |
 | Semantic index | `${DATA_DIR}/semantic.sqlite` | SQLite (derived cache) | Items/chunks/embeddings/entities/topics/lineage for the Phase-2 Semantic Knowledge Layer (flag-gated `HILT_SEMANTIC_ENABLED`; `foreign_keys=ON`; markdown stays canonical) |
 | Semantic review queue | `${DATA_DIR}/semantic-review-queue/<vault>.json` | Server JSON | Sibling of the Library review queue — the semantic sample/decimal lane (ruling R10) |
+| Reweave attempt counts | `${DATA_DIR}/library-reweave-attempts/<vault>.json` | Server JSON | Per-item failure counts for the nightly reweave drain — repeat-failers sink to the back of the bounded worklist; cleared on success, pruned when items leave the backlog (operational state, never vault markdown) |
 | Briefing run status | `~/.hermes/cron/jobs.json` + `~/.hermes/cron/output/` | Read-only Hermes files | Same-day failed Morning Briefing detection when no `briefings/YYYY-MM-DD.md` exists; retry watcher status is read separately from the real generator job |
 | Scope path | URL + ScopeContext | URL state | Current folder scope |
 

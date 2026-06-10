@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getVaultPath } from "@/lib/bridge/vault";
 import { getLibraryArtifact, getLibraryArtifactByPath, getLibraryComments } from "@/lib/library/library";
 import { evalAttrsForArtifact } from "@/lib/library/recommendations";
+import { appendLibraryEvents } from "@/lib/library/events";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -22,6 +23,7 @@ export async function GET(
     }
     const eval_attrs = evalAttrsForArtifact(vaultPath, artifact) || undefined;
     const comments = getLibraryComments(vaultPath, artifact.id);
+    appendLibraryEvents(vaultPath, [{ type: "opened", artifact_id: artifact.id, surface: "detail" }]);
     return NextResponse.json({ ...artifact, eval_attrs, comments });
   } catch (error) {
     console.error("[library] detail failed:", error);

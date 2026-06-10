@@ -149,6 +149,27 @@ export async function runIngestion(
           report.skipped += 1;
           continue;
         }
+        // ENFORCED clip suppression: a confident clip/short detection from the metadata preflight
+        // skips before digest/reweave — junk never costs tokens or feed space. The verdict was
+        // validated at 100% precision in the human-review phase before this was enabled; explicit
+        // user saves never carry "suppress" (label_only). The skip is recorded in the report
+        // (status + clip rollup) for audit. Kill switch: LIBRARY_YOUTUBE_CLIP_SUPPRESS=0 reverts
+        // to label-only behavior.
+        const suppressedClip = persistedYouTubeClip(artifact.metadata.youtube_clip);
+        if (suppressedClip?.policy_action === "suppress" && process.env.LIBRARY_YOUTUBE_CLIP_SUPPRESS !== "0") {
+          result.skipped += 1;
+          report.skipped += 1;
+          recordYouTubeClip(result.youtube_clip_review, suppressedClip);
+          result.artifacts.push({
+            url: artifact.url,
+            title: artifact.title,
+            status: "skipped",
+            reason: "youtube_clip_suppressed",
+            youtube_clip_policy: suppressedClip.policy_action,
+            youtube_content_form: suppressedClip.content_form,
+          });
+          continue;
+        }
         try {
           const processed = await processArtifact(vaultPath, artifact, source, {
             useSummarize: options.useSummarize,

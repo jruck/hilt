@@ -298,6 +298,8 @@ ${rawContentSection}
     // Drop stale connection_suggestions or set the new set.
     if (connectionSuggestions.length) nextData.connection_suggestions = connectionSuggestions;
     else delete nextData.connection_suggestions;
+    // The judge layer: the agent's direct attention-worthiness verdict, stamped alongside the weave.
+    if (reweave.attention_judgment) nextData.attention_judgment = reweave.attention_judgment;
     nextData.reconnected_at = new Date().toISOString();
     nextData.pipeline_version = PIPELINE_VERSION;
     // A successful reweave upgrades a degraded (L1-only) item — clear the re-upgrade flag.

@@ -27,6 +27,7 @@ export interface UseLibraryOptions {
   unread?: boolean | null;
   q?: string | null;
   limit?: number;
+  surface?: "feed" | null;
   // Eval workbench filters (narrow the feed).
   pipeline_version?: string | null;
   digested_with?: string | null;
@@ -72,6 +73,9 @@ function libraryParams(options: UseLibraryOptions, offset?: number, limit?: numb
   if (options.feedback) params.set("feedback", options.feedback);
   if (options.youtube_clip_policy) params.set("youtube_clip_policy", options.youtube_clip_policy);
   if (typeof options.worth_min === "number") params.set("worth_min", String(options.worth_min));
+  // Impression attribution: only the Feed view declares itself, so served-event logging
+  // (metric 4 baseline) never fires for Browse, agents, or ad-hoc API consumers.
+  if (options.surface) params.set("surface", options.surface);
   params.set("limit", String(limit || options.limit || 80));
   if (typeof offset === "number") params.set("offset", String(offset));
   return params;

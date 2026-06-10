@@ -50,10 +50,12 @@ export class RateLimitError extends Error {
 const RATE_LIMIT_RE = /usage limit|rate.?limit|rate.?limited|429|too many requests|over_?loaded|quota|limit (?:reached|exceeded|will reset)|resets? at|try again (?:later|in)/i;
 
 /**
- * Sniff CLI stdout/stderr/error text for a usage-limit signal. Returns whether it looks rate-limited
- * and, when present, an ISO reset time parsed from common phrasings ("resets at 3pm", an epoch, an ISO).
+ * Sniff CLI ERROR text for a usage-limit signal. Returns whether it looks rate-limited and, when
+ * present, an ISO reset time parsed from common phrasings ("resets at 3pm", an epoch, an ISO).
+ * Only ever feed this error surfaces (stderr, error messages, is_error envelopes) — model CONTENT
+ * routinely discusses rate limits (a "rate-limit-aware" crawler reference) and must not be sniffed.
  */
-function detectRateLimit(...texts: Array<string | undefined>): { limited: boolean; resetAt: string | null } {
+export function detectRateLimit(...texts: Array<string | undefined>): { limited: boolean; resetAt: string | null } {
   const blob = texts.filter(Boolean).join("\n");
   if (!blob || !RATE_LIMIT_RE.test(blob)) return { limited: false, resetAt: null };
   let resetAt: string | null = null;
@@ -70,6 +72,38 @@ function detectRateLimit(...texts: Array<string | undefined>): { limited: boolea
 }
 
 /**
+ * Limit detection for a COMPLETED CLI call (exit 0). The model's digest lives in the envelope's
+ * `result` field and is NEVER sniffed on success — a reference ABOUT rate limits reads as a false
+ * positive otherwise, and a deterministic queue order turns it into a poison pill that halts every
+ * drain/backfill. Only an `is_error: true` envelope carries CLI error text worth sniffing.
+ * Non-envelope stdout under --output-format json is itself an error surface, so sniff it raw.
+ */
+export function detectRateLimitInEnvelope(stdout: string): { limited: boolean; resetAt: string | null } {
+  const trimmed = stdout.trim();
+  if (!trimmed) return { limited: false, resetAt: null };
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    // Only trust is_error on something that actually looks like the result envelope. Other JSON on
+    // stdout (an API error blob like {"type":"error","error":{"type":"rate_limit_error"}}, an array)
+    // is an error surface and falls through to the raw sniff below.
+    if (
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      && ("is_error" in parsed || (parsed as { type?: unknown }).type === "result")
+    ) {
+      const envelope = parsed as { is_error?: unknown; result?: unknown; subtype?: unknown };
+      if (envelope.is_error !== true) return { limited: false, resetAt: null };
+      return detectRateLimit(
+        typeof envelope.result === "string" ? envelope.result : "",
+        typeof envelope.subtype === "string" ? envelope.subtype : "",
+      );
+    }
+  } catch {
+    // Not JSON — sniff the raw text.
+  }
+  return detectRateLimit(trimmed);
+}
+
+/**
  * Run the Claude CLI headlessly and capture stdout. Mirrors the execFile/timeout/maxBuffer
  * plumbing used elsewhere in the library. We close stdin immediately (the whole task is passed
  * via -p) so the CLI does not wait on stdin. `cwd` points the run at the vault so the judge's
@@ -81,9 +115,17 @@ export function runClaude(bin: string, args: string[], timeoutMs: number, cwd?: 
       bin,
       args,
       { timeout: timeoutMs, maxBuffer: 1024 * 1024 * 8, cwd: cwd || undefined },
-      (error, stdout) => {
-        if (error) reject(error);
-        else resolve(stdout);
+      (error, stdout, stderr) => {
+        if (error) {
+          // Attach the captured streams: callback-style execFile errors don't carry them, and the
+          // catch-path limit detection needs REAL error surfaces. error.message must never be
+          // sniffed — execFile builds it from the full command line, which embeds the -p task
+          // (KB index + source excerpt), i.e. content that can legitimately discuss rate limits.
+          const carrier = error as Error & { stdout?: string; stderr?: string };
+          carrier.stdout = stdout;
+          carrier.stderr = stderr;
+          reject(carrier);
+        } else resolve(stdout);
       },
     );
     child.stdin?.on("error", () => {});
@@ -286,9 +328,10 @@ export async function reweaveArtifact(
     if (model) args.push("--model", model);
 
     const stdout = await runClaude(resolveClaudeBin(), args, timeoutMs, vaultPath);
-    // Exit 0 can still carry a usage-limit message in the JSON envelope (is_error + result text).
+    // Exit 0 can still carry a usage-limit message in the JSON envelope (is_error + result text) —
+    // but a SUCCESSFUL result is model content and must not be sniffed (see detectRateLimitInEnvelope).
     if (opts.rethrowRateLimit) {
-      const hit = detectRateLimit(stdout);
+      const hit = detectRateLimitInEnvelope(stdout);
       if (hit.limited) throw new RateLimitError("Claude usage limit reached during reweave", hit.resetAt);
     }
     const modelText = extractModelText(stdout);
@@ -296,11 +339,17 @@ export async function reweaveArtifact(
     return parseReweaveOutput(modelText);
   } catch (error) {
     if (error instanceof RateLimitError) throw error;
-    // Non-zero exit / timeout: inspect the error (execFile errors carry .stderr/.message) for a limit.
+    // Non-zero exit / timeout: inspect the streams runClaude attached. NEVER sniff error.message —
+    // execFile builds it from the full command line (the -p task: KB index + source excerpt), so it
+    // contains content that legitimately discusses rate limits. stderr is a true error surface
+    // (sniff raw); stdout may carry an error envelope or raw limit text (envelope-aware check).
     if (opts.rethrowRateLimit) {
-      const e = error as { message?: string; stderr?: string; stdout?: string };
-      const hit = detectRateLimit(e?.message, e?.stderr, e?.stdout);
-      if (hit.limited) throw new RateLimitError("Claude usage limit reached during reweave", hit.resetAt);
+      const e = error as { stderr?: string; stdout?: string };
+      const hit = detectRateLimit(e?.stderr);
+      const stdoutHit = hit.limited ? hit : detectRateLimitInEnvelope(e?.stdout || "");
+      if (hit.limited || stdoutHit.limited) {
+        throw new RateLimitError("Claude usage limit reached during reweave", hit.resetAt || stdoutHit.resetAt);
+      }
     }
     return null;
   } finally {

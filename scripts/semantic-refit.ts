@@ -13,10 +13,15 @@
  * ~/.summarize/config.json (see gemini.ts).
  */
 
+import { loadEnvConfig } from "@next/env";
 import { getSemanticDb } from "../src/lib/semantic/db";
 import { isSemanticEnabled, semanticRefitMinNew } from "../src/lib/semantic/config";
 import { createGeminiClient } from "../src/lib/semantic/gemini";
 import { runTopicRefit } from "../src/lib/semantic/topics";
+
+// Load .env.local so the launchd job sees the same flags as the dev server (see
+// semantic-backfill.ts — without this every scheduled refit silently no-ops).
+loadEnvConfig(process.cwd());
 
 /** Items with at least one embedded chunk but NO topic membership = new/outlier drift signal. */
 function unassignedItemCount(): number {

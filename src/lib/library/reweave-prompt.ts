@@ -15,6 +15,12 @@ CONNECTIONS — DISCIPLINED. Explore the vault comprehensively (Grep/Glob/Read a
 - "No connection" is the right answer for many saves (products, aesthetic, personal one-offs). Never connect on vibe or shared words. NEVER connect to anything under references/.cache/ (temporary candidates).
 - target = the note's real vault-relative path WITHOUT .md (you discovered it while exploring); title = the note's human title; relationship = a short, plain predicate that reads naturally after "Title — ..." (not academic run-ons).
 
+ATTENTION JUDGMENT — you just read this source AND explored Justin's vault, so judge directly: how much
+does this deserve his limited attention right now? "high" = he should genuinely read/act on this soon
+(it materially bears on active work or sharpens how he builds/thinks); "medium" = worth having woven in,
+no urgency; "low" = fine to keep but he need never look at it again. Judge the SOURCE's value to HIS
+practice — not how well the digest came out. Be willing to say "low"; most saves are.
+
 Return ONLY this JSON:
 {
   "description": "<1-2 plain, specific sentences about the ideas (or, for a product, what it is) — for his feed card; no meta, no selling>",
@@ -22,7 +28,8 @@ Return ONLY this JSON:
   "digest_markdown": "<the digest body as markdown, headings only if warranted; no Connections/Raw/Media>",
   "connections_first_party": [ { "target": "<vault path no .md>", "title": "<human title>", "relationship": "<predicate>" } ],
   "connections_library": [ { "target": "<vault path no .md>", "title": "<human title>", "relationship": "<predicate>" } ],
-  "reweave_candidates": [ { "target": "<existing note>", "why": "<what the new content would materially update in it>" } ]
+  "reweave_candidates": [ { "target": "<existing note>", "why": "<what the new content would materially update in it>" } ],
+  "attention_judgment": { "tier": "<high|medium|low>", "reason": "<one plain line: why this tier, for Justin specifically>" }
 }
 If nothing genuinely connects, return empty connection arrays — that is complete and correct.`;
 
@@ -85,6 +92,14 @@ function normalizeReweaveCandidates(value: unknown): ReweaveResult["reweave_cand
   return candidates;
 }
 
+function normalizeAttentionJudgment(value: unknown): ReweaveResult["attention_judgment"] {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const tier = record.tier === "high" || record.tier === "medium" || record.tier === "low" ? record.tier : null;
+  if (!tier) return undefined;
+  return { tier, reason: asString(record.reason) };
+}
+
 function normalizeReweave(parsed: Record<string, unknown>): ReweaveResult {
   return {
     description: asString(parsed.description),
@@ -93,6 +108,7 @@ function normalizeReweave(parsed: Record<string, unknown>): ReweaveResult {
     connections_first_party: normalizeConnections(parsed.connections_first_party),
     connections_library: normalizeConnections(parsed.connections_library),
     reweave_candidates: normalizeReweaveCandidates(parsed.reweave_candidates),
+    attention_judgment: normalizeAttentionJudgment(parsed.attention_judgment),
   };
 }
 

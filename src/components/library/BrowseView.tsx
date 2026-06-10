@@ -346,30 +346,32 @@ export function SourceNav({
               <CountBadge count={sumSourceTotals(newsletterSources)} unread={sumSourceField(newsletterSources, "unread_count")} review={sumSourceField(newsletterSources, "review_count")} />
             </button>
             {newsletterExpanded && newsletterFacets.length > 0 && onTagSelect && renderSourceFacets(newsletterToken, newsletterFacets, "All newsletters")}
+            {/* Muting is sender-email-based (newsletters only), so the muted list lives INSIDE the
+                Newsletters group rather than as a top-level sibling of all sources. */}
+            {newsletterExpanded && mutedSenders.length > 0 && (
+              <div className="ml-3 mt-1 border-l border-[var(--border-default)] pl-2">
+                <button
+                  onClick={() => setMutedOpen((value) => !value)}
+                  className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
+                >
+                  <span>Show muted</span>
+                  <span className="shrink-0 tabular-nums">{mutedSenders.length} {mutedOpen ? "▾" : "▸"}</span>
+                </button>
+                {mutedOpen && (
+                  <div className="space-y-0.5">
+                    {mutedSenders.map((m) => (
+                      <div key={m.email} title={m.email} className="flex items-center justify-between gap-2 px-2 py-1 text-xs text-[var(--text-tertiary)]">
+                        <span className="min-w-0 truncate">{m.name}</span>
+                        <span className="shrink-0 text-[10px] uppercase tracking-wide">muted</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
-      {mutedSenders.length > 0 && (
-        <div className="mt-2">
-          <button
-            onClick={() => setMutedOpen((value) => !value)}
-            className="flex w-full items-center justify-between gap-2 rounded-md px-3 py-1.5 text-left text-xs text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
-          >
-            <span>Show muted</span>
-            <span className="shrink-0 tabular-nums">{mutedSenders.length} {mutedOpen ? "▾" : "▸"}</span>
-          </button>
-          {mutedOpen && (
-            <div className="ml-3 space-y-0.5 border-l border-[var(--border-default)] pl-2">
-              {mutedSenders.map((m) => (
-                <div key={m.email} title={m.email} className="flex items-center justify-between gap-2 px-2 py-1 text-xs text-[var(--text-tertiary)]">
-                  <span className="min-w-0 truncate">{m.name}</span>
-                  <span className="shrink-0 text-[10px] uppercase tracking-wide">muted</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
       {onModeSelect && (
         <div className="mt-4 border-t border-[var(--border-default)] pt-3">
           <div className="mb-1 px-3 text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Mode</div>

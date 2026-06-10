@@ -719,6 +719,7 @@ export async function digestArtifact(
   // graceful degradation below (reweave_pending → re-upgraded on a later pass).
   const shouldWeaveConnections = taxonomy.library_mode === "study";
   let connectionSuggestions: ProcessedArtifact["connection_suggestions"] = [];
+  let attentionJudgment: ProcessedArtifact["attention_judgment"];
   let connectedProjects: string[] = [];
   let connectionReasoning = "";
   let reweaveCandidates: ProcessedArtifact["reweave_candidates"] = [];
@@ -764,6 +765,7 @@ export async function digestArtifact(
         ? `Woven into ${connectionSuggestions.length} note${connectionSuggestions.length === 1 ? "" : "s"} across Justin's work.`
         : "";
       reweaveCandidates = reweave.reweave_candidates || [];
+      attentionJudgment = reweave.attention_judgment;
       // connected_projects are the first-party targets whose path lives under projects/<slug>/.
       connectedProjects = Array.from(new Set(
         reweave.connections_first_party
@@ -841,6 +843,7 @@ export async function digestArtifact(
     connection_suggestions: connectionSuggestions,
     connection_reasoning: connectionReasoning || undefined,
     reweave_candidates: reweaveCandidates && reweaveCandidates.length ? reweaveCandidates : undefined,
+    attention_judgment: attentionJudgment,
     reasoning: source.intent === "explicit_save" ? "Explicit save signal" : "Automated discovery assessment",
     extraction_notes: extractionNotes,
     digestion: {

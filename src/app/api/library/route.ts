@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { appendLibraryEvents } from "@/lib/library/events";
 import { getVaultPath } from "@/lib/bridge/vault";
 import { listLibraryArtifactDetails, summarizeArtifact, type LibraryListOptions } from "@/lib/library/library";
 import { scoreArtifacts } from "@/lib/library/recommendations";
@@ -83,6 +84,16 @@ export async function GET(request: NextRequest) {
     }
 
     const { artifacts, total, unread_total } = listLibraryArtifactDetails(vaultPath, { ...baseOptions, offset, limit });
+    // Metric 4's feed baseline: impressions are logged ONLY when the caller declares surface=feed
+    // (the Feed view's first page) — machine/agent GETs and Browse fetches stay out of the record.
+    if (params.get("surface") === "feed" && offset === 0) {
+      appendLibraryEvents(vaultPath, artifacts.slice(0, 40).map((artifact, index) => ({
+        type: "served" as const,
+        artifact_id: artifact.id,
+        surface: "feed" as const,
+        rank: index + 1,
+      })));
+    }
     return NextResponse.json({
       artifacts: summarizeWithEval(vaultPath, artifacts),
       total,

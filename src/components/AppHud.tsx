@@ -944,7 +944,7 @@ function EventHeroTimeActionButton({
     <button
       type="button"
       aria-label={action.title}
-      className="group/time-action relative inline-flex h-6 min-w-[82px] shrink-0 items-center justify-center overflow-hidden rounded-full border border-transparent px-2 text-xs tabular-nums text-[var(--text-secondary)] transition-colors hover:border-[var(--hud-time-action-color)] focus:border-[var(--hud-time-action-color)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-default)]"
+      className="group/time-action relative inline-flex h-6 min-w-0 shrink-0 items-center justify-start overflow-hidden rounded-full border border-transparent px-0 text-xs tabular-nums text-[var(--text-secondary)] transition-all duration-150 ease-out hover:min-w-[82px] hover:border-[var(--hud-time-action-color)] hover:px-2 focus:min-w-[82px] focus:border-[var(--hud-time-action-color)] focus:px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-default)]"
       style={actionStyle}
       title={action.title}
       onClick={(clickEvent) => {

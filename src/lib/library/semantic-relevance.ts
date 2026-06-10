@@ -9,9 +9,10 @@
  * stays cheap-on-read — local sqlite + dot products, never a model call (R: eval is dynamic
  * and free; see library-eval.ts).
  *
- * Coverage: SAVED references are embedded (scope='library'), so they get a real semantic
- * fit. CANDIDATES live under references/.cache and are deliberately NOT embedded, so they
- * have no centroid — `scoreArtifactSemantic` returns null and the caller keeps the
+ * Coverage: SAVED references and CANDIDATES are both embedded (scope='library' — candidates
+ * via `collectCandidateItems`, picked up by the runner/backfill), so both get a real semantic
+ * fit. An item not yet embedded (a candidate ingested moments ago, before the runner's next
+ * reconcile) has no centroid — `scoreArtifactSemantic` returns null and the caller keeps the
  * token-overlap score. The whole path is inert unless HILT_SEMANTIC_ENABLED is on, the db
  * is built, and HILT_LIBRARY_SEMANTIC isn't force-disabled; any error degrades to null.
  *
@@ -136,12 +137,31 @@ function centroid(vecs: Float32Array[]): Float32Array | null {
  * Fully fallback-safe: returns `EMPTY` (available:false) on flag-off, missing/empty db, or
  * any read error, so the caller silently keeps the token-overlap score.
  */
+// Per-process context cache (Library v2, Phase E-lite): loading every chunk BLOB out of
+// semantic.sqlite and grouping to centroids is the most expensive step of every eval pass, and the
+// inputs only change when the db is rewritten (backfill/refit) or the recent-saves window shifts.
+// Keyed by db mtime + the recent-saved ids; the dbOverride (test) path bypasses the cache.
+let contextCache: { key: string; context: SemanticContext } | null = null;
+
+function semanticContextCacheKey(vaultPath: string, artifacts: LibraryArtifactDetail[]): string | null {
+  try {
+    const dbPath = getSemanticDbPath();
+    const stat = fs.statSync(dbPath);
+    const recentIds = artifacts.filter((a) => a.lifecycle_status === "saved").slice(0, semanticRecentSaves()).map((a) => a.id).join(",");
+    return `${dbPath}:${stat.mtimeMs}:${stat.size}:${vaultPath}:${recentIds}`;
+  } catch {
+    return null;
+  }
+}
+
 export function buildSemanticContext(
   vaultPath: string,
   artifacts: LibraryArtifactDetail[],
   dbOverride?: Database.Database,
 ): SemanticContext {
   if (!librarySemanticEnabled() && !dbOverride) return EMPTY;
+  const cacheKey = dbOverride ? null : semanticContextCacheKey(vaultPath, artifacts);
+  if (cacheKey && contextCache?.key === cacheKey) return contextCache.context;
   let db = dbOverride;
   try {
     if (!db) {
@@ -207,7 +227,9 @@ export function buildSemanticContext(
 
     const contexts = [...projectPersonContexts, ...recentContexts];
     if (contexts.length === 0) return EMPTY;
-    return { available: true, artifactBySourceFile, contexts };
+    const context: SemanticContext = { available: true, artifactBySourceFile, contexts };
+    if (cacheKey) contextCache = { key: cacheKey, context };
+    return context;
   } catch {
     return EMPTY;
   } finally {
@@ -229,9 +251,10 @@ export interface SemanticFit {
 
 /**
  * Topical fit of one artifact against the active context, from precomputed embeddings.
- * Returns null when the artifact has no centroid (candidates, or anything not yet embedded)
- * so the caller keeps the token-overlap score. Self-matches (the artifact's own recent-save
- * context entry) are skipped.
+ * Returns null when the artifact has no centroid (anything not yet embedded — e.g. a
+ * candidate ingested since the runner's last reconcile) so the caller keeps the
+ * token-overlap score. Self-matches (the artifact's own recent-save context entry) are
+ * skipped.
  *
  * Fit = sum of the top-K weighted, floored cosine contributions, scaled and capped — shaped
  * like the token path's `scoreAgainstSignals` so MAX-blending the two is apples-to-apples.

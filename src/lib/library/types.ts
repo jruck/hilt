@@ -117,6 +117,14 @@ export interface ReweaveConnection {
   relationship: string;
 }
 
+/** The reweave agent's direct attention-worthiness judgment (Library v2 judge layer). Captured at
+ *  reweave time — the agent has just read the source AND explored the vault, so it is the best-placed
+ *  judge of fit. Calibrates the arithmetic worth score (metric: judge–score agreement). */
+export interface AttentionJudgment {
+  tier: "high" | "medium" | "low";
+  reason: string;
+}
+
 export interface ReweaveResult {
   description: string;
   proposed_title: string;
@@ -124,6 +132,7 @@ export interface ReweaveResult {
   connections_first_party: ReweaveConnection[];
   connections_library: ReweaveConnection[];
   reweave_candidates?: Array<{ target: string; why: string }>;
+  attention_judgment?: AttentionJudgment;
 }
 
 export interface ProcessedArtifact {
@@ -157,6 +166,7 @@ export interface ProcessedArtifact {
   connection_suggestions?: ConnectionSuggestion[];
   connection_reasoning?: string;
   reweave_candidates?: Array<{ target: string; why: string }>;
+  attention_judgment?: AttentionJudgment;
   reasoning: string;
   extraction_notes: string[];
   digestion?: {
@@ -369,6 +379,20 @@ export interface LibraryOperationalHealth {
   };
   sources: LibrarySourceHealthSummary[];
   dead_letters: LibraryDeadLetterSummary;
+  reweave: LibraryReweaveBacklogSummary;
+}
+
+export interface LibraryReweaveBacklogSummary {
+  /** Distinct study items awaiting a Claude reweave (pending + version_behind). */
+  backlog: number;
+  /** Items flagged reweave_pending / missing their connection pass. */
+  pending: number;
+  /** Items stamped at a non-current pipeline_version (migration backlog). */
+  version_behind: number;
+  /** Last time the nightly drain job ran (proxy: its log mtime). */
+  last_drained_at: string | null;
+  /** Last "RATE LIMIT — pausing" seen in the nightly drain log — a proxy for Claude-window pressure. */
+  last_throttled_at: string | null;
 }
 
 export interface IngestionSourceResult {

@@ -5,12 +5,18 @@ import { listLibraryArtifactDetails } from "./library";
 import { markdownToPlain } from "./markdown";
 import { evaluateArtifact, structuralSubstance } from "./library-eval";
 import { buildSemanticContext, scoreArtifactSemantic, type SemanticContext } from "./semantic-relevance";
+import { loadScoringConfig } from "./scoring-config-loader";
+import type { LibraryScoringConfig } from "./scoring-config";
+import { readLibraryEvents } from "./events";
+import { hashId } from "./utils";
 
 interface ContextSignal {
   kind: "project" | "task" | "area" | "person" | "recent_save";
   label: string;
   text: string;
   weight: number;
+  /** Precomputed once per signal set — tokenizing every signal for every scored artifact was O(signals × artifacts). */
+  tokens?: string[];
 }
 
 const STOPWORDS = new Set([
@@ -23,7 +29,7 @@ const STOPWORDS = new Set([
   "meeting", "meetings", "next", "notes", "team", "work",
 ]);
 
-const FOR_YOU_MAX_ITEMS = 8;
+// For You sizing now lives in the versioned scoring config (meta/library-scoring.json).
 
 function readTextIfExists(filePath: string): string {
   try {
@@ -53,7 +59,7 @@ function readFolderIndexSignals(vaultPath: string, folder: string, kind: Context
     .filter((signal): signal is ContextSignal => Boolean(signal));
 }
 
-function currentTaskSignals(vaultPath: string): ContextSignal[] {
+function currentTaskSignals(vaultPath: string, taskWeight: number): ContextSignal[] {
   const listsDir = path.join(vaultPath, "lists", "now");
   const latest = fs.existsSync(listsDir)
     ? fs.readdirSync(listsDir).filter((name) => name.endsWith(".md")).sort().pop()
@@ -64,10 +70,10 @@ function currentTaskSignals(vaultPath: string): ContextSignal[] {
     .split(/\r?\n/)
     .filter((line) => /^\s*[-*]\s+\[\s*]\s+/.test(line))
     .join("\n");
-  return [{ kind: "task", label: latest || "current week", text: uncheckedTasks || weekly, weight: 1.35 }];
+  return [{ kind: "task", label: latest || "current week", text: uncheckedTasks || weekly, weight: taskWeight }];
 }
 
-function recentSaveSignals(artifacts: LibraryArtifactDetail[]): ContextSignal[] {
+function recentSaveSignals(artifacts: LibraryArtifactDetail[], weights: LibraryScoringConfig["signal_weights"]): ContextSignal[] {
   return artifacts
     .filter((artifact) => artifact.lifecycle_status === "saved")
     .slice(0, 20)
@@ -75,19 +81,22 @@ function recentSaveSignals(artifacts: LibraryArtifactDetail[]): ContextSignal[] 
       kind: "recent_save" as const,
       label: artifact.title,
       text: [artifact.title, artifact.summary, artifact.tags.join(" "), artifact.source_tags.join(" "), artifact.source_collection, artifact.source_folder].filter(Boolean).join("\n"),
-      weight: artifact.source_id === "manual" ? 0.65 : 0.45,
+      weight: artifact.source_id === "manual" ? weights.recent_save_manual : weights.recent_save,
     }));
 }
 
-function activeContextSignals(vaultPath: string, artifacts: LibraryArtifactDetail[]): ContextSignal[] {
+function activeContextSignals(vaultPath: string, artifacts: LibraryArtifactDetail[], config: LibraryScoringConfig): ContextSignal[] {
+  const weights = config.signal_weights;
   const areaText = readTextIfExists(path.join(vaultPath, "areas", "index.md"));
-  return [
-    ...readFolderIndexSignals(vaultPath, "projects", "project", 1.25, 80),
-    ...currentTaskSignals(vaultPath),
-    ...(areaText ? [{ kind: "area" as const, label: "North Stars", text: areaText, weight: 1.0 }] : []),
-    ...readFolderIndexSignals(vaultPath, "people", "person", 0.35, 80),
-    ...recentSaveSignals(artifacts),
+  const signals = [
+    ...readFolderIndexSignals(vaultPath, "projects", "project", weights.project, 80),
+    ...currentTaskSignals(vaultPath, weights.task),
+    ...(areaText ? [{ kind: "area" as const, label: "North Stars", text: areaText, weight: weights.area }] : []),
+    ...readFolderIndexSignals(vaultPath, "people", "person", weights.person, 80),
+    ...recentSaveSignals(artifacts, weights),
   ];
+  for (const signal of signals) signal.tokens = tokenize(signal.text);
+  return signals;
 }
 
 function tokenize(text: string): string[] {
@@ -98,7 +107,7 @@ function tokenize(text: string): string[] {
 
 /** @internal Exposed for the calibration/diagnostic scripts (token contextFit head-to-head). */
 export function __debugActiveContextSignals(vaultPath: string, artifacts: LibraryArtifactDetail[]): ContextSignal[] {
-  return activeContextSignals(vaultPath, artifacts);
+  return activeContextSignals(vaultPath, artifacts, loadScoringConfig(vaultPath));
 }
 /** @internal Exposed for diagnostics — the token-overlap contextFit for one artifact. */
 export function __debugTokenContextFit(artifact: LibraryArtifactDetail, signals: ContextSignal[]): number {
@@ -119,7 +128,7 @@ function scoreAgainstSignals(artifact: LibraryArtifactDetail, signals: ContextSi
   if (!artifactTokens.size) return { score: 0, matches: [] };
 
   const matches = signals.map((signal) => {
-    const signalTokens = tokenize(signal.text);
+    const signalTokens = signal.tokens ?? tokenize(signal.text);
     const terms = signalTokens.filter((token) => artifactTokens.has(token)).slice(0, 6);
     const minimumTerms = signal.kind === "project" || signal.kind === "task" ? 2 : 3;
     const score = terms.length >= minimumTerms
@@ -161,7 +170,7 @@ function substanceFor(artifact: LibraryArtifactDetail): number {
  * (woven connections + active-context fit); we surface the legible `why` and drop `archive`-tier items.
  * The eval is dynamic — recomputed each call against the current active context, never stamped.
  */
-function scoreArtifact(vaultPath: string, artifact: LibraryArtifactDetail, signals: ContextSignal[], semanticCtx: SemanticContext): RecommendedArtifact {
+function scoreArtifact(vaultPath: string, artifact: LibraryArtifactDetail, signals: ContextSignal[], semanticCtx: SemanticContext, config: LibraryScoringConfig): RecommendedArtifact {
   const contextScore = scoreAgainstSignals(artifact, signals);
   const topContext = contextScore.matches.find((match) => match.kind !== "recent_save");
   // Topical fit: PREFER embedding cosine, fall back to token-overlap. Measured on the real
@@ -169,8 +178,9 @@ function scoreArtifact(vaultPath: string, artifact: LibraryArtifactDetail, signa
   // active-context signals UNCAPPED (mean ~1.37, 97% ≥0.45), so it saturates the eval's 0.3
   // relevance cap for ~everyone — it differentiates nothing. The embedding cosine fit (mean
   // ~0.20, a real 0→0.45 gradient) is the signal that actually separates on-topic from not.
-  // So for embedded items (saved refs) we REPLACE token with semantic; candidates aren't
-  // embedded (semantic === null) and keep the token fallback — the best available there.
+  // So for embedded items (saved refs AND candidates — both scope='library') we REPLACE
+  // token with semantic; anything not yet embedded (a candidate ingested since the runner's
+  // last reconcile) returns null and keeps the token fallback — the best available there.
   const semantic = scoreArtifactSemantic(vaultPath, artifact, semanticCtx);
   let contextFit = contextScore.score;
   let contextLabel = topContext?.label ?? null;
@@ -187,7 +197,7 @@ function scoreArtifact(vaultPath: string, artifact: LibraryArtifactDetail, signa
     // `reconnected_at` is stamped whenever the connection judge runs (success OR abstain) — positive
     // evidence we looked, the precondition for ever flagging a zero-tie item to_archive.
     analyzed: typeof artifact.raw_frontmatter.reconnected_at === "string" && artifact.raw_frontmatter.reconnected_at.length > 0,
-  });
+  }, config);
   const matchedTerms = Array.from(new Set(contextScore.matches.flatMap((match) => match.terms))).slice(0, 8);
   const evalAttrs: LibraryEvalAttrs = {
     worth: evaluation.worth,
@@ -216,43 +226,156 @@ function scoreArtifact(vaultPath: string, artifact: LibraryArtifactDetail, signa
  * Cheap/structural (no model calls). Powers For You, the inspection report, and the workbench list API.
  */
 export function evaluateLibrary(vaultPath: string, opts: { limit?: number } = {}): RecommendedArtifact[] {
+  const config = loadScoringConfig(vaultPath);
   const artifacts = listLibraryArtifactDetails(vaultPath, { limit: opts.limit ?? 3000, includeCandidates: true }).artifacts;
-  const signals = activeContextSignals(vaultPath, artifacts);
+  const signals = activeContextSignals(vaultPath, artifacts, config);
   const semanticCtx = buildSemanticContext(vaultPath, artifacts);
   return artifacts
     .filter((artifact) => artifact.lifecycle_status !== "expired" && artifact.lifecycle_status !== "skipped")
     // keep is a stash, out of the worth-ranked feed; worth scoring applies only to study items.
     .filter((artifact) => artifact.library_mode !== "keep")
-    .map((artifact) => scoreArtifact(vaultPath, artifact, signals, semanticCtx));
+    .map((artifact) => scoreArtifact(vaultPath, artifact, signals, semanticCtx, config));
 }
 
 /** Score a given list of artifacts against the active context — signals built once. Used by the feed's
  *  eval-filter path (worth slider, lifecycle) so it filters the already-source/pipeline-filtered set. */
 export function scoreArtifacts(vaultPath: string, artifacts: LibraryArtifactDetail[]): RecommendedArtifact[] {
+  const config = loadScoringConfig(vaultPath);
   const all = listLibraryArtifactDetails(vaultPath, { limit: 3000, includeCandidates: true }).artifacts;
-  const signals = activeContextSignals(vaultPath, all);
+  const signals = activeContextSignals(vaultPath, all, config);
   const semanticCtx = buildSemanticContext(vaultPath, all);
-  return artifacts.map((artifact) => scoreArtifact(vaultPath, artifact, signals, semanticCtx));
+  return artifacts.map((artifact) => scoreArtifact(vaultPath, artifact, signals, semanticCtx, config));
 }
 
 /** Eval attributes for a single study item (for the detail metadata panel). null for keep items. */
 export function evalAttrsForArtifact(vaultPath: string, artifact: LibraryArtifactDetail): LibraryEvalAttrs | null {
   if (artifact.library_mode === "keep") return null;
+  const config = loadScoringConfig(vaultPath);
   const all = listLibraryArtifactDetails(vaultPath, { limit: 3000, includeCandidates: true }).artifacts;
-  const signals = activeContextSignals(vaultPath, all);
+  const signals = activeContextSignals(vaultPath, all, config);
   const semanticCtx = buildSemanticContext(vaultPath, all);
-  const scored = scoreArtifact(vaultPath, artifact, signals, semanticCtx);
+  const scored = scoreArtifact(vaultPath, artifact, signals, semanticCtx, config);
   return { worth: scored.worth, relevance: scored.relevance, substance: scored.substance, freshness: scored.freshness, lifecycle: scored.lifecycle, why: scored.why };
 }
 
-export function getRecommendations(vaultPath: string, limit = 10): { items: RecommendedArtifact[]; generated_at: string; context_summary: string } {
-  const effectiveLimit = Math.max(1, Math.min(limit, FOR_YOU_MAX_ITEMS));
-  const items = evaluateLibrary(vaultPath, { limit: 200 })
+// ---------------------------------------------------------------------------
+// For You v2 — the staged funnel (Library v2, Workstream 4):
+//   stage 1 (cheap, here): worth-ranked pool minus recent negative signals;
+//   stage 2 (LLM): the daily editor pass (scripts/library-editor-pass.ts) picks with stated reasons,
+//     cached in DATA_DIR and consumed below — the formula proposes, the editor disposes;
+//   stage 3 (deterministic, here): source-diversity cap, near-duplicate dedup, exploration slot.
+// ---------------------------------------------------------------------------
+
+export interface EditorPick { id: string; reason: string }
+export interface EditorPicksCache { generated_at: string; picks: EditorPick[] }
+
+export function editorPicksPath(vaultPath: string): string {
+  return path.join(process.env.DATA_DIR || path.join(process.cwd(), "data"), "library-for-you", `${hashId(path.resolve(vaultPath), 16)}.json`);
+}
+
+/** The cached editor picks, or null when absent/stale (>30h — one missed daily run is tolerated). */
+export function readEditorPicks(vaultPath: string, maxAgeHours = 30): EditorPicksCache | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(editorPicksPath(vaultPath), "utf-8")) as EditorPicksCache;
+    if (!parsed || !Array.isArray(parsed.picks)) return null;
+    const age = Date.now() - Date.parse(parsed.generated_at);
+    return Number.isFinite(age) && age <= maxAgeHours * 3_600_000 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Stage 1: the worth-ranked candidate pool minus recently negatively-signaled items (skip /
+ *  archive-confirm within the suppression window — the heaviest-weighted signals we have). */
+export function buildForYouPool(vaultPath: string): { pool: RecommendedArtifact[]; config: LibraryScoringConfig } {
+  const config = loadScoringConfig(vaultPath);
+  const since = new Date(Date.now() - config.for_you.negative_suppress_days * 86_400_000).toISOString();
+  const negative = new Set(
+    readLibraryEvents(vaultPath, { since })
+      .filter((event) => event.type === "skipped" || event.type === "archived_confirmed")
+      .map((event) => event.artifact_id),
+  );
+  // Full study corpus (not a recency window): the exploration slot exists to resurface items the
+  // ranking under-values, which a newest-200 pre-cut would silently defeat.
+  const pool = evaluateLibrary(vaultPath, { limit: 3000 })
     .sort((a, b) => (b.worth || 0) - (a.worth || 0))
-    .slice(0, effectiveLimit);
+    .filter((item) => !negative.has(item.id))
+    .slice(0, config.for_you.pool);
+  return { pool, config };
+}
+
+function titleTokenSet(title: string): Set<string> {
+  return new Set(tokenize(title));
+}
+
+/** Near-duplicate titles (the same story from two sources) — Jaccard over title tokens. */
+function nearDuplicate(a: string, b: string): boolean {
+  const ta = titleTokenSet(a);
+  const tb = titleTokenSet(b);
+  if (!ta.size || !tb.size) return false;
+  const overlap = [...ta].filter((token) => tb.has(token)).length;
+  return overlap / (ta.size + tb.size - overlap) > 0.6;
+}
+
+export function getRecommendations(vaultPath: string, limit = 10): { items: RecommendedArtifact[]; generated_at: string; context_summary: string } {
+  const { pool, config } = buildForYouPool(vaultPath);
+  const maxItems = Math.max(1, Math.min(limit, config.for_you.max_items));
+  const explorationSlots = Math.min(config.for_you.exploration_slots, Math.max(0, maxItems - 1));
+  const headSlots = maxItems - explorationSlots;
+  const editor = readEditorPicks(vaultPath);
+  const byId = new Map(pool.map((item) => [item.id, item]));
+
+  const final: RecommendedArtifact[] = [];
+  const used = new Set<string>();
+  const sourceCounts = new Map<string, number>();
+  const tryAdd = (item: RecommendedArtifact, reason?: string): boolean => {
+    if (used.has(item.id)) return false;
+    const source = item.source_id || "unknown";
+    if ((sourceCounts.get(source) || 0) >= config.for_you.source_cap) return false;
+    if (final.some((picked) => nearDuplicate(picked.title, item.title))) return false;
+    used.add(item.id);
+    sourceCounts.set(source, (sourceCounts.get(source) || 0) + 1);
+    // The stated reason is the user-facing "why" (zero "why am I seeing this" — spec success gate).
+    final.push(reason ? { ...item, why: reason } : item);
+    return true;
+  };
+
+  // Stage 2 picks lead; stage 1 order fills the remaining head slots when the editor is absent/stale.
+  if (editor) {
+    for (const pick of editor.picks) {
+      if (final.length >= headSlots) break;
+      const item = byId.get(pick.id);
+      if (item) tryAdd(item, pick.reason);
+    }
+  }
+  for (const item of pool) {
+    if (final.length >= headSlots) break;
+    tryAdd(item);
+  }
+
+  // Stage 3 exploration: rotate daily through the tail beyond the head ranks — how miscalibration
+  // gets discovered (an item the formula under-ranks gets a periodic shot at the user's attention).
+  const tail = pool.slice(headSlots);
+  if (tail.length && explorationSlots > 0) {
+    const dayIndex = Math.floor(Date.now() / 86_400_000);
+    for (let slot = 0; slot < explorationSlots && final.length < maxItems; slot += 1) {
+      for (let probe = 0; probe < tail.length; probe += 1) {
+        const item = tail[(dayIndex + slot + probe) % tail.length];
+        if (tryAdd(item, "Exploration pick — ranked outside the top; flag it if the library misjudged it")) break;
+      }
+    }
+  }
+  // Backfill if exploration couldn't place (deduped/capped out).
+  for (const item of pool) {
+    if (final.length >= maxItems) break;
+    tryAdd(item);
+  }
+
   return {
-    items,
+    items: final,
     generated_at: new Date().toISOString(),
-    context_summary: "Ranked by worth (relevance × substance × freshness) against active projects, weekly tasks, North Stars, people notes, and recent saves.",
+    context_summary: editor
+      ? "Editor's picks (daily LLM pass over the worth-ranked pool) with stated reasons, plus diversity rules and an exploration slot."
+      : "Worth-ranked (relevance × substance × freshness) with diversity rules and an exploration slot — no fresh editor pass.",
   };
 }

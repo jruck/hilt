@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useInfiniteLibrary, useRecommendations } from "@/hooks/useLibrary";
+import type { RecommendedArtifact } from "@/lib/library/types";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { FeedCard } from "./FeedCard";
 import { LIBRARY_META_OPEN_KEY, LibraryArtifactDetailPane } from "./LibraryArtifactDetailPane";
@@ -16,7 +17,7 @@ export function FeedView({
   onModeChange?: (mode: "recent" | "for-you") => void;
   onCountChange?: (count: number) => void;
 }) {
-  const recent = useInfiniteLibrary({ q: searchQuery || null }, 40);
+  const recent = useInfiniteLibrary({ q: searchQuery || null, surface: "feed" }, 40);
   const recs = useRecommendations(10);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -71,6 +72,7 @@ export function FeedView({
               <FeedCard
                 key={artifact.id}
                 artifact={artifact}
+                reason={mode === "for-you" && typeof (artifact as RecommendedArtifact).why === "string" ? (artifact as RecommendedArtifact).why : undefined}
                 promoteReason={mode === "for-you" ? "for_you_selected" : "manual_save"}
                 onChanged={refresh}
                 onOpen={(_, intent) => {

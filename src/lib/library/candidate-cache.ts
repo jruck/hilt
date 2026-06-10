@@ -183,6 +183,7 @@ export function buildCandidateMarkdown(processed: ProcessedArtifact): string {
     connection_suggestions: processed.connection_suggestions?.length ? processed.connection_suggestions : undefined,
     connection_reasoning: processed.connection_reasoning || undefined,
     reweave_candidates: processed.reweave_candidates?.length ? processed.reweave_candidates : undefined,
+    attention_judgment: processed.attention_judgment || undefined,
     reweave_pending: processed.reweave_pending ? true : undefined,
     promotion: {
       promoted_to: null,

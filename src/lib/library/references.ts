@@ -232,6 +232,7 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
     connection_suggestions: processed.connection_suggestions?.length ? processed.connection_suggestions : undefined,
     connection_reasoning: processed.connection_reasoning || undefined,
     reweave_candidates: processed.reweave_candidates?.length ? processed.reweave_candidates : undefined,
+    attention_judgment: processed.attention_judgment || undefined,
     reweave_pending: processed.reweave_pending ? true : undefined,
     relevance_signals: source.intent === "explicit_save" ? [{
       type: source.signal || "explicit_save",

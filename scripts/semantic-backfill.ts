@@ -22,6 +22,7 @@
 
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
+import { loadEnvConfig } from "@next/env";
 import { runColdStart } from "../src/lib/semantic/backfill";
 import { isSemanticEnabled } from "../src/lib/semantic/config";
 import { gcStaleVersions, getActiveVersion, listItemRows } from "../src/lib/semantic/db";
@@ -29,6 +30,11 @@ import { createGeminiClient } from "../src/lib/semantic/gemini";
 import { SEMANTIC_VERSION } from "../src/lib/semantic/pipeline";
 import { resolveVaultRoot } from "../src/lib/graph/build";
 import { addToReviewQueue } from "../src/lib/library/review-queue";
+
+// Load .env.local so the launchd jobs see the same flags as the dev server — without this
+// the plist context has no HILT_SEMANTIC_ENABLED and every scheduled run silently no-ops
+// (the exact flag trap that left the live eval on token-fallback for a day).
+loadEnvConfig(process.cwd());
 
 type Mode = "cold-start" | "sample" | "gc";
 

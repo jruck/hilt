@@ -4,8 +4,9 @@ import path from "path";
 import { deadLetterArtifactUrls, deadLetterResolved, readDeadLetters } from "./dead-letter";
 import { listLibrarySources } from "./library";
 import { libraryLaunchAgentsDir, librarySchedulerJobs, schedulerJobScheduleLabel, type LibrarySchedulerJobDefinition } from "./scheduler-jobs";
+import { countReweaveBacklog } from "./reweave-pending";
 import { readSourceState } from "./source-config";
-import type { LibraryDeadLetterSummary, LibraryOperationalHealth, LibrarySchedulerJobSummary, LibrarySourceHealthSummary } from "./types";
+import type { LibraryDeadLetterSummary, LibraryOperationalHealth, LibraryReweaveBacklogSummary, LibrarySchedulerJobSummary, LibrarySourceHealthSummary } from "./types";
 import { isoNow } from "./utils";
 
 interface HealthOptions {
@@ -68,6 +69,33 @@ function cleanSchedulerStderrExcerpt(stderr: string | null): string | null {
 function parseLastExitCode(output: string): number | null {
   const match = output.match(/last exit code\s*=\s*(-?\d+)/i) || output.match(/LastExitStatus\s*=\s*(-?\d+)/i);
   return match ? Number(match[1]) : null;
+}
+
+/** Last sign of Claude-window pressure in a drain log: the backfill stamps each pause with a timestamp;
+ *  the reweave-pending drain reports rate_limited in its JSON (no inline ts), so fall back to mtime. */
+function lastRateLimitAt(filePath: string): string | null {
+  let text: string;
+  try {
+    text = fs.readFileSync(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+  const backfill = text.match(/\[backfill (\d{4}-\d{2}-\d{2}T[\d:.]+Z)\][^\n]*RATE LIMIT/g);
+  if (backfill?.length) return backfill[backfill.length - 1].match(/(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/)?.[1] ?? null;
+  // Only the LATEST drain run counts: launchd appends runs to the same log, so a historical
+  // rate_limited line would otherwise pin last_throttled_at to the file mtime forever, long after
+  // the drains turned clean. Each npm run starts with "> hilt@..." header lines — test only the
+  // text after the last one (a headerless log degrades to testing the whole file, as before).
+  const headerIndex = text.lastIndexOf("\n> ");
+  const lastRun = headerIndex >= 0 ? text.slice(headerIndex) : text;
+  if (/"status":\s*"rate_limited"/.test(lastRun)) return fileUpdatedAt(filePath);
+  return null;
+}
+
+function laterIso(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return Date.parse(a) >= Date.parse(b) ? a : b;
 }
 
 function isBenignSchedulerStderr(stderr: string | null): boolean {
@@ -195,13 +223,24 @@ function deadLetterSummary(vaultPath: string, state: ReturnType<typeof readSourc
 }
 
 export function getLibraryOperationalHealth(vaultPath: string, options: HealthOptions = {}): LibraryOperationalHealth {
-  const jobs = (options.schedulerJobs || librarySchedulerJobs()).map((job) => schedulerStatus(job, options));
+  const definitions = options.schedulerJobs || librarySchedulerJobs();
+  const jobs = definitions.map((job) => schedulerStatus(job, options));
   const state = readSourceState(vaultPath);
   const sources = sourceHealth(vaultPath, state);
   const deadLetters = deadLetterSummary(vaultPath, state);
   const ok = jobs.every((job) => job.status !== "blocked")
     && sources.every((source) => source.status !== "blocked")
     && deadLetters.unresolved === 0;
+
+  const backlog = countReweaveBacklog(vaultPath);
+  const nightly = definitions.find((job) => job.id === "reweave-pending");
+  const reweave: LibraryReweaveBacklogSummary = {
+    backlog: backlog.total,
+    pending: backlog.pending,
+    version_behind: backlog.version_behind,
+    last_drained_at: nightly ? laterIso(fileUpdatedAt(nightly.stdout), fileUpdatedAt(nightly.stderr)) : null,
+    last_throttled_at: nightly ? laterIso(lastRateLimitAt(nightly.stdout), lastRateLimitAt(nightly.stderr)) : null,
+  };
 
   return {
     checked_at: isoNow(),
@@ -213,5 +252,6 @@ export function getLibraryOperationalHealth(vaultPath: string, options: HealthOp
     },
     sources,
     dead_letters: deadLetters,
+    reweave,
   };
 }

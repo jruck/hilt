@@ -27,7 +27,8 @@ import * as fs from "fs";
 import * as path from "path";
 import { INCLUDED_DIRS, resolveVaultRoot, scanVault, type ScannedFile } from "@/lib/graph/build";
 import { boundedInt, isSemanticDisabled, semanticAssignCos } from "./config";
-import { buildItemChunks, type ItemChunks } from "./chunking";
+import { CANDIDATE_CACHE_DIR, parseCandidateFile } from "@/lib/library/candidate-cache";
+import { buildItemChunks, candidateItemChunks, collectCandidateItems, type ItemChunks } from "./chunking";
 import {
   deleteChunksForItem,
   deleteDanglingEntities,
@@ -161,7 +162,7 @@ export class SemanticRunner {
   /** A file under the vault changed (ScopeWatcher file:changed). */
   onFileChanged(absPath: string): void {
     if (this.stopped) return;
-    if (!this.isIncludedFile(absPath)) return; // scope guard excludes libraries/ + dotdirs
+    if (!this.isInScope(absPath)) return; // scope guard excludes libraries/ + dotdirs (candidate cache excepted)
     try {
       if (!fs.existsSync(absPath)) {
         this.onFileRemoved(absPath);
@@ -176,7 +177,7 @@ export class SemanticRunner {
   /** A file was removed (ScopeWatcher tree:changed unlink). */
   onFileRemoved(absPath: string): void {
     if (this.stopped) return;
-    if (!this.isIncludedFile(absPath)) return;
+    if (!this.isInScope(absPath)) return;
     try {
       if (!this.hashes.has(absPath)) return; // never tracked → nothing to clean
       this.hashes.delete(absPath);
@@ -218,15 +219,17 @@ export class SemanticRunner {
       const item = buildItemChunks(file);
       if (item) this.hashes.set(file.absPath, item.contentHash);
     }
+    for (const item of collectCandidateItems(this.root)) {
+      this.hashes.set(item.sourceFile, item.contentHash);
+    }
   }
 
   /** Enqueue a single file if its assembled content hash differs from the last-applied. */
   private enqueueIfChanged(absPath: string): void {
-    const file = this.scannedFileFor(absPath);
-    if (!file) return;
-    const item = buildItemChunks(file);
+    const item = this.itemChunksFor(absPath);
     if (!item) {
-      // No embeddable text (empty/frontmatter-only) — treat as a removal if we tracked it.
+      // No embeddable text (empty/frontmatter-only, or a candidate whose status flipped) —
+      // treat as a removal if we tracked it.
       if (this.hashes.has(absPath)) this.onFileRemoved(absPath);
       return;
     }
@@ -239,6 +242,13 @@ export class SemanticRunner {
    * Diff the given included dirs against the content-hash map and enqueue the changes.
    * New/modified files → dirty; vanished files (tracked but no longer scanned under these
    * dirs) → removed. Coalesces all touched files into one scheduled pass.
+   *
+   * Candidates (under the dotdir-excluded `references/.cache`) are diffed alongside the
+   * `references` dir via the candidate-cache API. They MUST be folded into `seen`, or the
+   * removal sweep (path-prefix on `references/`) would falsely sweep every tracked candidate
+   * each pass. A candidate whose status flips (promoted/expired/skipped) drops out of the
+   * collect → lands in `removed` → its `cand:` row is deleted (itemIdFor's source_file
+   * fallback resolves the id).
    */
   private diffDirs(dirs: readonly string[]): void {
     const dirSet = new Set(dirs);
@@ -253,6 +263,15 @@ export class SemanticRunner {
       if (this.hashes.get(file.absPath) === item.contentHash) continue;
       this.dirty.add(file.absPath);
       touched = true;
+    }
+
+    if (dirSet.has("references")) {
+      for (const item of collectCandidateItems(this.root)) {
+        seen.add(item.sourceFile);
+        if (this.hashes.get(item.sourceFile) === item.contentHash) continue;
+        this.dirty.add(item.sourceFile);
+        touched = true;
+      }
     }
 
     for (const tracked of [...this.hashes.keys()]) {
@@ -349,9 +368,7 @@ export class SemanticRunner {
     // Changes: (re)chunk + embed + extract + resolve + nearest-topic assign, per item.
     const touchedItemIds: string[] = [];
     for (const absPath of dirty) {
-      const file = this.scannedFileFor(absPath);
-      if (!file) continue;
-      const item = buildItemChunks(file);
+      const item = this.itemChunksFor(absPath);
       if (!item) {
         // Lost its text since enqueue — treat as a removal.
         const itemId = this.itemIdFor(absPath);
@@ -407,7 +424,11 @@ export class SemanticRunner {
       })();
 
       // Per-item entity extraction (idempotent on content hash + version; abstains offline).
-      await extractEntities({ itemId: item.itemId, contentHash: item.contentHash, text: itemText(item) }, { client: this.client, db });
+      // Candidates are embedded but NOT extracted — transient un-vetted discovery content
+      // would mint junk entities that outlive the candidate (mirrors the backfill's skip).
+      if (item.kind !== "candidate") {
+        await extractEntities({ itemId: item.itemId, contentHash: item.contentHash, text: itemText(item) }, { client: this.client, db });
+      }
 
       // Slot into the nearest EXISTING leaf topics by cosine to cached centroids — NO
       // re-cluster (the heavy global re-fit owns topic creation). An item that clears no
@@ -479,6 +500,18 @@ export class SemanticRunner {
     return false;
   }
 
+  /** True if `absPath` is a file inside the candidate cache (`references/.cache/library-candidates`). */
+  private isCandidatePath(absPath: string): boolean {
+    const rel = path.relative(this.root, absPath).split(path.sep).join("/");
+    const cacheRel = CANDIDATE_CACHE_DIR.split(path.sep).join("/");
+    return !rel.startsWith("..") && rel.startsWith(`${cacheRel}/`);
+  }
+
+  /** Event-path scope: vault included files PLUS the candidate cache (the one dotdir we ingest). */
+  private isInScope(absPath: string): boolean {
+    return this.isIncludedFile(absPath) || (absPath.endsWith(".md") && this.isCandidatePath(absPath));
+  }
+
   /** Reconstruct the included top-level dir for an abs path → a ScannedFile for buildItemChunks. */
   private scannedFileFor(absPath: string): ScannedFile | null {
     if (!this.isIncludedFile(absPath)) return null;
@@ -494,13 +527,30 @@ export class SemanticRunner {
     return { absPath, dir, mtimeMs };
   }
 
+  /**
+   * Build the item + chunks for an abs path — vault files via the scanned-file route,
+   * candidate-cache files via the candidate parse. Returns null when out of scope or no
+   * longer embeddable (incl. a candidate whose status flipped off `candidate`).
+   */
+  private itemChunksFor(absPath: string): ItemChunks | null {
+    if (this.isCandidatePath(absPath)) {
+      let candidate: ReturnType<typeof parseCandidateFile>;
+      try {
+        candidate = parseCandidateFile(this.root, absPath);
+      } catch {
+        return null;
+      }
+      if (!candidate || candidate.status !== "candidate") return null;
+      return candidateItemChunks(candidate, this.root);
+    }
+    const file = this.scannedFileFor(absPath);
+    return file ? buildItemChunks(file) : null;
+  }
+
   /** The semantic item id (= graph node id) for an abs path, or null if out of scope. */
   private itemIdFor(absPath: string): string | null {
-    const file = this.scannedFileFor(absPath);
-    if (file) {
-      const item = buildItemChunks(file);
-      if (item) return item.itemId;
-    }
+    const item = this.itemChunksFor(absPath);
+    if (item) return item.itemId;
     // File gone/empty (the removal case): fall back to the row whose source_file matches
     // (the incremental delete-by-path key — semantic_items.source_file is the abs path).
     const row = getSemanticDb().prepare("SELECT item_id FROM semantic_items WHERE source_file = ?").get(absPath) as

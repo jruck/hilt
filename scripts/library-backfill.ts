@@ -7,7 +7,7 @@ import { loadEnvConfig } from "@next/env";
 import { buildKbIndex } from "../src/lib/library/kb-index";
 import { markLibraryArtifactsRead } from "../src/lib/library/read-state";
 import { hashId } from "../src/lib/library/utils";
-import { PIPELINE_VERSION } from "../src/lib/library/pipeline";
+import { PIPELINE_VERSION, CURRENT_PIPELINE_VERSIONS } from "../src/lib/library/pipeline";
 import { CANDIDATE_CACHE_DIR } from "../src/lib/library/candidate-cache";
 
 /**
@@ -35,22 +35,37 @@ const execFileAsync = promisify(execFile);
 const args = process.argv.slice(2);
 const argValue = (name: string): string | null => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] || null : null; };
 const has = (name: string): boolean => args.includes(name);
+// Fail closed on garbage numbers: NaN fails every comparison, which silently disables the safety
+// cap, the circuit breaker, and (for --concurrency) hangs the worker pool. Each item is a full
+// agentic Claude run — a typo must not fall open into an unbounded burst.
+const finiteArg = (name: string, fallback: number): number => {
+  const raw = argValue(name);
+  if (raw === null) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) { console.error(`Invalid ${name}: "${raw}" — pass a number.`); process.exit(64); }
+  return parsed;
+};
 
 const vaultPath = argValue("--vault") || process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || process.cwd();
 const TARGET_VERSION = PIPELINE_VERSION; // tracks the live published version (was hardcoded "v2"); fresh reweaves are stamped with this.
-// The published saved baseline of record is "v2" (603 durable refs); the live version is "v2.1" (the
-// onion). BOTH are "already current" — a v2 ref must NOT be re-reweaved just because the live version
-// bumped a decimal (that protocol is identical for the digest; v2.1 only adds the candidate path). Only
-// versions outside this set get reweaved, so --include-candidates never mass-re-reweaves saved refs.
-const CURRENT_VERSIONS = new Set([PIPELINE_VERSION, "v2"]);
+// "Current" versions live in pipeline.ts now (shared with the health backlog metric so they never
+// drift). An item at any of these is NOT re-reweaved when the live version bumps a decimal — the digest
+// protocol is identical; v2.1 only adds the candidate path. Only versions outside this set get reweaved,
+// so --include-candidates never mass-re-reweaves saved refs.
+const CURRENT_VERSIONS = CURRENT_PIPELINE_VERSIONS;
 const RESTAMP_FROM = "v1.4"; // same protocol as the target → re-stamp, do not reweave
-const startConcurrency = Math.max(1, Number(argValue("--concurrency") || 4));
-const minConcurrency = Math.max(1, Number(argValue("--min-concurrency") || 1));
-const limit = Number(argValue("--limit") || 0);
+// Default concurrency 1 (was 4): one agentic reweave at a time so a backfill can't burst the shared
+// Claude Max window. Raise with --concurrency only against a known-idle window.
+const startConcurrency = Math.max(1, finiteArg("--concurrency", 1));
+const minConcurrency = Math.max(1, finiteArg("--min-concurrency", 1));
+const limit = finiteArg("--limit", 0);
+// Safety cap on items reweaved per run, so no single run dumps hundreds of calls into one window.
+// --limit (smoke test) overrides it; pass a large --max-items for an explicit full sweep.
+const maxItems = Math.max(1, finiteArg("--max-items", 50));
 const dryRun = has("--dry-run");
 const includeCandidates = has("--include-candidates");
-const baseWaitMs = Number(argValue("--base-wait-ms") || 60_000);
-const maxWaitMs = Number(argValue("--max-wait-ms") || 1_800_000);
+const baseWaitMs = finiteArg("--base-wait-ms", 60_000);
+const maxWaitMs = finiteArg("--max-wait-ms", 1_800_000);
 const reweaveTimeoutMs = Number(process.env.LIBRARY_REWEAVE_TIMEOUT_MS || 600_000);
 const RAMP_UP_STREAK = 10;
 
@@ -118,9 +133,12 @@ async function main(): Promise<void> {
     else if (v === RESTAMP_FROM && !pending) restampList.push(f);
     else reweaveList.push(f);
   }
-  if (limit > 0) reweaveList = reweaveList.slice(0, limit);
+  const eligibleCount = reweaveList.length;
+  const cap = limit > 0 ? limit : maxItems;
+  if (reweaveList.length > cap) reweaveList = reweaveList.slice(0, cap);
+  const deferred = eligibleCount - reweaveList.length;
 
-  log(`durable refs: ${refs.length}${includeCandidates ? ` | candidates: ${candidates.length}` : ""} | already current (${[...CURRENT_VERSIONS].join("/")}): ${alreadyDone} | re-stamp ${RESTAMP_FROM}: ${restampList.length} | reweave: ${reweaveList.length}${limit ? ` (capped at ${limit})` : ""}`);
+  log(`durable refs: ${refs.length}${includeCandidates ? ` | candidates: ${candidates.length}` : ""} | already current (${[...CURRENT_VERSIONS].join("/")}): ${alreadyDone} | re-stamp ${RESTAMP_FROM}: ${restampList.length} | reweave: ${reweaveList.length}${deferred > 0 ? ` (cap ${cap}; ${deferred} deferred to next run)` : ""}`);
 
   if (dryRun) {
     log("dry-run: no changes. Sample reweave targets:");
@@ -161,11 +179,18 @@ async function main(): Promise<void> {
   let backoffMs = baseWaitMs;
   let okStreak = 0;
   let okCount = 0;
+  // Circuit breaker: this many consecutive rate-limit pauses with ZERO successes in between means
+  // the window is genuinely closed — stop cleanly instead of thrashing (each retry burns a full
+  // agentic run). Resets on any success.
+  const maxRateLimitPauses = Math.max(1, finiteArg("--max-rate-limit-pauses", 4));
+  let consecutiveRateLimits = 0;
+  let aborted = false;
   const total = reweaveList.length;
 
   function onRateLimit(resetAt: string | null): void {
     // Only escalate once per pause window — concurrent workers all hitting the wall shouldn't stack it.
     if (Date.now() < pausedUntil) return;
+    consecutiveRateLimits += 1;
     backoffMs = Math.min(backoffMs * 2, maxWaitMs);
     let wait = backoffMs;
     if (resetAt) {
@@ -175,7 +200,7 @@ async function main(): Promise<void> {
     pausedUntil = Date.now() + wait;
     maxActive = Math.max(minConcurrency, maxActive - 1);
     okStreak = 0;
-    log(`RATE LIMIT — pausing ${Math.round(wait / 1000)}s, concurrency → ${maxActive}${resetAt ? ` (reset ${resetAt})` : ""}`);
+    log(`RATE LIMIT ${consecutiveRateLimits}/${maxRateLimitPauses} — pausing ${Math.round(wait / 1000)}s, concurrency → ${maxActive}${resetAt ? ` (reset ${resetAt})` : ""}`);
   }
 
   async function runReweave(file: string): Promise<{ code: number; stderr: string }> {
@@ -206,6 +231,7 @@ async function main(): Promise<void> {
     }
     if (refVersion(file) === TARGET_VERSION) {
       okCount++; okStreak++;
+      consecutiveRateLimits = 0;
       touchedIds.push(hashId(relOf(file)));
       if (okCount % 5 === 0 || okCount === total) {
         log(`progress: ${okCount}/${total} reweaved · ${failed.length} failed · conc ${maxActive}`);
@@ -225,10 +251,20 @@ async function main(): Promise<void> {
   await new Promise<void>((resolve) => {
     const tick = async (): Promise<void> => {
       const now = Date.now();
-      while (active < maxActive && now >= pausedUntil && queue.length) {
-        const file = queue.shift()!;
-        active++;
-        void processOne(file).finally(() => { active--; });
+      // Breaker tripped: let in-flight workers finish, schedule nothing new, stop cleanly.
+      if (consecutiveRateLimits >= maxRateLimitPauses) {
+        if (active === 0) {
+          aborted = true;
+          log(`CIRCUIT BREAKER: ${consecutiveRateLimits} consecutive rate-limit pauses with no successes — the window is closed. Stopping with ${queue.length} item(s) unprocessed; re-run against an idle window or let the nightly drain pick them up.`);
+          resolve();
+          return;
+        }
+      } else {
+        while (active < maxActive && now >= pausedUntil && queue.length) {
+          const file = queue.shift()!;
+          active++;
+          void processOne(file).finally(() => { active--; });
+        }
       }
       if (!queue.length && active === 0) { resolve(); return; }
       setTimeout(() => void tick(), 250);
@@ -237,9 +273,10 @@ async function main(): Promise<void> {
   });
 
   fs.rmSync(kbFile, { force: true });
-  log(`reweave complete: ${okCount}/${total} succeeded · ${failed.length} failed`);
+  log(`reweave ${aborted ? "aborted (window closed)" : "complete"}: ${okCount}/${total} succeeded · ${failed.length} failed${aborted ? ` · ${queue.length} unprocessed` : ""}`);
   if (failed.length) failed.forEach((f) => console.error("   FAILED: " + relOf(f)));
   finalize(touchedIds);
+  if (aborted) process.exitCode = 75;
 }
 
 function finalize(touchedIds: string[]): void {

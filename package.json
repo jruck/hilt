@@ -62,6 +62,7 @@
     "library:metrics": "DATA_DIR=${DATA_DIR:-$HOME/.hilt/data} tsx scripts/library-metrics.ts --markdown",
     "library:memo": "DATA_DIR=${DATA_DIR:-$HOME/.hilt/data} tsx scripts/library-memo.ts",
     "library:refetch": "DATA_DIR=${DATA_DIR:-$HOME/.hilt/data} tsx scripts/library-refetch.ts",
+    "library:x:recover": "DATA_DIR=${DATA_DIR:-$HOME/.hilt/data} tsx scripts/library-x-recover.ts",
     "library:repair-youtube-liked": "tsx scripts/library-repair-youtube-liked.ts",
     "library:youtube:clips:report": "tsx scripts/library-youtube-clip-report.ts",
     "library:semantic:calibrate": "DATA_DIR=${DATA_DIR:-$HOME/.hilt/data} HILT_SEMANTIC_ENABLED=true tsx scripts/library-semantic-calibrate.ts",

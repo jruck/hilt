@@ -13,9 +13,12 @@
 
 export const NO_SOURCE_MARKER = "No cached source content available";
 
-/** Below this, a source-metadata capture is a stub, not content. Tuned above the bare-link case
- *  (~127 chars: one t.co URL + author + date) and below real short posts. */
-const METADATA_STUB_MAX_CHARS = 150;
+/** Minimum PROSE words for a source-metadata capture to count as real content. The distinction is
+ *  prose-vs-link, not length: a stub is dominated by a URL + "Author/Published/Links" with no words
+ *  (the-untrainable: one t.co link to a walled X Article), while a genuinely short tweet carries
+ *  real words ("really solid, pasted it here if you want to try it"). Length alone misfires on both
+ *  ends — short real tweets read as stubs, padded link-lists read as content. */
+const METADATA_STUB_MIN_PROSE_WORDS = 6;
 
 export interface CaptureHealthInput {
   /** The rendered body (carries the Raw Content section). */
@@ -24,13 +27,33 @@ export interface CaptureHealthInput {
   frontmatter?: Record<string, unknown> | null;
 }
 
+/** Real-word count after stripping URLs, ISO timestamps, and the X metadata scaffolding. Counts only
+ *  ALPHABETIC words (≥3 letters) so date/number fragments (2026, 000Z, 10T00) and handles can't pass
+ *  a bare-link stub off as prose. */
+function proseWordCount(text: string): number {
+  const stripped = text
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z?/g, " ")
+    .replace(/\b(Author|Published|Links|Link|Source|via)\s*:/gi, " ");
+  return (stripped.match(/\b[A-Za-z]{3,}\b/g) || []).length;
+}
+
+/** The cached source text from the Raw Content `<details>` block (what was actually captured). */
+function rawContentText(body: string): string {
+  const section = body.split("## Raw Content")[1] || "";
+  return section
+    .replace(/<\/?details>|<summary>[\s\S]*?<\/summary>/gi, "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .trim();
+}
+
 export function captureFailed(input: CaptureHealthInput): boolean {
-  if ((input.body || "").includes(NO_SOURCE_MARKER)) return true;
+  const body = input.body || "";
+  if (body.includes(NO_SOURCE_MARKER)) return true;
   const fm = input.frontmatter || {};
+  // Only metadata-fallback captures are suspect; a real summarize/source-cache extract is trusted.
   if (fm.digested_with === "source-metadata") {
-    const extracted = typeof fm.extracted_chars === "number" ? fm.extracted_chars : 0;
-    const cached = typeof fm.cached_source_chars === "number" ? fm.cached_source_chars : 0;
-    if (Math.max(extracted, cached) < METADATA_STUB_MAX_CHARS) return true;
+    return proseWordCount(rawContentText(body)) < METADATA_STUB_MIN_PROSE_WORDS;
   }
   return false;
 }

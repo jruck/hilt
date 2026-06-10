@@ -1,7 +1,7 @@
 "use client";
 
 import type { MouseEvent } from "react";
-import { Archive, Clock, Layers, Network, Zap, type LucideIcon } from "lucide-react";
+import { Archive, Ban, Clock, Layers, Network, Zap, type LucideIcon } from "lucide-react";
 import type { LibraryEvalAttrs } from "@/lib/library/types";
 
 export function formatEvalScore(value: number): string {
@@ -56,6 +56,20 @@ export function EvalMetricPills({
   onWorthClick?: (event: MouseEvent<HTMLButtonElement>) => void;
 }) {
   if (!evalAttrs) return null;
+  // A failed capture has no honest scores — the grade would describe a stub, not the content. Show
+  // the amber unfetched state IN PLACE of the worth pill (same amber convention as Library Health)
+  // so a bad capture is visible on the card cover, never a surprise after clicking through.
+  if (evalAttrs.lifecycle === "needs_refetch") {
+    return (
+      <span
+        title="Source capture failed — held for re-fetch. No worth score until the real content is in."
+        className="inline-flex min-h-7 items-center gap-1 rounded-md px-1 text-xs font-medium text-amber-500"
+      >
+        <Ban className="h-3.5 w-3.5" />
+        {breakdown ? "Unfetched" : null}
+      </span>
+    );
+  }
   return (
     <span className="inline-flex flex-wrap items-center justify-start gap-2">
       <EvalMetricPill icon={Zap} value={evalAttrs.worth} title={evalMetricTitle("worth")} onClick={onWorthClick} />

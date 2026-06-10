@@ -1675,12 +1675,13 @@ function CalendarMoreMenu({
     <div ref={menuRef} className="relative">
       <button
         type="button"
-        aria-label="Calendar actions"
+        aria-label={syncing ? "Calendar sync running" : "Calendar actions"}
         className="calendar-icon-button"
         onClick={() => onOpenChange(!open)}
+        title={syncing ? "Calendar sync running" : "Calendar actions"}
         data-testid="calendar-actions-menu"
       >
-        <MoreHorizontal className="h-4 w-4" />
+        {syncing ? <RefreshCw className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
       </button>
       {open ? (
         <div className="absolute right-0 top-full z-[80] mt-1 w-64 overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-xl">

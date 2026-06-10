@@ -108,7 +108,7 @@ export function LibraryHealthPanel({
     ? statusClass("blocked")
     : counts.warnings
       ? statusClass("warning")
-      : "border-[var(--border-default)] bg-[var(--content-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]";
+      : "border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]";
   const healthBadgeClass = counts.blocked ? "bg-red-500 text-white" : "bg-amber-500 text-white";
   const refreshInFlight = isManualRefresh || Boolean(isValidating && health);
 

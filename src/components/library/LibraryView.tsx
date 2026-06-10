@@ -10,7 +10,7 @@ import { buildLibraryUrl, libraryConcreteSource, libraryItemIdFromScope, library
 import { archiveArtifact, ingestLibrarySources, markLibraryArtifactsRead, markLibraryArtifactsUnread, restoreCandidate, setReviewStatus, skipCandidate, useInfiniteLibrary, useRecommendations, useReviewQueue } from "@/hooks/useLibrary";
 import type { ReviewQueueStatus } from "@/lib/library/review-queue";
 import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
-import { SecondarySegmentedButton, SecondarySegmentedControl, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
+import { SecondaryIconButton, SecondarySegmentedButton, SecondarySegmentedControl, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { ArtifactList, SourceNav } from "./BrowseView";
 import { FeedCard } from "./FeedCard";
@@ -803,19 +803,17 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
                   </SecondarySegmentedButton>
                 )}
               </SecondarySegmentedControl>
-              <button
-                type="button"
+              <SecondaryIconButton
                 data-testid="library-check-sources-toolbar"
                 onClick={() => { void checkSourcesNow(); }}
                 disabled={isCheckingSources}
                 aria-busy={isCheckingSources}
                 title={selectedSourceId && selectedSourceId !== "manual" ? `Check ${selectedSourceId} now` : "Check hourly Library sources now"}
                 aria-label={selectedSourceId && selectedSourceId !== "manual" ? `Check ${selectedSourceId} now` : "Check hourly Library sources now"}
-                className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:text-[var(--text-tertiary)] ${isCheckingSources ? "cursor-wait" : ""}`}
+                className={isCheckingSources ? "cursor-wait" : ""}
               >
                 {isCheckingSources ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                <span>Check sources</span>
-              </button>
+              </SecondaryIconButton>
               <LibraryHealthPanel onCheckSources={checkSourcesNow} isCheckingSources={isCheckingSources} />
             </>
           }

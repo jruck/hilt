@@ -6,6 +6,7 @@ import { CURRENT_PIPELINE_VERSIONS } from "../src/lib/library/pipeline";
 import { readLibraryEvents } from "../src/lib/library/events";
 import { listStoredFeedback } from "../src/lib/library/library-feedback";
 import { hashId } from "../src/lib/library/utils";
+import { captureFailed } from "../src/lib/library/capture-health";
 
 loadEnvConfig(process.cwd());
 
@@ -110,7 +111,7 @@ async function main(): Promise<void> {
   const incomplete = study.filter((item) => {
     const fm = (item.raw_frontmatter || {}) as Record<string, unknown>;
     const isDegraded = fm.digestion_status === "warm" || fm.digestion_status === "blocked";
-    const isNoSource = !item.content || item.content.includes("No cached source content available");
+    const isNoSource = !item.content || captureFailed({ body: item.content, frontmatter: fm });
     const isBehind = typeof fm.pipeline_version === "string" && !CURRENT_PIPELINE_VERSIONS.has(fm.pipeline_version);
     if (isDegraded) degraded += 1;
     if (isNoSource) noSource += 1;

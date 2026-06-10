@@ -2,6 +2,7 @@ import path from "path";
 import { CANDIDATE_CACHE_DIR } from "./candidate-cache";
 import { parseMarkdownFile, relativeVaultPath } from "./markdown";
 import { CURRENT_PIPELINE_VERSIONS } from "./pipeline";
+import { captureFailed } from "./capture-health";
 import { walkMarkdown } from "./utils";
 
 export interface ReweavePendingTarget {
@@ -57,6 +58,9 @@ function pendingTarget(vaultPath: string, filePath: string, includeVersionBehind
   const type = data.type === "reference" || data.type === "reference-candidate" ? data.type : null;
   if (!type) return null;
   if (data.library_mode === "keep") return null;
+  // A failed capture must be re-FETCHED, not re-woven — weaving a stub burns an agentic run on
+  // nothing (the refetch drain re-stamps reweave_pending when it recovers real content).
+  if (captureFailed({ body, frontmatter: data })) return null;
   if (type === "reference-candidate" && String(data.status || "candidate") !== "candidate") return null;
   const reason: ReweavePendingTarget["reason"] | null = data.reweave_pending === true
     ? "reweave_pending"

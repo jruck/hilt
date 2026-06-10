@@ -7,6 +7,7 @@ import { parseMarkdownFile, relativeVaultPath, stringifyMarkdown } from "../src/
 import { CANDIDATE_CACHE_DIR } from "../src/lib/library/candidate-cache";
 import { walkMarkdown } from "../src/lib/library/utils";
 import { hashId, isoNow } from "../src/lib/library/utils";
+import { captureFailed, NO_SOURCE_MARKER } from "../src/lib/library/capture-health";
 
 loadEnvConfig(process.cwd());
 const execFileAsync = promisify(execFile);
@@ -39,7 +40,6 @@ const maxItems = Math.max(1, finiteArg("--max-items", 10));
 const maxAttempts = Math.max(1, finiteArg("--max-attempts", 2));
 const dryRun = args.includes("--dry-run");
 
-const NO_SOURCE_MARKER = "No cached source content available";
 
 function attemptsPath(): string {
   const dir = path.join(process.env.DATA_DIR || path.join(process.cwd(), "data"), "library-refetch-attempts");
@@ -67,7 +67,7 @@ function findBucket(): RefetchTarget[] {
       if (data.type !== "reference" && data.type !== "reference-candidate") continue;
       if (data.library_mode === "keep") continue;
       if (data.type === "reference-candidate" && String(data.status || "candidate") !== "candidate") continue;
-      if (!body.includes(NO_SOURCE_MARKER)) continue;
+      if (!captureFailed({ body, frontmatter: data })) continue;
       if (!data.url || !/^https?:\/\//.test(String(data.url))) continue;
       targets.push({ relative_path: relativeVaultPath(vaultPath, filePath), title: String(data.title || path.basename(filePath, ".md")) });
     }
@@ -155,11 +155,11 @@ async function refetchOne(relativePath: string): Promise<"recovered" | "still_fa
   try {
     const filePath = path.join(vaultPath, relativePath);
     let { data, body } = parseMarkdownFile(filePath);
-    if (body.includes(NO_SOURCE_MARKER)) {
+    if (captureFailed({ body, frontmatter: data })) {
       // Live fetch failed — the wayback fallback gets one shot before this counts as a failure.
       if (!(await waybackRecover(relativePath))) return "still_failed";
       ({ data, body } = parseMarkdownFile(filePath));
-      if (body.includes(NO_SOURCE_MARKER)) return "still_failed";
+      if (captureFailed({ body, frontmatter: data })) return "still_failed";
     }
     // A recovered item's existing connections were judged from STUB content — flag it for the
     // nightly weave drain so the connection pass reruns against the real source. (redigest's

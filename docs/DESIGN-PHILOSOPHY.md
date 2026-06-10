@@ -124,6 +124,8 @@ Every action should have visible feedback:
 - Prefer outlined icons over filled
 - Size 16-20px for inline/button icons
 - Don't use emojis in UI (unless in user content)
+- Standalone utility actions in dense secondary chrome should usually be icon-only with native titles/aria labels. A refresh/status/more button does not need a text label when the icon is familiar and the surrounding toolbar already supplies context.
+- Binary toggle buttons should use a quiet pressed/depressed surface for active state, close to the hover background. Reserve the raised white segmented-control treatment for mutually exclusive choices where the selected option needs to be read at a glance.
 
 ---
 

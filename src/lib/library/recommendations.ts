@@ -9,6 +9,7 @@ import { loadScoringConfig } from "./scoring-config-loader";
 import type { LibraryScoringConfig } from "./scoring-config";
 import { readLibraryEvents } from "./events";
 import { hashId } from "./utils";
+import { captureFailed } from "./capture-health";
 
 interface ContextSignal {
   kind: "project" | "task" | "area" | "person" | "recent_save";
@@ -189,12 +190,10 @@ function scoreArtifact(vaultPath: string, artifact: LibraryArtifactDetail, signa
     contextLabel = semantic.label ?? contextLabel;
   }
   const fm = artifact.raw_frontmatter;
-  // Capture health: the trigger is the EXPLICIT empty-cache marker — the item itself records that no
-  // source was captured, so its grade describes a stub. A warm digestion alone does NOT trigger:
-  // warm items often carry real (if partial) content — inline text, X posts, metadata-rich saves —
-  // and remain honestly gradable. Failed captures route to needs_refetch instead of ever being
-  // archive-flagged (user ruling, steering round 1).
-  const extractionOk = !(artifact.content || "").includes("No cached source content available");
+  // Capture health (shared predicate, capture-health.ts): failed captures route to needs_refetch
+  // instead of ever being graded/archive-flagged (user ruling, steering round 1). A warm digestion
+  // alone does NOT trigger — warm items often carry real partial content and stay gradable.
+  const extractionOk = !captureFailed({ body: artifact.content, frontmatter: fm });
   const evaluation = evaluateArtifact({
     connections: connectionSuggestionsForArtifact(artifact),
     contextFit,

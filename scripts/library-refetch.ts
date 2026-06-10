@@ -75,6 +75,60 @@ function findBucket(): RefetchTarget[] {
   return targets.sort((a, b) => a.relative_path.localeCompare(b.relative_path));
 }
 
+/**
+ * Wayback fallback (proven manually on the openai harness-engineering 403, 2026-06-10): when the
+ * live fetch fails — paywall, bot-block, dead page — try the most recent archive.org snapshot.
+ * The Wayback Machine doesn't bot-block, so this recovers exactly the class the live path can't.
+ * On success the extract is cached into Raw Content with a `source_recovered_from` provenance
+ * stamp, then a cache-preferring redigest rebuilds the digest from it.
+ */
+async function waybackRecover(relativePath: string): Promise<boolean> {
+  const filePath = path.join(vaultPath, relativePath);
+  let parsed: ReturnType<typeof parseMarkdownFile>;
+  try { parsed = parseMarkdownFile(filePath); } catch { return false; }
+  const { data, body } = parsed;
+  const url = String(data.url || "");
+  if (!/^https?:\/\//.test(url) || !body.includes(NO_SOURCE_MARKER)) return false;
+
+  let snapshotUrl: string | null = null;
+  try {
+    const response = await fetch(`http://archive.org/wayback/available?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(20_000) });
+    const closest = ((await response.json()) as { archived_snapshots?: { closest?: { available?: boolean; url?: string } } })?.archived_snapshots?.closest;
+    if (closest?.available && typeof closest.url === "string") snapshotUrl = closest.url;
+  } catch { return false; }
+  if (!snapshotUrl) return false;
+
+  const summarizeBin = process.env.SUMMARIZE_BIN || "summarize";
+  let extract = "";
+  try {
+    const { stdout } = await execFileAsync(
+      summarizeBin,
+      [snapshotUrl, "--extract", "--format", "md", "--plain", "--no-color", "--timeout", "90s"],
+      { timeout: 120_000, maxBuffer: 1024 * 1024 * 16 },
+    );
+    extract = stdout.trim();
+  } catch { return false; }
+  // A thin extract is usually the archive's own chrome or a captured error page — don't cache junk.
+  if (extract.length < 800) return false;
+
+  fs.writeFileSync(filePath, stringifyMarkdown(
+    { ...data, source_recovered_from: snapshotUrl },
+    body.replace(/No cached source content available\.?/, extract),
+  ), "utf-8");
+
+  // Cache-preferring redigest (no --refetch): rebuild the digest from the recovered text.
+  const tsxBin = fs.existsSync("node_modules/.bin/tsx") ? "node_modules/.bin/tsx" : "npx";
+  const prefix = tsxBin === "npx" ? ["tsx"] : [];
+  try {
+    await execFileAsync(
+      tsxBin,
+      [...prefix, "scripts/library-redigest.ts", "--write", "--path", relativePath, "--limit", "1"],
+      { env: { ...process.env, BRIDGE_VAULT_PATH: vaultPath, LIBRARY_CONNECTIONS_DISABLED: "1" }, maxBuffer: 1024 * 1024 * 16, timeout: 420_000 },
+    );
+  } catch { return false; }
+  return true;
+}
+
 async function refetchOne(relativePath: string): Promise<"recovered" | "still_failed" | "error"> {
   const tsxBin = fs.existsSync("node_modules/.bin/tsx") ? "node_modules/.bin/tsx" : "npx";
   const prefix = tsxBin === "npx" ? ["tsx"] : [];
@@ -100,8 +154,13 @@ async function refetchOne(relativePath: string): Promise<"recovered" | "still_fa
   // Ground truth is the file itself: marker gone ⇒ a real source cache landed.
   try {
     const filePath = path.join(vaultPath, relativePath);
-    const { data, body } = parseMarkdownFile(filePath);
-    if (body.includes(NO_SOURCE_MARKER)) return "still_failed";
+    let { data, body } = parseMarkdownFile(filePath);
+    if (body.includes(NO_SOURCE_MARKER)) {
+      // Live fetch failed — the wayback fallback gets one shot before this counts as a failure.
+      if (!(await waybackRecover(relativePath))) return "still_failed";
+      ({ data, body } = parseMarkdownFile(filePath));
+      if (body.includes(NO_SOURCE_MARKER)) return "still_failed";
+    }
     // A recovered item's existing connections were judged from STUB content — flag it for the
     // nightly weave drain so the connection pass reruns against the real source. (redigest's
     // mergeFrontmatter preserves old reconnected_at, which would otherwise hide it from the drain.)

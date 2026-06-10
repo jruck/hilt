@@ -271,7 +271,9 @@ async function main() {
       url: String(parsed.data.url || ""),
       title: rawTitle,
       author: typeof parsed.data.author === "string" ? parsed.data.author : undefined,
-      date: String(parsed.data.published || parsed.data.captured || parsed.data.digested || new Date().toISOString()),
+      // No invented dates: a refetch/redigest must never clobber `published` with TODAY when the
+      // file carries no date (mergeFrontmatter keeps existing.published on an empty raw.date).
+      date: String(parsed.data.published || parsed.data.captured || parsed.data.created || parsed.data.digested || ""),
       thumbnail: thumbnailFromData(parsed.data),
       content: rawContent,
       metadata: {

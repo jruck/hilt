@@ -548,7 +548,9 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
   const handleRestoreLayout = useCallback(() => {
     const renderer = rendererRef.current;
     if (!renderer || !decoded) return;
-    renderer.setPositions(decoded.positions);
+    // refit=true: the camera was framed for the relaxed (usually more compact) layout —
+    // snap the frame back along with the positions.
+    renderer.setPositions(decoded.positions, true);
     setReflowed(false);
   }, [decoded]);
   const handleToggleLiveSim = useCallback(() => {

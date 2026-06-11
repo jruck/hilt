@@ -1,3 +1,5 @@
+import { withBasePath } from "@/lib/base-path";
+
 export type LandingView = "briefings" | "bridge";
 
 /**
@@ -12,7 +14,7 @@ export async function chooseLandingView(
   fetchImpl: typeof fetch = fetch,
 ): Promise<LandingView> {
   try {
-    const res = await fetchImpl("/api/bridge/briefings");
+    const res = await fetchImpl(withBasePath("/api/bridge/briefings"));
     if (!res.ok) return "bridge";
     const list = await res.json();
     return Array.isArray(list) && list.length > 0 ? "briefings" : "bridge";

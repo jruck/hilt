@@ -19,6 +19,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Typography from "@tiptap/extension-typography";
 import { FileHandler } from "@tiptap/extension-file-handler";
 import { Markdown } from "tiptap-markdown";
+import { getBasePath, withBasePath } from "@/lib/base-path";
 
 // Client-safe path utilities (no Node.js path module)
 function dirname(p: string): string {
@@ -76,7 +77,7 @@ function preprocessMarkdown(
       const absPath = trimmed.includes("/")
         ? resolvePath(fileDir, trimmed)
         : resolvePath(fileDir, "media/" + trimmed);
-      const url = `/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(vaultPath)}`;
+      const url = withBasePath(`/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(vaultPath)}`);
       return `![${altText}](${url})`;
     }
   );
@@ -103,11 +104,11 @@ function preprocessMarkdown(
     (match, alt: string, src: string) => {
       const trimmedSrc = src.trim();
       // Skip absolute URLs and already-converted API URLs
-      if (trimmedSrc.startsWith("http://") || trimmedSrc.startsWith("https://") || trimmedSrc.startsWith("/api/")) {
+      if (trimmedSrc.startsWith("http://") || trimmedSrc.startsWith("https://") || trimmedSrc.startsWith("/api/") || trimmedSrc.startsWith(withBasePath("/api/"))) {
         return match;
       }
       const absPath = resolvePath(fileDir, trimmedSrc);
-      const url = `/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(vaultPath)}`;
+      const url = withBasePath(`/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(vaultPath)}`);
       return `![${alt}](${url})`;
     }
   );
@@ -117,13 +118,13 @@ function preprocessMarkdown(
     /(?<!!)\[([^\]]*?)\]\(([^)]+)\)/g,
     (match, text: string, href: string) => {
       const trimmedHref = href.trim();
-      if (trimmedHref.startsWith("http://") || trimmedHref.startsWith("https://") || trimmedHref.startsWith("/api/") || trimmedHref.startsWith("#")) {
+      if (trimmedHref.startsWith("http://") || trimmedHref.startsWith("https://") || trimmedHref.startsWith("/api/") || trimmedHref.startsWith(withBasePath("/api/")) || trimmedHref.startsWith("#")) {
         return match;
       }
       // Only convert paths that look like local file references (have an extension)
       if (!/\.\w+$/.test(trimmedHref)) return match;
       const absPath = resolvePath(fileDir, trimmedHref);
-      const url = `/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(vaultPath)}`;
+      const url = withBasePath(`/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(vaultPath)}`);
       return `[${text}](${url})`;
     }
   );
@@ -143,6 +144,12 @@ function postprocessMarkdown(
   if (!vaultPath || !filePath) return md;
 
   const fileDir = dirname(filePath);
+
+  // Strip the gateway base path so the /api/docs/raw conversions below match.
+  const base = getBasePath();
+  if (base) {
+    md = md.split(`](${base}/api/docs/raw?`).join("](/api/docs/raw?");
+  }
 
   // Convert wikilink hashes back: [display](#wikilink:...) → [[target|display]]
   let result = md.replace(
@@ -251,12 +258,12 @@ async function uploadFile(
   form.append("scope", vaultPath);
   form.append("fileDir", fileDir);
 
-  const res = await fetch("/api/bridge/upload", { method: "POST", body: form });
+  const res = await fetch(withBasePath("/api/bridge/upload"), { method: "POST", body: form });
   if (!res.ok) return null;
   const { relativePath: relPath } = await res.json();
 
   const absPath = resolvePath(fileDir, relPath);
-  const url = `/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(vaultPath)}`;
+  const url = withBasePath(`/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(vaultPath)}`);
   return { url, relPath };
 }
 

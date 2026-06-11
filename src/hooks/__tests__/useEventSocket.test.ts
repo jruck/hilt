@@ -42,13 +42,8 @@ class MockWebSocket {
   }
 }
 
-// Mock fetch for port discovery
-global.fetch = vi.fn(() =>
-  Promise.resolve({
-    ok: true,
-    json: () => Promise.resolve({ port: 3001 }),
-  } as Response)
-);
+// No port discovery: the socket URL is same-origin + base path (no explicit
+// port), so the hook never fetches /api/ws-port.
 
 describe("useEventSocket", () => {
   beforeEach(() => {
@@ -176,10 +171,12 @@ describe("useEventSocket", () => {
     });
   });
 
-  // Plan 005 regression: the event socket must connect to the host the
-  // renderer was loaded from (the selected source), not a hardcoded localhost,
-  // so navigate intents from a remote source's ws-server reach this client.
-  describe("websocket url host", () => {
+  // Gateway regression (supersedes the plan-005 host:port derivation): the
+  // event socket must connect same-origin — the exact host:port the renderer
+  // was loaded from — plus NEXT_PUBLIC_BASE_PATH, with no separate ws port.
+  // That is what lets /events ride the single Tailscale Serve route
+  // (/hilt -> :3000) from laptop and phone, not just localhost.
+  describe("websocket url derivation", () => {
     function captureUrls(): string[] {
       const urls: string[] = [];
       class CaptureWS extends MockWebSocket {
@@ -194,25 +191,26 @@ describe("useEventSocket", () => {
     }
 
     function withLocation(
-      loc: { protocol: string; hostname: string },
+      loc: { protocol: string; host: string },
       run: () => Promise<void>,
     ): Promise<void> {
       const orig = Object.getOwnPropertyDescriptor(window, "location");
       Object.defineProperty(window, "location", { configurable: true, value: loc });
       return run().finally(() => {
         if (orig) Object.defineProperty(window, "location", orig);
+        vi.unstubAllEnvs();
       });
     }
 
-    it("connects to window.location.hostname, never localhost", async () => {
+    it("connects same-origin (host incl. port), never a separate ws port", async () => {
       vi.useRealTimers();
       const urls = captureUrls();
       await withLocation(
-        { protocol: "http:", hostname: "mac-mini.tailnet.ts.net" },
+        { protocol: "http:", host: "mac-mini.tailnet.ts.net:3000" },
         async () => {
           renderHook(() => useEventSocket());
           await waitFor(() => expect(urls.length).toBeGreaterThan(0));
-          expect(urls[0]).toBe("ws://mac-mini.tailnet.ts.net:3001/events");
+          expect(urls[0]).toBe("ws://mac-mini.tailnet.ts.net:3000/events");
           expect(urls.every((u) => !u.includes("localhost"))).toBe(true);
         },
       );
@@ -222,11 +220,25 @@ describe("useEventSocket", () => {
       vi.useRealTimers();
       const urls = captureUrls();
       await withLocation(
-        { protocol: "https:", hostname: "hilt.example.ts.net" },
+        { protocol: "https:", host: "hilt.example.ts.net" },
         async () => {
           renderHook(() => useEventSocket());
           await waitFor(() => expect(urls.length).toBeGreaterThan(0));
-          expect(urls[0]).toBe("wss://hilt.example.ts.net:3001/events");
+          expect(urls[0]).toBe("wss://hilt.example.ts.net/events");
+        },
+      );
+    });
+
+    it("prefixes the path with NEXT_PUBLIC_BASE_PATH in gateway mode", async () => {
+      vi.useRealTimers();
+      vi.stubEnv("NEXT_PUBLIC_BASE_PATH", "/hilt");
+      const urls = captureUrls();
+      await withLocation(
+        { protocol: "https:", host: "xochipilli.tailc0acaa.ts.net" },
+        async () => {
+          renderHook(() => useEventSocket());
+          await waitFor(() => expect(urls.length).toBeGreaterThan(0));
+          expect(urls[0]).toBe("wss://xochipilli.tailc0acaa.ts.net/hilt/events");
         },
       );
     });

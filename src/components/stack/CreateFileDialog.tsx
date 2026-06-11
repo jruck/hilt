@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { X, Save } from "lucide-react";
 import type { ConfigFile } from "@/lib/claude-config/types";
+import { withBasePath } from "@/lib/base-path";
 
 interface CreateFileDialogProps {
   file: ConfigFile;
@@ -90,7 +91,7 @@ export function CreateFileDialog({ file, onClose, onCreated }: CreateFileDialogP
     setError(null);
 
     try {
-      const response = await fetch("/api/claude-stack/file", {
+      const response = await fetch(withBasePath("/api/claude-stack/file"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

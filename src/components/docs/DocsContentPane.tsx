@@ -17,6 +17,7 @@ import { CSVTableViewer } from "./CSVTableViewer";
 import { CodeViewer } from "./CodeViewer";
 import { LoadingState } from "@/components/ui/LoadingState";
 import type { FileNode } from "@/lib/types";
+import { withBasePath } from "@/lib/base-path";
 
 // File extensions by type
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp"]);
@@ -173,7 +174,7 @@ export function DocsContentPane({
   // Reveal file in Finder
   const handleRevealInFinder = useCallback(async () => {
     if (!filePath) return;
-    await fetch("/api/reveal", {
+    await fetch(withBasePath("/api/reveal"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: filePath }),
@@ -183,7 +184,7 @@ export function DocsContentPane({
   // Open file in new browser tab (for PDFs and images)
   const handleOpenInNewTab = useCallback(() => {
     if (!filePath || !scopePath) return;
-    const url = `/api/docs/raw?path=${encodeURIComponent(filePath)}&scope=${encodeURIComponent(scopePath)}`;
+    const url = withBasePath(`/api/docs/raw?path=${encodeURIComponent(filePath)}&scope=${encodeURIComponent(scopePath)}`);
     window.open(url, "_blank");
   }, [filePath, scopePath]);
 

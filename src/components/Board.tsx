@@ -18,6 +18,7 @@ import { PullToRefresh } from "./PullToRefresh";
 import { MobileChromeProvider } from "@/contexts/MobileChromeContext";
 import { CALENDAR_EVENT_OPEN_EVENT, PENDING_CALENDAR_EVENT_STORAGE_KEY, type CalendarEventOpenDetail } from "@/lib/calendar/deeplink";
 import { isSystemMode, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode, type SystemMode } from "@/lib/system/navigation";
+import { withBasePath } from "@/lib/base-path";
 
 const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.DocsView })), { ssr: false });
 const BridgeView = dynamic(() => import("./bridge/BridgeView").then(m => ({ default: m.BridgeView })), { ssr: false });
@@ -221,7 +222,7 @@ export function Board() {
   // Persist view mode to server when it changes (skip during initial hydration)
   useEffect(() => {
     if (isHydrated) {
-      fetch("/api/preferences", {
+      fetch(withBasePath("/api/preferences"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: "viewMode", value: viewMode }),
@@ -237,7 +238,7 @@ export function Board() {
     if (!isHydrated) return;
     if (workingFolder !== undefined) return;
 
-    fetch("/api/folders")
+    fetch(withBasePath("/api/folders"))
       .then((res) => res.json())
       .then((data) => {
         setWorkingFolder(data.workingFolder || data.homeDir);

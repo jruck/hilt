@@ -11,6 +11,7 @@ import rehypeRaw from "rehype-raw";
 import { MermaidBlock } from "./MermaidBlock";
 import type { FileNode } from "@/lib/types";
 import { resolveWikilink, parseWikilinks, parseImageWikilinks } from "@/lib/docs/wikilink-resolver";
+import { withBasePath } from "@/lib/base-path";
 import * as path from "path";
 
 /** Extract YAML frontmatter key-value pairs from markdown. Returns null if no frontmatter. */
@@ -214,7 +215,7 @@ export function DocsEditor({
     }
 
     let cancelled = false;
-    fetch("/api/docs/resolve-links", {
+    fetch(withBasePath("/api/docs/resolve-links"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -271,7 +272,7 @@ export function DocsEditor({
         }
       }
 
-      const imageUrl = `/api/docs/raw?path=${encodeURIComponent(imagePath)}&scope=${encodeURIComponent(scopePath)}`;
+      const imageUrl = withBasePath(`/api/docs/raw?path=${encodeURIComponent(imagePath)}&scope=${encodeURIComponent(scopePath)}`);
       replacements.push({
         start: img.start,
         end: img.end,
@@ -312,7 +313,7 @@ export function DocsEditor({
         const absPath = src.startsWith("/")
           ? path.join(scopePath, src)
           : path.resolve(currentDir, src);
-        const url = `/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(scopePath)}`;
+        const url = withBasePath(`/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(scopePath)}`);
         return `![${alt}](${url})`;
       }
     );

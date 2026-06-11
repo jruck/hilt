@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { withBasePath } from "@/lib/base-path";
 
 interface BriefingSummary {
   date: string;
@@ -47,8 +48,8 @@ export function useBriefings() {
     setIsLoadingList(true);
     try {
       const [listRes, stateRes] = await Promise.all([
-        fetch("/api/bridge/briefings"),
-        fetch("/api/bridge/briefings/read-state"),
+        fetch(withBasePath("/api/bridge/briefings")),
+        fetch(withBasePath("/api/bridge/briefings/read-state")),
       ]);
       if (!listRes.ok) throw new Error("Failed to fetch briefings");
       const data: BriefingSummary[] = await listRes.json();
@@ -78,7 +79,7 @@ export function useBriefings() {
     setRetryStatus("idle");
     setRetryMessage(null);
     try {
-      const res = await fetch("/api/bridge/briefings/retry", {
+      const res = await fetch(withBasePath("/api/bridge/briefings/retry"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date }),
@@ -106,7 +107,7 @@ export function useBriefings() {
     let cancelled = false;
     setIsLoadingContent(true);
 
-    fetch(`/api/bridge/briefings/${selectedDate}`)
+    fetch(withBasePath(`/api/bridge/briefings/${selectedDate}`))
       .then((res) => {
         if (!res.ok) throw new Error("Not found");
         return res.json();
@@ -116,7 +117,7 @@ export function useBriefings() {
           setBriefing(data);
           // Mark as read via server (syncs across devices)
           setHasUnread(false);
-          fetch("/api/bridge/briefings/read-state", {
+          fetch(withBasePath("/api/bridge/briefings/read-state"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ lastRead: data.date }),

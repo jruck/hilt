@@ -5,6 +5,7 @@ import { Server, Terminal, Globe, ExternalLink, User, Tag, Check, X, Pencil, Sav
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { MCPServerConfig } from "@/lib/claude-config/types";
 import { openExternal } from "@/lib/openExternal";
+import { withBasePath } from "@/lib/base-path";
 
 interface MCPServerDetailProps {
   server: MCPServerConfig;
@@ -34,7 +35,7 @@ export function MCPServerDetail({ server, onToggleEnabled, onServerUpdated }: MC
 
   const handleRevealInFinder = useCallback(async () => {
     if (server.source) {
-      await fetch("/api/reveal", {
+      await fetch(withBasePath("/api/reveal"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: server.source }),
@@ -73,7 +74,7 @@ export function MCPServerDetail({ server, onToggleEnabled, onServerUpdated }: MC
       // Validate JSON
       const config = JSON.parse(editValue);
 
-      const response = await fetch("/api/claude-stack/mcp", {
+      const response = await fetch(withBasePath("/api/claude-stack/mcp"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ serverName: server.name, config }),

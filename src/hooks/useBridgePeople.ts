@@ -4,8 +4,9 @@ import { useEffect, useRef } from "react";
 import useSWR from "swr";
 import type { BridgePeopleResponse } from "@/lib/types";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
+import { withBasePath } from "@/lib/base-path";
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+const fetcher = (url: string) => fetch(withBasePath(url)).then((res) => res.json());
 
 export function useBridgePeople() {
   const { connected, subscribe, unsubscribe, on } = useEventSocketContext();

@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import type { BridgeWeekly, BridgeTask } from "@/lib/types";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
+import { withBasePath } from "@/lib/base-path";
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+const fetcher = (url: string) => fetch(withBasePath(url)).then((res) => res.json());
 
 export function useBridgeWeekly() {
   const { connected, subscribe, unsubscribe, on } = useEventSocketContext();
@@ -62,7 +63,7 @@ export function useBridgeWeekly() {
       mutate({ ...data, tasks: updatedTasks }, false);
     }
 
-    await fetch(`/api/bridge/tasks/${id}`, {
+    await fetch(withBasePath(`/api/bridge/tasks/${id}`), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ done }),
@@ -83,7 +84,7 @@ export function useBridgeWeekly() {
       mutate({ ...data, tasks: reassigned }, false);
     }
 
-    await fetch("/api/bridge/tasks/reorder", {
+    await fetch(withBasePath("/api/bridge/tasks/reorder"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ order, groupUpdates }),
@@ -99,7 +100,7 @@ export function useBridgeWeekly() {
       mutate({ ...data, tasks: updatedTasks }, false);
     }
 
-    await fetch(`/api/bridge/tasks/${id}`, {
+    await fetch(withBasePath(`/api/bridge/tasks/${id}`), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ details }),
@@ -115,7 +116,7 @@ export function useBridgeWeekly() {
       mutate({ ...data, tasks: updatedTasks }, false);
     }
 
-    await fetch(`/api/bridge/tasks/${id}`, {
+    await fetch(withBasePath(`/api/bridge/tasks/${id}`), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title }),
@@ -131,7 +132,7 @@ export function useBridgeWeekly() {
       mutate({ ...data, tasks: updatedTasks }, false);
     }
 
-    await fetch(`/api/bridge/tasks/${id}`, {
+    await fetch(withBasePath(`/api/bridge/tasks/${id}`), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dueDate }),
@@ -144,7 +145,7 @@ export function useBridgeWeekly() {
       mutate({ ...data, notes }, false);
     }
 
-    await fetch("/api/bridge/notes", {
+    await fetch(withBasePath("/api/bridge/notes"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ notes }),
@@ -158,7 +159,7 @@ export function useBridgeWeekly() {
       mutate({ ...data, tasks: filtered }, false);
     }
 
-    await fetch(`/api/bridge/tasks/${id}`, { method: "DELETE" });
+    await fetch(withBasePath(`/api/bridge/tasks/${id}`), { method: "DELETE" });
     // No revalidation — the optimistic filter is the correct final state.
     // Revalidating would re-fetch position-based IDs (task-0, task-1, ...)
     // that shift after removal, causing React key collisions and a brief
@@ -183,7 +184,7 @@ export function useBridgeWeekly() {
       mutate({ ...data, tasks: [newTask, ...reindexed] }, false);
     }
 
-    await fetch("/api/bridge/tasks", {
+    await fetch(withBasePath("/api/bridge/tasks"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title }),
@@ -207,7 +208,7 @@ export function useBridgeWeekly() {
       mutate({ ...data, tasks: updatedTasks }, false);
     }
 
-    await fetch(`/api/bridge/tasks/${id}`, {
+    await fetch(withBasePath(`/api/bridge/tasks/${id}`), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ projectPaths: newPaths, projectTitles }),
@@ -227,7 +228,7 @@ export function useBridgeWeekly() {
       mutate({ ...data, tasks: updatedTasks }, false);
     }
 
-    await fetch(`/api/bridge/tasks/${id}`, {
+    await fetch(withBasePath(`/api/bridge/tasks/${id}`), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ projectPaths: newPaths, projectTitles }),
@@ -240,7 +241,7 @@ export function useBridgeWeekly() {
       mutate({ ...data, accomplishments }, false);
     }
 
-    await fetch("/api/bridge/accomplishments", {
+    await fetch(withBasePath("/api/bridge/accomplishments"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ accomplishments, week }),
@@ -249,7 +250,7 @@ export function useBridgeWeekly() {
   }
 
   async function recycle(carry: string[], newWeek: string, notes?: string, accomplishments?: string) {
-    const res = await fetch("/api/bridge/recycle", {
+    const res = await fetch(withBasePath("/api/bridge/recycle"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ carry, newWeek, notes, accomplishments }),

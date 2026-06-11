@@ -4,7 +4,18 @@ const remoteHost = process.env.NEXT_PUBLIC_REMOTE_HOST
   ?.replace(/^https?:\/\//, "")
   .replace(/\/$/, "");
 
+// Optional base path for gateway mode (Tailscale Serve /hilt -> :3000).
+// Normalized to a leading slash with no trailing slash; unset => "" =>
+// ordinary unprefixed dev. Keep this in sync with src/lib/base-path.ts.
+const rawBasePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+const basePath =
+  rawBasePath && rawBasePath !== "/"
+    ? `/${rawBasePath.replace(/^\/+|\/+$/g, "")}`
+    : "";
+
 const nextConfig: NextConfig = {
+  ...(basePath ? { basePath } : {}),
+
   // Dev indicators render in DOM but hidden by CSS.
   // Revealed via double-Command dev mode toggle.
 
@@ -32,6 +43,9 @@ const nextConfig: NextConfig = {
     HILT_GRAPH_ENABLED: process.env.HILT_GRAPH_ENABLED,
     HILT_GRAPH_TAGS: process.env.HILT_GRAPH_TAGS,
     HILT_GRAPH_SEMANTIC: process.env.HILT_GRAPH_SEMANTIC,
+    // Inline the normalized base path so src/lib/base-path.ts and the
+    // ws bootstrap in useEventSocket see a canonical value.
+    NEXT_PUBLIC_BASE_PATH: basePath,
   },
 
   allowedDevOrigins: remoteHost ? [remoteHost] : [],

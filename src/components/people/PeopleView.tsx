@@ -15,6 +15,7 @@ import { MeetingEntry } from "./MeetingEntry";
 import { GranolaSyncControl } from "./GranolaSyncControl";
 import type { MeetingFilter } from "./PersonMeetingList";
 import type { BridgePerson, PersonCalendarCandidate, PersonMeeting, SuggestedMeeting } from "@/lib/types";
+import { withBasePath } from "@/lib/base-path";
 
 const INBOX_SLUG = "__inbox__";
 const SUGGESTED_PREFIX = "__suggested__/";
@@ -144,7 +145,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
 
   const handleSelectCalendarCandidate = useCallback(async (candidate: PersonCalendarCandidate) => {
     if (!supportsNext || !selectedSlug || !activePersonDetail) return;
-    const response = await fetch(`/api/bridge/people/${selectedSlug}/next`, {
+    const response = await fetch(withBasePath(`/api/bridge/people/${selectedSlug}/next`), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -292,7 +293,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
 
   const handlePromoteSuggested = useCallback(
     async (input: { name: string; type: "person" | "group"; description: string }) => {
-      const response = await fetch("/api/bridge/people/suggestions/promote", {
+      const response = await fetch(withBasePath("/api/bridge/people/suggestions/promote"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),
@@ -315,7 +316,7 @@ export function PeopleView({ searchQuery = "" }: PeopleViewProps) {
 
   const handleHideSuggested = useCallback(
     async (suggestion: SuggestedMeeting) => {
-      const response = await fetch("/api/bridge/people/suggestions/hide", {
+      const response = await fetch(withBasePath("/api/bridge/people/suggestions/hide"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(suggestion),

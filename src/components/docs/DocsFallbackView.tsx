@@ -3,6 +3,7 @@
 import { File, FileText, FileCode, FileJson, Image, FolderOpen, Copy, Check } from "lucide-react";
 import { useState } from "react";
 import * as path from "path";
+import { withBasePath } from "@/lib/base-path";
 
 // File icons by extension
 const FILE_ICONS: Record<string, typeof File> = {
@@ -70,7 +71,7 @@ export function DocsFallbackView({ filePath, size, mimeType, isLargeFile }: Docs
 
   const handleOpenInFinder = async () => {
     try {
-      await fetch("/api/shell/reveal", {
+      await fetch(withBasePath("/api/shell/reveal"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: filePath }),

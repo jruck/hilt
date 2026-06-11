@@ -78,7 +78,7 @@ function releaseLock(): void {
 async function findAvailablePort(startPort: number): Promise<number> {
   return new Promise((resolve) => {
     const server = http.createServer();
-    server.listen(startPort, () => {
+    server.listen(startPort, "127.0.0.1", () => {
       const address = server.address();
       const port = typeof address === "object" && address ? address.port : startPort;
       server.close(() => resolve(port));
@@ -363,9 +363,13 @@ async function startServer() {
     }
   });
 
-  httpServer.listen(port, () => {
-    console.log(`HTTP server listening on port ${port}`);
-    console.log(`  Events WebSocket: ws://localhost:${port}/events`);
+  // Loopback only: remote devices reach real-time events through the
+  // authenticated Serve origin (server/app-server.ts proxies
+  // `${basePath}/events` here), never a raw open port. /navigate likewise
+  // stays a localhost-only POST — agents that use it run on this machine.
+  httpServer.listen(port, "127.0.0.1", () => {
+    console.log(`HTTP server listening on 127.0.0.1:${port}`);
+    console.log(`  Events WebSocket: ws://127.0.0.1:${port}/events (reached via app-server's /events proxy)`);
   });
 
   // Handle graceful shutdown

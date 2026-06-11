@@ -2,9 +2,10 @@
 
 import useSWR from "swr";
 import type { PersonDetail } from "@/lib/types";
+import { withBasePath } from "@/lib/base-path";
 
 const fetcher = async (url: string) => {
-  const res = await fetch(url);
+  const res = await fetch(withBasePath(url));
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     throw new Error(data?.error || `Failed to fetch person detail (${res.status})`);

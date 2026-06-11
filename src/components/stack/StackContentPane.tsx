@@ -8,6 +8,7 @@ import { CodeViewer } from "@/components/docs/CodeViewer";
 import { DocsEditToggle } from "@/components/docs/DocsEditToggle";
 import { LoadingState } from "@/components/ui/LoadingState";
 import type { ConfigFile, ConfigLayer, ConfigFileType } from "@/lib/claude-config/types";
+import { withBasePath } from "@/lib/base-path";
 
 // Dynamic import for MDXEditor (no SSR)
 const DocsEditor = dynamic(
@@ -167,7 +168,7 @@ export function StackContentPane({
     setSaveError(null);
 
     try {
-      const response = await fetch("/api/claude-stack/file", {
+      const response = await fetch(withBasePath("/api/claude-stack/file"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -261,7 +262,7 @@ export function StackContentPane({
 
   const handleRevealInFinder = useCallback(async () => {
     if (!file?.path) return;
-    await fetch("/api/reveal", {
+    await fetch(withBasePath("/api/reveal"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: file.path }),

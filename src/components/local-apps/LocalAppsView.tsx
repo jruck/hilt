@@ -15,6 +15,7 @@ import { SecondaryIconButton, SecondaryToolbar } from "@/components/layout/Secon
 import { LoadingState } from "@/components/ui/LoadingState";
 import { preserveLocalAppsPreviews } from "@/lib/local-apps/preview-merge";
 import type { LocalAppsMachineSnapshot, LocalAppsResponse, Service, ServiceGroup } from "@/lib/local-apps/types";
+import { withBasePath } from "@/lib/base-path";
 
 interface LocalAppsViewProps {
   searchQuery?: string;
@@ -58,7 +59,7 @@ export function LocalAppsView({ searchQuery = "", modeSwitcher }: LocalAppsViewP
   const load = useCallback(async () => {
     try {
       setError(null);
-      const res = await fetch("/api/local-apps", { cache: "no-store" });
+      const res = await fetch(withBasePath("/api/local-apps"), { cache: "no-store" });
       const data = await res.json();
       applySnapshot(data);
     } catch (err) {
@@ -75,7 +76,7 @@ export function LocalAppsView({ searchQuery = "", modeSwitcher }: LocalAppsViewP
     try {
       setRefreshing(true);
       setError(null);
-      const res = await fetch("/api/local-apps/refresh", { method: "POST", cache: "no-store" });
+      const res = await fetch(withBasePath("/api/local-apps/refresh"), { method: "POST", cache: "no-store" });
       const data = await res.json();
       applySnapshot(data);
       lastPreviewRefreshAt.current = Date.now();
@@ -406,9 +407,9 @@ function previewUrlForService(service: Service, machine: LocalAppsMachineSnapsho
   if (!service.preview?.path) return null;
   const filename = service.preview.path.split("/").pop() || "";
   if (!filename) return null;
-  const route = `/api/local-apps/previews/${encodeURIComponent(filename)}`;
+  const route = withBasePath(`/api/local-apps/previews/${encodeURIComponent(filename)}`);
   if (!machine.source_url) return route;
-  return `/api/local-apps/remote-preview?machine=${encodeURIComponent(machine.id)}&filename=${encodeURIComponent(filename)}`;
+  return withBasePath(`/api/local-apps/remote-preview?machine=${encodeURIComponent(machine.id)}&filename=${encodeURIComponent(filename)}`);
 }
 
 function ServiceChip({ service }: { service: Service }) {

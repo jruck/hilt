@@ -25,6 +25,7 @@ import { TranscriptView } from "./TranscriptView";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useScope } from "@/contexts/ScopeContext";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
+import { withBasePath } from "@/lib/base-path";
 
 const BridgeTaskEditor = dynamic(
   () => import("../bridge/BridgeTaskEditor").then((mod) => mod.BridgeTaskEditor),
@@ -418,7 +419,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
 
       try {
         const response = await fetch(
-          isNext ? `/api/bridge/people/${slug}/next` : `/api/bridge/people/${slug}/notes`,
+          withBasePath(isNext ? `/api/bridge/people/${slug}/next` : `/api/bridge/people/${slug}/notes`),
           {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -488,7 +489,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
       if (!newDate || newDate === meeting.date) return;
       setSaveState("saving");
       setSaveError(null);
-      fetch(`/api/bridge/people/${slug}/notes`, {
+      fetch(withBasePath(`/api/bridge/people/${slug}/notes`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ oldDate: meeting.date, newDate, title: noteTitle }),
@@ -527,7 +528,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
     };
 
     if (isNext) {
-      fetch(`/api/bridge/people/${slug}/next`, {
+      fetch(withBasePath(`/api/bridge/people/${slug}/next`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: "", date: null }),
@@ -536,7 +537,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
         setSaveError(err instanceof Error ? err.message : "Clear failed");
       });
     } else if (meeting.source === "inline") {
-      fetch(`/api/bridge/people/${slug}/notes`, {
+      fetch(withBasePath(`/api/bridge/people/${slug}/notes`), {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date: meeting.date, title: noteTitle }),
@@ -556,7 +557,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
   const handleRevealInFinder = useCallback(() => {
     if (!primaryFilePath) return;
     setShowMenu(false);
-    void fetch("/api/reveal", {
+    void fetch(withBasePath("/api/reveal"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: primaryFilePath }),
@@ -581,7 +582,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
     if (showLoading) setTranscriptLoading(true);
     try {
       const scope = vaultPath || "/";
-      const res = await fetch(`/api/docs/file?path=${encodeURIComponent(meeting.transcriptPath)}&scope=${encodeURIComponent(scope)}`, {
+      const res = await fetch(withBasePath(`/api/docs/file?path=${encodeURIComponent(meeting.transcriptPath)}&scope=${encodeURIComponent(scope)}`), {
         cache: "no-store",
       });
       const data = await res.json().catch(() => null);

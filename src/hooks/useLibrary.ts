@@ -4,6 +4,7 @@ import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import type { IngestionReport, LibraryArtifact, LibraryArtifactDetail, LibraryOperationalHealth, LibrarySourceConfig, LibrarySourceSummary, PromotionReason, RecommendedArtifact } from "@/lib/library/types";
 import type { ActiveBatchNote, ReviewQueueEntry, ReviewQueueStatus } from "@/lib/library/review-queue";
+import { withBasePath } from "@/lib/base-path";
 
 export type ReviewQueueArtifact = LibraryArtifact & { review: ReviewQueueEntry };
 
@@ -13,7 +14,7 @@ interface ReviewQueueResponse {
   notes: ActiveBatchNote[];
 }
 
-const fetcher = (url: string) => fetch(url, { cache: "no-store" }).then((res) => {
+const fetcher = (url: string) => fetch(withBasePath(url), { cache: "no-store" }).then((res) => {
   if (!res.ok) throw new Error(`Request failed: ${res.status}`);
   return res.json();
 });
@@ -165,7 +166,7 @@ export function useReviewQueue() {
 }
 
 export async function setReviewStatus(id: string, status: ReviewQueueStatus, note?: string) {
-  const res = await fetch("/api/library/review", {
+  const res = await fetch(withBasePath("/api/library/review"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id, status, note }),
@@ -175,7 +176,7 @@ export async function setReviewStatus(id: string, status: ReviewQueueStatus, not
 }
 
 export async function promoteCandidate(id: string, reason: PromotionReason = "manual_save") {
-  const res = await fetch(`/api/library/candidates/${id}/promote`, {
+  const res = await fetch(withBasePath(`/api/library/candidates/${id}/promote`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ reason }),
@@ -185,7 +186,7 @@ export async function promoteCandidate(id: string, reason: PromotionReason = "ma
 }
 
 export async function updateCandidateStatus(id: string, status: "candidate" | "skipped") {
-  const res = await fetch(`/api/library/candidates/${id}`, {
+  const res = await fetch(withBasePath(`/api/library/candidates/${id}`), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
@@ -212,7 +213,7 @@ export async function ingestLibrarySources(options: {
   limit?: number;
   reweaveTimeoutMs?: number;
 } = {}) {
-  const res = await fetch("/api/sources/ingest", {
+  const res = await fetch(withBasePath("/api/sources/ingest"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(options),
@@ -232,13 +233,13 @@ export async function ingestLibrarySources(options: {
 }
 
 export async function archiveArtifact(id: string) {
-  const res = await fetch(`/api/library/${id}/archive`, { method: "POST" });
+  const res = await fetch(withBasePath(`/api/library/${id}/archive`), { method: "POST" });
   if (!res.ok) throw new Error(`Failed to archive artifact: ${res.status}`);
   return res.json();
 }
 
 export async function markLibraryArtifactsRead(ids: string[]) {
-  const res = await fetch("/api/library/read", {
+  const res = await fetch(withBasePath("/api/library/read"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ids }),
@@ -248,7 +249,7 @@ export async function markLibraryArtifactsRead(ids: string[]) {
 }
 
 export async function markLibraryArtifactsUnread(ids: string[]) {
-  const res = await fetch("/api/library/read", {
+  const res = await fetch(withBasePath("/api/library/read"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ids, unread: true }),

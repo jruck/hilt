@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ScrollbarVisibilityController } from "@/components/ScrollbarVisibilityController";
 import { EventSocketProvider } from "@/contexts/EventSocketContext";
+import { withBasePath } from "@/lib/base-path";
 import "@schedule-x/theme-default/dist/index.css";
 import "./globals.css";
 
@@ -27,8 +28,8 @@ export const metadata: Metadata = {
   title: "Hilt",
   description: "Bridge, Docs, and Stack for your projects",
   icons: {
-    icon: "/favicon.ico",
-    apple: "/apple-touch-icon.png",
+    icon: withBasePath("/favicon.ico"),
+    apple: withBasePath("/apple-touch-icon.png"),
   },
 };
 
@@ -43,7 +44,6 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Hilt" />
-        <link rel="manifest" href="/manifest.json" />
         <ThemeProvider>{null}</ThemeProvider>
       </head>
       <body

@@ -27,6 +27,7 @@ import type {
 import { heatForWindow } from "@/lib/map/activity-heat";
 import { SecondaryIconButton, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
 import { LoadingState } from "@/components/ui/LoadingState";
+import { withBasePath } from "@/lib/base-path";
 
 const WINDOWS: ActivityWindow[] = ["24h", "7d", "30d", "all"];
 
@@ -459,10 +460,10 @@ export function MapView({
     source: sourceFilter,
     searchQuery,
   }), [searchQuery, sourceFilter, statusFilter, window]);
-  const graphEndpoint = apiBase ? `${apiBase}/graph` : "/api/map/local/work-graph";
-  const sessionsEndpoint = apiBase || "/api/map/local/sessions";
-  const detailEndpoint = apiBase ? `${apiBase}/detail` : "/api/map/local/session-detail";
-  const refreshEndpoint = apiBase ? `${apiBase}/refresh` : "/api/map/local/refresh";
+  const graphEndpoint = withBasePath(apiBase ? `${apiBase}/graph` : "/api/map/local/work-graph");
+  const sessionsEndpoint = withBasePath(apiBase || "/api/map/local/sessions");
+  const detailEndpoint = withBasePath(apiBase ? `${apiBase}/detail` : "/api/map/local/session-detail");
+  const refreshEndpoint = withBasePath(apiBase ? `${apiBase}/refresh` : "/api/map/local/refresh");
   const didApplyFilterReset = useRef(false);
   const lastSessionQueryKey = useRef<string | null>(null);
 

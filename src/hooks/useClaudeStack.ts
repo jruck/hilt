@@ -2,8 +2,9 @@
 
 import useSWR from "swr";
 import type { ClaudeStack, ConfigFileContent } from "@/lib/claude-config/types";
+import { withBasePath } from "@/lib/base-path";
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+const fetcher = (url: string) => fetch(withBasePath(url)).then((res) => res.json());
 
 export function useClaudeStack(scopePath?: string) {
   const scopeParam = scopePath ? `?scope=${encodeURIComponent(scopePath)}` : "";
@@ -38,7 +39,7 @@ export function useConfigFile(filePath?: string, scopePath?: string) {
   const saveFile = async (content: string, createDirectories = false) => {
     if (!filePath) return { success: false, error: "No file path" };
 
-    const response = await fetch("/api/claude-stack/file", {
+    const response = await fetch(withBasePath("/api/claude-stack/file"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: filePath, content, createDirectories }),
@@ -54,7 +55,7 @@ export function useConfigFile(filePath?: string, scopePath?: string) {
   const deleteFile = async () => {
     if (!filePath) return { success: false, error: "No file path" };
 
-    const response = await fetch(`/api/claude-stack/file?path=${encodeURIComponent(filePath)}`, {
+    const response = await fetch(withBasePath(`/api/claude-stack/file?path=${encodeURIComponent(filePath)}`), {
       method: "DELETE",
     });
 

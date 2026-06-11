@@ -2,9 +2,10 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import useSWR from "swr";
 import type { DocsTreeResponse, DocsFileResponse, FileNode } from "@/lib/types";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
+import { withBasePath } from "@/lib/base-path";
 
 const fetcher = async (url: string) => {
-  const res = await fetch(url);
+  const res = await fetch(withBasePath(url));
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: "Unknown error" }));
     throw new Error(error.error || "Failed to fetch");
@@ -73,7 +74,7 @@ function setStoredFolderSort(scope: string, sortMap: Map<string, FolderSortOrder
     localStorage.setItem(FOLDER_SORT_KEY, JSON.stringify(data));
 
     // Also persist to server (syncs across devices via Obsidian Sync)
-    fetch("/api/bridge/preferences", {
+    fetch(withBasePath("/api/bridge/preferences"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key: "folderSort", value: data }),
@@ -86,7 +87,7 @@ function setStoredFolderSort(scope: string, sortMap: Map<string, FolderSortOrder
 /** Load folder sort prefs from server and merge into state */
 async function loadServerFolderSort(scope: string): Promise<Map<string, FolderSortOrder> | null> {
   try {
-    const res = await fetch("/api/bridge/preferences");
+    const res = await fetch(withBasePath("/api/bridge/preferences"));
     if (!res.ok) return null;
     const prefs = await res.json();
     const data = prefs.folderSort;
@@ -409,7 +410,7 @@ export function useDocs(scopePath: string | null): UseDocsResult {
 
     setIsSaving(true);
     try {
-      const response = await fetch("/api/docs/file", {
+      const response = await fetch(withBasePath("/api/docs/file"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

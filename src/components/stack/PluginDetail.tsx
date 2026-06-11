@@ -5,6 +5,7 @@ import { Puzzle, User, Tag, ExternalLink, Server, Calendar, Check, X, Copy, Fold
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { PluginConfig } from "@/lib/claude-config/types";
 import { openExternal } from "@/lib/openExternal";
+import { withBasePath } from "@/lib/base-path";
 
 interface PluginDetailProps {
   plugin: PluginConfig;
@@ -26,7 +27,7 @@ export function PluginDetail({ plugin, onToggleEnabled, onMCPServerClick }: Plug
 
   const handleRevealInFinder = useCallback(async () => {
     if (plugin.installPath) {
-      await fetch("/api/reveal", {
+      await fetch(withBasePath("/api/reveal"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: plugin.installPath }),

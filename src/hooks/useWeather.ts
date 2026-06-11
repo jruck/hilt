@@ -2,6 +2,7 @@
 
 import useSWR, { mutate as mutateCache } from "swr";
 import type { WeatherForecastResponse } from "@/lib/weather/types";
+import { withBasePath } from "@/lib/base-path";
 
 export interface WeatherForecastQuery {
   start: string;
@@ -9,7 +10,7 @@ export interface WeatherForecastQuery {
 }
 
 const fetcher = async <T>(url: string): Promise<T> => {
-  const response = await fetch(url);
+  const response = await fetch(withBasePath(url));
   if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
   return response.json() as Promise<T>;
 };

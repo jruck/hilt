@@ -17,6 +17,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { X, GripVertical, House, Wifi, Plus, Trash2, FolderOpen } from "lucide-react";
 import type { SourceWithStatus } from "@/hooks/useSource";
+import { withBasePath } from "@/lib/base-path";
 
 interface SourceManageModalProps {
   sources: SourceWithStatus[];
@@ -37,7 +38,7 @@ async function pickFolder(): Promise<string | null> {
   }
   // Fallback: osascript-based picker via API
   try {
-    const res = await fetch("/api/folders", { method: "POST" });
+    const res = await fetch(withBasePath("/api/folders"), { method: "POST" });
     if (!res.ok) return null;
     const data = await res.json();
     if (data.cancelled || !data.path) return null;

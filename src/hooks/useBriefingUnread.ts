@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { withBasePath } from "@/lib/base-path";
 
 /**
  * Lightweight hook that checks if there's an unread briefing.
@@ -16,8 +17,8 @@ export function useBriefingUnread() {
     async function check() {
       try {
         const [listRes, stateRes] = await Promise.all([
-          fetch("/api/bridge/briefings"),
-          fetch("/api/bridge/briefings/read-state"),
+          fetch(withBasePath("/api/bridge/briefings")),
+          fetch(withBasePath("/api/bridge/briefings/read-state")),
         ]);
         if (!listRes.ok || !stateRes.ok) return;
 
@@ -57,7 +58,7 @@ export function useBriefingUnread() {
     // Optimistic update
     setHasUnread(false);
     // Persist to server (syncs via Obsidian Sync)
-    fetch("/api/bridge/briefings/read-state", {
+    fetch(withBasePath("/api/bridge/briefings/read-state"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ lastRead: date }),

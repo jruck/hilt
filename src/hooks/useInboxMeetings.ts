@@ -2,8 +2,9 @@
 
 import useSWR from "swr";
 import type { InboxDetail } from "@/lib/types";
+import { withBasePath } from "@/lib/base-path";
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+const fetcher = (url: string) => fetch(withBasePath(url)).then((res) => res.json());
 
 export function useInboxMeetings(enabled: boolean, filterName?: string) {
   const url = filterName

@@ -8,6 +8,7 @@ import type {
   CalendarSource,
   CalendarSyncReport,
 } from "@/lib/calendar/types";
+import { withBasePath } from "@/lib/base-path";
 
 export interface CalendarSourcesResponse {
   sources: CalendarSource[];
@@ -32,7 +33,7 @@ export interface CalendarEventQuery {
 }
 
 const fetcher = async <T>(url: string): Promise<T> => {
-  const response = await fetch(url);
+  const response = await fetch(withBasePath(url));
   if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
   return response.json() as Promise<T>;
 };
@@ -71,7 +72,7 @@ export async function prefetchCalendarCaches(query: CalendarEventQuery): Promise
 }
 
 export async function syncCalendarSources(sourceIds?: string[]): Promise<CalendarSyncReport> {
-  const response = await fetch("/api/calendar/sync", {
+  const response = await fetch(withBasePath("/api/calendar/sync"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sourceIds }),
@@ -83,7 +84,7 @@ export async function syncCalendarSources(sourceIds?: string[]): Promise<Calenda
 }
 
 export async function setCalendarSelected(id: string, selected: boolean): Promise<CalendarDefinition> {
-  const response = await fetch(`/api/calendar/calendars/${encodeURIComponent(id)}`, {
+  const response = await fetch(withBasePath(`/api/calendar/calendars/${encodeURIComponent(id)}`), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ selected }),

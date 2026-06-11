@@ -4,8 +4,9 @@ import { useEffect, useRef } from "react";
 import useSWR from "swr";
 import type { BridgeProjectsResponse, BridgeProjectStatus } from "@/lib/types";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
+import { withBasePath } from "@/lib/base-path";
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+const fetcher = (url: string) => fetch(withBasePath(url)).then((res) => res.json());
 
 export function useBridgeProjects() {
   const { connected, subscribe, unsubscribe, on } = useEventSocketContext();
@@ -59,7 +60,7 @@ export function useBridgeProjects() {
       }
     }
 
-    await fetch("/api/bridge/projects/status", {
+    await fetch(withBasePath("/api/bridge/projects/status"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ projectPath, status }),

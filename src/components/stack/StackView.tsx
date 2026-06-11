@@ -11,6 +11,7 @@ import { MCPServerDetail } from "./MCPServerDetail";
 import { PluginDetail } from "./PluginDetail";
 import { LoadingState } from "@/components/ui/LoadingState";
 import type { ConfigLayer, ConfigFile, MCPServerConfig, PluginConfig } from "@/lib/claude-config/types";
+import { withBasePath } from "@/lib/base-path";
 
 // Sidebar width constraints
 const MIN_SIDEBAR_WIDTH = 200;
@@ -144,7 +145,7 @@ export function StackView({ scopePath, searchQuery = "" }: StackViewProps) {
     }
 
     try {
-      const response = await fetch("/api/claude-stack/mcp", {
+      const response = await fetch(withBasePath("/api/claude-stack/mcp"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pluginId: server.pluginId, enabled }),
@@ -167,7 +168,7 @@ export function StackView({ scopePath, searchQuery = "" }: StackViewProps) {
 
   const handleTogglePlugin = useCallback(async (plugin: PluginConfig, enabled: boolean) => {
     try {
-      const response = await fetch("/api/claude-stack/mcp", {
+      const response = await fetch(withBasePath("/api/claude-stack/mcp"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pluginId: plugin.id, enabled }),

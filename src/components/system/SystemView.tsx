@@ -18,6 +18,7 @@ import { LoadingState } from "@/components/ui/LoadingState";
 import type { ClaudeStack, ConfigFile, ConfigFileContent, ConfigLayer, MCPServerConfig, PluginConfig } from "@/lib/claude-config/types";
 import type { SystemStackSnapshot } from "@/lib/system/stack";
 import type { SystemMode } from "@/lib/system/navigation";
+import { withBasePath } from "@/lib/base-path";
 
 const StackView = dynamic(() => import("@/components/stack").then((m) => ({ default: m.StackView })), { ssr: false });
 // cosmos.gl/luma.gl touch window/document at import time; the WebGL2 Graph must be client-only.
@@ -131,7 +132,7 @@ function SystemStackView({
       setError(null);
       const params = new URLSearchParams();
       if (workingFolder) params.set("project", workingFolder);
-      const response = await fetch(`/api/system/stack?${params.toString()}`, { cache: "no-store" });
+      const response = await fetch(withBasePath(`/api/system/stack?${params.toString()}`), { cache: "no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || `Request failed: ${response.status}`);
       setSnapshots(data.machines || []);
@@ -429,7 +430,7 @@ function ReadOnlyStackFilePane({
       path: selected.file.path,
       project: projectPath,
     });
-    fetch(`/api/system/stack/file?${params.toString()}`, { cache: "no-store", signal: controller.signal })
+    fetch(withBasePath(`/api/system/stack/file?${params.toString()}`), { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok) throw new Error(data?.error || `Request failed: ${response.status}`);

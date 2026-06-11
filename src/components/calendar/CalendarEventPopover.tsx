@@ -19,6 +19,7 @@ import { useScope } from "@/contexts/ScopeContext";
 import { prepareCalendarDescription, type CalendarDescriptionDisplay } from "@/lib/calendar/description";
 import { displayCalendarEventTitle } from "@/lib/calendar/title";
 import type { CalendarEvent, CalendarEventNoteTarget } from "@/lib/calendar/types";
+import { withBasePath } from "@/lib/base-path";
 
 const TIME_ZONE = "America/New_York";
 const JOIN_LABELS: Record<CalendarEvent["joinLinks"][number]["kind"], string> = {
@@ -228,7 +229,7 @@ export function CalendarEventActions({
   const openPeopleNoteTarget = async (target: CalendarEventNoteTarget) => {
     setOpeningNoteTarget(target.slug);
     try {
-      const response = await fetch(`/api/bridge/people/${encodeURIComponent(target.slug)}/next`, {
+      const response = await fetch(withBasePath(`/api/bridge/people/${encodeURIComponent(target.slug)}/next`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

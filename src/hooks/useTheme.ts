@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { withBasePath } from '@/lib/base-path';
 
 export type Theme = 'dark' | 'light' | 'system';
 export type ResolvedTheme = 'dark' | 'light';
@@ -52,7 +53,7 @@ function setThemeInternal(theme: Theme, persist: boolean = true) {
 
     if (persist) {
       // Persist to server
-      fetch('/api/preferences', {
+      fetch(withBasePath('/api/preferences'), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: 'theme', value: theme }),
@@ -72,7 +73,7 @@ if (typeof window !== 'undefined') {
   // Fetch persisted theme from server
   if (!serverFetchDone) {
     serverFetchDone = true;
-    fetch('/api/preferences?key=theme')
+    fetch(withBasePath('/api/preferences?key=theme'))
       .then(res => res.json())
       .then(data => {
         if (data.value && (data.value === 'dark' || data.value === 'light' || data.value === 'system')) {

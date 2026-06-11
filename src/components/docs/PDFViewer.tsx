@@ -3,6 +3,7 @@
 import { useState } from "react";
 import * as path from "path";
 import { LoadingState } from "@/components/ui/LoadingState";
+import { withBasePath } from "@/lib/base-path";
 
 interface PDFViewerProps {
   filePath: string;
@@ -14,7 +15,7 @@ export function PDFViewer({ filePath, scopePath }: PDFViewerProps) {
   const [error, setError] = useState<string | null>(null);
 
   const fileName = path.basename(filePath);
-  const pdfUrl = `/api/docs/raw?path=${encodeURIComponent(filePath)}&scope=${encodeURIComponent(scopePath)}`;
+  const pdfUrl = withBasePath(`/api/docs/raw?path=${encodeURIComponent(filePath)}&scope=${encodeURIComponent(scopePath)}`);
 
   return (
     <div className="flex-1 relative p-12">

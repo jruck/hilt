@@ -13,6 +13,7 @@ import { parseTimedTranscript } from "@/lib/library/transcript";
 import { buildLibraryItemUrl } from "@/lib/library/url";
 import { TO_ARCHIVE_WORTH } from "@/lib/library/library-eval";
 import { LoadingState } from "@/components/ui/LoadingState";
+import { withBasePath } from "@/lib/base-path";
 import { EvalMetricPill, evalMetricTitle, formatEvalScore } from "./EvalMetricPills";
 import { LibraryMarkdown } from "./LibraryMarkdown";
 import { VideoTranscript } from "./VideoTranscript";
@@ -274,7 +275,7 @@ export function LibraryArtifactDetailPane({
     if (!id || !text) return;
     setCommentBusy(true);
     try {
-      await fetch(`/api/library/${id}/feedback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+      await fetch(withBasePath(`/api/library/${id}/feedback`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
       setNewComment("");
       await mutate();
       onChanged?.();
@@ -284,7 +285,7 @@ export function LibraryArtifactDetailPane({
     if (!id || !editingId) return;
     setCommentBusy(true);
     try {
-      await fetch(`/api/library/${id}/feedback`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ commentId: editingId, text: editingText }) });
+      await fetch(withBasePath(`/api/library/${id}/feedback`), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ commentId: editingId, text: editingText }) });
       setEditingId(null);
       await mutate();
     } finally { setCommentBusy(false); }
@@ -293,7 +294,7 @@ export function LibraryArtifactDetailPane({
     if (!id) return;
     setCommentBusy(true);
     try {
-      await fetch(`/api/library/${id}/feedback`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ commentId }) });
+      await fetch(withBasePath(`/api/library/${id}/feedback`), { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ commentId }) });
       await mutate();
       onChanged?.();
     } finally { setCommentBusy(false); }
@@ -303,7 +304,7 @@ export function LibraryArtifactDetailPane({
     if (!id || !text) return;
     setFeedbackSaving(true);
     try {
-      await fetch(`/api/library/${id}/feedback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+      await fetch(withBasePath(`/api/library/${id}/feedback`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
       setFeedbackText("");
       setFeedbackSaved(true);
       await mutate();
@@ -337,7 +338,7 @@ export function LibraryArtifactDetailPane({
   const handleWikilinkNavigate = useCallback(async (target: string) => {
     if (!artifact) return;
     try {
-      const response = await fetch("/api/library/resolve-wikilink", {
+      const response = await fetch(withBasePath("/api/library/resolve-wikilink"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target, currentPath: artifact.path }),

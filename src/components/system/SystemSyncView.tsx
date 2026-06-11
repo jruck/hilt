@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2, Clock3, FileWarning, FolderSync, HardDrive
 import { SecondaryIconButton, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
 import { LoadingState } from "@/components/ui/LoadingState";
 import type { SystemSyncDiskSummary, SystemSyncMachineResult, SystemSyncMachineSnapshot, SystemSyncResponse } from "@/lib/system/sync";
+import { withBasePath } from "@/lib/base-path";
 
 interface SystemSyncViewProps {
   modeSwitcher: ReactNode;
@@ -26,7 +27,7 @@ export function SystemSyncView({ modeSwitcher }: SystemSyncViewProps) {
       setError(null);
       const params = new URLSearchParams();
       if (options.force) params.set("force", "true");
-      const response = await fetch(`/api/system/sync${params.size ? `?${params.toString()}` : ""}`, { cache: "no-store" });
+      const response = await fetch(withBasePath(`/api/system/sync${params.size ? `?${params.toString()}` : ""}`), { cache: "no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || `Request failed: ${response.status}`);
       cachedSystemSyncSnapshot = data as SystemSyncResponse;

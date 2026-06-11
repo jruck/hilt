@@ -52,41 +52,25 @@ export function useEventSocket() {
     []
   );
   const mountedRef = useRef(true);
-  const wsPortRef = useRef<number | null>(null);
 
-  // Fetch WebSocket port from API
-  const fetchPort = useCallback(async (): Promise<number | null> => {
-    if (wsPortRef.current) return wsPortRef.current;
-    if (typeof window === "undefined") return null;
-
-    try {
-      const res = await fetch("/api/ws-port");
-      if (res.ok) {
-        const data = await res.json();
-        wsPortRef.current = data.port;
-        return data.port;
-      }
-    } catch (err) {
-      console.error("[useEventSocket] Failed to fetch WS port:", err);
-    }
-    return null;
-  }, []);
-
-  const connect = useCallback(async () => {
+  const connect = useCallback(() => {
     if (!mountedRef.current) return;
+    if (typeof window === "undefined") return;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
     if (wsRef.current?.readyState === WebSocket.CONNECTING) return;
 
-    const port = await fetchPort();
-    if (!port || !mountedRef.current) return;
-
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    // Connect to the host the renderer was loaded from — not localhost — so a
-    // renderer served from a remote source (e.g. laptop/phone pointed at a
-    // Mac Mini) reaches that source's ws-server, where navigate intents are
-    // broadcast. The `|| "localhost"` covers the file:// / empty-host case.
-    const host = window.location.hostname || "localhost";
-    const url = `${protocol}//${host}:${port}/events`;
+    // Same-origin + base path, no explicit port: the `${basePath}/events`
+    // upgrade is hosted on the Next origin (server/app-server.ts) and proxied
+    // to the internal ws-server, so the URL that loaded the page is the URL
+    // that carries events. Correct in all three modes:
+    //   unprefixed local dev      ws://localhost:3000/events
+    //   raw-tailnet Electron      ws://xochipilli:3000/hilt/events
+    //   Tailscale Serve gateway   wss://xochipilli.tailc0acaa.ts.net/hilt/events
+    // The `|| "localhost:3000"` covers the file:// / empty-host case.
+    const host = window.location.host || "localhost:3000";
+    const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+    const url = `${protocol}//${host}${base}/events`;
 
     const ws = new WebSocket(url);
 
@@ -142,7 +126,7 @@ export function useEventSocket() {
     };
 
     wsRef.current = ws;
-  }, [fetchPort]);
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;

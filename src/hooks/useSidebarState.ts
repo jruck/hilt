@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { withBasePath } from "@/lib/base-path";
 
 /**
  * Hook for sidebar collapsed/expanded state with server-side persistence
@@ -17,7 +18,7 @@ export function useSidebarState() {
     if (initialFetchDone.current) return;
     initialFetchDone.current = true;
 
-    fetch("/api/preferences?key=sidebarCollapsed")
+    fetch(withBasePath("/api/preferences?key=sidebarCollapsed"))
       .then((res) => res.json())
       .then((data) => {
         if (data.value !== undefined) {
@@ -35,7 +36,7 @@ export function useSidebarState() {
   // Persist state changes to server
   const setCollapsed = useCallback((collapsed: boolean) => {
     setIsCollapsedState(collapsed);
-    fetch("/api/preferences", {
+    fetch(withBasePath("/api/preferences"), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key: "sidebarCollapsed", value: collapsed }),

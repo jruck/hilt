@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Source } from "@/lib/types";
+import { withBasePath } from "@/lib/base-path";
 
 const LOCAL_FALLBACK = "http://localhost:3000";
 const STORAGE_KEY = "hilt-local-url";
@@ -39,7 +40,7 @@ function normalizeUrl(url: string): string {
 
 async function loadSourcesFromApi(): Promise<Source[]> {
   try {
-    const res = await fetch("/api/sources");
+    const res = await fetch(withBasePath("/api/sources"));
     if (res.ok) {
       return await res.json();
     }
@@ -116,7 +117,7 @@ export function useSources() {
     // Port drifted — update the source URL to match where we're actually running
     const actualOrigin = window.location.origin;
     console.log(`[useSource] Port drift detected: updating ${localSource.name} URL from ${localSource.url} to ${actualOrigin}`);
-    fetch("/api/sources", {
+    fetch(withBasePath("/api/sources"), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: localSource.id, url: actualOrigin }),
@@ -201,7 +202,7 @@ export function useSources() {
 
     async function check() {
       try {
-        const res = await fetch("/api/ws-port", { cache: "no-store" });
+        const res = await fetch(withBasePath("/api/ws-port"), { cache: "no-store" });
         if (res.ok) {
           consecutiveFailuresRef.current = 0;
           if (fallbackTimerRef.current) {
@@ -262,7 +263,7 @@ export function useSources() {
 
   // CRUD wrappers
   const addSourceApi = useCallback(async (name: string, url: string, type: "local" | "remote", folder?: string) => {
-    const res = await fetch("/api/sources", {
+    const res = await fetch(withBasePath("/api/sources"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, url, type, folder }),
@@ -273,7 +274,7 @@ export function useSources() {
   }, [fetchSources]);
 
   const updateSourceApi = useCallback(async (id: string, updates: Partial<Pick<Source, "name" | "url" | "type" | "folder">>) => {
-    const res = await fetch("/api/sources", {
+    const res = await fetch(withBasePath("/api/sources"), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, ...updates }),
@@ -284,14 +285,14 @@ export function useSources() {
   }, [fetchSources]);
 
   const removeSource = useCallback(async (id: string) => {
-    const res = await fetch(`/api/sources?id=${id}`, { method: "DELETE" });
+    const res = await fetch(withBasePath(`/api/sources?id=${id}`), { method: "DELETE" });
     if (res.ok) {
       await fetchSources();
     }
   }, [fetchSources]);
 
   const reorderSourcesApi = useCallback(async (orderedIds: string[]) => {
-    const res = await fetch("/api/sources", {
+    const res = await fetch(withBasePath("/api/sources"), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "reorder", orderedIds }),

@@ -2,9 +2,10 @@
 
 import useSWR, { mutate as mutateCache } from "swr";
 import type { GranolaSyncMode, GranolaSyncRunReport, GranolaSyncStatus } from "@/lib/granola/types";
+import { withBasePath } from "@/lib/base-path";
 
 const fetcher = async <T>(url: string): Promise<T> => {
-  const response = await fetch(url);
+  const response = await fetch(withBasePath(url));
   const data = await response.json().catch(() => null);
   if (!response.ok) throw new Error(data?.error || `Request failed with ${response.status}`);
   return data as T;
@@ -22,7 +23,7 @@ export async function runGranolaSync(mode: GranolaSyncMode, options: {
   daysBack?: number;
   limit?: number;
 } = {}): Promise<GranolaSyncRunReport> {
-  const response = await fetch("/api/granola-sync/run", {
+  const response = await fetch(withBasePath("/api/granola-sync/run"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mode, ...options }),

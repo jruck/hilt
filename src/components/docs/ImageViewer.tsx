@@ -3,6 +3,7 @@
 import { useState } from "react";
 import * as path from "path";
 import { LoadingState } from "@/components/ui/LoadingState";
+import { withBasePath } from "@/lib/base-path";
 
 interface ImageViewerProps {
   filePath: string;
@@ -14,7 +15,7 @@ export function ImageViewer({ filePath, scopePath }: ImageViewerProps) {
   const [error, setError] = useState<string | null>(null);
 
   const fileName = path.basename(filePath);
-  const imageUrl = `/api/docs/raw?path=${encodeURIComponent(filePath)}&scope=${encodeURIComponent(scopePath)}`;
+  const imageUrl = withBasePath(`/api/docs/raw?path=${encodeURIComponent(filePath)}&scope=${encodeURIComponent(scopePath)}`);
 
   return (
     <div data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-12 flex-1 overflow-auto flex items-center justify-center bg-[var(--content-surface)] px-12 pt-12 sm:pb-12">

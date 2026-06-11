@@ -172,11 +172,19 @@ function appServerHealthy(): Promise<boolean> {
 }
 
 function portFree(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.once("error", () => resolve(false));
-    server.listen(port, () => server.close(() => resolve(true)));
-  });
+  // Probe BOTH the wildcard and IPv4 loopback (mirrors electron/main.ts
+  // findAvailablePort): Node's bare listen(port) binds the IPv6 dual-stack
+  // wildcard, which does NOT collide with an IPv4-only listener — a probe
+  // that misses exactly the servers we must stand by for.
+  const probe = (host?: string): Promise<boolean> =>
+    new Promise((resolve) => {
+      const server = net.createServer();
+      server.once("error", () => resolve(false));
+      const cb = () => server.close(() => resolve(true));
+      if (host) server.listen(port, host, cb);
+      else server.listen(port, cb);
+    });
+  return probe().then((wildcardFree) => (wildcardFree ? probe("127.0.0.1") : false));
 }
 
 async function waitForPortFree(port: number, timeoutMs: number): Promise<boolean> {

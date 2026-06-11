@@ -47,16 +47,28 @@ export const PHYSICS_DEFAULTS: PhysicsTuning = {
 
 /**
  * Physics presets — the named points on the circle↔organic axis the dials span.
- * Circle ≈ the server atlas's character (strong all-pairs pressure, weak long springs,
- * no center pull → an evenly-inflated disc); Organic leans the other way (center pull +
- * shorter, stiffer springs → connected mass huddles, periphery drifts). Balanced =
- * PHYSICS_DEFAULTS.
+ *
+ * Circle is the Obsidian-style disc, and the disc is NOT "no gravity" (a first attempt
+ * set gravity 0 and got a spread organic blob): the circular boundary IS the equilibrium
+ * between a center pull (container) and strong repulsion (pressure) — weakly-connected
+ * nodes get pushed to an even rim, clusters float inside, and ANY visible subset re-forms
+ * a disc under the same rule. Organic drops the pressure and stiffens springs so the
+ * connected mass huddles unevenly. The character persists across filters/reflows —
+ * layout LOGIC, visible SET, and live-recalc are independent controls.
  */
 export const PHYSICS_PRESETS: Array<{ name: string; tuning: PhysicsTuning }> = [
-  { name: "Circle", tuning: { gravity: 0, repulsion: 2.4, linkSpring: 0.25, linkDistance: 160, friction: 0.85, decay: 1800 } },
+  // Disc values found by ITERATING IN THE BROWSER (g3-iter series): cosmos gravity is a
+  // LINEAR spring to center (force ∝ distance), so anything above ~0.05 crushes a wide
+  // disc into a blob in seconds, while weak repulsion can't re-inflate one (fast collapse,
+  // slow expansion — the blob trap). Near-zero gravity + max pressure + gentle springs
+  // from a wide seed = an evenly-inflated rim with cluster texture inside.
+  { name: "Circle", tuning: { gravity: 0.02, repulsion: 3, linkSpring: 0.15, linkDistance: 100, friction: 0.85, decay: 2200 } },
   { name: "Balanced", tuning: { ...PHYSICS_DEFAULTS } },
   { name: "Organic", tuning: { gravity: 0.18, repulsion: 0.7, linkSpring: 1.2, linkDistance: 40, friction: 0.82, decay: 1800 } },
 ];
+
+/** The out-of-the-box character (user preference: the disc). */
+export const PHYSICS_INITIAL: PhysicsTuning = { ...PHYSICS_PRESETS[0].tuning };
 
 /**
  * Bump when the meaning/scale of the dials changes — persisted tunings from an older

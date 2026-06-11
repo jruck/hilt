@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Activity, Binoculars, ChevronDown, ChevronUp, Eye, EyeOff, Orbit, Undo2 } from "lucide-react";
 import type { GraphEdgeKind, GraphNodeType } from "@/lib/graph/types";
 import { EDGE_KIND_DESCRIPTION, EDGE_KIND_LABEL, NODE_TYPE_DOT, NODE_TYPE_LABEL } from "./graph-labels";
-import { PHYSICS_DEFAULTS, PHYSICS_PRESETS, type PhysicsTuning } from "./renderer";
+import { PHYSICS_PRESETS, type PhysicsTuning } from "./renderer";
 
 /** Slider rows for the Physics section: key, label, range, step, display precision. */
 const PHYSICS_DIALS: Array<{ key: keyof PhysicsTuning; label: string; min: number; max: number; step: number; fmt: (v: number) => string }> = [
@@ -51,6 +51,8 @@ interface GraphLegendPanelProps {
   /** The physics dials (persisted; live-applied while the sim runs). */
   physics: PhysicsTuning;
   onPhysicsChange: (next: PhysicsTuning) => void;
+  /** Preset click: applies the tuning AND re-seeds + settles immediately. */
+  onApplyPreset: (next: PhysicsTuning) => void;
   /** Start collapsed (mobile). The expanded/collapsed choice persists per session. */
   defaultCollapsed?: boolean;
 }
@@ -84,12 +86,14 @@ export function GraphLegendPanel({
   onToggleLiveSim,
   physics,
   onPhysicsChange,
+  onApplyPreset,
   defaultCollapsed = false,
 }: GraphLegendPanelProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [showEdges, setShowEdges] = useState(true);
   const [showPhysics, setShowPhysics] = useState(false);
-  const physicsTuned = PHYSICS_DIALS.some((d) => physics[d.key] !== PHYSICS_DEFAULTS[d.key]);
+  // "tuned" = the dials match NO named preset (any preset is a legitimate resting state).
+  const physicsTuned = !PHYSICS_PRESETS.some((p) => PHYSICS_DIALS.every((d) => physics[d.key] === p.tuning[d.key]));
   const types = semanticBuilt ? [...VAULT_TYPES, ...SEMANTIC_TYPES] : VAULT_TYPES;
   const edgeKinds = semanticBuilt ? [...BASE_EDGE_KINDS, ...SEMANTIC_EDGE_KINDS] : BASE_EDGE_KINDS;
   const anyOverride =
@@ -264,7 +268,7 @@ export function GraphLegendPanel({
                   <button
                     key={p.name}
                     type="button"
-                    onClick={() => onPhysicsChange({ ...p.tuning })}
+                    onClick={() => onApplyPreset({ ...p.tuning })}
                     className={`flex-1 rounded-md border px-1 py-0.5 text-[10px] font-medium transition-colors ${
                       active
                         ? "border-fuchsia-500/40 bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400"

@@ -292,17 +292,24 @@ export class CosmosRenderer implements GraphRenderer {
     this.graph.start(opts.fast ? 0.35 : 0.5);
     // Two-stage stop at the dial's settle time (halved for fast): at ~85% in, damping
     // ramps hard (a brief ease-out tail — a dead cut read as harsh, the natural decay
-    // tail as aimless drift); shortly after, pause for good.
+    // tail as aimless drift); shortly after, pause for good. Camera tracking ALSO stops
+    // at the tail so the final approach is visually still — overlapping fits during the
+    // cloud's spring overshoot read as zoom "pulsing" (observed in browser testing).
     const duration = Math.max(600, Math.min(6000, opts.fast ? this.tuning.decay * 0.5 : this.tuning.decay));
     this.reflowTailTimer = setTimeout(() => {
-      if (this.simMode === "reflow" && this.graph) this.graph.setConfig({ simulationFriction: 0.55 });
+      if (this.simMode !== "reflow" || !this.graph) return;
+      this.graph.setConfig({ simulationFriction: 0.55 });
+      if (this.reflowTrackTimer) {
+        clearInterval(this.reflowTrackTimer);
+        this.reflowTrackTimer = null;
+      }
     }, duration * 0.85);
     this.reflowTimer = setTimeout(() => this.finishReflow(), duration + 220);
-    // Camera TRACKS the motion: a gentle re-fit every ~450ms while settling (reads as a
-    // follow, not two competing zoom events), plus finishReflow's final crisp fit.
+    // Camera TRACKS the motion: long-duration fits retargeted on a slower cadence blend
+    // into a continuous follow (each new fit redirects the in-flight animation).
     this.reflowTrackTimer = setInterval(() => {
-      if (this.simMode === "reflow" && this.graph) this.graph.fitView(380);
-    }, 450);
+      if (this.simMode === "reflow" && this.graph) this.graph.fitView(700);
+    }, 600);
   }
 
   isReflowing(): boolean {

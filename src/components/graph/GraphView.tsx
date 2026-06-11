@@ -26,7 +26,7 @@ import {
   labelLODForDevice,
   resolveLinkColor,
 } from "./graph-style";
-import { PHYSICS_DEFAULTS, PHYSICS_SCHEMA_VERSION, type GraphRenderer, type NodeMeta, type PhysicsTuning } from "./renderer";
+import { PHYSICS_DEFAULTS, PHYSICS_INITIAL, PHYSICS_SCHEMA_VERSION, type GraphRenderer, type NodeMeta, type PhysicsTuning } from "./renderer";
 import { useGraphData } from "./useGraphData";
 import { useGraphMeta } from "./useGraphMeta";
 import { withBasePath } from "@/lib/base-path";
@@ -205,14 +205,14 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
   // Stored under a schema version — dials from the old (pre-rescale) value space would
   // silently reproduce the collapsed-blob failure mode, so they're discarded.
   const [physics, setPhysics] = useState<PhysicsTuning>(() => {
-    if (typeof window === "undefined") return { ...PHYSICS_DEFAULTS };
+    if (typeof window === "undefined") return { ...PHYSICS_INITIAL };
     try {
       const raw = window.localStorage.getItem(PHYSICS_KEY);
       const parsed = raw ? (JSON.parse(raw) as Partial<PhysicsTuning> & { v?: number }) : null;
-      if (!parsed || parsed.v !== PHYSICS_SCHEMA_VERSION) return { ...PHYSICS_DEFAULTS };
+      if (!parsed || parsed.v !== PHYSICS_SCHEMA_VERSION) return { ...PHYSICS_INITIAL };
       return { ...PHYSICS_DEFAULTS, ...parsed };
     } catch {
-      return { ...PHYSICS_DEFAULTS };
+      return { ...PHYSICS_INITIAL };
     }
   });
   const physicsRef = useRef(physics);
@@ -558,25 +558,30 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
     // Re-assert live mode over the fresh data (setData's trailing pause stopped it).
     if (liveSimRef.current) renderer.setLiveSimulation(true);
 
-    // AUTO-REFLOW on mixer changes: when the RAW payload is unchanged but the filter state
-    // moved AND something is filtered, re-settle the visible subset automatically (fast
-    // profile). Clearing back to "nothing filtered" keeps the canonical map untouched —
-    // home base stays stable. Live mode handles its own re-settling.
+    // PHYSICS BY DEFAULT: the graph's resting look is the active preset's equilibrium, not
+    // the server layout (which survives as the deterministic SEED — every settle starts
+    // from the same canonical shape, so results stay recognizably stable). EVERY data swap
+    // settles — first load, refetches, mixer changes — so a refetch landing mid-settle
+    // just re-arms its own settle instead of stranding a half-settled layout (the observed
+    // load-time race). Mixer-driven swaps settle FAST; fresh data gets the full settle.
+    // Skipped for deep-link focus (its own zoom choreography) and live mode (self-settling).
     const filterKey = JSON.stringify([[...effectiveHidden].sort(), [...effectiveHiddenEdges].sort()]);
     const rawUnchanged = prevRawDataRef.current === graphData.data;
-    const filtersMoved = prevFilterKeyRef.current !== filterKey;
     prevRawDataRef.current = graphData.data;
     prevFilterKeyRef.current = filterKey;
-    const anyFiltered = effectiveHidden.size > 0 || effectiveHiddenEdges.size > 0;
-    if (rawUnchanged && filtersMoved && anyFiltered && !liveSimRef.current) {
+    if (!liveSimRef.current && !parsed.focusId) {
       setReflowing(true);
-      renderer.reflow(
-        () => {
-          setReflowing(false);
-          setReflowed(true);
-        },
-        { fast: true },
-      );
+      // Brief defer so the freshly-uploaded seed paints before energy is injected.
+      const settleTimer = setTimeout(() => {
+        rendererRef.current?.reflow(
+          () => {
+            setReflowing(false);
+            setReflowed(true);
+          },
+          { fast: rawUnchanged },
+        );
+      }, 180);
+      return () => clearTimeout(settleTimer);
     }
     // budget captured at mount; degrees recomputed here from the fresh payload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -601,6 +606,27 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
     renderer.setPositions(decoded.positions, true);
     setReflowed(false);
   }, [decoded]);
+  // Preset click = "switch the law, re-derive the world": re-seed from the canonical
+  // positions then settle under the new physics. Re-seeding matters — settles compound
+  // (a contracted blob can't re-inflate: cosmos gravity collapses fast, repulsion expands
+  // slowly), so each preset gets the same wide starting point. Live mode skips the manual
+  // settle (the running sim picks the new physics up instantly via setPhysicsTuning).
+  const handleApplyPreset = useCallback(
+    (t: PhysicsTuning) => {
+      handlePhysicsChange(t);
+      const renderer = rendererRef.current;
+      if (!renderer || !decoded) return;
+      renderer.setPositions(decoded.positions);
+      if (liveSimRef.current) return;
+      setReflowing(true);
+      renderer.reflow(() => {
+        setReflowing(false);
+        setReflowed(true);
+      });
+    },
+    [handlePhysicsChange, decoded],
+  );
+
   const handleToggleLiveSim = useCallback(() => {
     const renderer = rendererRef.current;
     if (!renderer) return;
@@ -867,6 +893,7 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
           onToggleLiveSim={handleToggleLiveSim}
           physics={physics}
           onPhysicsChange={handlePhysicsChange}
+          onApplyPreset={handleApplyPreset}
           defaultCollapsed={isMobile}
         />
         {layoutDisabled ? (

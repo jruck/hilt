@@ -172,19 +172,32 @@ function appServerHealthy(): Promise<boolean> {
 }
 
 function portFree(port: number): Promise<boolean> {
-  // Probe BOTH the wildcard and IPv4 loopback (mirrors electron/main.ts
-  // findAvailablePort): Node's bare listen(port) binds the IPv6 dual-stack
-  // wildcard, which does NOT collide with an IPv4-only listener — a probe
-  // that misses exactly the servers we must stand by for.
-  const probe = (host?: string): Promise<boolean> =>
-    new Promise((resolve) => {
+  // Bind-probes are NOT enough (learned live during the Mini cutover): an
+  // IPv4-wildcard (0.0.0.0) owner collides with neither a bare listen(port)
+  // (IPv6 dual-stack — separate stack on macOS) nor a 127.0.0.1 listen (a
+  // more-specific bind never conflicts with a wildcard one). So:
+  // 1. If anything ACCEPTS a loopback connection, the port is taken.
+  // 2. Otherwise an explicit IPv4-wildcard bind must also succeed.
+  const canConnect = new Promise<boolean>((resolve) => {
+    const sock = net.connect({ port, host: "127.0.0.1", timeout: 750 });
+    sock.once("connect", () => {
+      sock.destroy();
+      resolve(true);
+    });
+    sock.once("error", () => resolve(false));
+    sock.once("timeout", () => {
+      sock.destroy();
+      resolve(false);
+    });
+  });
+  return canConnect.then((occupied) => {
+    if (occupied) return false;
+    return new Promise<boolean>((resolve) => {
       const server = net.createServer();
       server.once("error", () => resolve(false));
-      const cb = () => server.close(() => resolve(true));
-      if (host) server.listen(port, host, cb);
-      else server.listen(port, cb);
+      server.listen(port, "0.0.0.0", () => server.close(() => resolve(true)));
     });
-  return probe().then((wildcardFree) => (wildcardFree ? probe("127.0.0.1") : false));
+  });
 }
 
 async function waitForPortFree(port: number, timeoutMs: number): Promise<boolean> {

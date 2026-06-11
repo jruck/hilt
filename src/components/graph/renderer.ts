@@ -37,6 +37,18 @@ export const PHYSICS_DEFAULTS: PhysicsTuning = {
   decay: 1800,
 };
 
+/**
+ * Physics presets — the named points on the circle↔organic axis the dials span.
+ * Circle ≈ the server atlas's character (strong all-pairs pressure, no center pull →
+ * an evenly-inflated disc); Organic leans the other way (center pull + tight springs →
+ * connected mass huddles, periphery drifts). Balanced = PHYSICS_DEFAULTS.
+ */
+export const PHYSICS_PRESETS: Array<{ name: string; tuning: PhysicsTuning }> = [
+  { name: "Circle", tuning: { gravity: 0, repulsion: 2, linkSpring: 0.6, linkDistance: 28, friction: 0.85, decay: 1800 } },
+  { name: "Balanced", tuning: { ...PHYSICS_DEFAULTS } },
+  { name: "Organic", tuning: { gravity: 0.22, repulsion: 0.5, linkSpring: 1.4, linkDistance: 8, friction: 0.85, decay: 1800 } },
+];
+
 export interface NodeMeta {
   id: string;
   /** GraphNodeType ordinal (NODE_TYPE_ORDER on the server). */

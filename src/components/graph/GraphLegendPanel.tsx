@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Activity, Binoculars, ChevronDown, ChevronUp, Eye, EyeOff, Orbit, Undo2 } from "lucide-react";
 import type { GraphEdgeKind, GraphNodeType } from "@/lib/graph/types";
 import { EDGE_KIND_DESCRIPTION, EDGE_KIND_LABEL, NODE_TYPE_DOT, NODE_TYPE_LABEL } from "./graph-labels";
-import { PHYSICS_DEFAULTS, type PhysicsTuning } from "./renderer";
+import { PHYSICS_DEFAULTS, PHYSICS_PRESETS, type PhysicsTuning } from "./renderer";
 
 /** Slider rows for the Physics section: key, label, range, step, display precision. */
 const PHYSICS_DIALS: Array<{ key: keyof PhysicsTuning; label: string; min: number; max: number; step: number; fmt: (v: number) => string }> = [
@@ -254,6 +254,27 @@ export function GraphLegendPanel({
         </button>
         {showPhysics ? (
           <div className="px-1.5 pb-1">
+            {/* Presets: named points on the circle↔organic axis; dials fine-tune from there. */}
+            <div className="flex gap-1 pb-1.5 pt-0.5">
+              {PHYSICS_PRESETS.map((p) => {
+                const active = PHYSICS_DIALS.every((d) => physics[d.key] === p.tuning[d.key]);
+                return (
+                  <button
+                    key={p.name}
+                    type="button"
+                    onClick={() => onPhysicsChange({ ...p.tuning })}
+                    className={`flex-1 rounded-md border px-1 py-0.5 text-[10px] font-medium transition-colors ${
+                      active
+                        ? "border-fuchsia-500/40 bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400"
+                        : "border-[var(--border-default)] text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                    }`}
+                    data-testid={`graph-physics-preset-${p.name.toLowerCase()}`}
+                  >
+                    {p.name}
+                  </button>
+                );
+              })}
+            </div>
             {PHYSICS_DIALS.map((d) => (
               <label key={d.key} className="flex items-center gap-2 py-1 text-[11px] text-[var(--text-secondary)]">
                 <span className="w-[4.5rem] shrink-0">{d.label}</span>
@@ -272,16 +293,8 @@ export function GraphLegendPanel({
                 </span>
               </label>
             ))}
-            <div className="flex items-center justify-between px-0.5 pt-0.5">
-              <span className="text-[10px] text-[var(--text-tertiary)]">applies to Reflow & Live{liveSim ? " (live now)" : ""}</span>
-              <button
-                type="button"
-                onClick={() => onPhysicsChange({ ...PHYSICS_DEFAULTS })}
-                className="rounded px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-                disabled={!physicsTuned}
-              >
-                defaults
-              </button>
+            <div className="px-0.5 pt-0.5 text-[10px] text-[var(--text-tertiary)]">
+              applies to Reflow & Live{liveSim ? " — live now, changes apply instantly" : ""}
             </div>
           </div>
         ) : null}

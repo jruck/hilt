@@ -28,6 +28,9 @@ import type { GraphBudget } from "./device-budget";
 /** Cosmos's own values, restored whenever a sim mode ends (hygiene — sims only run in modes). */
 const DEFAULT_PHYSICS = { simulationDecay: 5000, simulationFriction: 0.85, simulationGravity: 0.25 } as const;
 
+/** Non-neighbor dim level while a node is hovered/selected (the hover tween's target). */
+const GREYOUT_OPACITY = 0.1;
+
 function toSimConfig(t: PhysicsTuning, opts: { live?: boolean; fast?: boolean } = {}) {
   return {
     simulationGravity: t.gravity,
@@ -54,8 +57,10 @@ export class CosmosRenderer implements GraphRenderer {
   private simMode: "off" | "reflow" | "live" = "off";
   private reflowOnSettle: (() => void) | null = null;
   private reflowTimer: ReturnType<typeof setTimeout> | null = null;
+  private reflowEarlyFitTimer: ReturnType<typeof setTimeout> | null = null;
   private liveFitTimer: ReturnType<typeof setTimeout> | null = null;
   private tuning: PhysicsTuning = { ...PHYSICS_DEFAULTS };
+  private hoverTweenRaf: number | null = null;
 
   mount(container: HTMLDivElement, opts: RendererOptions): void {
     this.container = container;
@@ -92,7 +97,7 @@ export class CosmosRenderer implements GraphRenderer {
       renderHoveredPointRing: true,
       hoveredPointCursor: "pointer",
       // Greyout non-neighbors on hover rather than hiding them.
-      pointGreyoutOpacity: 0.1,
+      pointGreyoutOpacity: GREYOUT_OPACITY,
       onClick: (index, _pos, event) => {
         this.clickCb?.(index ?? null, !!(event && (event.metaKey || event.ctrlKey)));
       },
@@ -180,13 +185,36 @@ export class CosmosRenderer implements GraphRenderer {
 
   highlightNeighbors(index: number | null): void {
     if (!this.graph) return;
+    if (this.hoverTweenRaf != null) {
+      cancelAnimationFrame(this.hoverTweenRaf);
+      this.hoverTweenRaf = null;
+    }
     // Gotcha: passing [] greys out ALL points. To clear, call unselectPoints().
     if (index == null) {
+      this.graph.setConfig({ pointGreyoutOpacity: GREYOUT_OPACITY });
       this.graph.unselectPoints();
+      this.graph.render();
       return;
     }
     const neighbors = this.adjacency.get(index) ?? [];
     this.graph.selectPointsByIndices([index, ...neighbors]);
+    // Ease the dim-down (~160ms) so the highlight reads as a transition, not a hard cut —
+    // the rest of the canvas moves organically; an instant fade was the one jarring note.
+    const FROM = 0.7;
+    const DURATION = 160;
+    const startedAt = performance.now();
+    this.graph.setConfig({ pointGreyoutOpacity: FROM });
+    this.graph.render();
+    const step = (now: number): void => {
+      this.hoverTweenRaf = null;
+      if (!this.graph) return;
+      const t = Math.min(1, (now - startedAt) / DURATION);
+      const eased = 1 - (1 - t) * (1 - t); // ease-out
+      this.graph.setConfig({ pointGreyoutOpacity: FROM + (GREYOUT_OPACITY - FROM) * eased });
+      this.graph.render();
+      if (t < 1) this.hoverTweenRaf = requestAnimationFrame(step);
+    };
+    this.hoverTweenRaf = requestAnimationFrame(step);
   }
 
   onPointClick(cb: (index: number | null, modifier: boolean) => void): void {
@@ -240,12 +268,21 @@ export class CosmosRenderer implements GraphRenderer {
     this.simMode = "reflow";
     this.reflowOnSettle = onSettle ?? null;
     // Settle profile from the user's tuning dials; `fast` (the auto-reflow on filter
-    // changes) halves the settle time and damps slightly harder. Both stop DEAD at rest —
-    // the long default tail read as aimless orbiting (residual angular momentum that
-    // nothing in the force model damps).
+    // changes) halves the settle time and damps slightly harder.
     this.graph.setConfig(toSimConfig(this.tuning, { fast: opts.fast }));
     this.graph.start(opts.fast ? 0.35 : 0.5);
-    this.reflowTimer = setTimeout(() => this.finishReflow(), opts.fast ? 5000 : 8000);
+    // HARD stop at the dial's settle time (halved for fast): alpha decay is asymptotic, and
+    // its last 10% reads as aimless micro-drift — 90% of the motion lands in the first
+    // second, so we cut the tail dead instead of waiting for the natural end.
+    const duration = Math.max(600, Math.min(6000, opts.fast ? this.tuning.decay * 0.5 : this.tuning.decay));
+    this.reflowTimer = setTimeout(() => this.finishReflow(), duration);
+    // Camera FOLLOWS the collapse rather than waiting for it: one early fit mid-motion,
+    // and finishReflow does the final crisp fit. Skipped for very short settles.
+    if (duration > 900) {
+      this.reflowEarlyFitTimer = setTimeout(() => {
+        if (this.simMode === "reflow" && this.graph) this.graph.fitView(350);
+      }, Math.min(450, duration / 2));
+    }
   }
 
   isReflowing(): boolean {
@@ -318,14 +355,18 @@ export class CosmosRenderer implements GraphRenderer {
       clearTimeout(this.reflowTimer);
       this.reflowTimer = null;
     }
+    if (this.reflowEarlyFitTimer) {
+      clearTimeout(this.reflowEarlyFitTimer);
+      this.reflowEarlyFitTimer = null;
+    }
     const cb = this.reflowOnSettle;
     this.reflowOnSettle = null;
     if (this.graph) {
       this.graph.pause();
       this.graph.setConfig(DEFAULT_PHYSICS);
-      // Auto-frame the settled result — the relaxed equilibrium is usually more compact
-      // than the canonical layout, and a small blob in a big empty viewport reads broken.
-      this.graph.fitView(600);
+      // Final crisp frame on the settled result (fast — it's a touch-up after the
+      // mid-motion fit, not the whole journey).
+      this.graph.fitView(350);
       this.graph.render();
     }
     this.viewChangeCb?.(); // final label snap
@@ -348,9 +389,17 @@ export class CosmosRenderer implements GraphRenderer {
       clearTimeout(this.reflowTimer);
       this.reflowTimer = null;
     }
+    if (this.reflowEarlyFitTimer) {
+      clearTimeout(this.reflowEarlyFitTimer);
+      this.reflowEarlyFitTimer = null;
+    }
     if (this.liveFitTimer) {
       clearTimeout(this.liveFitTimer);
       this.liveFitTimer = null;
+    }
+    if (this.hoverTweenRaf != null) {
+      cancelAnimationFrame(this.hoverTweenRaf);
+      this.hoverTweenRaf = null;
     }
     this.simMode = "off";
     this.reflowOnSettle = null;

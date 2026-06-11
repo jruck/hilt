@@ -942,20 +942,36 @@ tailnet-reachable (unlike loopback-only `/navigate`) — accepted as single-user
 non-destructive, and auto-reverting.
 
 *The headless supervisor (`server/supervisor.ts`, `com.hilt.supervisor`).* On server
-machines (the Mini), the serving stack runs as an appliance: a ~400-line tsx daemon under
+machines (the Mini), the serving stack runs as an appliance: a ~500-line tsx daemon under
 a KeepAlive LaunchAgent owns app-server (:3000) + ws-server (:3100) + event-server,
-restarts crashed children with capped exponential backoff, acts on mode intents and
-rebuild stamps exactly like Electron-as-supervisor, persists its children's pids
-(`app-supervisor-children.json`) so a supervisor crash **re-adopts** still-healthy
-children instead of double-spawning, and **stands by** without fighting when an external
-healthy Hilt (e.g. a terminal dev session) owns the port — claiming it when it goes away.
-A dev TTL (`HILT_SUPERVISOR_DEV_TTL_HOURS`, default 12, 0 disables) returns a forgotten
-dev switch to prod automatically. The wrapper (`scripts/hilt-supervisor.sh`) sets the
-same PATH discipline as the .app launcher (Homebrew before /usr/local, nvm wins) because
-launchd hands agents a minimal environment — the exact trap that broke Mercury's spawns.
-Install/uninstall/status via `npm run supervisor:install|uninstall|status`. Electron apps
-launched on a daemon-supervised machine find the existing server and attach as pure
-viewers.
+restarts crashed children with capped exponential backoff, detects **wedged** servers
+(live pid, ~4 consecutive failed HTTP probes after a 90s startup grace) and restarts
+them, acts on mode intents and rebuild stamps exactly like Electron-as-supervisor
+(a stamp written by a switch's own rebuild is absorbed, never double-restarted),
+persists its children's pids (`app-supervisor-children.json`) so a supervisor crash
+**re-adopts** still-healthy children instead of double-spawning, and **stands by**
+without fighting when an external healthy Hilt (e.g. a terminal dev session) owns the
+port — claiming it when it goes away. A dev TTL (`HILT_SUPERVISOR_DEV_TTL_HOURS`,
+default 12, 0 disables) returns a forgotten dev switch to prod automatically. Env knobs:
+`HILT_SUPERVISOR_PORT` (default 3000), `HILT_SUPERVISOR_CHILDREN` (default the full
+trio; scratch/test instances set `appServer` to avoid the machine's singleton ws-server
+lock). The wrapper (`scripts/hilt-supervisor.sh`) sets the same PATH discipline as the
+.app launcher (Homebrew before /usr/local, nvm wins) because launchd hands agents a
+minimal environment — the exact trap that broke Mercury's spawns. Install/uninstall/
+status via `npm run supervisor:install|uninstall|status`. Electron apps launched on a
+daemon-supervised machine find the existing server and attach as pure viewers.
+
+**Known same-checkout constraints (accepted, by design after the Mini cutover):**
+(1) `npm run rebuild` (`next build`, even with `HILT_DIST_DIR=.next-prod`) damages a
+RUNNING `next dev` instance sharing the checkout — Next rewrites/deletes parts of
+`.next/dev` (observed twice live: `required-server-files.json` ENOENT, every dynamic
+route 500s until the dev server restarts). The supervisor topology is immune (its prod
+server reads `.next-prod`; its dev child is replaced by the switch that triggered the
+build), but **do not run a terminal `next dev` beside rebuilds**. (2) Next's dev-server
+singleton lock is keyed on the default `.next` dir, so the supervisor's dev mode cannot
+start while another `next dev` runs from the same checkout — the switch fails readiness
+and auto-reverts to prod. Both disappear once the only server on the machine is the
+supervisor's.
 
 *The rebuild loop (prod mode).* `npm run rebuild` (~30s) builds into `.next-prod` and
 touches `.next-prod/.hilt-rebuild-stamp` as the build-complete signal (BUILD_ID is

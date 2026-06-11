@@ -1,6 +1,8 @@
 # Hilt Supervisor v1 — headless server lifecycle + remote dev/prod switch
 
-**Status:** scoped, not started
+**Status:** Phases 1+2 implemented (62f1aea, ac5b854 + post-verification fixes) and
+workflow-verified on scratch (T1/T2/T4/T5); Mini cutover + live T3/T6 in progress.
+See `docs/plans/supervisor-v1-implementation-report.md` for results and deviations.
 **Decided direction (2026-06-10):** the long-term path only. No interim Electron-as-supervisor
 investment on the Mini beyond what already shipped.
 

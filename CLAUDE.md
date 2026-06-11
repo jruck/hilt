@@ -113,12 +113,17 @@ Views: `bridge`, `people`, `briefings`, `library`, `docs`, `system`
 
 ```bash
 npm run app:prod  # Build the prod-mode macOS app (dist/Hilt.app) — recommended daily driver
-npm run rebuild   # ~30s: rebuild .next-prod; a running prod-mode app restarts + reloads itself
+npm run rebuild   # ~30s: rebuild .next-prod; a running supervised server restarts itself
 npm run app       # Build the dev-mode macOS app (hot reload, for hacking on Hilt)
+npm run supervisor:install   # Server machines: launchd-supervised serving stack
+npm run supervisor:status    # Heartbeat + launchctl state (also :run / :uninstall)
 npm run dev:all   # Or run in browser: Next.js + WebSocket servers
 npm run test:library
 npm run test:system
 ```
+
+⚠️ `npm run rebuild` breaks a RUNNING terminal `next dev` on this checkout (Next clobbers
+`.next/dev` even with an overridden dist dir — ARCHITECTURE §7). Supervised topologies are immune.
 
 **Electron app**: `npm run app:prod` / `npm run app` compile TypeScript and create `dist/Hilt.app` — same bundle; the launcher env only seeds the *initial* mode. The mode itself is runtime state (`${DATA_DIR}/app-mode.json`) switchable live from the SourceToggle dropdown ("Server mode" section, Electron-supervised servers only): to dev = quick restart with hot reload; to prod = rebuild (~30s, old server keeps serving) then swap. The dropdown also badges the active source `dev` / `prod · built 2h ago`. Prod mode serves a production build from `.next-prod` (React production mode, ~2x faster rendering); after code changes run `npm run rebuild` — the running app detects the new build, restarts only its Next.js child, and reloads the window (no app relaunch). Re-run `npm run app`/`app:prod` after changing `electron/main.ts`.
 

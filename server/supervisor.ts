@@ -69,7 +69,14 @@ interface ManagedChild {
   proc: ChildProcess | null;
   restartAttempts: number;
   lastSpawnAt: number;
+  /** Consecutive failed HTTP probes (appServer wedge detection). */
+  probeFailures?: number;
 }
+
+/** Don't HTTP-probe a fresh child — dev first-compiles are slow. */
+const WEDGE_GRACE_MS = 90_000;
+/** Alive pid + this many consecutive failed probes (~1 min of ticks) = wedged. */
+const WEDGE_PROBE_THRESHOLD = 4;
 
 const children = new Map<ChildName, ManagedChild>();
 let currentMode: AppMode = initialAppMode(DATA_DIR);
@@ -296,10 +303,25 @@ async function externallyOwned(): Promise<boolean> {
 async function ensureChildren(): Promise<void> {
   for (const name of MANAGED_CHILDREN) {
     const child = children.get(name);
-    if (child && isPidAlive(child.pid)) continue;
+    if (child && isPidAlive(child.pid)) {
+      // Wedged-server detection (appServer only): a live pid that stopped
+      // answering HTTP would otherwise never self-recover on a headless
+      // machine. Grace period covers slow startups; the failure streak
+      // covers transient stalls.
+      if (name !== "appServer" || Date.now() - child.lastSpawnAt <= WEDGE_GRACE_MS) continue;
+      if (await appServerHealthy()) {
+        child.probeFailures = 0;
+        continue;
+      }
+      child.probeFailures = (child.probeFailures ?? 0) + 1;
+      if (child.probeFailures < WEDGE_PROBE_THRESHOLD) continue;
+      log(`appServer (pid ${child.pid}) alive but unresponsive after ${child.probeFailures} probes — restarting as wedged`);
+      killGroup(child.pid);
+      await sleep(1000);
+      // Fall through to the dead-child respawn path.
+    }
     if (child) {
       const attempts = child.restartAttempts + 1;
-      const delay = Math.min(2 ** attempts * 1000, RESTART_BACKOFF_CAP_MS);
       const elapsed = Date.now() - child.lastSpawnAt;
       // Healthy for 5+ minutes resets the backoff counter.
       const effectiveAttempts = elapsed > 5 * 60_000 ? 1 : attempts;
@@ -317,6 +339,21 @@ async function ensureChildren(): Promise<void> {
       if (name === "appServer") await waitForPortFree(APP_PORT, 10_000);
       SPAWNERS[name]();
     }
+  }
+}
+
+/**
+ * Stamp watermark — module-scoped so a switch can mark its own rebuild's
+ * stamp as seen the moment the build finishes (closing the race where the
+ * 2s poll only fires after the transition ends).
+ */
+let lastStampMtime = 0;
+
+function syncStampWatermark(): void {
+  try {
+    lastStampMtime = fs.statSync(path.join(PROJECT_DIR, REBUILD_STAMP_RELPATH)).mtimeMs;
+  } catch {
+    // No build yet.
   }
 }
 
@@ -365,6 +402,7 @@ async function switchMode(target: AppMode, reason: string): Promise<void> {
     if (target === "prod") {
       setState("rebuilding", "Building production bundle (~30s)");
       const built = await runRebuild();
+      syncStampWatermark();
       if (!built) {
         setState("idle", "Build failed — staying on current mode (see rebuild.log)");
         return;
@@ -416,14 +454,9 @@ function setupIntentWatcher(): void {
 
 function setupStampWatcher(): void {
   const stampPath = path.join(PROJECT_DIR, REBUILD_STAMP_RELPATH);
-  let lastStampMtime = 0;
-  try {
-    lastStampMtime = fs.statSync(stampPath).mtimeMs;
-  } catch {
-    // No build yet.
-  }
+  syncStampWatermark();
   setInterval(() => {
-    if (shuttingDown || transitionRunning) return;
+    if (shuttingDown) return;
     let mtime = 0;
     try {
       mtime = fs.statSync(stampPath).mtimeMs;
@@ -432,6 +465,13 @@ function setupStampWatcher(): void {
     }
     if (mtime <= lastStampMtime) return;
     lastStampMtime = mtime;
+    if (transitionRunning) {
+      // A switch's own `npm run rebuild` writes the stamp — ABSORB it (spec:
+      // ignored, not deferred) so the freshly-swapped server isn't restarted
+      // a second time the moment the transition ends.
+      log("rebuild stamp changed during a transition — absorbing (the switch already serves this build)");
+      return;
+    }
     if (currentMode !== "prod") {
       log("rebuild stamp changed while in dev mode — ignoring (picked up on next prod switch)");
       return;

@@ -64,6 +64,18 @@ export class CosmosRenderer implements GraphRenderer {
   private greyoutCurrent = 1;
   private reflowTailTimer: ReturnType<typeof setTimeout> | null = null;
   private reflowTrackTimer: ReturnType<typeof setInterval> | null = null;
+  /** Last links buffer — re-pushed around enableSimulation flips (materializes spring buffers). */
+  private lastLinks: Float32Array | null = null;
+
+  /** Flip enableSimulation and re-push positions+links so force buffers exist under the new flag. */
+  private setSimulationEnabled(on: boolean, extraConfig: Record<string, unknown> = {}): void {
+    if (!this.graph) return;
+    const current = Float32Array.from(this.graph.getPointPositions());
+    this.graph.setConfig({ enableSimulation: on, ...extraConfig });
+    if (current.length > 0) this.graph.setPointPositions(current, true);
+    if (this.lastLinks) this.graph.setLinks(this.lastLinks);
+    this.graph.render();
+  }
 
   mount(container: HTMLDivElement, opts: RendererOptions): void {
     this.container = container;
@@ -74,13 +86,14 @@ export class CosmosRenderer implements GraphRenderer {
       // to this anyway ("spaceSize reduced to 4096"); we instead scale server positions
       // to fill it (setData), so the layout spreads evenly with no squish.
       spaceSize: 4096,
-      // Simulation ENABLED at construction but never started: cosmos only initializes
-      // its force programs when this is true at init (a runtime setConfig flip creates
-      // velocity buffers but no forces — the original reflow bug: a sim that "ran" with
-      // nothing pushing). Verified in 2.6.4 source: only start()/unpause() ever set
-      // isSimulationRunning, so enabling here causes no movement; setData's trailing
-      // pause() is belt-and-suspenders. Reflow/Live are the explicit opt-ins.
-      enableSimulation: true,
+      // Simulation DISABLED at rest — enableSimulation:true at construction silently
+      // breaks cosmos 2.6.4's GPU hover picking (cursor never flips, onClick gets no
+      // index; bisected empirically in-browser). Sim modes flip this flag ON at entry and
+      // OFF at exit, re-pushing BOTH positions and links around each flip: the re-push is
+      // what materializes the lazily-created force/velocity buffers under the new flag
+      // (re-pushing only positions leaves the link springs absent — a sim that "runs"
+      // with nothing pushing, the original reflow bug).
+      enableSimulation: false,
       onSimulationTick: () => {
         // Labels must track the moving points while a reflow/live sim runs.
         this.viewChangeCb?.();
@@ -136,6 +149,7 @@ export class CosmosRenderer implements GraphRenderer {
     if (this.simMode === "live") this.simMode = "off";
     this.nodeCount = meta.length;
     this.adjacency = buildAdjacency(links, this.nodeCount);
+    this.lastLinks = links;
     // Scale server coords uniformly to fill the 4096 space (with padding) so the layout
     // spreads evenly instead of clustering in a corner / getting clamped. Aspect-preserving.
     this.graph.setPointPositions(scaleToSpace(positions, 4096, 96), true);
@@ -287,8 +301,9 @@ export class CosmosRenderer implements GraphRenderer {
     this.simMode = "reflow";
     this.reflowOnSettle = onSettle ?? null;
     // Settle profile from the user's tuning dials; `fast` (the auto-reflow on filter
-    // changes) halves the settle time and damps slightly harder.
-    this.graph.setConfig(toSimConfig(this.tuning, { fast: opts.fast }));
+    // changes) halves the settle time and damps slightly harder. The flag flip + re-push
+    // materializes the force buffers (picking stays off only while simulating).
+    this.setSimulationEnabled(true, toSimConfig(this.tuning, { fast: opts.fast }));
     this.graph.start(opts.fast ? 0.35 : 0.5);
     // Two-stage stop at the dial's settle time (halved for fast): at ~85% in, damping
     // ramps hard (a brief ease-out tail — a dead cut read as harsh, the natural decay
@@ -328,7 +343,7 @@ export class CosmosRenderer implements GraphRenderer {
       if (this.simMode === "reflow") this.finishReflow();
       const alreadyLive = this.simMode === "live";
       this.simMode = "live";
-      this.graph.setConfig(toSimConfig(this.tuning, { live: true }));
+      this.setSimulationEnabled(true, toSimConfig(this.tuning, { live: true }));
       this.graph.start(0.3); // gentler than reflow — ambient motion, not an explosion
       // One re-frame after the initial collapse, then the camera is the user's again
       // (continuous fitting would fight pan/zoom).
@@ -346,7 +361,7 @@ export class CosmosRenderer implements GraphRenderer {
         this.liveFitTimer = null;
       }
       this.graph.pause();
-      this.graph.setConfig(DEFAULT_PHYSICS);
+      this.setSimulationEnabled(false, DEFAULT_PHYSICS);
       this.graph.render();
       this.viewChangeCb?.();
     }
@@ -394,7 +409,8 @@ export class CosmosRenderer implements GraphRenderer {
     this.reflowOnSettle = null;
     if (this.graph) {
       this.graph.pause();
-      this.graph.setConfig(DEFAULT_PHYSICS);
+      // Back to render-only: restores hover/click picking (broken while the flag is on).
+      this.setSimulationEnabled(false, DEFAULT_PHYSICS);
       // Final crisp frame on the settled result (fast — it's a touch-up after the
       // mid-motion fit, not the whole journey).
       this.graph.fitView(350);

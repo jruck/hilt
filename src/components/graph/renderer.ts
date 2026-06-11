@@ -80,6 +80,13 @@ export interface GraphRenderer {
   reflow(onSettle?: () => void): void;
   /** True while a reflow simulation is in flight. */
   isReflowing(): boolean;
+  /**
+   * Continuous physics toggle (the legend's "Live" switch). On = the sim runs until
+   * toggled off (decay pushed to ~infinity); off = freeze in place. Session-scoped.
+   * Idempotent on repeated `true` so callers can re-assert liveness after a data swap.
+   */
+  setLiveSimulation(on: boolean): void;
+  isLiveSimulation(): boolean;
   /** Viewport/projection only — NEVER mutate canvas pixel dims on iOS. */
   resize(): void;
   /** Frees the GPU context (failing to do so is an iOS jetsam accelerant). */

@@ -195,6 +195,11 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
   // subset. Any data/filter change supersedes it and restores canonical positions.
   const [reflowing, setReflowing] = useState(false);
   const [reflowed, setReflowed] = useState(false);
+  // Live simulation toggle: continuous physics until switched off. Deliberately
+  // session-only (never persisted) — a standing GPU load shouldn't survive a reload.
+  const [liveSim, setLiveSim] = useState(false);
+  const liveSimRef = useRef(false);
+  liveSimRef.current = liveSim;
   const [focusFallback, setFocusFallback] = useState<FocusFallback>(null);
   // Inspector selection: a click selects (opens the inspector) rather than navigating
   // away, so the graph stays explorable. selectedIndexRef keeps the canvas highlight
@@ -523,6 +528,8 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
     // A data swap (filter toggle, refetch) supersedes any reflow — back to canonical.
     setReflowing(false);
     setReflowed(false);
+    // Re-assert live mode over the fresh data (setData's trailing pause stopped it).
+    if (liveSimRef.current) renderer.setLiveSimulation(true);
     // budget captured at mount; degrees recomputed here from the fresh payload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [decoded, nodeCount, scheduleReposition]);
@@ -544,6 +551,17 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
     renderer.setPositions(decoded.positions);
     setReflowed(false);
   }, [decoded]);
+  const handleToggleLiveSim = useCallback(() => {
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    setLiveSim((prev) => {
+      const next = !prev;
+      renderer.setLiveSimulation(next);
+      if (next) setReflowing(false); // live supersedes any pending reflow UI state
+      else setReflowed(true); // points have drifted — offer Restore
+      return next;
+    });
+  }, []);
 
   // External refs (library artifact id, Docs file path, person slug) aren't graph node ids — on a
   // focus miss, resolve server-side ONCE and re-enter via the canonical focus URL. The attempted
@@ -791,6 +809,8 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
           reflowed={reflowed}
           onReflow={handleReflow}
           onRestoreLayout={handleRestoreLayout}
+          liveSim={liveSim}
+          onToggleLiveSim={handleToggleLiveSim}
           defaultCollapsed={isMobile}
         />
         {layoutDisabled ? (

@@ -37,7 +37,8 @@ export class CosmosRenderer implements GraphRenderer {
   private viewChangeCb: (() => void) | null = null;
   private budget: GraphBudget | null = null;
   private zoomDebounce: ReturnType<typeof setTimeout> | null = null;
-  private reflowActive = false;
+  private simMode: "off" | "reflow" | "live" = "off";
+  private reflowOnSettle: (() => void) | null = null;
   private reflowTimer: ReturnType<typeof setTimeout> | null = null;
 
   mount(container: HTMLDivElement, opts: RendererOptions): void {
@@ -49,9 +50,18 @@ export class CosmosRenderer implements GraphRenderer {
       // to this anyway ("spaceSize reduced to 4096"); we instead scale server positions
       // to fill it (setData), so the layout spreads evenly with no squish.
       spaceSize: 4096,
-      // Render-only: positions are authoritative from the server. We never simulate
-      // on mount; desktop "settle" is an explicit opt-in not used in v1.
-      enableSimulation: false,
+      // Simulation ENABLED at construction but never started: cosmos only initializes
+      // its force programs when this is true at init (a runtime setConfig flip creates
+      // velocity buffers but no forces — the original reflow bug: a sim that "ran" with
+      // nothing pushing). Verified in 2.6.4 source: only start()/unpause() ever set
+      // isSimulationRunning, so enabling here causes no movement; setData's trailing
+      // pause() is belt-and-suspenders. Reflow/Live are the explicit opt-ins.
+      enableSimulation: true,
+      onSimulationTick: () => {
+        // Labels must track the moving points while a reflow/live sim runs.
+        this.viewChangeCb?.();
+      },
+      onSimulationEnd: () => this.handleSimulationEnd(),
       enableDrag: false,
       pixelRatio: opts.budget.pixelRatio,
       // Constant on-screen node size regardless of zoom. Without this a fit-to-view
@@ -96,9 +106,10 @@ export class CosmosRenderer implements GraphRenderer {
     meta: NodeMeta[],
   ): void {
     if (!this.graph) return;
-    // A data swap supersedes any in-flight reflow (its onSettle is dropped — the caller
-    // resets its own reflow state on data change).
-    if (this.reflowActive) this.finishReflow();
+    // A data swap supersedes any in-flight reflow; live mode is paused by the trailing
+    // pause() below and re-asserted by the caller's data effect (setLiveSimulation(true)).
+    if (this.simMode === "reflow") this.finishReflow();
+    if (this.simMode === "live") this.simMode = "off";
     this.nodeCount = meta.length;
     this.adjacency = buildAdjacency(links, this.nodeCount);
     // Scale server coords uniformly to fill the 4096 space (with padding) so the layout
@@ -201,53 +212,73 @@ export class CosmosRenderer implements GraphRenderer {
   }
 
   /**
-   * Reflow: run the GPU force simulation over the current (possibly filtered) data,
-   * seeded from current positions. Mechanics verified against cosmos.gl 2.6.4 source:
-   * `setConfig({enableSimulation:true})` merges config, and the velocity framebuffers
-   * are created lazily inside `updatePositions()` — so we re-push the CURRENT positions
-   * (dontRescale) to materialize them, then `start(alpha)`. The default physics
-   * (decay 5000) settles in a few seconds; onSimulationEnd → freeze + restore
-   * render-only config; a hard timeout backstops a sim that never converges.
+   * Reflow: one-shot GPU settle over the current (possibly filtered) data, seeded from
+   * current positions. The simulation pipeline exists from construction (enableSimulation
+   * true at init — forces don't materialize on a runtime flip); `start(alpha)` injects
+   * energy, the default decay (5000) bleeds it off in a few seconds, `onSimulationEnd`
+   * freezes; a hard timeout backstops a sim that never converges. No-op while live mode
+   * or another reflow is running.
    */
   reflow(onSettle?: () => void): void {
-    if (!this.graph || this.reflowActive) return;
-    this.reflowActive = true;
-    const current = Float32Array.from(this.graph.getPointPositions());
-    this.graph.setConfig({
-      enableSimulation: true,
-      // Gentler than a cold layout: the seed is already structured; we're relaxing, not untangling.
-      simulationGravity: 0.15,
-      simulationLinkDistance: 12,
-      onSimulationTick: () => this.viewChangeCb?.(), // labels track the moving points
-      onSimulationEnd: () => this.finishReflow(onSettle),
-    });
-    this.graph.setPointPositions(current, true); // triggers updatePositions → creates velocity FBOs
-    this.graph.render();
+    if (!this.graph || this.simMode !== "off") return;
+    this.simMode = "reflow";
+    this.reflowOnSettle = onSettle ?? null;
     this.graph.start(0.5);
-    this.reflowTimer = setTimeout(() => this.finishReflow(onSettle), 8000);
+    this.reflowTimer = setTimeout(() => this.finishReflow(), 10000);
   }
 
   isReflowing(): boolean {
-    return this.reflowActive;
+    return this.simMode === "reflow";
   }
 
-  private finishReflow(onSettle?: () => void): void {
-    if (!this.reflowActive) return;
-    this.reflowActive = false;
+  /**
+   * Live simulation toggle: continuous physics (decay pushed effectively to infinity so
+   * the energy never bleeds off) until toggled off. Session-scoped by design — a standing
+   * GPU load shouldn't survive a reload. Idempotent on repeated `true` (used by the data
+   * effect to re-assert liveness after a setData pause).
+   */
+  setLiveSimulation(on: boolean): void {
+    if (!this.graph) return;
+    if (on) {
+      if (this.simMode === "reflow") this.finishReflow();
+      this.simMode = "live";
+      this.graph.setConfig({ simulationDecay: 1e9 });
+      this.graph.start(0.4);
+    } else {
+      if (this.simMode !== "live") return;
+      this.simMode = "off";
+      this.graph.pause();
+      this.graph.setConfig({ simulationDecay: 5000 }); // cosmos default, reflow's settle profile
+      this.graph.render();
+      this.viewChangeCb?.();
+    }
+  }
+
+  isLiveSimulation(): boolean {
+    return this.simMode === "live";
+  }
+
+  /** cosmos onSimulationEnd — natural decay end (reflow settled) or an explicit stop(). */
+  private handleSimulationEnd(): void {
+    if (this.simMode === "reflow") this.finishReflow();
+    else if (this.simMode === "live" && this.graph) this.graph.start(0.4); // never let live die
+  }
+
+  private finishReflow(): void {
+    if (this.simMode !== "reflow") return;
+    this.simMode = "off";
     if (this.reflowTimer) {
       clearTimeout(this.reflowTimer);
       this.reflowTimer = null;
     }
-    if (!this.graph) return;
-    this.graph.pause();
-    this.graph.setConfig({
-      enableSimulation: false,
-      onSimulationTick: undefined,
-      onSimulationEnd: undefined,
-    });
-    this.graph.render();
+    const cb = this.reflowOnSettle;
+    this.reflowOnSettle = null;
+    if (this.graph) {
+      this.graph.pause();
+      this.graph.render();
+    }
     this.viewChangeCb?.(); // final label snap
-    onSettle?.();
+    cb?.();
   }
 
   resize(): void {
@@ -266,7 +297,8 @@ export class CosmosRenderer implements GraphRenderer {
       clearTimeout(this.reflowTimer);
       this.reflowTimer = null;
     }
-    this.reflowActive = false;
+    this.simMode = "off";
+    this.reflowOnSettle = null;
     if (this.graph) {
       this.graph.destroy();
       this.graph = null;

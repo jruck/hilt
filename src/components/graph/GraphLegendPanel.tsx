@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Binoculars, ChevronDown, ChevronUp, Eye, EyeOff, Orbit, Undo2 } from "lucide-react";
+import { Activity, Binoculars, ChevronDown, ChevronUp, Eye, EyeOff, Orbit, Undo2 } from "lucide-react";
 import type { GraphEdgeKind, GraphNodeType } from "@/lib/graph/types";
 import { EDGE_KIND_DESCRIPTION, EDGE_KIND_LABEL, NODE_TYPE_DOT, NODE_TYPE_LABEL } from "./graph-labels";
 
@@ -32,6 +32,9 @@ interface GraphLegendPanelProps {
   reflowed: boolean;
   onReflow: () => void;
   onRestoreLayout: () => void;
+  /** Continuous physics toggle (session-only). */
+  liveSim: boolean;
+  onToggleLiveSim: () => void;
   /** Start collapsed (mobile). The expanded/collapsed choice persists per session. */
   defaultCollapsed?: boolean;
 }
@@ -61,6 +64,8 @@ export function GraphLegendPanel({
   reflowed,
   onReflow,
   onRestoreLayout,
+  liveSim,
+  onToggleLiveSim,
   defaultCollapsed = false,
 }: GraphLegendPanelProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
@@ -221,20 +226,34 @@ export function GraphLegendPanel({
           : null}
       </div>
 
-      {/* Reflow footer — re-settle the visible subset; restore returns to canonical. */}
+      {/* Physics footer — one-shot Reflow, continuous Live toggle, Restore to canonical. */}
       <div className="flex items-center gap-1.5 border-t border-[var(--border-default)] px-2 py-1.5">
         <button
           type="button"
           onClick={onReflow}
-          disabled={reflowing}
+          disabled={reflowing || liveSim}
           className="inline-flex h-6 flex-1 items-center justify-center gap-1.5 rounded-md border border-[var(--border-default)] px-2 text-[11px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-50"
-          title="Re-settle the layout over what's currently visible (temporary — any filter change restores the canonical map)"
+          title={liveSim ? "Live simulation is running" : "Re-settle the layout over what's currently visible (temporary — any filter change restores the canonical map)"}
           data-testid="graph-reflow"
         >
           <Orbit className={`h-3.5 w-3.5 ${reflowing ? "animate-spin" : ""}`} />
           {reflowing ? "Settling…" : "Reflow"}
         </button>
-        {reflowed ? (
+        <button
+          type="button"
+          onClick={onToggleLiveSim}
+          className={`inline-flex h-6 items-center gap-1.5 rounded-md border px-2 text-[11px] font-medium transition-colors ${
+            liveSim
+              ? "border-amber-500/40 bg-amber-500/15 text-amber-600 dark:text-amber-400"
+              : "border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+          }`}
+          title={liveSim ? "Stop the live simulation (freeze in place)" : "Run the physics continuously until switched off (session-only)"}
+          data-testid="graph-live-sim"
+        >
+          <Activity className={`h-3.5 w-3.5 ${liveSim ? "animate-pulse" : ""}`} />
+          Live
+        </button>
+        {reflowed && !liveSim ? (
           <button
             type="button"
             onClick={onRestoreLayout}

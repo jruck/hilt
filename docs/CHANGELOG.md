@@ -302,6 +302,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - **Reference Library rich source cache fallback** — Raindrop ingestion now preserves cover/media/cache metadata, can use Raindrop permanent copies as a bounded article source-cache fallback when `summarize --extract` cannot recover full text, and renders multiple source images in `## Media` for non-video references. X/Twitter links saved in Raindrop still prefer canonical source text instead of Raindrop's rendered permanent copy.
 
+- **System Sync hardening** — Added `npm run test:system:sync-live`, made `npm run test:system` portable across Mercury and Xochipilli, hardened Sync aggregation so stale peer feature flags do not hide healthy peers, and expanded Sync snapshots/UI with last scan/file timestamps plus ignored/generated local disk weight.
+
 - **Reference Library health dashboard** — Added `/api/library/health` and a compact Library header panel that surfaces launchd scheduler load state, source last-success/blocker state, and dead-letter counts without requiring log inspection.
 
 - **Reference Library scheduler wrappers** — Added launchd dry-run/install/uninstall scripts for hourly ingestion, daily newsletter ingestion, retry replay, candidate cleanup, and recommendation refresh. The scheduler uses the same CLI runner as manual/API ingestion and is dry-run by default unless explicitly installed.

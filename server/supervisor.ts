@@ -52,12 +52,15 @@ const LOG_DIR = path.join(DATA_DIR, "logs", "supervisor");
 type ChildName = "appServer" | "wsServer" | "eventServer";
 
 /**
- * Which children this supervisor manages (default: the full serving stack).
- * Scratch instances (tests, a second supervisor on non-standard ports) set
- * HILT_SUPERVISOR_CHILDREN=appServer so they don't fight the machine's
- * singleton ws-server lock.
+ * Which children this supervisor manages. Default: app-server + ws-server —
+ * the whole serving stack. (server/event-server.ts is a LIBRARY the ws-server
+ * imports, not a standalone process; `npm run event-server` loads it and
+ * exits, so supervising it is a perpetual respawn loop. dev:all carries the
+ * same no-op third process.) Scratch instances (tests, a second supervisor on
+ * non-standard ports) set HILT_SUPERVISOR_CHILDREN=appServer so they don't
+ * fight the machine's singleton ws-server lock.
  */
-const MANAGED_CHILDREN: ChildName[] = (process.env.HILT_SUPERVISOR_CHILDREN || "appServer,wsServer,eventServer")
+const MANAGED_CHILDREN: ChildName[] = (process.env.HILT_SUPERVISOR_CHILDREN || "appServer,wsServer")
   .split(",")
   .map((name) => name.trim())
   .filter((name): name is ChildName => name === "appServer" || name === "wsServer" || name === "eventServer");

@@ -196,6 +196,10 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
   // subset. Any data/filter change supersedes it and restores canonical positions.
   const [reflowing, setReflowing] = useState(false);
   const [reflowed, setReflowed] = useState(false);
+  // First-reveal gate: the canvas stays invisible until the INITIAL physics settle
+  // completes, so the canonical seed never flashes before the settled layout (the seed is
+  // plumbing, not a view). Later settles (filter changes, presets) animate in the open.
+  const [revealed, setRevealed] = useState(false);
   // Live simulation toggle: continuous physics until switched off. Deliberately
   // session-only (never persisted) — a standing GPU load shouldn't survive a reload.
   const [liveSim, setLiveSim] = useState(false);
@@ -571,18 +575,22 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
     prevFilterKeyRef.current = filterKey;
     if (!liveSimRef.current && !parsed.focusId) {
       setReflowing(true);
-      // Brief defer so the freshly-uploaded seed paints before energy is injected.
+      // Brief defer so the freshly-uploaded seed is in the GPU buffers before energy is
+      // injected (the canvas is still hidden pre-reveal, so nothing flashes).
       const settleTimer = setTimeout(() => {
         rendererRef.current?.reflow(
           () => {
             setReflowing(false);
             setReflowed(true);
+            setRevealed(true); // first settle done — fade the canvas in
           },
           { fast: rawUnchanged },
         );
       }, 180);
       return () => clearTimeout(settleTimer);
     }
+    // Settle skipped (deep-link focus / live mode) — nothing to hide behind.
+    setRevealed(true);
     // budget captured at mount; degrees recomputed here from the fresh payload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [decoded, nodeCount, scheduleReposition]);
@@ -642,6 +650,14 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
   // Auto-reflow change detection: raw-payload identity + last-applied filter key.
   const prevRawDataRef = useRef<unknown>(null);
   const prevFilterKeyRef = useRef("");
+
+  // Reveal safety net: if the first settle's callback is superseded (rapid refetch churn),
+  // show the canvas anyway rather than stranding a blank view.
+  useEffect(() => {
+    if (!decoded || revealed) return;
+    const t = setTimeout(() => setRevealed(true), 5000);
+    return () => clearTimeout(t);
+  }, [decoded, revealed]);
 
   // External refs (library artifact id, Docs file path, person slug) aren't graph node ids — on a
   // focus miss, resolve server-side ONCE and re-enter via the canonical focus URL. The attempted
@@ -857,9 +873,19 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
   } else {
     body = (
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        <div ref={setContainerEl} className="absolute inset-0" data-testid="graph-canvas" />
+        <div
+          ref={setContainerEl}
+          className={`absolute inset-0 transition-opacity duration-700 ${revealed ? "opacity-100" : "opacity-0"}`}
+          data-testid="graph-canvas"
+        />
+        {!revealed ? (
+          <LoadingState label="Settling layout" size="sm" className="absolute inset-0 z-[4]" />
+        ) : null}
         {labelSet.length > 0 ? (
-          <div className="pointer-events-none absolute inset-0 z-[5] overflow-hidden" data-testid="graph-labels">
+          <div
+            className={`pointer-events-none absolute inset-0 z-[5] overflow-hidden transition-opacity duration-700 ${revealed ? "opacity-100" : "opacity-0"}`}
+            data-testid="graph-labels"
+          >
             {labelSet.map((l) => (
               <div
                 key={l.id}

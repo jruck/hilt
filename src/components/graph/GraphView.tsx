@@ -26,7 +26,7 @@ import {
   labelLODForDevice,
   resolveLinkColor,
 } from "./graph-style";
-import type { GraphRenderer, NodeMeta } from "./renderer";
+import { PHYSICS_DEFAULTS, type GraphRenderer, type NodeMeta, type PhysicsTuning } from "./renderer";
 import { useGraphData } from "./useGraphData";
 import { useGraphMeta } from "./useGraphMeta";
 import { withBasePath } from "@/lib/base-path";
@@ -46,6 +46,7 @@ const HIDDEN_TYPES_KEY = "hilt-graph-hidden-types";
 const SOLO_TYPES_KEY = "hilt-graph-solo-types";
 const HIDDEN_EDGES_KEY = "hilt-graph-hidden-edge-kinds";
 const SOLO_EDGES_KEY = "hilt-graph-solo-edge-kinds";
+const PHYSICS_KEY = "hilt-graph-physics";
 
 /** Persist any string set; tolerate storage failure. */
 function persistStringSet(key: string, set: ReadonlySet<string>): void {
@@ -200,6 +201,27 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
   const [liveSim, setLiveSim] = useState(false);
   const liveSimRef = useRef(false);
   liveSimRef.current = liveSim;
+  // Physics dials (persisted): feed reflow + live; live-applies while the sim runs.
+  const [physics, setPhysics] = useState<PhysicsTuning>(() => {
+    if (typeof window === "undefined") return { ...PHYSICS_DEFAULTS };
+    try {
+      const raw = window.localStorage.getItem(PHYSICS_KEY);
+      return raw ? { ...PHYSICS_DEFAULTS, ...(JSON.parse(raw) as Partial<PhysicsTuning>) } : { ...PHYSICS_DEFAULTS };
+    } catch {
+      return { ...PHYSICS_DEFAULTS };
+    }
+  });
+  const physicsRef = useRef(physics);
+  physicsRef.current = physics;
+  const handlePhysicsChange = useCallback((next: PhysicsTuning) => {
+    setPhysics(next);
+    rendererRef.current?.setPhysicsTuning(next);
+    try {
+      window.localStorage.setItem(PHYSICS_KEY, JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+  }, []);
   const [focusFallback, setFocusFallback] = useState<FocusFallback>(null);
   // Inspector selection: a click selects (opens the inspector) rather than navigating
   // away, so the graph stays explorable. selectedIndexRef keeps the canvas highlight
@@ -468,6 +490,7 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
     });
     // Reposition the HTML label overlay on every pan/zoom (undebounced, rAF-coalesced).
     renderer.onViewChange(() => scheduleReposition());
+    renderer.setPhysicsTuning(physicsRef.current);
     rendererRef.current = renderer;
     return () => {
       renderer.destroy();
@@ -530,6 +553,27 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
     setReflowed(false);
     // Re-assert live mode over the fresh data (setData's trailing pause stopped it).
     if (liveSimRef.current) renderer.setLiveSimulation(true);
+
+    // AUTO-REFLOW on mixer changes: when the RAW payload is unchanged but the filter state
+    // moved AND something is filtered, re-settle the visible subset automatically (fast
+    // profile). Clearing back to "nothing filtered" keeps the canonical map untouched —
+    // home base stays stable. Live mode handles its own re-settling.
+    const filterKey = JSON.stringify([[...effectiveHidden].sort(), [...effectiveHiddenEdges].sort()]);
+    const rawUnchanged = prevRawDataRef.current === graphData.data;
+    const filtersMoved = prevFilterKeyRef.current !== filterKey;
+    prevRawDataRef.current = graphData.data;
+    prevFilterKeyRef.current = filterKey;
+    const anyFiltered = effectiveHidden.size > 0 || effectiveHiddenEdges.size > 0;
+    if (rawUnchanged && filtersMoved && anyFiltered && !liveSimRef.current) {
+      setReflowing(true);
+      renderer.reflow(
+        () => {
+          setReflowing(false);
+          setReflowed(true);
+        },
+        { fast: true },
+      );
+    }
     // budget captured at mount; degrees recomputed here from the fresh payload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [decoded, nodeCount, scheduleReposition]);
@@ -564,6 +608,10 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
       return next;
     });
   }, []);
+
+  // Auto-reflow change detection: raw-payload identity + last-applied filter key.
+  const prevRawDataRef = useRef<unknown>(null);
+  const prevFilterKeyRef = useRef("");
 
   // External refs (library artifact id, Docs file path, person slug) aren't graph node ids — on a
   // focus miss, resolve server-side ONCE and re-enter via the canonical focus URL. The attempted
@@ -813,6 +861,8 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
           onRestoreLayout={handleRestoreLayout}
           liveSim={liveSim}
           onToggleLiveSim={handleToggleLiveSim}
+          physics={physics}
+          onPhysicsChange={handlePhysicsChange}
           defaultCollapsed={isMobile}
         />
         {layoutDisabled ? (

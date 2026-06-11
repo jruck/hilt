@@ -22,21 +22,22 @@
  */
 
 import { Graph } from "@cosmos.gl/graph";
-import type { GraphRenderer, LabelScreenPos, NodeMeta, RendererOptions } from "./renderer";
+import { PHYSICS_DEFAULTS, type GraphRenderer, type LabelScreenPos, type NodeMeta, type PhysicsTuning, type RendererOptions } from "./renderer";
 import type { GraphBudget } from "./device-budget";
 
-/**
- * Simulation profiles. Cosmos defaults (decay 5000, friction 0.85, gravity 0.25) are tuned
- * for cold layouts; our sims start from an already-structured seed, so:
- *  - REFLOW: short decay + stronger damping → snaps to equilibrium in ~2-3s and stops dead
- *    (the default's long tail reads as aimless orbiting); low gravity keeps the result
- *    spread out instead of contracting centerward.
- *  - LIVE: decay ~infinity (never settles by design) at the same low gravity.
- *  - DEFAULT: cosmos's own values, restored whenever a mode ends.
- */
-const REFLOW_PHYSICS = { simulationDecay: 1800, simulationFriction: 0.75, simulationGravity: 0.1 } as const;
-const LIVE_PHYSICS = { simulationDecay: 1e9, simulationFriction: 0.85, simulationGravity: 0.1 } as const;
+/** Cosmos's own values, restored whenever a sim mode ends (hygiene — sims only run in modes). */
 const DEFAULT_PHYSICS = { simulationDecay: 5000, simulationFriction: 0.85, simulationGravity: 0.25 } as const;
+
+function toSimConfig(t: PhysicsTuning, opts: { live?: boolean; fast?: boolean } = {}) {
+  return {
+    simulationGravity: t.gravity,
+    simulationRepulsion: t.repulsion,
+    simulationLinkSpring: t.linkSpring,
+    simulationLinkDistance: t.linkDistance,
+    simulationFriction: opts.fast ? Math.max(0.5, t.friction - 0.05) : t.friction,
+    simulationDecay: opts.live ? 1e9 : opts.fast ? Math.max(300, t.decay * 0.5) : t.decay,
+  };
+}
 
 export class CosmosRenderer implements GraphRenderer {
   private graph: Graph | null = null;
@@ -54,6 +55,7 @@ export class CosmosRenderer implements GraphRenderer {
   private reflowOnSettle: (() => void) | null = null;
   private reflowTimer: ReturnType<typeof setTimeout> | null = null;
   private liveFitTimer: ReturnType<typeof setTimeout> | null = null;
+  private tuning: PhysicsTuning = { ...PHYSICS_DEFAULTS };
 
   mount(container: HTMLDivElement, opts: RendererOptions): void {
     this.container = container;
@@ -233,19 +235,17 @@ export class CosmosRenderer implements GraphRenderer {
    * freezes; a hard timeout backstops a sim that never converges. No-op while live mode
    * or another reflow is running.
    */
-  reflow(onSettle?: () => void): void {
+  reflow(onSettle?: () => void, opts: { fast?: boolean } = {}): void {
     if (!this.graph || this.simMode !== "off") return;
     this.simMode = "reflow";
     this.reflowOnSettle = onSettle ?? null;
-    // Fast-settle profile: a short decay + stronger velocity damping make the layout snap
-    // to equilibrium in ~2-3s and STOP DEAD (the slow default tail reads as aimless
-    // orbiting — the cloud carries residual angular momentum nothing damps). Lower gravity
-    // than cosmos's default keeps the result spread out instead of contracting centerward
-    // (the server layout's equilibrium is wider; matching it avoids the shrink-then-empty
-    // -space effect). Defaults are restored when the mode ends.
-    this.graph.setConfig(REFLOW_PHYSICS);
-    this.graph.start(0.5);
-    this.reflowTimer = setTimeout(() => this.finishReflow(), 8000);
+    // Settle profile from the user's tuning dials; `fast` (the auto-reflow on filter
+    // changes) halves the settle time and damps slightly harder. Both stop DEAD at rest —
+    // the long default tail read as aimless orbiting (residual angular momentum that
+    // nothing in the force model damps).
+    this.graph.setConfig(toSimConfig(this.tuning, { fast: opts.fast }));
+    this.graph.start(opts.fast ? 0.35 : 0.5);
+    this.reflowTimer = setTimeout(() => this.finishReflow(), opts.fast ? 5000 : 8000);
   }
 
   isReflowing(): boolean {
@@ -264,7 +264,7 @@ export class CosmosRenderer implements GraphRenderer {
       if (this.simMode === "reflow") this.finishReflow();
       const alreadyLive = this.simMode === "live";
       this.simMode = "live";
-      this.graph.setConfig(LIVE_PHYSICS);
+      this.graph.setConfig(toSimConfig(this.tuning, { live: true }));
       this.graph.start(0.3); // gentler than reflow — ambient motion, not an explosion
       // One re-frame after the initial collapse, then the camera is the user's again
       // (continuous fitting would fight pan/zoom).
@@ -290,6 +290,19 @@ export class CosmosRenderer implements GraphRenderer {
 
   isLiveSimulation(): boolean {
     return this.simMode === "live";
+  }
+
+  /**
+   * Apply the Physics dials. Takes effect on the next reflow/live start — and immediately
+   * when live is running (re-energized with a small alpha so the change is visible now,
+   * which is what makes live mode the tuning playground).
+   */
+  setPhysicsTuning(tuning: PhysicsTuning): void {
+    this.tuning = { ...tuning };
+    if (this.simMode === "live" && this.graph) {
+      this.graph.setConfig(toSimConfig(this.tuning, { live: true }));
+      this.graph.start(0.25);
+    }
   }
 
   /** cosmos onSimulationEnd — natural decay end (reflow settled) or an explicit stop(). */

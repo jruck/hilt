@@ -11,6 +11,32 @@
 
 import type { GraphBudget } from "./device-budget";
 
+/**
+ * User-tunable simulation physics (the legend's Physics dials). Feeds BOTH reflow and
+ * live mode; live always overrides decay to ~infinity (never settling is its defining
+ * trait), and the fast auto-reflow halves the settle time. Defaults are tuned for
+ * re-settling an already-structured seed, not a cold layout: short decay + strong
+ * damping (stop dead, no orbiting tail), low gravity (spread, don't contract centerward).
+ */
+export interface PhysicsTuning {
+  gravity: number;
+  repulsion: number;
+  linkSpring: number;
+  linkDistance: number;
+  friction: number;
+  /** Settle time for reflow (cosmos simulationDecay). Live ignores this. */
+  decay: number;
+}
+
+export const PHYSICS_DEFAULTS: PhysicsTuning = {
+  gravity: 0.1,
+  repulsion: 1,
+  linkSpring: 1,
+  linkDistance: 12,
+  friction: 0.8,
+  decay: 1800,
+};
+
 export interface NodeMeta {
   id: string;
   /** GraphNodeType ordinal (NODE_TYPE_ORDER on the server). */
@@ -77,9 +103,11 @@ export interface GraphRenderer {
    * timeout), freezes, and restores render-only config. `onSettle` fires once at rest.
    * No-op while already reflowing.
    */
-  reflow(onSettle?: () => void): void;
+  reflow(onSettle?: () => void, opts?: { fast?: boolean }): void;
   /** True while a reflow simulation is in flight. */
   isReflowing(): boolean;
+  /** Apply the Physics dials (next sim start; immediately when live is running). */
+  setPhysicsTuning(tuning: PhysicsTuning): void;
   /**
    * Continuous physics toggle (the legend's "Live" switch). On = the sim runs until
    * toggled off (decay pushed to ~infinity); off = freeze in place. Session-scoped.

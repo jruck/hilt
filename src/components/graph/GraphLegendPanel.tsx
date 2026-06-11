@@ -4,6 +4,17 @@ import { useState } from "react";
 import { Activity, Binoculars, ChevronDown, ChevronUp, Eye, EyeOff, Orbit, Undo2 } from "lucide-react";
 import type { GraphEdgeKind, GraphNodeType } from "@/lib/graph/types";
 import { EDGE_KIND_DESCRIPTION, EDGE_KIND_LABEL, NODE_TYPE_DOT, NODE_TYPE_LABEL } from "./graph-labels";
+import { PHYSICS_DEFAULTS, type PhysicsTuning } from "./renderer";
+
+/** Slider rows for the Physics section: key, label, range, step, display precision. */
+const PHYSICS_DIALS: Array<{ key: keyof PhysicsTuning; label: string; min: number; max: number; step: number; fmt: (v: number) => string }> = [
+  { key: "gravity", label: "Gravity", min: 0, max: 0.5, step: 0.01, fmt: (v) => v.toFixed(2) },
+  { key: "repulsion", label: "Repulsion", min: 0, max: 2, step: 0.05, fmt: (v) => v.toFixed(2) },
+  { key: "linkSpring", label: "Spring", min: 0, max: 2, step: 0.05, fmt: (v) => v.toFixed(2) },
+  { key: "linkDistance", label: "Link length", min: 2, max: 40, step: 1, fmt: (v) => String(v) },
+  { key: "friction", label: "Damping", min: 0.5, max: 0.99, step: 0.01, fmt: (v) => v.toFixed(2) },
+  { key: "decay", label: "Settle time", min: 300, max: 6000, step: 100, fmt: (v) => `${(v / 1000).toFixed(1)}s` },
+];
 
 /** Vault node types, always offered. Semantic types appended when the overlay is built. */
 const VAULT_TYPES: GraphNodeType[] = ["note", "reference", "candidate", "person", "project", "north_star"];
@@ -35,6 +46,9 @@ interface GraphLegendPanelProps {
   /** Continuous physics toggle (session-only). */
   liveSim: boolean;
   onToggleLiveSim: () => void;
+  /** The physics dials (persisted; live-applied while the sim runs). */
+  physics: PhysicsTuning;
+  onPhysicsChange: (next: PhysicsTuning) => void;
   /** Start collapsed (mobile). The expanded/collapsed choice persists per session. */
   defaultCollapsed?: boolean;
 }
@@ -66,10 +80,14 @@ export function GraphLegendPanel({
   onRestoreLayout,
   liveSim,
   onToggleLiveSim,
+  physics,
+  onPhysicsChange,
   defaultCollapsed = false,
 }: GraphLegendPanelProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [showEdges, setShowEdges] = useState(true);
+  const [showPhysics, setShowPhysics] = useState(false);
+  const physicsTuned = PHYSICS_DIALS.some((d) => physics[d.key] !== PHYSICS_DEFAULTS[d.key]);
   const types = semanticBuilt ? [...VAULT_TYPES, ...SEMANTIC_TYPES] : VAULT_TYPES;
   const edgeKinds = semanticBuilt ? [...BASE_EDGE_KINDS, ...SEMANTIC_EDGE_KINDS] : BASE_EDGE_KINDS;
   const anyOverride =
@@ -224,6 +242,49 @@ export function GraphLegendPanel({
               }),
             )
           : null}
+        <button
+          type="button"
+          onClick={() => setShowPhysics((v) => !v)}
+          className="mt-1.5 flex w-full items-center gap-1 border-t border-[var(--border-default)] px-1.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-primary)]"
+          data-testid="graph-physics-toggle"
+        >
+          Physics
+          {physicsTuned ? <span className="rounded bg-amber-500/15 px-1 text-[9px] normal-case tracking-normal text-amber-600 dark:text-amber-400">tuned</span> : null}
+          {showPhysics ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        </button>
+        {showPhysics ? (
+          <div className="px-1.5 pb-1">
+            {PHYSICS_DIALS.map((d) => (
+              <label key={d.key} className="flex items-center gap-2 py-1 text-[11px] text-[var(--text-secondary)]">
+                <span className="w-[4.5rem] shrink-0">{d.label}</span>
+                <input
+                  type="range"
+                  min={d.min}
+                  max={d.max}
+                  step={d.step}
+                  value={physics[d.key]}
+                  onChange={(e) => onPhysicsChange({ ...physics, [d.key]: Number(e.target.value) })}
+                  className="h-1 min-w-0 flex-1 accent-fuchsia-500"
+                  data-testid={`graph-physics-${d.key}`}
+                />
+                <span className="w-9 shrink-0 text-right tabular-nums text-[10px] text-[var(--text-tertiary)]">
+                  {d.fmt(physics[d.key])}
+                </span>
+              </label>
+            ))}
+            <div className="flex items-center justify-between px-0.5 pt-0.5">
+              <span className="text-[10px] text-[var(--text-tertiary)]">applies to Reflow & Live{liveSim ? " (live now)" : ""}</span>
+              <button
+                type="button"
+                onClick={() => onPhysicsChange({ ...PHYSICS_DEFAULTS })}
+                className="rounded px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                disabled={!physicsTuned}
+              >
+                defaults
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* Physics footer — one-shot Reflow, continuous Live toggle, Restore to canonical. */}

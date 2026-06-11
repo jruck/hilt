@@ -28,26 +28,41 @@ export interface PhysicsTuning {
   decay: number;
 }
 
+/**
+ * Scale note (learned by WATCHING it fail): the render space is 4096 units wide and the
+ * canonical layout fills it. Early values used linkDistance 8–28 — i.e. every one of the
+ * ~18K springs demanded its endpoints sit ~10 units apart in a 4096-unit world, so the
+ * whole connected mass collapsed into a knot regardless of gravity/repulsion, and the
+ * presets looked identical. Distances here are sized to the SPACE, not to cosmos's
+ * toy-example defaults.
+ */
 export const PHYSICS_DEFAULTS: PhysicsTuning = {
-  gravity: 0.1,
-  repulsion: 1,
-  linkSpring: 1,
-  linkDistance: 12,
+  gravity: 0.08,
+  repulsion: 1.2,
+  linkSpring: 0.8,
+  linkDistance: 80,
   friction: 0.8,
   decay: 1800,
 };
 
 /**
  * Physics presets — the named points on the circle↔organic axis the dials span.
- * Circle ≈ the server atlas's character (strong all-pairs pressure, no center pull →
- * an evenly-inflated disc); Organic leans the other way (center pull + tight springs →
- * connected mass huddles, periphery drifts). Balanced = PHYSICS_DEFAULTS.
+ * Circle ≈ the server atlas's character (strong all-pairs pressure, weak long springs,
+ * no center pull → an evenly-inflated disc); Organic leans the other way (center pull +
+ * shorter, stiffer springs → connected mass huddles, periphery drifts). Balanced =
+ * PHYSICS_DEFAULTS.
  */
 export const PHYSICS_PRESETS: Array<{ name: string; tuning: PhysicsTuning }> = [
-  { name: "Circle", tuning: { gravity: 0, repulsion: 2, linkSpring: 0.6, linkDistance: 28, friction: 0.85, decay: 1800 } },
+  { name: "Circle", tuning: { gravity: 0, repulsion: 2.4, linkSpring: 0.25, linkDistance: 160, friction: 0.85, decay: 1800 } },
   { name: "Balanced", tuning: { ...PHYSICS_DEFAULTS } },
-  { name: "Organic", tuning: { gravity: 0.22, repulsion: 0.5, linkSpring: 1.4, linkDistance: 8, friction: 0.85, decay: 1800 } },
+  { name: "Organic", tuning: { gravity: 0.18, repulsion: 0.7, linkSpring: 1.2, linkDistance: 40, friction: 0.82, decay: 1800 } },
 ];
+
+/**
+ * Bump when the meaning/scale of the dials changes — persisted tunings from an older
+ * scale would silently reproduce the old failure mode (the v1 blob).
+ */
+export const PHYSICS_SCHEMA_VERSION = 2;
 
 export interface NodeMeta {
   id: string;

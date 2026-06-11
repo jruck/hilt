@@ -9,9 +9,11 @@ import { PHYSICS_DEFAULTS, PHYSICS_PRESETS, type PhysicsTuning } from "./rendere
 /** Slider rows for the Physics section: key, label, range, step, display precision. */
 const PHYSICS_DIALS: Array<{ key: keyof PhysicsTuning; label: string; min: number; max: number; step: number; fmt: (v: number) => string }> = [
   { key: "gravity", label: "Gravity", min: 0, max: 0.5, step: 0.01, fmt: (v) => v.toFixed(2) },
-  { key: "repulsion", label: "Repulsion", min: 0, max: 2, step: 0.05, fmt: (v) => v.toFixed(2) },
+  { key: "repulsion", label: "Repulsion", min: 0, max: 3, step: 0.05, fmt: (v) => v.toFixed(2) },
   { key: "linkSpring", label: "Spring", min: 0, max: 2, step: 0.05, fmt: (v) => v.toFixed(2) },
-  { key: "linkDistance", label: "Link length", min: 2, max: 40, step: 1, fmt: (v) => String(v) },
+  // Link length is in SPACE units (the canvas is 4096 wide) — small values collapse
+  // the whole connected mass into a knot, which is exactly the v1 failure mode.
+  { key: "linkDistance", label: "Link length", min: 10, max: 300, step: 5, fmt: (v) => String(v) },
   { key: "friction", label: "Damping", min: 0.5, max: 0.99, step: 0.01, fmt: (v) => v.toFixed(2) },
   { key: "decay", label: "Settle time", min: 300, max: 6000, step: 100, fmt: (v) => `${(v / 1000).toFixed(1)}s` },
 ];

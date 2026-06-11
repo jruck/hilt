@@ -57,10 +57,13 @@ export class CosmosRenderer implements GraphRenderer {
   private simMode: "off" | "reflow" | "live" = "off";
   private reflowOnSettle: (() => void) | null = null;
   private reflowTimer: ReturnType<typeof setTimeout> | null = null;
-  private reflowEarlyFitTimer: ReturnType<typeof setTimeout> | null = null;
   private liveFitTimer: ReturnType<typeof setTimeout> | null = null;
   private tuning: PhysicsTuning = { ...PHYSICS_DEFAULTS };
   private hoverTweenRaf: number | null = null;
+  /** Current pointGreyoutOpacity (1 = no dim). Tween source so rapid hover never restarts. */
+  private greyoutCurrent = 1;
+  private reflowTailTimer: ReturnType<typeof setTimeout> | null = null;
+  private reflowTrackTimer: ReturnType<typeof setInterval> | null = null;
 
   mount(container: HTMLDivElement, opts: RendererOptions): void {
     this.container = container;
@@ -185,34 +188,50 @@ export class CosmosRenderer implements GraphRenderer {
 
   highlightNeighbors(index: number | null): void {
     if (!this.graph) return;
-    if (this.hoverTweenRaf != null) {
-      cancelAnimationFrame(this.hoverTweenRaf);
-      this.hoverTweenRaf = null;
-    }
     // Gotcha: passing [] greys out ALL points. To clear, call unselectPoints().
     if (index == null) {
-      this.graph.setConfig({ pointGreyoutOpacity: GREYOUT_OPACITY });
-      this.graph.unselectPoints();
-      this.graph.render();
+      // Ease back up from WHEREVER the dim currently is, then unselect at full opacity.
+      // (Skimming across small dots fires hover/out rapidly; tweening from current — not
+      // from a fixed start — is what keeps that from flickering.)
+      this.tweenGreyout(1, 120, () => {
+        this.graph?.unselectPoints();
+        this.graph?.render();
+      });
       return;
     }
     const neighbors = this.adjacency.get(index) ?? [];
     this.graph.selectPointsByIndices([index, ...neighbors]);
-    // Ease the dim-down (~160ms) so the highlight reads as a transition, not a hard cut —
-    // the rest of the canvas moves organically; an instant fade was the one jarring note.
-    const FROM = 0.7;
-    const DURATION = 160;
+    // Ease the dim-down so the highlight reads as a transition, not a hard cut. From the
+    // CURRENT level: moving between nodes while already dimmed stays dimmed (no restart).
+    this.tweenGreyout(GREYOUT_OPACITY, 140);
+  }
+
+  /** Tween pointGreyoutOpacity from its current value to `target` (ease-out). */
+  private tweenGreyout(target: number, durationMs: number, onDone?: () => void): void {
+    if (!this.graph) return;
+    if (this.hoverTweenRaf != null) {
+      cancelAnimationFrame(this.hoverTweenRaf);
+      this.hoverTweenRaf = null;
+    }
+    const from = this.greyoutCurrent;
+    if (Math.abs(from - target) < 0.01) {
+      this.greyoutCurrent = target;
+      this.graph.setConfig({ pointGreyoutOpacity: target });
+      this.graph.render();
+      onDone?.();
+      return;
+    }
     const startedAt = performance.now();
-    this.graph.setConfig({ pointGreyoutOpacity: FROM });
-    this.graph.render();
     const step = (now: number): void => {
       this.hoverTweenRaf = null;
       if (!this.graph) return;
-      const t = Math.min(1, (now - startedAt) / DURATION);
+      const t = Math.min(1, (now - startedAt) / durationMs);
       const eased = 1 - (1 - t) * (1 - t); // ease-out
-      this.graph.setConfig({ pointGreyoutOpacity: FROM + (GREYOUT_OPACITY - FROM) * eased });
+      this.greyoutCurrent = from + (target - from) * eased;
+      this.graph.setConfig({ pointGreyoutOpacity: this.greyoutCurrent });
       this.graph.render();
       if (t < 1) this.hoverTweenRaf = requestAnimationFrame(step);
+      else onDone?.();
     };
     this.hoverTweenRaf = requestAnimationFrame(step);
   }
@@ -271,18 +290,19 @@ export class CosmosRenderer implements GraphRenderer {
     // changes) halves the settle time and damps slightly harder.
     this.graph.setConfig(toSimConfig(this.tuning, { fast: opts.fast }));
     this.graph.start(opts.fast ? 0.35 : 0.5);
-    // HARD stop at the dial's settle time (halved for fast): alpha decay is asymptotic, and
-    // its last 10% reads as aimless micro-drift — 90% of the motion lands in the first
-    // second, so we cut the tail dead instead of waiting for the natural end.
+    // Two-stage stop at the dial's settle time (halved for fast): at ~85% in, damping
+    // ramps hard (a brief ease-out tail — a dead cut read as harsh, the natural decay
+    // tail as aimless drift); shortly after, pause for good.
     const duration = Math.max(600, Math.min(6000, opts.fast ? this.tuning.decay * 0.5 : this.tuning.decay));
-    this.reflowTimer = setTimeout(() => this.finishReflow(), duration);
-    // Camera FOLLOWS the collapse rather than waiting for it: one early fit mid-motion,
-    // and finishReflow does the final crisp fit. Skipped for very short settles.
-    if (duration > 900) {
-      this.reflowEarlyFitTimer = setTimeout(() => {
-        if (this.simMode === "reflow" && this.graph) this.graph.fitView(350);
-      }, Math.min(450, duration / 2));
-    }
+    this.reflowTailTimer = setTimeout(() => {
+      if (this.simMode === "reflow" && this.graph) this.graph.setConfig({ simulationFriction: 0.55 });
+    }, duration * 0.85);
+    this.reflowTimer = setTimeout(() => this.finishReflow(), duration + 220);
+    // Camera TRACKS the motion: a gentle re-fit every ~450ms while settling (reads as a
+    // follow, not two competing zoom events), plus finishReflow's final crisp fit.
+    this.reflowTrackTimer = setInterval(() => {
+      if (this.simMode === "reflow" && this.graph) this.graph.fitView(380);
+    }, 450);
   }
 
   isReflowing(): boolean {
@@ -355,9 +375,13 @@ export class CosmosRenderer implements GraphRenderer {
       clearTimeout(this.reflowTimer);
       this.reflowTimer = null;
     }
-    if (this.reflowEarlyFitTimer) {
-      clearTimeout(this.reflowEarlyFitTimer);
-      this.reflowEarlyFitTimer = null;
+    if (this.reflowTailTimer) {
+      clearTimeout(this.reflowTailTimer);
+      this.reflowTailTimer = null;
+    }
+    if (this.reflowTrackTimer) {
+      clearInterval(this.reflowTrackTimer);
+      this.reflowTrackTimer = null;
     }
     const cb = this.reflowOnSettle;
     this.reflowOnSettle = null;
@@ -389,9 +413,13 @@ export class CosmosRenderer implements GraphRenderer {
       clearTimeout(this.reflowTimer);
       this.reflowTimer = null;
     }
-    if (this.reflowEarlyFitTimer) {
-      clearTimeout(this.reflowEarlyFitTimer);
-      this.reflowEarlyFitTimer = null;
+    if (this.reflowTailTimer) {
+      clearTimeout(this.reflowTailTimer);
+      this.reflowTailTimer = null;
+    }
+    if (this.reflowTrackTimer) {
+      clearInterval(this.reflowTrackTimer);
+      this.reflowTrackTimer = null;
     }
     if (this.liveFitTimer) {
       clearTimeout(this.liveFitTimer);

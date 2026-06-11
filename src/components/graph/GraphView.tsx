@@ -26,7 +26,7 @@ import {
   labelLODForDevice,
   resolveLinkColor,
 } from "./graph-style";
-import { PHYSICS_DEFAULTS, type GraphRenderer, type NodeMeta, type PhysicsTuning } from "./renderer";
+import { PHYSICS_DEFAULTS, PHYSICS_SCHEMA_VERSION, type GraphRenderer, type NodeMeta, type PhysicsTuning } from "./renderer";
 import { useGraphData } from "./useGraphData";
 import { useGraphMeta } from "./useGraphMeta";
 import { withBasePath } from "@/lib/base-path";
@@ -202,11 +202,15 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
   const liveSimRef = useRef(false);
   liveSimRef.current = liveSim;
   // Physics dials (persisted): feed reflow + live; live-applies while the sim runs.
+  // Stored under a schema version — dials from the old (pre-rescale) value space would
+  // silently reproduce the collapsed-blob failure mode, so they're discarded.
   const [physics, setPhysics] = useState<PhysicsTuning>(() => {
     if (typeof window === "undefined") return { ...PHYSICS_DEFAULTS };
     try {
       const raw = window.localStorage.getItem(PHYSICS_KEY);
-      return raw ? { ...PHYSICS_DEFAULTS, ...(JSON.parse(raw) as Partial<PhysicsTuning>) } : { ...PHYSICS_DEFAULTS };
+      const parsed = raw ? (JSON.parse(raw) as Partial<PhysicsTuning> & { v?: number }) : null;
+      if (!parsed || parsed.v !== PHYSICS_SCHEMA_VERSION) return { ...PHYSICS_DEFAULTS };
+      return { ...PHYSICS_DEFAULTS, ...parsed };
     } catch {
       return { ...PHYSICS_DEFAULTS };
     }
@@ -217,7 +221,7 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
     setPhysics(next);
     rendererRef.current?.setPhysicsTuning(next);
     try {
-      window.localStorage.setItem(PHYSICS_KEY, JSON.stringify(next));
+      window.localStorage.setItem(PHYSICS_KEY, JSON.stringify({ ...next, v: PHYSICS_SCHEMA_VERSION }));
     } catch {
       /* ignore */
     }

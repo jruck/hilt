@@ -64,36 +64,62 @@ export class CosmosRenderer implements GraphRenderer {
   private greyoutCurrent = 1;
   private reflowTailTimer: ReturnType<typeof setTimeout> | null = null;
   private reflowTrackTimer: ReturnType<typeof setInterval> | null = null;
-  /** Last links buffer — re-pushed around enableSimulation flips (materializes spring buffers). */
+  /** Retained data buffers — re-pushed when the Graph instance is recreated at mode flips. */
   private lastLinks: Float32Array | null = null;
+  private lastColors: Float32Array | null = null;
+  private lastSizes: Float32Array | null = null;
+  private mountOpts: RendererOptions | null = null;
+  private simInstance = false;
 
-  /** Flip enableSimulation and re-push positions+links so force buffers exist under the new flag. */
-  private setSimulationEnabled(on: boolean, extraConfig: Record<string, unknown> = {}): void {
+  /**
+   * Swap the Graph for a fresh instance with the given enableSimulation flag, carrying the
+   * data across. This is the ONLY way to toggle simulation in cosmos 2.6.4: the force
+   * modules (gravity/center/many-body/link springs) are constructed in Graph's constructor
+   * under `enableSimulation &&` and can never be created later (initPrograms only inits
+   * EXISTING force objects) — while a sim-constructed instance has broken GPU hover
+   * picking. So: picking instance at rest, force instance while simulating. `positions`
+   * are space coords (pushed dontRescale). The new instance is rendered + paused; callers
+   * start() explicitly. Camera: instant re-fit (zoom state doesn't survive the swap).
+   */
+  private recreateGraph(simEnabled: boolean, positions: Float32Array, extraConfig: Record<string, unknown> = {}): void {
+    if (!this.container || !this.mountOpts) return;
+    this.graph?.destroy();
+    this.graph = null;
+    this.createGraph(simEnabled);
+    this.simInstance = simEnabled;
     if (!this.graph) return;
-    const current = Float32Array.from(this.graph.getPointPositions());
-    this.graph.setConfig({ enableSimulation: on, ...extraConfig });
-    if (current.length > 0) this.graph.setPointPositions(current, true);
-    if (this.lastLinks) this.graph.setLinks(this.lastLinks);
-    this.graph.render();
+    const g = this.graph as Graph;
+    if (Object.keys(extraConfig).length > 0) g.setConfig(extraConfig);
+    if (positions.length > 0) g.setPointPositions(positions, true);
+    if (this.lastLinks) g.setLinks(this.lastLinks);
+    if (this.lastColors) g.setPointColors(this.lastColors);
+    if (this.lastSizes) g.setPointSizes(this.lastSizes);
+    g.render();
+    g.fitView(0);
+    g.pause(); // sim-constructed instances auto-run from alpha 1 — hold until start()
   }
 
   mount(container: HTMLDivElement, opts: RendererOptions): void {
     this.container = container;
     this.budget = opts.budget;
-    this.graph = new Graph(container, {
+    this.mountOpts = opts;
+    this.createGraph(false);
+  }
+
+  /** Construct the cosmos Graph. `simEnabled` decides forces-vs-picking (see recreateGraph). */
+  private createGraph(simEnabled: boolean): void {
+    if (!this.container || !this.mountOpts) return;
+    const opts = this.mountOpts;
+    this.graph = new Graph(this.container, {
       backgroundColor: opts.backgroundColor,
       // Pin the coordinate space to the WebGL max (4096). cosmos was silently clamping
       // to this anyway ("spaceSize reduced to 4096"); we instead scale server positions
       // to fill it (setData), so the layout spreads evenly with no squish.
       spaceSize: 4096,
-      // Simulation DISABLED at rest — enableSimulation:true at construction silently
-      // breaks cosmos 2.6.4's GPU hover picking (cursor never flips, onClick gets no
-      // index; bisected empirically in-browser). Sim modes flip this flag ON at entry and
-      // OFF at exit, re-pushing BOTH positions and links around each flip: the re-push is
-      // what materializes the lazily-created force/velocity buffers under the new flag
-      // (re-pushing only positions leaves the link springs absent — a sim that "runs"
-      // with nothing pushing, the original reflow bug).
-      enableSimulation: false,
+      // Construction-time only in cosmos 2.6.4: true builds the force modules (and breaks
+      // GPU picking); false gets picking (and forces can never be added later). Mode flips
+      // swap the whole instance via recreateGraph().
+      enableSimulation: simEnabled,
       onSimulationTick: () => {
         // Labels must track the moving points while a reflow/live sim runs.
         this.viewChangeCb?.();
@@ -150,6 +176,10 @@ export class CosmosRenderer implements GraphRenderer {
     this.nodeCount = meta.length;
     this.adjacency = buildAdjacency(links, this.nodeCount);
     this.lastLinks = links;
+    this.lastColors = colors;
+    this.lastSizes = sizes;
+    // Data swaps land on the resting (picking) instance; swap back if a sim one is live.
+    if (this.simInstance) this.recreateGraph(false, scaleToSpace(positions, 4096, 96), DEFAULT_PHYSICS);
     // Scale server coords uniformly to fill the 4096 space (with padding) so the layout
     // spreads evenly instead of clustering in a corner / getting clamped. Aspect-preserving.
     this.graph.setPointPositions(scaleToSpace(positions, 4096, 96), true);
@@ -312,8 +342,9 @@ export class CosmosRenderer implements GraphRenderer {
     // Settle profile from the user's tuning dials; `fast` (the auto-reflow on filter
     // changes) halves the settle time and damps slightly harder. The flag flip + re-push
     // materializes the force buffers (picking stays off only while simulating).
-    this.setSimulationEnabled(true, toSimConfig(this.tuning, { fast: opts.fast }));
-    this.graph.start(opts.fast ? 0.35 : 0.5);
+    const seed = Float32Array.from(this.graph.getPointPositions());
+    this.recreateGraph(true, seed, toSimConfig(this.tuning, { fast: opts.fast }));
+    this.graph?.start(opts.fast ? 0.35 : 0.5);
     // Two-stage stop at the dial's settle time (halved for fast): at ~85% in, damping
     // ramps hard (a brief ease-out tail — a dead cut read as harsh, the natural decay
     // tail as aimless drift); shortly after, pause for good. Camera tracking ALSO stops
@@ -352,8 +383,13 @@ export class CosmosRenderer implements GraphRenderer {
       if (this.simMode === "reflow") this.finishReflow();
       const alreadyLive = this.simMode === "live";
       this.simMode = "live";
-      this.setSimulationEnabled(true, toSimConfig(this.tuning, { live: true }));
-      this.graph.start(0.3); // gentler than reflow — ambient motion, not an explosion
+      if (!this.simInstance) {
+        const seed = Float32Array.from(this.graph.getPointPositions());
+        this.recreateGraph(true, seed, toSimConfig(this.tuning, { live: true }));
+      } else {
+        this.graph.setConfig(toSimConfig(this.tuning, { live: true }));
+      }
+      this.graph?.start(0.3); // gentler than reflow — ambient motion, not an explosion
       // One re-frame after the initial collapse, then the camera is the user's again
       // (continuous fitting would fight pan/zoom).
       if (!alreadyLive) {
@@ -370,8 +406,8 @@ export class CosmosRenderer implements GraphRenderer {
         this.liveFitTimer = null;
       }
       this.graph.pause();
-      this.setSimulationEnabled(false, DEFAULT_PHYSICS);
-      this.graph.render();
+      const settled = Float32Array.from(this.graph.getPointPositions());
+      this.recreateGraph(false, settled, DEFAULT_PHYSICS);
       this.viewChangeCb?.();
     }
   }
@@ -418,12 +454,10 @@ export class CosmosRenderer implements GraphRenderer {
     this.reflowOnSettle = null;
     if (this.graph) {
       this.graph.pause();
-      // Back to render-only: restores hover/click picking (broken while the flag is on).
-      this.setSimulationEnabled(false, DEFAULT_PHYSICS);
-      // Final crisp frame on the settled result (fast — it's a touch-up after the
-      // mid-motion fit, not the whole journey).
-      this.graph.fitView(350);
-      this.graph.render();
+      // Back to the resting (picking) instance, carrying the settled positions.
+      const settled = Float32Array.from(this.graph.getPointPositions());
+      this.recreateGraph(false, settled, DEFAULT_PHYSICS);
+      this.graph?.fitView(350);
     }
     this.viewChangeCb?.(); // final label snap
     cb?.();

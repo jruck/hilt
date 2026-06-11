@@ -8,6 +8,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
+- **`/navigate` rejected the Library view** — the ws-server's navigate allowlist predated the Library view (`{"view":"library"}` → 400). Found while driving Mercury's window remotely during the launch-hang investigation. Added `library` to the list.
+
 - **Mercury launch hang: stale `/usr/local/bin/node` shadowed the launcher's modern Node for spawned servers** — On Mercury, launching `dist/Hilt.app` showed no window for 1–2 minutes. Root cause chain: Electron main's `childEnv()` hardcoded `/opt/homebrew/bin:/usr/local/bin` AHEAD of the inherited PATH; Mercury has no Homebrew node but does have a stale v18.13 at `/usr/local/bin/node`, so every spawned `npm run dev/start` (tsx → esbuild) crashed instantly with `TransformError`, `waitForServer` burned its full 60s timeout, and the window only appeared after fallback to the remote source — masking that Mercury's local server has likely been broken this way for a while. Fix in two layers: `CHILD_PATH` now puts the **inherited PATH first** (the `.app` launcher curates it, including an nvm prepend that picks v22 on Mercury) with the hardcoded dirs demoted to fallbacks for minimal Finder environments; and the launcher orders **Homebrew before `/usr/local`** (Apple Silicon convention — `/usr/local/bin/node` is often an old Intel-era installer leftover). Xochipilli unaffected by the reorder (launcher hands children Homebrew's v26 first, matching the ABI its `node_modules` were built with). Known follow-up worth doing: create the window (with the startup loading screen) BEFORE waiting on server spawns, so a slow/failed server narrates progress instead of presenting a dead dock icon.
 
 ### Added

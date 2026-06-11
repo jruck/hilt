@@ -133,7 +133,7 @@ async function startServer() {
       req.on("end", () => {
         try {
           const { view, path } = JSON.parse(body);
-          const validViews = ["bridge", "docs", "stack", "briefings", "calendar", "people", "system"];
+          const validViews = ["bridge", "docs", "stack", "briefings", "calendar", "people", "system", "library"];
           if (!view || !validViews.includes(view)) {
             res.writeHead(400, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ error: "Invalid view. Must be one of: " + validViews.join(", ") }));

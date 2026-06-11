@@ -7,6 +7,9 @@ export interface LibraryReadState {
   version: 1;
   initialized_at: string;
   read_at_by_id: Record<string, string>;
+  /** When the user last OPENED the Library tab. Drives the nav "new since you looked" dot —
+   *  distinct from per-item read state (read_at_by_id), which the feed cards use. */
+  last_visited_at?: string;
 }
 
 export interface MarkLibraryReadResult {
@@ -68,6 +71,7 @@ function normalizeReadState(value: unknown): LibraryReadState | null {
     version: 1,
     initialized_at: initializedAt,
     read_at_by_id: readAtById,
+    last_visited_at: typeof record.last_visited_at === "string" ? record.last_visited_at : undefined,
   };
 }
 
@@ -101,6 +105,22 @@ export function isLibraryArtifactUnread(artifact: ReadAwareArtifact, state: Libr
   const artifactTime = artifactArrivalTimestamp(artifact);
   const lastReadTime = dateTimestamp(state.read_at_by_id[artifact.id]) || dateTimestamp(state.initialized_at);
   return artifactTime > lastReadTime;
+}
+
+/** "New since you last opened the Library tab" — the nav-dot semantic. Independent of per-item read
+ *  state: it's purely arrival-time vs. last_visited_at (falling back to the baseline before a first
+ *  visit), so the dot means "stuff landed since you looked," not "unread items exist." */
+export function isLibraryArtifactNew(artifact: ReadAwareArtifact, state: LibraryReadState): boolean {
+  const since = dateTimestamp(state.last_visited_at || "") || dateTimestamp(state.initialized_at);
+  return artifactArrivalTimestamp(artifact) > since;
+}
+
+/** Stamp the Library tab as visited now — clears the nav "new" dot. */
+export function markLibraryVisited(vaultPath: string, visitedAt = isoNow()): { visited_at: string } {
+  const state = readLibraryReadState(vaultPath);
+  state.last_visited_at = visitedAt;
+  writeLibraryReadState(vaultPath, state);
+  return { visited_at: visitedAt };
 }
 
 export function applyLibraryReadState<T extends LibraryArtifact | LibraryArtifactDetail>(artifacts: T[], state: LibraryReadState): T[] {

@@ -247,7 +247,12 @@ export function Board() {
   }, [isHydrated, workingFolder]);
   const isMobile = useIsMobile();
   const { hasUnread: hasBriefingUnread } = useBriefingUnread();
-  const { hasUnread: hasLibraryUnread } = useLibraryUnread();
+  const { hasUnread: hasLibraryUnread, markVisited: markLibraryVisited } = useLibraryUnread();
+  // Opening the Library tab clears its nav dot: stamp the visit so the dot only returns when NEW
+  // items arrive afterward (not just because unread items still exist).
+  useEffect(() => {
+    if (viewMode === "library") void markLibraryVisited();
+  }, [viewMode, markLibraryVisited]);
   const unreadTabs = useMemo(() => {
     const tabs = new Set<string>();
     if (hasBriefingUnread) tabs.add("briefings");

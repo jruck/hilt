@@ -3,7 +3,7 @@ import path from "path";
 import type { CandidateStatus, LibraryArtifact, LibraryArtifactDetail, LibraryComment, LibraryLifecycleStatus, LibraryModeFilter, LibrarySourceFacetSummary, LibrarySourceSummary, ReferenceCandidate, SourceIntent, YouTubeClipReviewAttrs } from "./types";
 import { CANDIDATE_CACHE_DIR, candidateCacheDir, findCandidateById, listCandidates, parseCandidateFile } from "./candidate-cache";
 import { findSavedReferenceById, listSavedReferences, MANUAL_SOURCE_ID, MANUAL_SOURCE_NAME, parseReferenceFile, referencesDir } from "./references";
-import { applyLibraryReadState, isLibraryArtifactUnread, readLibraryReadState } from "./read-state";
+import { applyLibraryReadState, isLibraryArtifactNew, isLibraryArtifactUnread, readLibraryReadState } from "./read-state";
 import { addStoredComment, deleteStoredComment, editStoredComment, getStoredComments, listStoredFeedback, markStoredCommentsProcessed } from "./library-feedback";
 import { isMutedSender, readMutedSenders } from "./library-mute";
 import { contentTypeForArtifact, type LibraryContentType } from "./content-type";
@@ -261,14 +261,14 @@ export function listLibraryArtifactDetails(vaultPath: string, options: LibraryLi
   };
 }
 
-export function hasUnreadLibraryArtifacts(vaultPath: string): boolean {
-  const state = readLibraryReadState(vaultPath);
-
+/** Short-circuiting walk over every non-keep library artifact (saved + candidates). Returns true as
+ *  soon as `predicate` matches one — shared by the unread and "new since visit" checks. */
+function anyLibraryArtifact(vaultPath: string, predicate: (artifact: LibraryArtifactDetail) => boolean): boolean {
   for (const filePath of walkMarkdown(referencesDir(vaultPath))) {
     if (filePath.includes(`${path.sep}.cache${path.sep}`)) continue;
     const artifact = parseReferenceFile(vaultPath, filePath);
     if (artifact?.library_mode === "keep") continue;
-    if (artifact && isLibraryArtifactUnread(artifact, state)) return true;
+    if (artifact && predicate(artifact)) return true;
   }
 
   for (const filePath of walkMarkdown(candidateCacheDir(vaultPath), { includeHidden: true })) {
@@ -277,16 +277,27 @@ export function hasUnreadLibraryArtifacts(vaultPath: string): boolean {
       candidate = parseCandidateFile(vaultPath, filePath);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.warn(`[library] skipping malformed candidate for unread check: ${filePath}: ${message}`);
+      console.warn(`[library] skipping malformed candidate for unread/new check: ${filePath}: ${message}`);
       continue;
     }
     if (!candidate || candidate.status !== "candidate") continue;
     const artifact = candidateToArtifact(vaultPath, candidate);
     if (artifact.library_mode === "keep") continue;
-    if (isLibraryArtifactUnread(artifact, state)) return true;
+    if (predicate(artifact)) return true;
   }
 
   return false;
+}
+
+export function hasUnreadLibraryArtifacts(vaultPath: string): boolean {
+  const state = readLibraryReadState(vaultPath);
+  return anyLibraryArtifact(vaultPath, (artifact) => isLibraryArtifactUnread(artifact, state));
+}
+
+/** Any non-keep item that ARRIVED since the user last opened the Library tab — the nav-dot signal. */
+export function hasNewLibraryArtifacts(vaultPath: string): boolean {
+  const state = readLibraryReadState(vaultPath);
+  return anyLibraryArtifact(vaultPath, (artifact) => isLibraryArtifactNew(artifact, state));
 }
 
 export function getLibraryArtifact(vaultPath: string, id: string): LibraryArtifactDetail | null {

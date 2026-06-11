@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import type { IngestionReport, LibraryArtifact, LibraryArtifactDetail, LibraryOperationalHealth, LibrarySourceConfig, LibrarySourceSummary, PromotionReason, RecommendedArtifact } from "@/lib/library/types";
@@ -154,10 +155,17 @@ export function useLibraryHealth() {
 }
 
 export function useLibraryUnread() {
-  const { data, error, isLoading, mutate } = useSWR<{ has_unread: boolean }>("/api/library/unread", fetcher, {
+  const { data, error, isLoading, mutate } = useSWR<{ has_new?: boolean; has_unread: boolean }>("/api/library/unread", fetcher, {
     refreshInterval: 60_000,
   });
-  return { hasUnread: Boolean(data?.has_unread), error, isLoading, mutate };
+  // `hasUnread` now means "new since you last opened Library" (the nav-dot signal), not "unread
+  // items exist". markVisited stamps the visit server-side and optimistically clears the dot.
+  // Stable identity (mutate is SWR-stable) so a caller can put it in an effect's deps safely.
+  const markVisited = useCallback(async () => {
+    mutate({ has_new: false, has_unread: false }, { revalidate: false });
+    await fetch("/api/library/unread", { method: "POST" }).catch(() => {});
+  }, [mutate]);
+  return { hasUnread: Boolean(data?.has_new ?? data?.has_unread), error, isLoading, mutate, markVisited };
 }
 
 export function useReviewQueue() {

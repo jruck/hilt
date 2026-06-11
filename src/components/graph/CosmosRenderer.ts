@@ -207,9 +207,10 @@ export class CosmosRenderer implements GraphRenderer {
       // Ease back up from WHEREVER the dim currently is, then unselect at full opacity.
       // (Skimming across small dots fires hover/out rapidly; tweening from current — not
       // from a fixed start — is what keeps that from flickering.)
+      // No render() here either (see tweenGreyout) — a hover-out render would wipe the
+      // NEXT node's just-established hover when skimming between dots.
       this.tweenGreyout(1, 120, () => {
         this.graph?.unselectPoints();
-        this.graph?.render();
       });
       return;
     }
@@ -220,7 +221,17 @@ export class CosmosRenderer implements GraphRenderer {
     this.tweenGreyout(GREYOUT_OPACITY, 140);
   }
 
-  /** Tween pointGreyoutOpacity from its current value to `target` (ease-out). */
+  /**
+   * Tween pointGreyoutOpacity from its current value to `target` (ease-out).
+   *
+   * CRITICAL: never call `graph.render()` here. In cosmos 2.6.4, render() runs the
+   * orchestrator update() which unconditionally CLEARS `store.hoveredPoint` — a per-frame
+   * render in the hover path wipes the hover the GPU pick just found, the pick re-finds
+   * it, mouseover refires, and the loop oscillates: visible dim-flicker AND ~coin-flip
+   * dead clicks (cosmos reports a click as "the hovered point"; mid-wipe that's
+   * undefined = background click). The continuous frame loop picks the config change up
+   * on its own — setConfig alone is enough.
+   */
   private tweenGreyout(target: number, durationMs: number, onDone?: () => void): void {
     if (!this.graph) return;
     if (this.hoverTweenRaf != null) {
@@ -231,7 +242,6 @@ export class CosmosRenderer implements GraphRenderer {
     if (Math.abs(from - target) < 0.01) {
       this.greyoutCurrent = target;
       this.graph.setConfig({ pointGreyoutOpacity: target });
-      this.graph.render();
       onDone?.();
       return;
     }
@@ -243,7 +253,6 @@ export class CosmosRenderer implements GraphRenderer {
       const eased = 1 - (1 - t) * (1 - t); // ease-out
       this.greyoutCurrent = from + (target - from) * eased;
       this.graph.setConfig({ pointGreyoutOpacity: this.greyoutCurrent });
-      this.graph.render();
       if (t < 1) this.hoverTweenRaf = requestAnimationFrame(step);
       else onDone?.();
     };

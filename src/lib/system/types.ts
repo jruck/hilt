@@ -1,4 +1,5 @@
 import type { MachineIdentity } from "@/lib/local-apps/types";
+import type { AppServerInfo } from "./app-server-info";
 
 export interface SystemMachine {
   id: string;
@@ -13,6 +14,7 @@ export interface SystemMachine {
     stack: boolean;
     sync: boolean;
   };
+  app_server?: AppServerInfo | null;
 }
 
 export interface SystemMachineResponse {
@@ -25,6 +27,7 @@ export interface SystemMachineResponse {
     stack: boolean;
     sync: boolean;
   };
+  app_server?: AppServerInfo | null;
 }
 
 export interface SystemMachinesResponse {

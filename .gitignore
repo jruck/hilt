@@ -15,6 +15,8 @@
 
 # next.js
 /.next/
+/.next-gateway/
+/.next-devtest/
 /out/
 
 # production (Next.js output - build/ is kept for electron-builder resources)
@@ -69,3 +71,6 @@ docs/.claude/settings.local.json
 # Isolated dist dir for graph visual-iteration dev server
 .next-graph-dev/
 .next-graph-live/
+
+# Isolated dist dir for the prod-mode daily-driver app (npm run rebuild / app:prod)
+.next-prod/

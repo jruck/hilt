@@ -164,6 +164,12 @@ Every action should have visible feedback:
 - Extract reusable UI pieces (LiveIndicator, floating toolbar)
 - Use React refs for stable values that shouldn't trigger re-renders
 
+### List Virtualization
+
+- **Every unbounded list virtualizes** (`@tanstack/react-virtual` + `measureElement` for variable heights): Library feed, Library list density (ArtifactList), People meeting timeline. Bounded lists (the ~27-person sidebar) stay plain — virtualization there is complexity without payoff.
+- Standard shape: scroll-element ref on the overflow container → relative inner div sized by `getTotalSize()` → absolutely-positioned rows with `translateY(start)` + `data-index` + `measureElement` ref.
+- Gotchas encoded in the feed: row bottom-padding replaces flex `gap` (gaps don't exist between absolute rows); descending per-row `zIndex` keeps a card's downward-opening menus above later rows (each transformed row is a stacking context); `position: sticky` content must live OUTSIDE the transformed rows; element-anchored scroll restoration needs a `scrollToIndex` fallback for unmounted rows.
+
 ---
 
 ## Evolution Log

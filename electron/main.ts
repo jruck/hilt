@@ -42,6 +42,68 @@ function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   };
 }
 
+// ─── App server mode ───
+// The server mode (dev = hot reload, prod = production build served from
+// .next-prod) is RUNTIME state, switchable from the Hilt UI without
+// relaunching the Electron wrapper. Resolution order: persisted state file
+// (the UI's durable choice) > HILT_APP_MODE launcher env (initial default
+// baked by `npm run app` / `app:prod`) > dev. The prod build lives in its own
+// dist dir so builds never fight a dev server over `.next`. After `npm run
+// rebuild`, the stamp file triggers a restart of the owned Next.js children +
+// a window reload — the Electron wrapper itself keeps running.
+const PROD_DIST_DIR = ".next-prod";
+const REBUILD_STAMP = path.join(PROD_DIST_DIR, ".hilt-rebuild-stamp");
+const APP_MODE_STATE_FILE = path.join(DATA_DIR, "app-mode.json");
+
+type AppMode = "dev" | "prod";
+
+function readPersistedAppMode(): AppMode | null {
+  try {
+    const data = JSON.parse(fs.readFileSync(APP_MODE_STATE_FILE, "utf-8"));
+    if (data?.mode === "prod" || data?.mode === "dev") return data.mode;
+  } catch {
+    // No persisted mode yet.
+  }
+  return null;
+}
+
+function persistAppMode(mode: AppMode): void {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(APP_MODE_STATE_FILE, JSON.stringify({ mode, updated_at: new Date().toISOString() }, null, 2));
+  } catch (err) {
+    console.error("Failed to persist app mode:", err);
+  }
+}
+
+let currentAppMode: AppMode =
+  readPersistedAppMode() ?? (process.env.HILT_APP_MODE === "prod" ? "prod" : "dev");
+
+function prodBuildAvailable(projectDir: string): boolean {
+  return fs.existsSync(path.join(projectDir, PROD_DIST_DIR, "BUILD_ID"));
+}
+
+/** Effective server mode: prod requires a completed `npm run rebuild` build. */
+function resolveServerMode(projectDir: string): AppMode {
+  if (currentAppMode !== "prod") return "dev";
+  if (prodBuildAvailable(projectDir)) return "prod";
+  console.warn(
+    `App mode is prod but ${PROD_DIST_DIR}/BUILD_ID is missing — run \`npm run rebuild\`. Falling back to the dev server.`
+  );
+  return "dev";
+}
+
+function nextSpawnSpec(projectDir: string, port: number): { args: string[]; env: Record<string, string>; label: string } {
+  if (resolveServerMode(projectDir) === "prod") {
+    return {
+      args: ["run", "start", "--", "--port", String(port)],
+      env: { HILT_DIST_DIR: PROD_DIST_DIR, NODE_ENV: "production" },
+      label: "production",
+    };
+  }
+  return { args: ["run", "dev", "--", "--port", String(port)], env: {}, label: "dev" };
+}
+
 const PLANS_DIR = path.join(process.env.HOME || "~", ".claude", "plans");
 const NAVIGATE_FILE = path.join(process.env.HOME || "~", ".hilt-pending-navigate.json");
 
@@ -61,6 +123,7 @@ interface ServerInstance {
   port: number;
   folder: string;
   sourceId: string;
+  name: string;
 }
 
 // Track active windows and server processes
@@ -209,7 +272,12 @@ async function isHiltSourceUrl(url: string): Promise<boolean> {
   return new Promise((resolve) => {
     let endpoint: URL;
     try {
-      endpoint = new URL("/api/ws-port", url);
+      // Append to the source's path instead of root-resolving so a
+      // path-prefixed gateway source (e.g. https://host/hilt) probes
+      // /hilt/api/ws-port, not /api/ws-port. Origin-only URLs unchanged.
+      const base = new URL(url);
+      const basePath = base.pathname.replace(/\/+$/, "");
+      endpoint = new URL(`${basePath}/api/ws-port`, base);
     } catch {
       resolve(false);
       return;
@@ -379,25 +447,15 @@ function writeSourcesConfig(sources: SourceConfig[]): void {
 }
 
 /**
- * Start a dev server for a specific source's folder
+ * Spawn the Next.js child process for a source (dev or production per
+ * resolveServerMode). Shared by initial startup and rebuild restarts.
  */
-async function startServerForSource(source: SourceConfig): Promise<ServerInstance> {
+function spawnSourceServerProcess(
+  source: { id: string; name: string; folder?: string },
+  port: number
+): ChildProcess {
   const projectDir = path.resolve(__dirname, "..");
-
-  // Clean stale Next.js lock file that prevents startup after crashes
-  const lockFile = path.join(projectDir, ".next", "dev", "lock");
-  if (fs.existsSync(lockFile)) {
-    try { fs.unlinkSync(lockFile); } catch { /* ignore */ }
-  }
-
-  const port = await findAvailablePort(3000);
-
-  sendStartupActivity({
-    id: `server-${source.id}`,
-    label: `Starting server for ${source.name}`,
-    status: "active",
-    detail: `Launching on port ${port}...`,
-  });
+  const spec = nextSpawnSpec(projectDir, port);
 
   // Ensure log directory exists
   const logDir = path.join(app.getPath("userData"), "logs");
@@ -406,18 +464,19 @@ async function startServerForSource(source: SourceConfig): Promise<ServerInstanc
   }
   const logPath = path.join(logDir, `dev-server-${source.id}.log`);
   const logStream = fs.createWriteStream(logPath, { flags: "a" });
-  logStream.write(`\n--- Dev server for ${source.name} starting at ${new Date().toISOString()} ---\n`);
+  logStream.write(`\n--- ${spec.label} server for ${source.name} starting at ${new Date().toISOString()} ---\n`);
 
   const env = childEnv({
     PORT: String(port),
     FORCE_COLOR: "0",
+    ...spec.env,
     ...(source.folder && {
       HILT_WORKING_FOLDER: source.folder,
       BRIDGE_VAULT_PATH: source.folder,
     }),
   });
 
-  const serverProcess = spawn("npm", ["run", "dev", "--", "--port", String(port)], {
+  const serverProcess = spawn("npm", spec.args, {
     cwd: projectDir,
     env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -440,8 +499,38 @@ async function startServerForSource(source: SourceConfig): Promise<ServerInstanc
 
   serverProcess.on("close", (code: number | null) => {
     console.log(`Server for ${source.name} exited with code ${code}`);
-    servers.delete(source.id);
+    // Only clear the registry entry if it still points at this process — a
+    // rebuild restart may already have replaced it with a fresh child.
+    if (servers.get(source.id)?.process === serverProcess) {
+      servers.delete(source.id);
+    }
   });
+
+  return serverProcess;
+}
+
+/**
+ * Start a server for a specific source's folder
+ */
+async function startServerForSource(source: SourceConfig): Promise<ServerInstance> {
+  const projectDir = path.resolve(__dirname, "..");
+
+  // Clean stale Next.js lock file that prevents startup after crashes
+  const lockFile = path.join(projectDir, ".next", "dev", "lock");
+  if (fs.existsSync(lockFile)) {
+    try { fs.unlinkSync(lockFile); } catch { /* ignore */ }
+  }
+
+  const port = await findAvailablePort(3000);
+
+  sendStartupActivity({
+    id: `server-${source.id}`,
+    label: `Starting server for ${source.name}`,
+    status: "active",
+    detail: `Launching on port ${port}...`,
+  });
+
+  const serverProcess = spawnSourceServerProcess(source, port);
 
   // Wait for server to be ready
   const ready = await waitForServer(port, 60000);
@@ -466,9 +555,62 @@ async function startServerForSource(source: SourceConfig): Promise<ServerInstanc
     port,
     folder: source.folder || "",
     sourceId: source.id,
+    name: source.name,
   };
   servers.set(source.id, instance);
   return instance;
+}
+
+/**
+ * Spawn the single-server Next.js child (dev or production per
+ * resolveServerMode). Shared by initial startup and rebuild restarts.
+ */
+function spawnPrimaryServerProcess(port: number): ChildProcess {
+  const projectDir = path.resolve(__dirname, "..");
+  const spec = nextSpawnSpec(projectDir, port);
+
+  // Ensure log directory exists
+  const logDir = path.join(app.getPath("userData"), "logs");
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+  }
+  const logPath = path.join(logDir, "dev-server.log");
+  const logStream = fs.createWriteStream(logPath, { flags: "a" });
+  logStream.write(`\n--- ${spec.label} server starting at ${new Date().toISOString()} ---\n`);
+
+  const child = spawn("npm", spec.args, {
+    cwd: projectDir,
+    env: childEnv({ PORT: String(port), FORCE_COLOR: "0", ...spec.env }),
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
+  });
+
+  // Pipe output to log file
+  child.stdout?.pipe(logStream);
+  child.stderr?.pipe(logStream);
+
+  // Also log to console for debugging
+  child.stdout?.on("data", (data: Buffer) => {
+    console.log("[Server]", data.toString().trim());
+  });
+  child.stderr?.on("data", (data: Buffer) => {
+    console.error("[Server Error]", data.toString().trim());
+  });
+
+  child.on("error", (err) => {
+    console.error(`Failed to start ${spec.label} server:`, err);
+  });
+
+  child.on("close", (code) => {
+    console.log(`${spec.label} server exited with code ${code}`);
+    // Only clear the reference if it still points at this process — a rebuild
+    // restart may already have replaced it with a fresh child.
+    if (nextServer === child) {
+      nextServer = null;
+    }
+  });
+
+  return child;
 }
 
 /**
@@ -519,83 +661,49 @@ async function startNextServer(): Promise<number> {
     // If Turbopack panicked recently (corrupt cache), wipe .next/dev/cache so the
     // dev server can rebuild cleanly. Otherwise the corruption persists across
     // sessions and routes silently 500 (which silently fails recycle, etc.).
-    recoverFromTurbopackPanic(projectRoot);
+    // Only relevant in dev mode — production serves a prebuilt bundle.
+    const modeLabel = resolveServerMode(projectRoot) === "prod" ? "production" : "dev";
+    if (modeLabel === "dev") {
+      recoverFromTurbopackPanic(projectRoot);
+    }
 
     const port = await findAvailablePort(3000);
-    console.log(`Starting dev server on port ${port}...`);
+    console.log(`Starting ${modeLabel} server on port ${port}...`);
 
     sendStartupActivity({
       id: "server-start",
-      label: "Starting dev server",
+      label: `Starting ${modeLabel} server`,
       status: "active",
       detail: `Launching on port ${port}...`,
     });
 
-    // Ensure log directory exists
-    const logDir = path.join(app.getPath("userData"), "logs");
-    if (!fs.existsSync(logDir)) {
-      fs.mkdirSync(logDir, { recursive: true });
-    }
-    const logPath = path.join(logDir, "dev-server.log");
-    const logStream = fs.createWriteStream(logPath, { flags: "a" });
-    logStream.write(`\n--- Dev server starting at ${new Date().toISOString()} ---\n`);
-
-    // Get the project directory (where package.json lives)
-    const projectDir = path.resolve(__dirname, "..");
-
-    nextServer = spawn("npm", ["run", "dev", "--", "--port", String(port)], {
-      cwd: projectDir,
-      env: childEnv({ PORT: String(port), FORCE_COLOR: "0" }),
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: true,
-    });
-
-    // Pipe output to log file
-    nextServer.stdout?.pipe(logStream);
-    nextServer.stderr?.pipe(logStream);
-
-    // Also log to console for debugging
-    nextServer.stdout?.on("data", (data: Buffer) => {
-      console.log("[Dev Server]", data.toString().trim());
-    });
-    nextServer.stderr?.on("data", (data: Buffer) => {
-      console.error("[Dev Server Error]", data.toString().trim());
-    });
-
-    nextServer.on("error", (err) => {
-      console.error("Failed to start dev server:", err);
-    });
-
-    nextServer.on("close", (code) => {
-      console.log(`Dev server exited with code ${code}`);
-      nextServer = null;
-    });
+    nextServer = spawnPrimaryServerProcess(port);
 
     // Wait for server to be ready (up to 60 seconds)
-    console.log("Waiting for dev server to be ready...");
+    console.log(`Waiting for ${modeLabel} server to be ready...`);
     sendStartupActivity({
       id: "server-start",
-      label: "Starting dev server",
+      label: `Starting ${modeLabel} server`,
       status: "active",
       detail: "Waiting for server to respond...",
     });
 
     const ready = await waitForServer(port, 60000);
     if (!ready) {
-      console.error("Dev server failed to start within 60 seconds");
+      console.error(`${modeLabel} server failed to start within 60 seconds`);
       sendStartupActivity({
         id: "server-start",
-        label: "Starting dev server",
+        label: `Starting ${modeLabel} server`,
         status: "error",
         detail: "Server failed to start within 60 seconds",
         error: "Timeout waiting for server",
       });
       // Continue anyway - might work
     } else {
-      console.log(`Dev server ready on port ${port}`);
+      console.log(`${modeLabel} server ready on port ${port}`);
       sendStartupActivity({
         id: "server-start",
-        label: "Starting dev server",
+        label: `Starting ${modeLabel} server`,
         status: "complete",
         detail: `Server ready on port ${port}`,
       });
@@ -806,6 +914,7 @@ async function createWindow() {
               port: existingPort,
               folder: src.folder || "",
               sourceId: src.id,
+              name: src.name,
             });
             continue;
           }
@@ -1009,6 +1118,226 @@ async function createWindow() {
   // Setup navigate file watcher — main-process path that survives renderer
   // throttling (backgrounded windows pause setTimeout, breaking WS reconnect).
   setupNavigateWatcher();
+
+  // In prod mode, watch for `npm run rebuild` completions and hot-swap the
+  // Next.js children without restarting the Electron wrapper.
+  setupRebuildWatcher();
+}
+
+/**
+ * Rebuild watcher (prod mode only).
+ *
+ * `npm run rebuild` runs `next build` into .next-prod and then touches
+ * .next-prod/.hilt-rebuild-stamp as the build-complete signal (BUILD_ID alone
+ * is written mid-build, so it can't be trusted as a completion marker). On
+ * stamp change we restart the owned Next.js children on their existing ports
+ * and reload the window — the tweak → rebuild → see-it loop without ever
+ * relaunching the app.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let rebuildWatcher: any = null;
+// Single-flight guard shared by rebuild restarts and mode switches — only one
+// server transition (kill + respawn) may run at a time.
+let serverTransitionRunning = false;
+
+/** Wait until nothing is listening on the port (mirrors findAvailablePort's probes). */
+async function waitForPortFree(port: number, timeoutMs: number): Promise<boolean> {
+  const probe = (host?: string): Promise<boolean> =>
+    new Promise((resolve) => {
+      const server = net.createServer();
+      server.once("error", () => resolve(false));
+      const cb = () => server.close(() => resolve(true));
+      if (host) server.listen(port, host, cb);
+      else server.listen(port, cb);
+    });
+
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if ((await probe()) && (await probe("127.0.0.1"))) return true;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return false;
+}
+
+/** Whether this Electron instance spawned (and therefore can restart) any Next.js server. */
+function hasOwnedServers(): boolean {
+  if (nextServer) return true;
+  for (const instance of servers.values()) {
+    if (instance.process) return true;
+  }
+  return false;
+}
+
+/**
+ * Kill and respawn every owned Next.js child on its existing port, using the
+ * CURRENT app mode's spawn spec. Returns true when all servers came back.
+ */
+async function restartOwnedServers(): Promise<boolean> {
+  let allReady = true;
+
+  // Multi-source servers (skip entries attached to external servers we don't own)
+  for (const instance of Array.from(servers.values())) {
+    if (!instance.process) continue;
+    killProcessGroup(instance.process);
+    await waitForPortFree(instance.port, 15000);
+    instance.process = spawnSourceServerProcess(
+      { id: instance.sourceId, name: instance.name, folder: instance.folder || undefined },
+      instance.port
+    );
+    servers.set(instance.sourceId, instance);
+    // 90s: a cold dev server compiles its first route inside this wait.
+    const ready = await waitForServer(instance.port, 90000);
+    if (!ready) allReady = false;
+    console.log(`Server for ${instance.name} restarted on port ${instance.port}${ready ? "" : " (not ready)"}`);
+  }
+
+  // Single-server path
+  if (nextServer && serverPort !== null) {
+    const port = serverPort;
+    killProcessGroup(nextServer);
+    nextServer = null;
+    await waitForPortFree(port, 15000);
+    nextServer = spawnPrimaryServerProcess(port);
+    const ready = await waitForServer(port, 90000);
+    if (!ready) allReady = false;
+    console.log(`Server restarted on port ${port}${ready ? "" : " (not ready)"}`);
+  }
+
+  return allReady;
+}
+
+async function restartServersAfterRebuild(): Promise<void> {
+  if (serverTransitionRunning) return;
+  // A rebuild during a dev session must not restart the dev server — the stamp
+  // only matters to a server that serves the prod build.
+  if (currentAppMode !== "prod") {
+    console.log("Rebuild stamp changed while in dev mode — ignoring (prod build refreshed for later).");
+    return;
+  }
+  serverTransitionRunning = true;
+  try {
+    console.log("Rebuild detected — restarting Next.js server(s) on the new build...");
+    await restartOwnedServers();
+    mainWindow?.webContents.reloadIgnoringCache();
+    console.log("Rebuild restart complete — window reloaded.");
+  } finally {
+    serverTransitionRunning = false;
+  }
+}
+
+async function setupRebuildWatcher() {
+  if (app.isPackaged) return;
+  try {
+    const chokidar = await import("chokidar");
+    const stampPath = path.join(path.resolve(__dirname, ".."), REBUILD_STAMP);
+    rebuildWatcher = chokidar.watch(stampPath, {
+      ignoreInitial: true,
+      awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
+    });
+    rebuildWatcher.on("add", () => void restartServersAfterRebuild());
+    rebuildWatcher.on("change", () => void restartServersAfterRebuild());
+    console.log(`Watching for production rebuilds at: ${stampPath}`);
+  } catch (err) {
+    console.error("Error setting up rebuild watcher:", err);
+  }
+}
+
+// ─── Runtime mode switch (UI-driven via IPC) ───
+
+interface AppModeStatus {
+  state: "idle" | "rebuilding" | "switching" | "reverting";
+  mode: AppMode;
+  target?: AppMode;
+  detail?: string;
+}
+
+let appModeStatus: AppModeStatus = { state: "idle", mode: currentAppMode };
+let rebuildChild: ChildProcess | null = null;
+
+function sendAppModeStatus(status: AppModeStatus): void {
+  appModeStatus = status;
+  mainWindow?.webContents.send("app-mode:status", status);
+}
+
+/** Run `npm run rebuild` (build into .next-prod + touch the stamp). */
+function runRebuild(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const projectDir = path.resolve(__dirname, "..");
+    const logDir = path.join(app.getPath("userData"), "logs");
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+    const logStream = fs.createWriteStream(path.join(logDir, "rebuild.log"), { flags: "a" });
+    logStream.write(`\n--- rebuild starting at ${new Date().toISOString()} ---\n`);
+
+    rebuildChild = spawn("npm", ["run", "rebuild"], {
+      cwd: projectDir,
+      env: childEnv({ FORCE_COLOR: "0" }),
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
+    });
+    rebuildChild.stdout?.pipe(logStream);
+    rebuildChild.stderr?.pipe(logStream);
+    rebuildChild.on("error", (err) => {
+      console.error("Rebuild failed to start:", err);
+      rebuildChild = null;
+      resolve(false);
+    });
+    rebuildChild.on("close", (code) => {
+      rebuildChild = null;
+      resolve(code === 0);
+    });
+  });
+}
+
+/**
+ * Hot-swap the server mode under the running window. Switching to prod
+ * rebuilds FIRST (the old server keeps serving — zero downtime), then swaps.
+ * If the new mode's server fails to come up, revert to the previous mode so
+ * the window never ends up dead.
+ */
+async function switchAppMode(target: AppMode): Promise<{ ok: boolean; mode: AppMode; error?: string }> {
+  if (target === currentAppMode) return { ok: true, mode: currentAppMode };
+  if (serverTransitionRunning) return { ok: false, mode: currentAppMode, error: "Another server transition is already running" };
+  if (!hasOwnedServers()) {
+    return { ok: false, mode: currentAppMode, error: "Hilt is attached to an external server it doesn't manage — switch modes where that server runs" };
+  }
+
+  serverTransitionRunning = true;
+  const previous = currentAppMode;
+  try {
+    if (target === "prod") {
+      // The build always runs on switch-to-prod: after a dev session the prod
+      // build is stale by definition. The current server serves throughout.
+      sendAppModeStatus({ state: "rebuilding", mode: previous, target, detail: "Building production bundle (~30s)" });
+      const built = await runRebuild();
+      if (!built) {
+        sendAppModeStatus({ state: "idle", mode: previous, detail: "Build failed — see rebuild.log" });
+        return { ok: false, mode: previous, error: "Production build failed — staying in dev mode" };
+      }
+    }
+
+    currentAppMode = target;
+    sendAppModeStatus({ state: "switching", mode: previous, target, detail: "Restarting server" });
+    const ready = await restartOwnedServers();
+
+    if (!ready) {
+      console.error(`Mode switch to ${target} failed — reverting to ${previous}`);
+      currentAppMode = previous;
+      sendAppModeStatus({ state: "reverting", mode: previous, target, detail: `${target} server failed — restoring ${previous}` });
+      await restartOwnedServers();
+      persistAppMode(previous);
+      sendAppModeStatus({ state: "idle", mode: previous, detail: `Switch to ${target} failed — reverted` });
+      mainWindow?.webContents.reloadIgnoringCache();
+      return { ok: false, mode: previous, error: `The ${target} server failed to start — reverted to ${previous}` };
+    }
+
+    persistAppMode(target);
+    sendAppModeStatus({ state: "idle", mode: target });
+    mainWindow?.webContents.reloadIgnoringCache();
+    console.log(`App mode switched: ${previous} → ${target}`);
+    return { ok: true, mode: target };
+  } finally {
+    serverTransitionRunning = false;
+  }
 }
 
 /**
@@ -1137,6 +1466,20 @@ ipcMain.on("window:focus", () => {
   }
 });
 
+ipcMain.handle("app-mode:get", () => ({
+  mode: currentAppMode,
+  supervised: hasOwnedServers(),
+  prodBuildAvailable: prodBuildAvailable(path.resolve(__dirname, "..")),
+  status: appModeStatus,
+}));
+
+ipcMain.handle("app-mode:switch", async (_event, mode: unknown) => {
+  if (mode !== "dev" && mode !== "prod") {
+    return { ok: false, mode: currentAppMode, error: "Invalid mode" };
+  }
+  return switchAppMode(mode);
+});
+
 ipcMain.handle("dialog:selectFolder", async () => {
   if (!mainWindow) return { cancelled: true };
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -1180,6 +1523,8 @@ function killProcessGroup(proc: ChildProcess | null): void {
 }
 
 function killAllServers() {
+  killProcessGroup(rebuildChild);
+  rebuildChild = null;
   killProcessGroup(nextServer);
   nextServer = null;
   for (const [id, instance] of servers) {
@@ -1193,6 +1538,9 @@ function killAllServers() {
   }
   if (navigateWatcher) {
     navigateWatcher.close();
+  }
+  if (rebuildWatcher) {
+    rebuildWatcher.close();
   }
 }
 

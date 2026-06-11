@@ -3,6 +3,7 @@ import { isLocalAppsEnabled } from "@/lib/local-apps/settings";
 import { machineIdentityAsync, tailnetPeersAsync, type TailnetPeer } from "@/lib/local-apps/tailnet";
 import { isLocalMapEnabled } from "@/lib/map/local-config";
 import type { MachineIdentity } from "@/lib/local-apps/types";
+import { getAppServerInfo } from "./app-server-info";
 import { isSystemSyncEnabled } from "./sync-settings";
 import type { SystemMachine, SystemMachineResponse } from "./types";
 
@@ -35,6 +36,7 @@ export async function localSystemMachineResponse(): Promise<SystemMachineRespons
       stack: true,
       sync: isSystemSyncEnabled(),
     },
+    app_server: getAppServerInfo(),
   };
 }
 
@@ -50,6 +52,7 @@ export async function discoverSystemMachines(options: { includePeers?: boolean }
       origin: "local",
     },
     features: localResponse.features,
+    app_server: localResponse.app_server ?? null,
     error: null,
   };
 
@@ -110,6 +113,7 @@ async function fetchPeerSystemMachine(peer: TailnetPeer): Promise<SystemMachine 
         source_url: baseUrl,
         machine,
         features: normalizeFeatures(data.features),
+        app_server: data.app_server ?? null,
         error: null,
       };
     } catch {

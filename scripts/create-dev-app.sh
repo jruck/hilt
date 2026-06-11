@@ -72,11 +72,18 @@ if [ -d "$HOME/.nvm/versions/node" ]; then
     fi
 fi
 
+# Server mode baked at app-creation time: "prod" serves the .next-prod build
+# (created by `npm run rebuild`); anything else runs the dev server.
+export HILT_APP_MODE="PLACEHOLDER_APP_MODE"
+
 exec "$PROJECT_DIR/node_modules/.bin/electron" "$PROJECT_DIR/electron/launcher.cjs"
 LAUNCHER_EOF
 
 # Replace placeholder with actual project dir (build-time fallback)
 sed -i '' "s|PLACEHOLDER_PROJECT_DIR|$PROJECT_DIR|g" "$APP_PATH/Contents/MacOS/launcher"
+
+# Bake the server mode (npm run app => dev, npm run app:prod => prod)
+sed -i '' "s|PLACEHOLDER_APP_MODE|${HILT_APP_MODE:-dev}|g" "$APP_PATH/Contents/MacOS/launcher"
 
 chmod +x "$APP_PATH/Contents/MacOS/launcher"
 
@@ -85,10 +92,14 @@ if [ -f "$PROJECT_DIR/build/icon.icns" ]; then
     cp "$PROJECT_DIR/build/icon.icns" "$APP_PATH/Contents/Resources/icon.icns"
 fi
 
-echo "Created: $APP_PATH"
+echo "Created: $APP_PATH (server mode: ${HILT_APP_MODE:-dev})"
 echo ""
-echo "Double-click to launch. Electron starts all dev servers automatically."
+echo "Double-click to launch. Electron starts all servers automatically."
 echo "No Terminal.app needed."
+if [ "${HILT_APP_MODE:-dev}" = "prod" ]; then
+    echo "Prod mode: after code changes, run 'npm run rebuild' — the running app"
+    echo "restarts its Next.js server on the new build and reloads automatically."
+fi
 
 # Reveal in Finder
 open -R "$APP_PATH"

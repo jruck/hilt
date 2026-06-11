@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowLeft, CalendarDays, Check, Copy, EyeOff, FolderOpen, Inbox, MoreVertical, Network, Settings } from "lucide-react";
 import { useScope } from "@/contexts/ScopeContext";
 import { isGraphEnabled } from "@/lib/graph/config";
@@ -8,8 +9,12 @@ import { buildGraphScope } from "@/components/graph/graph-deeplink";
 import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import MeetingRow from "./MeetingRow";
 import type { PersonCalendarCandidate, PersonDetail, PersonMeeting, SuggestedMeeting } from "@/lib/types";
+import { withBasePath } from "@/lib/base-path";
 
 type MeetingFilter = "all" | "notes" | "granola";
+
+const MEETING_ROW_HEIGHT = 56;
+const MEETING_ROW_OVERSCAN = 10;
 
 interface PersonMeetingListProps {
   slug: string;
@@ -129,7 +134,7 @@ export function PersonMeetingList({
   const handleRevealPerson = useCallback(() => {
     if (!person?.personFilePath) return;
     setShowActionsMenu(false);
-    void fetch("/api/reveal", {
+    void fetch(withBasePath("/api/reveal"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: person.personFilePath }),
@@ -152,6 +157,23 @@ export function PersonMeetingList({
     setShowCalendarMenu(false);
     setShowConfig(false);
   }, [person?.slug, inboxMode, suggestedName]);
+
+  const meetingListRef = useRef<HTMLDivElement>(null);
+  const meetingVirtualizer = useVirtualizer({
+    count: displayMeetings.length,
+    getScrollElement: () => meetingListRef.current,
+    estimateSize: () => MEETING_ROW_HEIGHT,
+    overscan: MEETING_ROW_OVERSCAN,
+  });
+
+  // Keep the selected meeting visible — matters for deep-links (e.g. /people/
+  // {slug}/meeting/{id}) that select a row far below the fold, which a
+  // virtualized list would otherwise never render or scroll to.
+  useEffect(() => {
+    if (selectedMeetingIndex === null || selectedMeetingIndex < 0) return;
+    meetingVirtualizer.scrollToIndex(selectedMeetingIndex);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMeetingIndex]);
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
@@ -480,21 +502,34 @@ export function PersonMeetingList({
         className="flex min-h-0 flex-1 flex-col overflow-hidden"
       >
         {/* Meeting List */}
-        <div data-mobile-scroll-chrome="top-bottom" className="hilt-mobile-scroll-clearance flex-1 overflow-y-auto">
+        <div ref={meetingListRef} data-mobile-scroll-chrome="top-bottom" className="hilt-mobile-scroll-clearance flex-1 overflow-y-auto">
           {displayMeetings.length === 0 ? (
             <div className="flex items-center justify-center h-full text-[var(--text-tertiary)] text-sm">
               No meetings yet
             </div>
           ) : (
-            displayMeetings.map((meeting, i) => (
-              <MeetingRow
-                key={meeting.source === "next" ? "next" : `${meeting.date}-${meeting.source}-${i}`}
-                meeting={meeting}
-                selected={i === selectedMeetingIndex}
-                onClick={() => onSelectMeeting(i)}
-                inboxMode={inboxMode}
-              />
-            ))
+            <div className="relative w-full" style={{ height: meetingVirtualizer.getTotalSize() }}>
+              {meetingVirtualizer.getVirtualItems().map((virtualRow) => {
+                const meeting = displayMeetings[virtualRow.index];
+                if (!meeting) return null;
+                return (
+                  <div
+                    key={meeting.source === "next" ? "next" : `${meeting.date}-${meeting.source}-${virtualRow.index}`}
+                    ref={meetingVirtualizer.measureElement}
+                    data-index={virtualRow.index}
+                    className="absolute left-0 top-0 w-full"
+                    style={{ transform: `translateY(${virtualRow.start}px)` }}
+                  >
+                    <MeetingRow
+                      meeting={meeting}
+                      selected={virtualRow.index === selectedMeetingIndex}
+                      onClick={() => onSelectMeeting(virtualRow.index)}
+                      inboxMode={inboxMode}
+                    />
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       </MobileChromeContent>
@@ -598,7 +633,7 @@ function ConfigPanel({ person, onSaved }: { person: PersonDetail; onSaved?: () =
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch(`/api/bridge/people/${person.slug}`, {
+      const response = await fetch(withBasePath(`/api/bridge/people/${person.slug}`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

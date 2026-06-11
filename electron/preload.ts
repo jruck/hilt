@@ -23,6 +23,27 @@ interface StartupActivityEvent {
   error?: string;
 }
 
+// App server mode types (dev = hot reload, prod = production build)
+interface AppModeStatus {
+  state: "idle" | "rebuilding" | "switching" | "reverting";
+  mode: "dev" | "prod";
+  target?: "dev" | "prod";
+  detail?: string;
+}
+
+interface AppModeState {
+  mode: "dev" | "prod";
+  supervised: boolean;
+  prodBuildAvailable: boolean;
+  status: AppModeStatus;
+}
+
+interface AppModeSwitchResult {
+  ok: boolean;
+  mode: "dev" | "prod";
+  error?: string;
+}
+
 // Expose the API to the renderer
 contextBridge.exposeInMainWorld("electronAPI", {
   // Flag to detect Electron environment
@@ -71,6 +92,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.removeListener("navigate:goto", handler);
     };
   },
+
+  // Server mode (dev/prod) — read state, hot-swap, and follow transitions
+  appMode: {
+    get: () => ipcRenderer.invoke("app-mode:get") as Promise<AppModeState>,
+    switch: (mode: "dev" | "prod") => ipcRenderer.invoke("app-mode:switch", mode) as Promise<AppModeSwitchResult>,
+    onStatus: (callback: (status: AppModeStatus) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, data: AppModeStatus) => callback(data);
+      ipcRenderer.on("app-mode:status", handler);
+      return () => {
+        ipcRenderer.removeListener("app-mode:status", handler);
+      };
+    },
+  },
 });
 
 // Type declaration for the exposed API
@@ -84,4 +118,9 @@ const electronAPI = {
   onStartupActivity: (_callback: (event: StartupActivityEvent) => void) => () => {},
   focusWindow: () => {},
   onNavigate: (_callback: (event: NavigateEvent) => void) => () => {},
+  appMode: {
+    get: () => Promise.resolve({} as AppModeState),
+    switch: (_mode: "dev" | "prod") => Promise.resolve({} as AppModeSwitchResult),
+    onStatus: (_callback: (status: AppModeStatus) => void) => () => {},
+  },
 };

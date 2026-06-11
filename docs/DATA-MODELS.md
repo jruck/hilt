@@ -285,7 +285,15 @@ interface SystemMachine {
     stack: boolean;
     sync: boolean;
   };
+  app_server?: AppServerInfo | null; // dev/prod mode + build age (src/lib/system/app-server-info.ts)
   error?: string | null;
+}
+
+interface AppServerInfo {
+  mode: "dev" | "prod";        // how this Next.js instance runs
+  dist_dir: string;            // ".next" or ".next-prod"
+  build_id: string | null;     // prod only
+  built_at: string | null;     // ISO build-completion time (rebuild stamp preferred)
 }
 
 interface SystemStackSnapshot {

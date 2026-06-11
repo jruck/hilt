@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { FileText, List, Loader2, PanelLeft, RefreshCw, X } from "lucide-react";
 import { useSWRConfig } from "swr";
 import { useScope } from "@/contexts/ScopeContext";
@@ -27,6 +28,8 @@ const MAX_SOURCE_WIDTH = 320;
 const DEFAULT_CONTENT_WIDTH = 380;
 const MIN_CONTENT_WIDTH = 300;
 const MAX_CONTENT_WIDTH = 1000;
+const FEED_CARD_ESTIMATED_HEIGHT = 400;
+const FEED_CARD_OVERSCAN = 6;
 
 interface LibraryToast {
   id: string;
@@ -224,6 +227,20 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   const mobileReaderVisible = selectedId !== null && mobileDetailOpen;
   useMobileChromeVisibilityLock(sourcesOpen);
 
+  // Feed virtualization — only the visible cards (plus overscan) are mounted,
+  // so a deeply-scrolled feed doesn't accumulate hundreds of FeedCards in the
+  // DOM. Review notes stay outside the virtual container (sticky positioning
+  // breaks inside transformed rows); the trailing "x of y loaded" row rides
+  // along as the last virtual row.
+  const feedFooterCount = usesRecentPaging && items.length > 0 ? 1 : 0;
+  const feedRowCount = items.length + feedFooterCount;
+  const feedVirtualizer = useVirtualizer({
+    count: density === "feed" ? feedRowCount : 0,
+    getScrollElement: () => feedScrollRef.current,
+    estimateSize: () => FEED_CARD_ESTIMATED_HEIGHT,
+    overscan: FEED_CARD_OVERSCAN,
+  });
+
   const refreshReadAwareData = useCallback(() => {
     void recent.mutate();
     void recommendations.mutate();
@@ -259,6 +276,12 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
       if (scroller && card) {
         const currentOffset = card.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
         scroller.scrollTop += currentOffset - anchor.offsetTop;
+      } else if (scroller) {
+        // Virtualized feed: the anchor card may not be mounted at the current
+        // scroll offset — jump the virtualizer to its index so the next frame
+        // can fine-tune against the real element.
+        const anchorIndex = items.findIndex((artifact) => artifact.id === anchor.id);
+        if (anchorIndex !== -1) feedVirtualizer.scrollToIndex(anchorIndex, { align: "start" });
       }
       attempts += 1;
       if (attempts < 3) {
@@ -881,35 +904,64 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
           >
             {density === "feed" ? (
               <div ref={feedScrollRef} onScroll={handleFeedScroll} data-mobile-scroll-chrome="top-bottom" data-testid="library-feed-list" className="hilt-mobile-scroll-clearance min-h-0 flex-1 overflow-y-auto">
-                <div className={`${desktopReaderVisible ? "max-w-none gap-3 px-3 py-3" : "mx-auto max-w-4xl gap-5 px-4 py-5"} flex w-full flex-col`}>
-                  {ranking === "updated" && reviewQueue.notes.map((note) => (
-                    <GenerationNoteCard key={note.batch} note={note} />
-                  ))}
+                <div className={`${desktopReaderVisible ? "max-w-none px-3 pt-3" : "mx-auto max-w-4xl px-4 pt-5"} w-full`}>
+                  {ranking === "updated" && reviewQueue.notes.length > 0 && (
+                    <div className={`flex w-full flex-col ${desktopReaderVisible ? "gap-3 pb-3" : "gap-5 pb-5"}`}>
+                      {reviewQueue.notes.map((note) => (
+                        <GenerationNoteCard key={note.batch} note={note} />
+                      ))}
+                    </div>
+                  )}
                   {loading && <LoadingState label="Loading library" className="min-h-40 py-8" />}
                   {!loading && items.length === 0 && (
                     <div className="rounded-lg border border-[var(--border-default)] bg-[var(--content-surface)] p-5 text-sm text-[var(--text-secondary)]">
                       No library items match these controls.
                     </div>
                   )}
-                  {items.map((artifact) => (
-                    <FeedCard
-                      key={artifact.id}
-                      artifact={artifact}
-                      showEvalBreakdown={adminEvalActive}
-                      promoteReason={ranking === "for-you" ? "for_you_selected" : "manual_save"}
-                      onChanged={refresh}
-                      onOpen={openArtifact}
-                      onMarkUnread={markUnread}
-                      onDismissCandidate={dismissCandidate}
-                      onArchiveReference={archiveReference}
-                      onReviewStatus={ranking === "updated" ? handleReviewStatus : undefined}
-                      active={artifact.id === selectedId}
-                      wideLayout={!desktopReaderVisible}
-                    />
-                  ))}
-                  {usesRecentPaging && items.length > 0 && (
-                    <div className="py-2 text-center text-xs text-[var(--text-tertiary)]">
-                      {isLoadingMore ? <LoadingState label="Loading more" size="sm" className="py-0 text-xs" /> : hasMore ? `${items.length} of ${recent.total} loaded` : `${items.length} of ${recent.total} loaded`}
+                  {items.length > 0 && (
+                    <div className="relative w-full" style={{ height: feedVirtualizer.getTotalSize() }}>
+                      {feedVirtualizer.getVirtualItems().map((virtualRow) => {
+                        const artifact = items[virtualRow.index];
+                        if (!artifact) {
+                          return (
+                            <div
+                              key="library-feed-footer"
+                              ref={feedVirtualizer.measureElement}
+                              data-index={virtualRow.index}
+                              className="absolute left-0 top-0 w-full py-2 text-center text-xs text-[var(--text-tertiary)]"
+                              style={{ transform: `translateY(${virtualRow.start}px)` }}
+                            >
+                              {isLoadingMore ? <LoadingState label="Loading more" size="sm" className="py-0 text-xs" /> : `${items.length} of ${recent.total} loaded`}
+                            </div>
+                          );
+                        }
+                        return (
+                          // Row padding stands in for the old flex-column gap; descending
+                          // z-index keeps a card's downward-opening menus above the rows
+                          // below it (each translateY row is its own stacking context).
+                          <div
+                            key={artifact.id}
+                            ref={feedVirtualizer.measureElement}
+                            data-index={virtualRow.index}
+                            className={`absolute left-0 top-0 w-full ${desktopReaderVisible ? "pb-3" : "pb-5"}`}
+                            style={{ transform: `translateY(${virtualRow.start}px)`, zIndex: feedRowCount - virtualRow.index }}
+                          >
+                            <FeedCard
+                              artifact={artifact}
+                              showEvalBreakdown={adminEvalActive}
+                              promoteReason={ranking === "for-you" ? "for_you_selected" : "manual_save"}
+                              onChanged={refresh}
+                              onOpen={openArtifact}
+                              onMarkUnread={markUnread}
+                              onDismissCandidate={dismissCandidate}
+                              onArchiveReference={archiveReference}
+                              onReviewStatus={ranking === "updated" ? handleReviewStatus : undefined}
+                              active={artifact.id === selectedId}
+                              wideLayout={!desktopReaderVisible}
+                            />
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

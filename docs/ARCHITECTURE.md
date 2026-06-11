@@ -180,7 +180,8 @@ hilt/
 │       ├── url-utils.ts        # View URL building/parsing (35 lines)
 │       └── chat-types.ts       # Chat type definitions
 ├── server/
-│   ├── ws-server.ts            # HTTP + EventServer setup (239 lines)
+│   ├── app-server.ts           # Web service entrypoint: Next handler + ${basePath}/events upgrade proxy
+│   ├── ws-server.ts            # HTTP + EventServer setup, 127.0.0.1-only (239 lines)
 │   ├── event-server.ts         # WebSocket event pub/sub (213 lines)
 │   └── watchers/               # File system watchers
 │       ├── scope-watcher.ts    # Directory tree + file changes (237 lines)
@@ -420,7 +421,9 @@ Local Apps is monitor-only in v1: no stop, kill, restart, or hide/show controls.
 ### 9. Real-Time Event Flow
 
 ```
-WebSocket connection: ws://localhost:3001/events
+WebSocket connection: same-origin `${basePath}/events` (e.g. ws://localhost:3000/events,
+wss://xochipilli.tailc0acaa.ts.net/hilt/events via Tailscale Serve) — app-server
+proxies the upgrade to the internal ws-server on 127.0.0.1
          │
          ▼
 EventSocketProvider (wraps entire app)
@@ -655,7 +658,7 @@ The **third derived cache** (`src/lib/semantic/`, flag-gated `HILT_SEMANTIC_ENAB
 
 ## WebSocket Protocol
 
-**Server**: `ws://localhost:3001/events`
+**Server**: internal ws-server on `127.0.0.1` (dynamic port in `~/.hilt-ws-port`), reached by clients as **same-origin `${basePath}/events`** — `server/app-server.ts` owns the HTTP origin (`:3000`) and splices `/events` upgrades through to it. Remote devices connect only via the authenticated Tailscale Serve origin; the raw ws port is never exposed off-box. `/navigate` remains a localhost-only POST on the internal server.
 
 The WebSocket server uses a channel-based pub/sub model via `EventServer`. Clients subscribe to channels with optional filter parameters, and the server broadcasts matching events.
 
@@ -904,6 +907,42 @@ interface UserPreferences {
 - In production: Embedded Next.js standalone server
 - Uses custom data directory via `DATA_DIR` env (`~/Library/Application Support/hilt/data`)
 - macOS hardened runtime with entitlements for code signing
+
+**Daily-driver server modes (dev vs prod).** The server mode is **runtime state**, not a
+launch decision: `${DATA_DIR}/app-mode.json` (the UI's durable choice) wins over the
+`HILT_APP_MODE` env the `.app` launcher bakes (`npm run app` → dev default, `npm run
+app:prod` → prod default — both create the same bundle; the env only seeds a fresh
+install). Dev mode spawns the dev app-server (hot reload, React development mode); prod
+mode spawns the production app-server against a build in **`.next-prod`** — its own dist
+dir via `HILT_DIST_DIR`, so builds never fight a dev server over `.next`. Prod is the
+recommended daily driver: React production mode renders roughly twice as fast and ships
+minified bundles.
+
+*Switching from the UI.* The SourceToggle dropdown shows a mode badge for the server the
+window is connected to (`dev` / `prod · built 2h ago`, self-reported via
+`GET /api/system/app-server` and folded into the System machine identity payload as
+`app_server`). When Electron supervises the server (it spawned the child — not attached
+to a terminal server), a "Server mode" section offers the switch over IPC
+(`app-mode:get`/`app-mode:switch`/`app-mode:status` through the preload bridge).
+Switching to dev kills the prod child and respawns the dev server **on the same port**
+(~5–15s, first compile included), then reloads the window. Switching to prod always
+**rebuilds first** (the current server keeps serving during the ~30s build — after a dev
+session the prod build is stale by definition), then swaps (~1s). If the new mode's
+server fails to come up, Electron reverts to the previous mode automatically so the
+window never dies. All transitions share a single-flight guard with the rebuild watcher.
+
+*The rebuild loop (prod mode).* `npm run rebuild` (~30s) builds into `.next-prod` and
+touches `.next-prod/.hilt-rebuild-stamp` as the build-complete signal (BUILD_ID is
+written mid-build and can't be trusted). The running Electron main watches the stamp,
+restarts only its owned Next.js children on their existing ports
+(`spawnSourceServerProcess`/`spawnPrimaryServerProcess` are shared between startup and
+restart), and reloads the window — the Electron wrapper itself never restarts. A stamp
+change while in dev mode is deliberately ignored (the refreshed build is picked up on
+the next switch to prod). Electron-side changes (`electron/*.ts`) still require
+re-running `npm run app` / `app:prod`. If prod mode is active but `.next-prod/BUILD_ID`
+is missing, startup falls back to the dev server with a console warning. Note: prod
+builds inline `next.config.ts` `env` flags (graph/semantic) at build time — flipping
+those in `.env*` requires a rebuild, not just an app relaunch.
 
 ### 8. Preferences Migration
 - `data/preferences.json` stores all user state server-side

@@ -290,6 +290,20 @@ Returns the serving machine's System identity and feature availability. Peer dis
     stack: boolean;
     sync: boolean;
   };
+  app_server?: AppServerInfo | null;  // how this server runs: dev or prod + build age
+}
+```
+
+### GET /api/system/app-server
+
+Returns how this Next.js server instance is running — the source of the mode badge in the SourceToggle dropdown. Always same-origin (each server reports only itself).
+
+```typescript
+{
+  mode: "dev" | "prod";        // NODE_ENV-derived
+  dist_dir: string;            // ".next" (dev) or ".next-prod" (prod daily driver)
+  build_id: string | null;     // prod only
+  built_at: string | null;     // ISO; rebuild stamp preferred over BUILD_ID mtime
 }
 ```
 

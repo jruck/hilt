@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import { RefreshCw, ChevronDown, ArrowLeft } from "lucide-react";
 
 interface WeekHeaderProps {
@@ -10,6 +10,7 @@ interface WeekHeaderProps {
   availableWeeks: string[];
   isPreviewingPast: boolean;
   onWeekChange: (week: string | null) => void;
+  rightSlot?: ReactNode;
 }
 
 function formatWeekDate(week: string): string {
@@ -60,6 +61,7 @@ export function WeekHeader({
   availableWeeks,
   isPreviewingPast,
   onWeekChange,
+  rightSlot,
 }: WeekHeaderProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -109,7 +111,7 @@ export function WeekHeader({
         </button>
       )}
 
-      <div className="flex items-center gap-2 text-[var(--text-primary)]">
+      <div className="flex items-center justify-between gap-3 text-[var(--text-primary)]">
         {/* Week heading with optional dropdown */}
         <div className="relative" ref={dropdownRef}>
           {hasOtherWeeks ? (
@@ -163,6 +165,7 @@ export function WeekHeader({
             </div>
           )}
         </div>
+        {rightSlot ? <div className="shrink-0">{rightSlot}</div> : null}
       </div>
 
       {/* End-of-week retrospective CTA (only show when not previewing past) */}

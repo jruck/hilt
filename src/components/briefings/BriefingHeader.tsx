@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { useHaptics } from "@/hooks/useHaptics";
 
@@ -9,6 +9,7 @@ interface BriefingHeaderProps {
   title: string;
   availableDates: { date: string; title: string }[];
   onDateChange: (date: string) => void;
+  rightSlot?: ReactNode;
 }
 
 function formatBriefingDate(dateStr: string): string {
@@ -43,6 +44,7 @@ export function BriefingHeader({
   title,
   availableDates,
   onDateChange,
+  rightSlot,
 }: BriefingHeaderProps) {
   const haptics = useHaptics();
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -64,7 +66,7 @@ export function BriefingHeader({
   const hasMultiple = availableDates.length > 1;
 
   return (
-    <div className="flex items-center gap-2 text-[var(--text-primary)]">
+    <div className="flex items-center justify-between gap-3 text-[var(--text-primary)]">
       <div className="relative" ref={dropdownRef}>
         {hasMultiple ? (
           <button
@@ -103,6 +105,7 @@ export function BriefingHeader({
           </div>
         )}
       </div>
+      {rightSlot ? <div className="shrink-0">{rightSlot}</div> : null}
     </div>
   );
 }

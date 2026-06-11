@@ -136,7 +136,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   sidebarCollapsed: false,
   theme: "system",
   recentScopes: [],
-  viewMode: "bridge",
+  viewMode: "briefings",
   folderEmojis: {},
   workingFolder: undefined,
 };

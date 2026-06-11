@@ -12,24 +12,22 @@ import { useMobileChrome, useMobileChromeVisibilityLock } from "@/contexts/Mobil
 const SHORTCUTS = [
   { keys: "⌘ K", description: "Search" },
   { keys: "⌘ J", description: "Add task" },
-  { keys: "⌘ 1", description: "Briefing" },
-  { keys: "⌘ 2", description: "Bridge" },
-  { keys: "⌘ 3", description: "Calendar" },
-  { keys: "⌘ 4", description: "People" },
-  { keys: "⌘ 5", description: "Library" },
-  { keys: "⌘ 6", description: "Docs" },
-  { keys: "⌘ 7", description: "System" },
+  { keys: "⌘ 1", description: "Bridge" },
+  { keys: "⌘ 2", description: "Calendar" },
+  { keys: "⌘ 3", description: "People" },
+  { keys: "⌘ 4", description: "Library" },
+  { keys: "⌘ 5", description: "Docs" },
+  { keys: "⌘ 6", description: "System" },
   { keys: "Esc", description: "Close search" },
 ];
 
 const VIEW_KEYS: Record<string, ViewMode> = {
-  "1": "briefings",
-  "2": "bridge",
-  "3": "calendar",
-  "4": "people",
-  "5": "library",
-  "6": "docs",
-  "7": "system",
+  "1": "bridge",
+  "2": "calendar",
+  "3": "people",
+  "4": "library",
+  "5": "docs",
+  "6": "system",
 };
 
 const DRAG_REGION_STYLE = { WebkitAppRegion: "drag" } as React.CSSProperties;
@@ -68,6 +66,7 @@ interface NavBarProps {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   setAddTaskTrigger: React.Dispatch<React.SetStateAction<number>>;
+  openPriorities: () => void;
   hudVisible: boolean;
   setHudVisible: React.Dispatch<React.SetStateAction<boolean>>;
   unreadTabs?: Set<string>;
@@ -79,6 +78,7 @@ export function NavBar({
   searchQuery,
   setSearchQuery,
   setAddTaskTrigger,
+  openPriorities,
   hudVisible,
   setHudVisible,
   unreadTabs,
@@ -209,14 +209,14 @@ export function NavBar({
       // Cmd+J: add task
       if ((e.metaKey || e.ctrlKey) && e.key === "j") {
         e.preventDefault();
-        if (viewMode !== "bridge") setViewMode("bridge");
+        if (viewMode !== "bridge") openPriorities();
         setAddTaskTrigger((c) => c + 1);
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [searchQuery, mobileSearchOpen, isMobile, setSearchQuery, setViewMode, viewMode, setAddTaskTrigger]);
+  }, [searchQuery, mobileSearchOpen, isMobile, setSearchQuery, setViewMode, viewMode, setAddTaskTrigger, openPriorities]);
 
   if (isMobile) {
     return (
@@ -405,14 +405,10 @@ export function NavBar({
             haptics.selection();
             setHudVisible((visible) => !visible);
           }}
-          className={`pointer-events-auto p-1.5 rounded transition-colors ${
-            hudVisible
-              ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]"
-              : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
-          }`}
+          className="pointer-events-auto rounded p-1.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-secondary)]"
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
           title={hudVisible ? "Hide HUD" : "Show HUD"}
-          aria-pressed={hudVisible}
+          aria-label={hudVisible ? "Hide HUD" : "Show HUD"}
         >
           <PanelBottom className="h-4 w-4" />
         </button>

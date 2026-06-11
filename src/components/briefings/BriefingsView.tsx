@@ -6,8 +6,13 @@ import { BriefingContent } from "./BriefingContent";
 import { BriefingFailureCard } from "./BriefingFailureCard";
 import { Newspaper } from "lucide-react";
 import { LoadingState } from "@/components/ui/LoadingState";
+import { BridgeModeToggle, type BridgeMode } from "@/components/bridge/BridgeModeToggle";
 
-export function BriefingsView() {
+interface BriefingsViewProps {
+  onBridgeModeChange?: (mode: BridgeMode) => void;
+}
+
+export function BriefingsView({ onBridgeModeChange }: BriefingsViewProps) {
   const {
     briefings,
     selectedDate,
@@ -51,6 +56,11 @@ export function BriefingsView() {
               title={briefing?.title || ""}
               availableDates={briefings.map((b) => ({ date: b.date, title: b.title }))}
               onDateChange={setSelectedDate}
+              rightSlot={
+                onBridgeModeChange ? (
+                  <BridgeModeToggle mode="briefing" onModeChange={onBridgeModeChange} />
+                ) : undefined
+              }
             />
           )}
 

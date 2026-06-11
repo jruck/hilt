@@ -15,6 +15,7 @@ import { RecycleModal } from "./RecycleModal";
 import { BridgeTaskPanel } from "./BridgeTaskPanel";
 import { AppHud, AppHudCollapsedBar } from "@/components/AppHud";
 import { LoadingState } from "@/components/ui/LoadingState";
+import { BridgeModeToggle, type BridgeMode } from "./BridgeModeToggle";
 import { parseLifecycle } from "@/lib/attribution";
 import type { CalendarEventOpenDetail } from "@/lib/calendar/deeplink";
 import type { BridgeTask, BridgeProject, BridgeWeeklySection } from "@/lib/types";
@@ -27,6 +28,7 @@ interface BridgeViewProps {
   openTaskRequest?: { taskId: string; token: number } | null;
   searchQuery?: string;
   onNavigateToProject?: (project: BridgeProject) => void;
+  onBridgeModeChange?: (mode: BridgeMode) => void;
 }
 
 const NEW_TASK_TITLE = "New Task";
@@ -39,6 +41,7 @@ export function BridgeView({
   openTaskRequest,
   searchQuery = "",
   onNavigateToProject,
+  onBridgeModeChange,
 }: BridgeViewProps) {
   const {
     data: weekly,
@@ -387,9 +390,14 @@ export function BridgeView({
             availableWeeks={availableWeeks}
             isPreviewingPast={isPreviewingPast}
             onWeekChange={setPreviewWeek}
+            rightSlot={
+              onBridgeModeChange ? (
+                <BridgeModeToggle mode="priorities" onModeChange={onBridgeModeChange} />
+              ) : undefined
+            }
           />
 
-          <div className="mt-8 space-y-8">
+          <div className="mt-6 space-y-8">
             {weeklySectionOrder.map(renderWeeklySection)}
 
             {filteredThoughtColumns && hasFilteredThoughts && (

@@ -19,6 +19,7 @@ import { MobileChromeProvider } from "@/contexts/MobileChromeContext";
 import { CALENDAR_EVENT_OPEN_EVENT, PENDING_CALENDAR_EVENT_STORAGE_KEY, type CalendarEventOpenDetail } from "@/lib/calendar/deeplink";
 import { isSystemMode, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode, type SystemMode } from "@/lib/system/navigation";
 import { withBasePath } from "@/lib/base-path";
+import type { BridgeMode } from "./bridge/BridgeModeToggle";
 
 const DocsView = dynamic(() => import("./DocsView").then(m => ({ default: m.DocsView })), { ssr: false });
 const BridgeView = dynamic(() => import("./bridge/BridgeView").then(m => ({ default: m.BridgeView })), { ssr: false });
@@ -157,7 +158,7 @@ export function Board() {
   // Unified setter
   const setViewMode = useCallback((mode: ViewMode) => {
     if (mode === "bridge") {
-      setUrlViewMode("bridge");
+      setUrlViewMode("briefings");
     } else if (mode === "docs") {
       setUrlViewMode("docs");
     } else if (mode === "briefings") {
@@ -179,6 +180,14 @@ export function Board() {
     }
   }, [navigateTo, setUrlViewMode, stackScopePath, systemMode]);
 
+  const setBridgeMode = useCallback((mode: BridgeMode) => {
+    setUrlViewMode(mode === "briefing" ? "briefings" : "bridge");
+  }, [setUrlViewMode]);
+
+  const openPriorities = useCallback(() => {
+    setUrlViewMode("bridge");
+  }, [setUrlViewMode]);
+
   const setSystemMode = useCallback((mode: SystemMode) => {
     if (typeof window !== "undefined") {
       localStorage.setItem(SYSTEM_MODE_STORAGE_KEY, mode);
@@ -188,8 +197,7 @@ export function Board() {
 
   // Hydrate after mount
   useEffect(() => {
-    // Open to Briefing when briefings exist, else Bridge (e.g. Electron app
-    // startup with no view prefix). Falls back to Bridge on any failure.
+    // Open to Bridge > Briefing when startup has no view prefix.
     let cancelled = false;
     if (!urlViewMode) {
       chooseLandingView().then((view) => {
@@ -255,7 +263,7 @@ export function Board() {
   }, [viewMode, markLibraryVisited]);
   const unreadTabs = useMemo(() => {
     const tabs = new Set<string>();
-    if (hasBriefingUnread) tabs.add("briefings");
+    if (hasBriefingUnread) tabs.add("bridge");
     if (hasLibraryUnread) tabs.add("library");
     return tabs.size ? tabs : undefined;
   }, [hasBriefingUnread, hasLibraryUnread]);
@@ -268,12 +276,12 @@ export function Board() {
   const [bridgeTaskOpenRequest, setBridgeTaskOpenRequest] = useState<BridgeTaskOpenRequest | null>(null);
 
   const openBridgeTaskFromHud = useCallback((taskId: string) => {
-    setViewMode("bridge");
+    setUrlViewMode("bridge");
     setBridgeTaskOpenRequest((current) => ({
       taskId,
       token: (current?.token ?? 0) + 1,
     }));
-  }, [setViewMode]);
+  }, [setUrlViewMode]);
 
   const openCalendarEventFromHud = useCallback((detail: CalendarEventOpenDetail) => {
     if (typeof window !== "undefined") {
@@ -351,6 +359,7 @@ export function Board() {
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         setAddTaskTrigger={setAddTaskTrigger}
+        openPriorities={openPriorities}
         hudVisible={hudVisible}
         setHudVisible={setHudVisible}
         unreadTabs={unreadTabs}
@@ -372,6 +381,7 @@ export function Board() {
             onOpenCalendarEvent={openCalendarEventFromHud}
             onHudVisibleChange={setHudVisible}
             searchQuery={searchQuery}
+            onBridgeModeChange={setBridgeMode}
             onNavigateToProject={(project) => {
               navigateTo("docs", project.path);
             }}
@@ -392,7 +402,7 @@ export function Board() {
             scopePath={graphScopePath}
           />
         ) : viewMode === "briefings" ? (
-          <BriefingsView />
+          <BriefingsView onBridgeModeChange={setBridgeMode} />
         ) : viewMode === "calendar" ? (
           <CalendarView />
         ) : viewMode === "library" ? (
@@ -412,6 +422,7 @@ export function Board() {
             openTaskRequest={bridgeTaskOpenRequest}
             onOpenCalendarEvent={openCalendarEventFromHud}
             searchQuery={searchQuery}
+            onBridgeModeChange={setBridgeMode}
             onNavigateToProject={(project) => {
               navigateTo("docs", project.path);
             }}
@@ -432,7 +443,7 @@ export function Board() {
             scopePath={graphScopePath}
           />
         ) : viewMode === "briefings" ? (
-          <BriefingsView />
+          <BriefingsView onBridgeModeChange={setBridgeMode} />
         ) : viewMode === "calendar" ? (
           <CalendarView />
         ) : viewMode === "library" ? (

@@ -307,7 +307,9 @@ function insertFile(
 interface BridgeTaskEditorProps {
   markdown: string;
   onChange?: (markdown: string) => void;
+  onBlur?: (markdown: string) => void;
   readOnly?: boolean;
+  autoFocus?: boolean;
   className?: string;
   trailingNode?: boolean;
   vaultPath?: string;
@@ -323,7 +325,9 @@ interface MarkdownStorage {
 export function BridgeTaskEditor({
   markdown,
   onChange,
+  onBlur,
   readOnly = false,
+  autoFocus = false,
   className,
   trailingNode = true,
   vaultPath,
@@ -342,9 +346,11 @@ export function BridgeTaskEditor({
   const vaultPathRef = useRef(vaultPath);
   const filePathRef = useRef(filePath);
   const onChangeRef = useRef(onChange);
+  const onBlurRef = useRef(onBlur);
   vaultPathRef.current = vaultPath;
   filePathRef.current = filePath;
   onChangeRef.current = onChange;
+  onBlurRef.current = onBlur;
 
   const editor = useEditor({
     extensions: [
@@ -398,7 +404,15 @@ export function BridgeTaskEditor({
     editable: !readOnly,
     immediatelyRender: false,
     onFocus: () => { focusedRef.current = true; },
-    onBlur: () => { focusedRef.current = false; },
+    onBlur: ({ editor }) => {
+      focusedRef.current = false;
+      const md = cleanOutput(
+        (editor.storage as unknown as MarkdownStorage).markdown.getMarkdown(),
+        vaultPathRef.current,
+        filePathRef.current
+      );
+      onBlurRef.current?.(md);
+    },
     onUpdate: ({ editor }) => {
       // Skip updates caused by programmatic setContent
       if (programmatic.current > 0) {
@@ -422,6 +436,13 @@ export function BridgeTaskEditor({
   useEffect(() => {
     editor?.setEditable(!readOnly);
   }, [editor, readOnly]);
+
+  useEffect(() => {
+    if (!editor || !autoFocus || readOnly) return;
+    requestAnimationFrame(() => {
+      editor.chain().focus("end").run();
+    });
+  }, [editor, autoFocus, readOnly]);
 
   // Sync external markdown changes or path props (without triggering onChange)
   const lastProcessedWithPaths = useRef(false);

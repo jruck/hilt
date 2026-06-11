@@ -18,9 +18,12 @@
  *   [ COLOR_KEYS   Uint8Array(nodeCount) ]          // enum index into colorKeyTable
  *   [ pad to 4-byte boundary ]
  *   [ EDGES        Float32Array(edgeCount * 2) ]    // [srcIdx,tgtIdx,...] point ARRAY INDICES (Float32)
+ *   [ EDGE_KINDS   Uint8Array(edgeCount) ]          // v2: enum index into edgeKindTable (per edge)
+ *   [ pad to 4-byte boundary ]
  *   [ METALEN      u32 ]                            // byte length of the JSON tail
  *   [ META         UTF-8 JSON ]
- *     { "ids":[...], "labels":[...], "types":[...uint], "colorKeyTable":[...string] }
+ *     { "ids":[...], "labels":[...], "types":[...uint], "colorKeyTable":[...string],
+ *       "edgeKindTable":[...string] }               // v2
  *
  * Corrected, non-negotiable facts (baked in everywhere):
  *  - EDGES is Float32Array, NOT Uint32Array. cosmos.gl `setLinks` and
@@ -84,6 +87,8 @@ export interface GraphSidecar {
   folders: number[];
   /** Distinct folder-group keys; `folders` indexes into this table. */
   folderTable: string[];
+  /** v2: distinct edge kinds; EDGE_KINDS bytes index into this table (per-payload interning). */
+  edgeKindTable: string[];
 }
 
 /** Fully decoded binary payload (mirrors GraphPayload + the wire-only extras). */
@@ -99,6 +104,8 @@ export interface DecodedGraph {
   colorKeys: Uint8Array;
   /** Point ARRAY INDICES (Float32 for cosmos.gl setLinks). */
   links: Float32Array;
+  /** v2: per-edge kind (index into sidecar.edgeKindTable), lockstep with link pairs. */
+  edgeKinds: Uint8Array;
   sidecar: GraphSidecar;
 }
 
@@ -188,16 +195,32 @@ export function encodeFromParts(
     colorKeys[i] = idx;
   }
 
-  // Edges -> index pairs (drop any edge whose endpoint left the selection).
+  // Edges -> index pairs (drop any edge whose endpoint left the selection), with the
+  // edge KIND interned per payload (v2) in lockstep — the client's edge-kind mixer.
   const indexPairs: number[] = [];
+  const edgeKindTable: string[] = [];
+  const edgeKindIndex = new Map<string, number>();
+  const kindBytes: number[] = [];
   for (const edge of edges) {
     const s = indexById.get(edge.source);
     const t = indexById.get(edge.target);
     if (s === undefined || t === undefined) continue;
     indexPairs.push(s, t);
+    let k = edgeKindIndex.get(edge.kind);
+    if (k === undefined) {
+      k = edgeKindTable.length;
+      // Uint8 ceiling (10 kinds today; defensive vs. far-future growth): overflow shares slot 0.
+      if (k > 255) k = 0;
+      else {
+        edgeKindTable.push(edge.kind);
+        edgeKindIndex.set(edge.kind, k);
+      }
+    }
+    kindBytes.push(k);
   }
   const edgeCount = indexPairs.length / 2;
   const links = new Float32Array(indexPairs);
+  const edgeKinds = new Uint8Array(kindBytes);
 
   // Folder-group per node, interned into a small table (folder-clustering hint).
   const folderTable: string[] = [];
@@ -222,6 +245,7 @@ export function encodeFromParts(
     colorKeyTable,
     folders,
     folderTable,
+    edgeKindTable,
   };
   const metaBytes = new TextEncoder().encode(JSON.stringify(sidecar));
 
@@ -230,8 +254,11 @@ export function encodeFromParts(
   const colorBytes = colorKeys.byteLength;
   const padAfterColors = (4 - ((HEADER_BYTES + positionsBytes + colorBytes) % 4)) % 4;
   const edgesBytes = links.byteLength;
+  const edgeKindBytes = edgeKinds.byteLength;
+  const padAfterKinds =
+    (4 - ((HEADER_BYTES + positionsBytes + colorBytes + padAfterColors + edgesBytes + edgeKindBytes) % 4)) % 4;
   const total =
-    HEADER_BYTES + positionsBytes + colorBytes + padAfterColors + edgesBytes + 4 + metaBytes.byteLength;
+    HEADER_BYTES + positionsBytes + colorBytes + padAfterColors + edgesBytes + edgeKindBytes + padAfterKinds + 4 + metaBytes.byteLength;
 
   const buffer = new ArrayBuffer(total);
   const u32 = new Uint32Array(buffer, 0, 8);
@@ -254,6 +281,8 @@ export function encodeFromParts(
   offset += colorBytes + padAfterColors;
   bytes.set(new Uint8Array(links.buffer, links.byteOffset, edgesBytes), offset);
   offset += edgesBytes;
+  bytes.set(edgeKinds, offset);
+  offset += edgeKindBytes + padAfterKinds;
   new DataView(buffer).setUint32(offset, metaBytes.byteLength, true);
   offset += 4;
   bytes.set(metaBytes, offset);
@@ -303,6 +332,10 @@ export function decodeGraphBinary(buffer: ArrayBuffer): DecodedGraph {
   const links = readFloat32(buffer, offset, edgesLen);
   offset += edgesLen * 4;
 
+  const edgeKinds = new Uint8Array(buffer.slice(offset, offset + edgeCount));
+  offset += edgeCount;
+  offset += (4 - (offset % 4)) % 4; // skip pad to 4-byte boundary
+
   const metaLen = new DataView(buffer).getUint32(offset, true);
   offset += 4;
   const metaJson = new TextDecoder().decode(new Uint8Array(buffer, offset, metaLen));
@@ -324,6 +357,7 @@ export function decodeGraphBinary(buffer: ArrayBuffer): DecodedGraph {
     positions,
     colorKeys,
     links,
+    edgeKinds,
     sidecar,
   };
 }

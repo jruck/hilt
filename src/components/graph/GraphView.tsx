@@ -10,14 +10,14 @@ import { isGraphEnabled } from "@/lib/graph/config";
 import type { GraphScope } from "@/lib/graph/types";
 import { libraryItemScope } from "@/lib/library/url";
 import { budgetForDevice, type GraphBudget } from "./device-budget";
-import { filterDecodedByTypes } from "./decode";
+import { filterDecodedByEdgeKinds, filterDecodedByTypes } from "./decode";
 import { CosmosRenderer } from "./CosmosRenderer";
 import { GraphInspector, type InspectorTarget } from "./GraphInspector";
 import { GraphLegendPanel } from "./GraphLegendPanel";
 import { GraphToolbar } from "./GraphToolbar";
-import { NODE_TYPE_BY_ORDINAL, effectiveHiddenTypes } from "./graph-labels";
+import { NODE_TYPE_BY_ORDINAL, effectiveHiddenSet, effectiveHiddenTypes } from "./graph-labels";
 import { buildGraphScope, parseGraphScope } from "./graph-deeplink";
-import type { GraphNodeType } from "@/lib/graph/types";
+import type { GraphEdgeKind, GraphNodeType } from "@/lib/graph/types";
 import {
   buildColorBuffer,
   buildSizeBuffer,
@@ -29,6 +29,7 @@ import {
 import type { GraphRenderer, NodeMeta } from "./renderer";
 import { useGraphData } from "./useGraphData";
 import { useGraphMeta } from "./useGraphMeta";
+import { withBasePath } from "@/lib/base-path";
 
 interface GraphViewProps {
   searchQuery?: string;
@@ -40,9 +41,20 @@ interface GraphViewProps {
 /** Stale-focus banner cases (deleted/expired/not-yet-indexed nodes). */
 type FocusFallback = { focusId: string; reason: "missing" } | null;
 
-/** localStorage keys for the legend mixer's per-type hide/solo state. */
+/** localStorage keys for the legend mixer's hide/solo state (node types + edge kinds). */
 const HIDDEN_TYPES_KEY = "hilt-graph-hidden-types";
 const SOLO_TYPES_KEY = "hilt-graph-solo-types";
+const HIDDEN_EDGES_KEY = "hilt-graph-hidden-edge-kinds";
+const SOLO_EDGES_KEY = "hilt-graph-solo-edge-kinds";
+
+/** Persist any string set; tolerate storage failure. */
+function persistStringSet(key: string, set: ReadonlySet<string>): void {
+  try {
+    window.localStorage.setItem(key, JSON.stringify([...set]));
+  } catch {
+    /* ignore */
+  }
+}
 
 /** The synthetic topic-label fallback — placeholder-named topics get no label priority. */
 const PLACEHOLDER_TOPIC_LABEL = /^Theme L\d+-\d+$/;
@@ -141,10 +153,48 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
       return next;
     });
   }, []);
+  // Edge-kind mixer (same hide/solo semantics; soloing an edge kind shows ONLY that
+  // connection family — the node set is untouched).
+  const [hiddenEdgeKinds, setHiddenEdgeKinds] = useState<Set<GraphEdgeKind>>(
+    () => loadTypeSet(HIDDEN_EDGES_KEY) as unknown as Set<GraphEdgeKind>,
+  );
+  const [soloEdgeKinds, setSoloEdgeKinds] = useState<Set<GraphEdgeKind>>(
+    () => loadTypeSet(SOLO_EDGES_KEY) as unknown as Set<GraphEdgeKind>,
+  );
+  const toggleEdgeKind = useCallback((kind: GraphEdgeKind) => {
+    setHiddenEdgeKinds((prev) => {
+      const next = new Set(prev);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      persistStringSet(HIDDEN_EDGES_KEY, next);
+      return next;
+    });
+  }, []);
+  const toggleEdgeSolo = useCallback((kind: GraphEdgeKind) => {
+    setSoloEdgeKinds((prev) => {
+      const next = prev.has(kind) ? new Set<GraphEdgeKind>() : new Set<GraphEdgeKind>([kind]);
+      persistStringSet(SOLO_EDGES_KEY, next);
+      return next;
+    });
+  }, []);
   const resetTypeFilters = useCallback(() => {
     setHiddenTypes(() => toggleInPersistedSet(new Set(), null, HIDDEN_TYPES_KEY));
     setSoloTypes(() => toggleInPersistedSet(new Set(), null, SOLO_TYPES_KEY));
+    setHiddenEdgeKinds(() => {
+      const next = new Set<GraphEdgeKind>();
+      persistStringSet(HIDDEN_EDGES_KEY, next);
+      return next;
+    });
+    setSoloEdgeKinds(() => {
+      const next = new Set<GraphEdgeKind>();
+      persistStringSet(SOLO_EDGES_KEY, next);
+      return next;
+    });
   }, []);
+  // Reflow (explicit + ephemeral): client-side GPU settle over the CURRENT visible
+  // subset. Any data/filter change supersedes it and restores canonical positions.
+  const [reflowing, setReflowing] = useState(false);
+  const [reflowed, setReflowed] = useState(false);
   const [focusFallback, setFocusFallback] = useState<FocusFallback>(null);
   // Inspector selection: a click selects (opens the inspector) rather than navigating
   // away, so the graph stays explorable. selectedIndexRef keeps the canvas highlight
@@ -232,24 +282,43 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
     scheduleReposition();
   }, [labelSet, scheduleReposition]);
 
-  // Per-type visibility (the legend mixer): resolve hide+solo into the effective hidden
-  // set, then filter the decoded payload BEFORE the renderer sees it, so positions/
-  // colors/labels/click-through all agree. Positions are preserved — toggling never
-  // moves anything (the layout stays the whole-graph equilibrium by design).
+  // Visibility mixers (legend): resolve hide+solo into effective hidden sets for node
+  // TYPES and edge KINDS, then filter the decoded payload BEFORE the renderer sees it,
+  // so positions/colors/labels/click-through all agree. Positions are preserved —
+  // toggling never moves anything (the layout stays the whole-graph equilibrium; the
+  // explicit Reflow action is the only thing that moves points).
   const effectiveHidden = useMemo(() => effectiveHiddenTypes(hiddenTypes, soloTypes), [hiddenTypes, soloTypes]);
+  const payloadEdgeKinds = useMemo(
+    () => (graphData.data?.sidecar.edgeKindTable ?? []) as GraphEdgeKind[],
+    [graphData.data],
+  );
+  const effectiveHiddenEdges = useMemo(
+    () => effectiveHiddenSet(hiddenEdgeKinds, soloEdgeKinds, payloadEdgeKinds),
+    [hiddenEdgeKinds, soloEdgeKinds, payloadEdgeKinds],
+  );
   const decoded = useMemo(() => {
-    const raw = graphData.data;
-    if (!raw || effectiveHidden.size === 0) return raw;
-    const hiddenOrdinals = new Set<number>();
-    NODE_TYPE_BY_ORDINAL.forEach((t, ord) => {
-      if (effectiveHidden.has(t)) hiddenOrdinals.add(ord);
-    });
-    return filterDecodedByTypes(raw, hiddenOrdinals);
-  }, [graphData.data, effectiveHidden]);
+    let view = graphData.data;
+    if (!view) return view;
+    if (effectiveHidden.size > 0) {
+      const hiddenOrdinals = new Set<number>();
+      NODE_TYPE_BY_ORDINAL.forEach((t, ord) => {
+        if (effectiveHidden.has(t)) hiddenOrdinals.add(ord);
+      });
+      view = filterDecodedByTypes(view, hiddenOrdinals);
+    }
+    if (effectiveHiddenEdges.size > 0) {
+      const hiddenKindOrdinals = new Set<number>();
+      view.sidecar.edgeKindTable.forEach((k, ord) => {
+        if (effectiveHiddenEdges.has(k as GraphEdgeKind)) hiddenKindOrdinals.add(ord);
+      });
+      view = filterDecodedByEdgeKinds(view, hiddenKindOrdinals);
+    }
+    return view;
+  }, [graphData.data, effectiveHidden, effectiveHiddenEdges]);
   const nodeCount = decoded?.nodeCount ?? 0;
 
-  // Honest per-type totals for the legend (from the RAW payload, so a hidden type still
-  // shows what it would contribute).
+  // Honest per-type/per-kind totals for the legend (from the RAW payload, so a hidden
+  // channel still shows what it would contribute).
   const typeCounts = useMemo(() => {
     const counts = new Map<GraphNodeType, number>();
     const raw = graphData.data;
@@ -257,6 +326,16 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
     for (const ord of raw.sidecar.types) {
       const t = NODE_TYPE_BY_ORDINAL[ord] ?? "note";
       counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
+    return counts;
+  }, [graphData.data]);
+  const edgeKindCounts = useMemo(() => {
+    const counts = new Map<GraphEdgeKind, number>();
+    const raw = graphData.data;
+    if (!raw) return counts;
+    for (let e = 0; e < raw.edgeKinds.length; e++) {
+      const kind = (raw.sidecar.edgeKindTable[raw.edgeKinds[e]] ?? "wikilink") as GraphEdgeKind;
+      counts.set(kind, (counts.get(kind) ?? 0) + 1);
     }
     return counts;
   }, [graphData.data]);
@@ -441,9 +520,30 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
     const set = topIdx.map((index) => ({ id: metaArr[index].id, label: metaArr[index].label, index }));
     labelSetRef.current = set;
     setLabelSet(set);
+    // A data swap (filter toggle, refetch) supersedes any reflow — back to canonical.
+    setReflowing(false);
+    setReflowed(false);
     // budget captured at mount; degrees recomputed here from the fresh payload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [decoded, nodeCount, scheduleReposition]);
+
+  // Reflow: GPU settle over the current visible subset (explicit + ephemeral). Restore
+  // re-pushes the canonical server positions without touching pan/zoom.
+  const handleReflow = useCallback(() => {
+    const renderer = rendererRef.current;
+    if (!renderer || reflowing) return;
+    setReflowing(true);
+    renderer.reflow(() => {
+      setReflowing(false);
+      setReflowed(true);
+    });
+  }, [reflowing]);
+  const handleRestoreLayout = useCallback(() => {
+    const renderer = rendererRef.current;
+    if (!renderer || !decoded) return;
+    renderer.setPositions(decoded.positions);
+    setReflowed(false);
+  }, [decoded]);
 
   // External refs (library artifact id, Docs file path, person slug) aren't graph node ids — on a
   // focus miss, resolve server-side ONCE and re-enter via the canonical focus URL. The attempted
@@ -464,7 +564,7 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
       if (!resolveAttemptedRef.current.has(focusId)) {
         resolveAttemptedRef.current.add(focusId);
         let cancelled = false;
-        fetch(`/api/system/graph/resolve?ref=${encodeURIComponent(focusId)}`)
+        fetch(withBasePath(`/api/system/graph/resolve?ref=${encodeURIComponent(focusId)}`))
           .then((response) => (response.ok ? response.json() : null))
           .then((json: { node_id?: string } | null) => {
             if (cancelled) return;
@@ -681,7 +781,16 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
           soloTypes={soloTypes}
           onToggleHide={toggleType}
           onToggleSolo={toggleSolo}
+          edgeKindCounts={edgeKindCounts}
+          hiddenEdgeKinds={hiddenEdgeKinds}
+          soloEdgeKinds={soloEdgeKinds}
+          onToggleEdgeHide={toggleEdgeKind}
+          onToggleEdgeSolo={toggleEdgeSolo}
           onReset={resetTypeFilters}
+          reflowing={reflowing}
+          reflowed={reflowed}
+          onReflow={handleReflow}
+          onRestoreLayout={handleRestoreLayout}
           defaultCollapsed={isMobile}
         />
         {layoutDisabled ? (

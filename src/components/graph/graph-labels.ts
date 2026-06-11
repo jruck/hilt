@@ -102,16 +102,26 @@ export const EDGE_KIND_ORDER: GraphEdgeKind[] = [
 ];
 
 /**
- * Mixer semantics for the legend's per-type visibility (audio-console hide/solo):
- * any SOLO wins — the visible set becomes exactly the soloed types (multi-solo = union,
- * like soloing two tracks) and the hide set is ignored until solo clears. With no solo
- * active, hides apply as marked. Returns the set of types to HIDE.
+ * Mixer semantics for the legend's visibility channels (audio-console hide/solo):
+ * any SOLO wins — the visible set becomes exactly the soloed members (a multi-solo set
+ * unions; the UI enforces single-select) and the hide set is ignored until solo clears.
+ * With no solo active, hides apply as marked. Returns the set to HIDE. Generic so the
+ * node-type and edge-kind mixers share one resolution rule.
  */
+export function effectiveHiddenSet<T extends string>(
+  hidden: ReadonlySet<T>,
+  soloed: ReadonlySet<T>,
+  all: readonly T[],
+): Set<T> {
+  if (soloed.size > 0) return new Set(all.filter((t) => !soloed.has(t)));
+  return new Set(hidden);
+}
+
+/** Node-type specialization (defaults `all` to the full ordinal order). */
 export function effectiveHiddenTypes(
   hidden: ReadonlySet<GraphNodeType>,
   soloed: ReadonlySet<GraphNodeType>,
   allTypes: readonly GraphNodeType[] = NODE_TYPE_BY_ORDINAL,
 ): Set<GraphNodeType> {
-  if (soloed.size > 0) return new Set(allTypes.filter((t) => !soloed.has(t)));
-  return new Set(hidden);
+  return effectiveHiddenSet(hidden, soloed, allTypes);
 }

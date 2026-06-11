@@ -37,6 +37,8 @@ export class CosmosRenderer implements GraphRenderer {
   private viewChangeCb: (() => void) | null = null;
   private budget: GraphBudget | null = null;
   private zoomDebounce: ReturnType<typeof setTimeout> | null = null;
+  private reflowActive = false;
+  private reflowTimer: ReturnType<typeof setTimeout> | null = null;
 
   mount(container: HTMLDivElement, opts: RendererOptions): void {
     this.container = container;
@@ -94,6 +96,9 @@ export class CosmosRenderer implements GraphRenderer {
     meta: NodeMeta[],
   ): void {
     if (!this.graph) return;
+    // A data swap supersedes any in-flight reflow (its onSettle is dropped — the caller
+    // resets its own reflow state on data change).
+    if (this.reflowActive) this.finishReflow();
     this.nodeCount = meta.length;
     this.adjacency = buildAdjacency(links, this.nodeCount);
     // Scale server coords uniformly to fill the 4096 space (with padding) so the layout
@@ -195,6 +200,56 @@ export class CosmosRenderer implements GraphRenderer {
     this.graph.pause();
   }
 
+  /**
+   * Reflow: run the GPU force simulation over the current (possibly filtered) data,
+   * seeded from current positions. Mechanics verified against cosmos.gl 2.6.4 source:
+   * `setConfig({enableSimulation:true})` merges config, and the velocity framebuffers
+   * are created lazily inside `updatePositions()` — so we re-push the CURRENT positions
+   * (dontRescale) to materialize them, then `start(alpha)`. The default physics
+   * (decay 5000) settles in a few seconds; onSimulationEnd → freeze + restore
+   * render-only config; a hard timeout backstops a sim that never converges.
+   */
+  reflow(onSettle?: () => void): void {
+    if (!this.graph || this.reflowActive) return;
+    this.reflowActive = true;
+    const current = Float32Array.from(this.graph.getPointPositions());
+    this.graph.setConfig({
+      enableSimulation: true,
+      // Gentler than a cold layout: the seed is already structured; we're relaxing, not untangling.
+      simulationGravity: 0.15,
+      simulationLinkDistance: 12,
+      onSimulationTick: () => this.viewChangeCb?.(), // labels track the moving points
+      onSimulationEnd: () => this.finishReflow(onSettle),
+    });
+    this.graph.setPointPositions(current, true); // triggers updatePositions → creates velocity FBOs
+    this.graph.render();
+    this.graph.start(0.5);
+    this.reflowTimer = setTimeout(() => this.finishReflow(onSettle), 8000);
+  }
+
+  isReflowing(): boolean {
+    return this.reflowActive;
+  }
+
+  private finishReflow(onSettle?: () => void): void {
+    if (!this.reflowActive) return;
+    this.reflowActive = false;
+    if (this.reflowTimer) {
+      clearTimeout(this.reflowTimer);
+      this.reflowTimer = null;
+    }
+    if (!this.graph) return;
+    this.graph.pause();
+    this.graph.setConfig({
+      enableSimulation: false,
+      onSimulationTick: undefined,
+      onSimulationEnd: undefined,
+    });
+    this.graph.render();
+    this.viewChangeCb?.(); // final label snap
+    onSettle?.();
+  }
+
   resize(): void {
     // cosmos.gl handles canvas resize via ResizeObserver internally; we only need
     // to nudge a re-render. NEVER manually set canvas pixel dimensions on iOS.
@@ -207,6 +262,11 @@ export class CosmosRenderer implements GraphRenderer {
       clearTimeout(this.zoomDebounce);
       this.zoomDebounce = null;
     }
+    if (this.reflowTimer) {
+      clearTimeout(this.reflowTimer);
+      this.reflowTimer = null;
+    }
+    this.reflowActive = false;
     if (this.graph) {
       this.graph.destroy();
       this.graph = null;

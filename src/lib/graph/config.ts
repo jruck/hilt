@@ -42,7 +42,8 @@ export function graphIncludeLibraries(): boolean {
 export const LAYOUT_VERSION = 1;
 
 /** Bump on any binary wire-format change (distinct from LAYOUT_VERSION). */
-export const TRANSPORT_FORMAT_VERSION = 1;
+/** v2: + EDGE_KINDS Uint8Array(edgeCount) section + `edgeKindTable` in the sidecar. */
+export const TRANSPORT_FORMAT_VERSION = 2;
 
 // ---------------------------------------------------------------------------
 // Device budgets (HILT_GRAPH_MAX_NODES_*, HILT_GRAPH_DEFAULT_HOPS). The server

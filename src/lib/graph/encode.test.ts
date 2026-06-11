@@ -102,7 +102,7 @@ describe("graph encode/decode", () => {
       makeNode("b", { type: "person", colorKey: "person", label: "Bravo" }),
       makeNode("c", { type: "project", colorKey: "area:foo", label: "Charlie" }),
     ];
-    const edges = [makeEdge("a", "b"), makeEdge("b", "c")];
+    const edges = [makeEdge("a", "b"), makeEdge("b", "c", { kind: "meeting" })];
     const selection: GraphSelection = { nodes, edges, truncated: false };
     const positions = positionMap([
       ["a", 1.5, -2.5],
@@ -147,6 +147,12 @@ describe("graph encode/decode", () => {
     assert.equal(decoded.colorKeys.length, 3);
     assert.equal(decoded.sidecar.colorKeyTable[decoded.colorKeys[0]], "note");
     assert.equal(decoded.sidecar.colorKeyTable[decoded.colorKeys[2]], "area:foo");
+
+    // v2: edge kinds round-trip in lockstep with the link pairs (interned per payload).
+    assert.ok(decoded.edgeKinds instanceof Uint8Array);
+    assert.equal(decoded.edgeKinds.length, 2);
+    assert.equal(decoded.sidecar.edgeKindTable[decoded.edgeKinds[0]], "wikilink");
+    assert.equal(decoded.sidecar.edgeKindTable[decoded.edgeKinds[1]], "meeting");
 
     // Suppress unused warning while keeping the selection-shaped fixture explicit.
     assert.equal(selection.nodes.length, 3);

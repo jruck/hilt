@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import type { GraphScope } from "@/lib/graph/types";
 import { decodeGraphBinary, GraphFormatError, type DecodedGraph } from "./decode";
+import { withBasePath } from "@/lib/base-path";
 
 export interface GraphDataParams {
   scope: GraphScope;
@@ -59,7 +60,7 @@ export function useGraphData(
     setError(null);
     setFormatError(false);
 
-    fetch(`/api/system/graph?${query.toString()}`, { cache: "no-store", signal: controller.signal })
+    fetch(withBasePath(`/api/system/graph?${query.toString()}`), { cache: "no-store", signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) throw new Error(`payload failed: ${res.status}`);
         return res.arrayBuffer();

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Binoculars, ChevronDown, ChevronUp, Eye, EyeOff } from "lucide-react";
+import { Binoculars, ChevronDown, ChevronUp, Eye, EyeOff, Orbit, Undo2 } from "lucide-react";
 import type { GraphEdgeKind, GraphNodeType } from "@/lib/graph/types";
 import { EDGE_KIND_DESCRIPTION, EDGE_KIND_LABEL, NODE_TYPE_DOT, NODE_TYPE_LABEL } from "./graph-labels";
 
@@ -20,18 +20,29 @@ interface GraphLegendPanelProps {
   soloTypes: ReadonlySet<GraphNodeType>;
   onToggleHide: (type: GraphNodeType) => void;
   onToggleSolo: (type: GraphNodeType) => void;
+  /** Per-kind edge counts from the RAW payload. */
+  edgeKindCounts: ReadonlyMap<GraphEdgeKind, number>;
+  hiddenEdgeKinds: ReadonlySet<GraphEdgeKind>;
+  soloEdgeKinds: ReadonlySet<GraphEdgeKind>;
+  onToggleEdgeHide: (kind: GraphEdgeKind) => void;
+  onToggleEdgeSolo: (kind: GraphEdgeKind) => void;
   onReset: () => void;
+  /** Reflow (GPU settle over the visible subset) — explicit + ephemeral. */
+  reflowing: boolean;
+  reflowed: boolean;
+  onReflow: () => void;
+  onRestoreLayout: () => void;
   /** Start collapsed (mobile). The expanded/collapsed choice persists per session. */
   defaultCollapsed?: boolean;
 }
 
 /**
  * Always-on-canvas legend + visibility mixer (left-docked; the inspector owns the right).
- * Each node type is a channel strip: swatch + name + count, an eye (mute/hide) and
- * binoculars (solo — show ONLY that type). Solo is SINGLE-SELECT: soloing a type replaces
- * any prior solo; clicking the soloed type again clears it. Solo overrides hide until
- * cleared. Edge kinds stay informational below, collapsed by default to keep the strip
- * compact on a vertical screen.
+ * Node types AND edge kinds are channel strips: swatch/dash + name + count, an eye
+ * (mute/hide) and binoculars (solo — show only this channel). Solo is SINGLE-SELECT per
+ * section: soloing replaces any prior solo in that section; clicking the soloed channel
+ * clears it; solo suspends that section's hides until cleared. The footer holds Reflow
+ * (re-settle the visible subset client-side) and Restore (back to canonical positions).
  */
 export function GraphLegendPanel({
   semanticBuilt,
@@ -40,14 +51,26 @@ export function GraphLegendPanel({
   soloTypes,
   onToggleHide,
   onToggleSolo,
+  edgeKindCounts,
+  hiddenEdgeKinds,
+  soloEdgeKinds,
+  onToggleEdgeHide,
+  onToggleEdgeSolo,
   onReset,
+  reflowing,
+  reflowed,
+  onReflow,
+  onRestoreLayout,
   defaultCollapsed = false,
 }: GraphLegendPanelProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
-  const [showEdges, setShowEdges] = useState(false);
+  const [showEdges, setShowEdges] = useState(true);
   const types = semanticBuilt ? [...VAULT_TYPES, ...SEMANTIC_TYPES] : VAULT_TYPES;
-  const anyOverride = hiddenTypes.size > 0 || soloTypes.size > 0;
-  const soloActive = soloTypes.size > 0;
+  const edgeKinds = semanticBuilt ? [...BASE_EDGE_KINDS, ...SEMANTIC_EDGE_KINDS] : BASE_EDGE_KINDS;
+  const anyOverride =
+    hiddenTypes.size > 0 || soloTypes.size > 0 || hiddenEdgeKinds.size > 0 || soloEdgeKinds.size > 0;
+  const typeSoloActive = soloTypes.size > 0;
+  const edgeSoloActive = soloEdgeKinds.size > 0;
 
   if (collapsed) {
     return (
@@ -65,9 +88,62 @@ export function GraphLegendPanel({
     );
   }
 
+  /** One mixer channel strip (shared by node-type and edge-kind rows). */
+  const channelRow = (opts: {
+    key: string;
+    swatch: React.ReactNode;
+    label: string;
+    titleHint?: string;
+    count: number;
+    visible: boolean;
+    hidden: boolean;
+    soloed: boolean;
+    soloActive: boolean;
+    onHide: () => void;
+    onSolo: () => void;
+    testPrefix: string;
+  }) => (
+    <div
+      key={opts.key}
+      className={`group flex items-center gap-2 rounded px-1.5 py-1 text-xs transition-colors hover:bg-[var(--bg-tertiary)] ${
+        opts.visible ? "text-[var(--text-primary)]" : "text-[var(--text-tertiary)]"
+      }`}
+      title={opts.titleHint}
+      data-testid={`${opts.testPrefix}-row-${opts.key}`}
+    >
+      {opts.swatch}
+      <span className={`min-w-0 flex-1 truncate ${opts.visible ? "" : "line-through"}`}>{opts.label}</span>
+      <span className="shrink-0 tabular-nums text-[10px] text-[var(--text-tertiary)]">{opts.count.toLocaleString()}</span>
+      <button
+        type="button"
+        onClick={opts.onSolo}
+        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ${
+          opts.soloed
+            ? "bg-amber-500/20 text-amber-600 dark:text-amber-400"
+            : "text-[var(--text-tertiary)] opacity-0 hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)] group-hover:opacity-100"
+        } ${opts.soloActive ? "opacity-100" : ""}`}
+        title={opts.soloed ? "Unsolo" : `Solo ${opts.label} (show only this)`}
+        data-testid={`${opts.testPrefix}-solo-${opts.key}`}
+      >
+        <Binoculars className="h-3.5 w-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={opts.onHide}
+        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--bg-elevated)] ${
+          opts.hidden ? "text-[var(--text-tertiary)]" : "text-[var(--text-tertiary)] opacity-40 hover:opacity-100"
+        } ${opts.soloActive ? "pointer-events-none opacity-20" : ""}`}
+        title={opts.hidden ? `Show ${opts.label}` : `Hide ${opts.label}`}
+        data-testid={`${opts.testPrefix}-hide-${opts.key}`}
+      >
+        {opts.hidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+      </button>
+    </div>
+  );
+
   return (
     <div
-      className="absolute left-3 top-3 z-20 flex max-h-[calc(100%-1.5rem)] w-60 flex-col overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)]/95 shadow-lg backdrop-blur"
+      className="absolute left-3 top-3 z-20 flex max-h-[calc(100%-1.5rem)] w-64 flex-col overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)]/95 shadow-lg backdrop-blur"
       data-testid="graph-legend-panel"
     >
       <div className="flex items-center gap-2 border-b border-[var(--border-default)] px-3 py-2">
@@ -79,7 +155,7 @@ export function GraphLegendPanel({
             type="button"
             onClick={onReset}
             className="rounded px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-            title="Show everything (clear hide + solo)"
+            title="Show everything (clear all hide + solo)"
           >
             reset
           </button>
@@ -95,49 +171,27 @@ export function GraphLegendPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-        {types.map((type) => {
-          const soloed = soloTypes.has(type);
-          // What's actually visible right now: solo wins; otherwise the hide flag.
-          const visible = soloActive ? soloed : !hiddenTypes.has(type);
-          const count = counts.get(type) ?? 0;
-          return (
-            <div
-              key={type}
-              className={`group flex items-center gap-2 rounded px-1.5 py-1 text-xs transition-colors hover:bg-[var(--bg-tertiary)] ${
-                visible ? "text-[var(--text-primary)]" : "text-[var(--text-tertiary)]"
-              }`}
-              data-testid={`graph-legend-row-${type}`}
-            >
-              <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${NODE_TYPE_DOT[type]} ${visible ? "" : "opacity-30"}`} />
-              <span className={`min-w-0 flex-1 truncate ${visible ? "" : "line-through"}`}>{NODE_TYPE_LABEL[type]}</span>
-              <span className="shrink-0 tabular-nums text-[10px] text-[var(--text-tertiary)]">{count.toLocaleString()}</span>
-              <button
-                type="button"
-                onClick={() => onToggleSolo(type)}
-                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ${
-                  soloed
-                    ? "bg-amber-500/20 text-amber-600 dark:text-amber-400"
-                    : "text-[var(--text-tertiary)] opacity-0 hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)] group-hover:opacity-100"
-                } ${soloActive ? "opacity-100" : ""}`}
-                title={soloed ? "Unsolo" : `Solo ${NODE_TYPE_LABEL[type]} (show only this type)`}
-                data-testid={`graph-solo-${type}`}
-              >
-                <Binoculars className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => onToggleHide(type)}
-                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--bg-elevated)] ${
-                  hiddenTypes.has(type) ? "text-[var(--text-tertiary)]" : "text-[var(--text-tertiary)] opacity-40 hover:opacity-100"
-                } ${soloActive ? "pointer-events-none opacity-20" : ""}`}
-                title={hiddenTypes.has(type) ? `Show ${NODE_TYPE_LABEL[type]}` : `Hide ${NODE_TYPE_LABEL[type]}`}
-                data-testid={`graph-hide-${type}`}
-              >
-                {hiddenTypes.has(type) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-              </button>
-            </div>
-          );
-        })}
+        {types.map((type) =>
+          channelRow({
+            key: type,
+            swatch: (
+              <span
+                className={`h-2.5 w-2.5 shrink-0 rounded-full ${NODE_TYPE_DOT[type]} ${
+                  (typeSoloActive ? soloTypes.has(type) : !hiddenTypes.has(type)) ? "" : "opacity-30"
+                }`}
+              />
+            ),
+            label: NODE_TYPE_LABEL[type],
+            count: counts.get(type) ?? 0,
+            visible: typeSoloActive ? soloTypes.has(type) : !hiddenTypes.has(type),
+            hidden: hiddenTypes.has(type),
+            soloed: soloTypes.has(type),
+            soloActive: typeSoloActive,
+            onHide: () => onToggleHide(type),
+            onSolo: () => onToggleSolo(type),
+            testPrefix: "graph-type",
+          }),
+        )}
 
         <button
           type="button"
@@ -148,16 +202,50 @@ export function GraphLegendPanel({
           {showEdges ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
         </button>
         {showEdges
-          ? (semanticBuilt ? [...BASE_EDGE_KINDS, ...SEMANTIC_EDGE_KINDS] : BASE_EDGE_KINDS).map((kind) => (
-              <div key={kind} className="flex items-start gap-2 px-1.5 py-1 text-xs text-[var(--text-primary)]">
-                <span className="mt-1.5 h-px w-3 shrink-0 bg-[var(--text-tertiary)]" />
-                <span className="min-w-0">
-                  <span className="font-medium">{EDGE_KIND_LABEL[kind]}</span>
-                  <span className="block text-[10px] leading-tight text-[var(--text-tertiary)]">{EDGE_KIND_DESCRIPTION[kind]}</span>
-                </span>
-              </div>
-            ))
+          ? edgeKinds.map((kind) =>
+              channelRow({
+                key: kind,
+                swatch: <span className="h-px w-3 shrink-0 bg-[var(--text-tertiary)]" />,
+                label: EDGE_KIND_LABEL[kind],
+                titleHint: EDGE_KIND_DESCRIPTION[kind],
+                count: edgeKindCounts.get(kind) ?? 0,
+                visible: edgeSoloActive ? soloEdgeKinds.has(kind) : !hiddenEdgeKinds.has(kind),
+                hidden: hiddenEdgeKinds.has(kind),
+                soloed: soloEdgeKinds.has(kind),
+                soloActive: edgeSoloActive,
+                onHide: () => onToggleEdgeHide(kind),
+                onSolo: () => onToggleEdgeSolo(kind),
+                testPrefix: "graph-edge",
+              }),
+            )
           : null}
+      </div>
+
+      {/* Reflow footer — re-settle the visible subset; restore returns to canonical. */}
+      <div className="flex items-center gap-1.5 border-t border-[var(--border-default)] px-2 py-1.5">
+        <button
+          type="button"
+          onClick={onReflow}
+          disabled={reflowing}
+          className="inline-flex h-6 flex-1 items-center justify-center gap-1.5 rounded-md border border-[var(--border-default)] px-2 text-[11px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+          title="Re-settle the layout over what's currently visible (temporary — any filter change restores the canonical map)"
+          data-testid="graph-reflow"
+        >
+          <Orbit className={`h-3.5 w-3.5 ${reflowing ? "animate-spin" : ""}`} />
+          {reflowing ? "Settling…" : "Reflow"}
+        </button>
+        {reflowed ? (
+          <button
+            type="button"
+            onClick={onRestoreLayout}
+            className="inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+            title="Back to the canonical whole-graph layout"
+            data-testid="graph-restore-layout"
+          >
+            <Undo2 className="h-3.5 w-3.5" />
+            Restore
+          </button>
+        ) : null}
       </div>
     </div>
   );

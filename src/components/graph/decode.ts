@@ -6,7 +6,7 @@
  * views the cosmos.gl `Graph` consumes directly. Self-contained (no server imports)
  * so the client bundle never pulls in better-sqlite3 / Node modules.
  *
- * Canonical wire format:
+ * Canonical wire format (v2):
  *   [ HEADER 32 bytes (Uint32 view) ]
  *     magic u32 0x48474C31 ("HGL1"), version u32, nodeCount u32, edgeCount u32,
  *     flags u32 (bit0=hasZ, bit1=includesTags, bit2=isLocal, bit3=truncated), reserved u32 x3
@@ -14,7 +14,9 @@
  *   [ COLOR_KEYS Uint8Array(nodeCount) ]          enum index into colorKeyTable
  *   [ pad to 4-byte boundary ]
  *   [ EDGES      Float32Array(edgeCount * 2) ]    point ARRAY INDICES (Float32, for setLinks)
- *   [ METALEN u32 ][ META UTF-8 JSON ]            { ids, labels, types, colorKeyTable }
+ *   [ EDGE_KINDS Uint8Array(edgeCount) ]          v2: enum index into edgeKindTable
+ *   [ pad to 4-byte boundary ]
+ *   [ METALEN u32 ][ META UTF-8 JSON ]            { ids, labels, types, colorKeyTable, edgeKindTable }
  *
  * On magic/version mismatch we throw GraphFormatError so the caller hard-refreshes
  * rather than rendering garbage. EDGES are always returned as Float32Array.
@@ -46,6 +48,8 @@ export interface GraphSidecar {
   folders?: number[];
   /** Distinct folder-group keys; `folders` indexes into this table. */
   folderTable?: string[];
+  /** v2: distinct edge kinds; EDGE_KINDS bytes index into this table. */
+  edgeKindTable: string[];
 }
 
 export interface DecodedGraph {
@@ -61,6 +65,8 @@ export interface DecodedGraph {
   colorKeys: Uint8Array;
   /** Point ARRAY INDICES (Float32 for cosmos.gl setLinks). */
   links: Float32Array;
+  /** v2: per-edge kind (index into sidecar.edgeKindTable), lockstep with link pairs. */
+  edgeKinds: Uint8Array;
   sidecar: GraphSidecar;
 }
 
@@ -100,6 +106,10 @@ export function decodeGraphBinary(buffer: ArrayBuffer): DecodedGraph {
   const links = readFloat32(buffer, offset, edgesLen);
   offset += edgesLen * 4;
 
+  const edgeKinds = new Uint8Array(buffer.slice(offset, offset + edgeCount));
+  offset += edgeCount;
+  offset += (4 - (offset % 4)) % 4; // skip pad to 4-byte boundary
+
   const metaLen = new DataView(buffer).getUint32(offset, true);
   offset += 4;
   const metaJson = new TextDecoder().decode(new Uint8Array(buffer, offset, metaLen));
@@ -121,6 +131,7 @@ export function decodeGraphBinary(buffer: ArrayBuffer): DecodedGraph {
     positions,
     colorKeys,
     links,
+    edgeKinds,
     sidecar,
   };
 }
@@ -163,11 +174,13 @@ export function filterDecodedByTypes(decoded: DecodedGraph, hiddenOrdinals: Set<
   }
 
   const linkPairs: number[] = [];
+  const keptKinds: number[] = [];
   for (let e = 0; e < decoded.links.length; e += 2) {
     const a = oldToNew[decoded.links[e]];
     const b = oldToNew[decoded.links[e + 1]];
     if (a === -1 || b === -1 || a === undefined || b === undefined) continue;
     linkPairs.push(a, b);
+    keptKinds.push(decoded.edgeKinds[e / 2] ?? 0);
   }
 
   return {
@@ -177,6 +190,7 @@ export function filterDecodedByTypes(decoded: DecodedGraph, hiddenOrdinals: Set<
     positions,
     colorKeys,
     links: Float32Array.from(linkPairs),
+    edgeKinds: Uint8Array.from(keptKinds),
     sidecar: {
       ...decoded.sidecar,
       ids,
@@ -184,6 +198,30 @@ export function filterDecodedByTypes(decoded: DecodedGraph, hiddenOrdinals: Set<
       types: newTypes,
       ...(folders ? { folders } : {}),
     },
+  };
+}
+
+/**
+ * Drop every link whose KIND ordinal is hidden (the edge-kind mixer). Nodes are
+ * untouched — hiding a connection family never removes the things it connected.
+ * No-op (same object) when nothing is hidden.
+ */
+export function filterDecodedByEdgeKinds(decoded: DecodedGraph, hiddenKindOrdinals: Set<number>): DecodedGraph {
+  if (hiddenKindOrdinals.size === 0) return decoded;
+  const linkPairs: number[] = [];
+  const keptKinds: number[] = [];
+  for (let e = 0; e < decoded.links.length; e += 2) {
+    const kind = decoded.edgeKinds[e / 2] ?? 0;
+    if (hiddenKindOrdinals.has(kind)) continue;
+    linkPairs.push(decoded.links[e], decoded.links[e + 1]);
+    keptKinds.push(kind);
+  }
+  if (keptKinds.length === decoded.edgeCount) return decoded;
+  return {
+    ...decoded,
+    edgeCount: keptKinds.length,
+    links: Float32Array.from(linkPairs),
+    edgeKinds: Uint8Array.from(keptKinds),
   };
 }
 

@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useEventSocket } from "@/hooks/useEventSocket";
 import type { GraphMeta } from "@/lib/graph/types";
+import { withBasePath } from "@/lib/base-path";
 
 interface GraphChangedPayload {
   kind?: "incremental" | "full";
@@ -45,7 +46,7 @@ export function useGraphMeta(enabled: boolean): UseGraphMetaResult {
 
   const fetchMeta = useCallback(async () => {
     try {
-      const res = await fetch("/api/system/graph/meta", { cache: "no-store" });
+      const res = await fetch(withBasePath("/api/system/graph/meta"), { cache: "no-store" });
       if (!res.ok) {
         if (res.status === 404) {
           setError(null);

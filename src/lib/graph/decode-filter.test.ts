@@ -6,12 +6,15 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { filterDecodedByTypes, type DecodedGraph } from "@/components/graph/decode";
+import { filterDecodedByEdgeKinds, filterDecodedByTypes, type DecodedGraph } from "@/components/graph/decode";
 
-/** 4 nodes: 0=note(t0), 1=entity(t9), 2=topic(t8), 3=person(t3). Links: 0-1, 0-2, 2-3. */
+/**
+ * 4 nodes: 0=note(t0), 1=entity(t9), 2=topic(t8), 3=person(t3).
+ * Links (kind): 0-1 (item_entity k1), 0-2 (item_topic k0), 2-3 (item_topic k0).
+ */
 function payload(): DecodedGraph {
   return {
-    version: 1,
+    version: 2,
     nodeCount: 4,
     edgeCount: 3,
     hasZ: false,
@@ -21,6 +24,7 @@ function payload(): DecodedGraph {
     positions: Float32Array.from([0, 0, 10, 10, 20, 20, 30, 30]),
     colorKeys: Uint8Array.from([0, 1, 2, 3]),
     links: Float32Array.from([0, 1, 0, 2, 2, 3]),
+    edgeKinds: Uint8Array.from([1, 0, 0]),
     sidecar: {
       ids: ["note:a", "ent:x", "topic:t", "person:p"],
       labels: ["A", "X", "T", "P"],
@@ -28,6 +32,7 @@ function payload(): DecodedGraph {
       colorKeyTable: ["note", "entity", "topic", "person"],
       folders: [0, 0, 0, 1],
       folderTable: ["f0", "f1"],
+      edgeKindTable: ["item_topic", "item_entity"],
     },
   };
 }
@@ -48,8 +53,20 @@ describe("filterDecodedByTypes", () => {
     // Link 0-1 (note↔entity) dropped; 0-2 and 2-3 remapped: topic 2→1, person 3→2.
     assert.deepEqual(Array.from(out.links), [0, 1, 1, 2]);
     assert.equal(out.edgeCount, 2);
-    // Folders filtered in lockstep.
+    // Folders + edge kinds filtered in lockstep.
     assert.deepEqual(out.sidecar.folders, [0, 0, 1]);
+    assert.deepEqual(Array.from(out.edgeKinds), [0, 0], "surviving links keep their kinds");
+  });
+
+  test("filterDecodedByEdgeKinds drops a connection family, keeps every node", () => {
+    const out = filterDecodedByEdgeKinds(payload(), new Set([0])); // hide item_topic
+    assert.equal(out.nodeCount, 4, "nodes untouched");
+    assert.deepEqual(Array.from(out.links), [0, 1], "only the item_entity link survives");
+    assert.deepEqual(Array.from(out.edgeKinds), [1]);
+    assert.equal(out.edgeCount, 1);
+    // No-op identity when nothing hidden.
+    const p = payload();
+    assert.equal(filterDecodedByEdgeKinds(p, new Set()), p);
   });
 
   test("hiding multiple types compounds; hasZ payloads copy 3 components per node", () => {

@@ -71,6 +71,15 @@ export interface GraphRenderer {
   getLabelScreenPositions(): LabelScreenPos[];
   /** render() then pause(); idle is pure GPU render. */
   freeze(): void;
+  /**
+   * Run the GPU force simulation over the CURRENT data, seeded from current positions
+   * (the "reflow visible" action). Explicit and ephemeral: settles (or hits the safety
+   * timeout), freezes, and restores render-only config. `onSettle` fires once at rest.
+   * No-op while already reflowing.
+   */
+  reflow(onSettle?: () => void): void;
+  /** True while a reflow simulation is in flight. */
+  isReflowing(): boolean;
   /** Viewport/projection only — NEVER mutate canvas pixel dims on iOS. */
   resize(): void;
   /** Frees the GPU context (failing to do so is an iOS jetsam accelerant). */

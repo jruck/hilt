@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ExternalLink, Locate, X } from "lucide-react";
 import { LoadingState } from "@/components/ui/LoadingState";
 import type { GraphEdgeKind, GraphNode, GraphNodeType } from "@/lib/graph/types";
+import { withBasePath } from "@/lib/base-path";
 import {
   EDGE_KIND_LABEL,
   EDGE_KIND_ORDER,
@@ -77,7 +78,7 @@ export function GraphInspector({ target, onClose, onOpen, onSelectNeighbor, onFo
     setLoading(true);
     setError(false);
     setDetail(null);
-    fetch(`/api/system/graph/node/${encodeURIComponent(target.id)}`, { cache: "no-store" })
+    fetch(withBasePath(`/api/system/graph/node/${encodeURIComponent(target.id)}`), { cache: "no-store" })
       .then(async (res) => {
         if (!res.ok) throw new Error(String(res.status));
         return (await res.json()) as NodeDetail;

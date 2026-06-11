@@ -51,6 +51,17 @@ const LOG_DIR = path.join(DATA_DIR, "logs", "supervisor");
 
 type ChildName = "appServer" | "wsServer" | "eventServer";
 
+/**
+ * Which children this supervisor manages (default: the full serving stack).
+ * Scratch instances (tests, a second supervisor on non-standard ports) set
+ * HILT_SUPERVISOR_CHILDREN=appServer so they don't fight the machine's
+ * singleton ws-server lock.
+ */
+const MANAGED_CHILDREN: ChildName[] = (process.env.HILT_SUPERVISOR_CHILDREN || "appServer,wsServer,eventServer")
+  .split(",")
+  .map((name) => name.trim())
+  .filter((name): name is ChildName => name === "appServer" || name === "wsServer" || name === "eventServer");
+
 interface ManagedChild {
   name: ChildName;
   pid: number;
@@ -259,7 +270,7 @@ const SPAWNERS: Record<ChildName, () => void> = {
  */
 async function adoptOrClean(): Promise<void> {
   const record = readChildrenRecord(DATA_DIR);
-  for (const name of ["appServer", "wsServer", "eventServer"] as ChildName[]) {
+  for (const name of MANAGED_CHILDREN) {
     const entry = record[name];
     if (!entry?.pid || !isPidAlive(entry.pid)) continue;
     if (name === "appServer" && !(await appServerHealthy())) {
@@ -283,7 +294,7 @@ async function externallyOwned(): Promise<boolean> {
 }
 
 async function ensureChildren(): Promise<void> {
-  for (const name of ["appServer", "wsServer", "eventServer"] as ChildName[]) {
+  for (const name of MANAGED_CHILDREN) {
     const child = children.get(name);
     if (child && isPidAlive(child.pid)) continue;
     if (child) {

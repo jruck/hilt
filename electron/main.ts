@@ -31,7 +31,12 @@ const DATA_DIR = process.env.DATA_DIR || (
   app.isPackaged ? path.join(app.getPath("userData"), "data") : path.join(os.homedir(), ".hilt", "data")
 );
 process.env.DATA_DIR = DATA_DIR;
-const CHILD_PATH = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", process.env.PATH || ""].join(":");
+// Inherited PATH FIRST: the .app launcher curates it (homebrew, then /usr/local,
+// then an nvm prepend that wins when present). The hardcoded dirs are only
+// fallbacks for minimal Finder environments — putting them first let a stale
+// /usr/local/bin/node (v18 on Mercury) shadow the launcher's modern pick and
+// crash every spawned tsx server.
+const CHILD_PATH = [process.env.PATH || "", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"].join(":");
 
 function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   return {

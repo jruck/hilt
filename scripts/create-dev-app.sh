@@ -63,8 +63,11 @@ fi
 
 cd "$PROJECT_DIR"
 
-# Ensure node is in PATH (Finder doesn't inherit shell PATH)
-export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+# Ensure node is in PATH (Finder doesn't inherit shell PATH).
+# Homebrew BEFORE /usr/local: on Apple Silicon, /usr/local/bin/node is often a
+# stale leftover installer (v18 on Mercury) that breaks tsx/Next. The nvm
+# prepend below still wins over both when nvm is present.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 if [ -d "$HOME/.nvm/versions/node" ]; then
     NODE_DIR=$(ls -1 "$HOME/.nvm/versions/node" | tail -1)
     if [ -n "$NODE_DIR" ]; then

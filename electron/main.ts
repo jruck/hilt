@@ -49,64 +49,45 @@ function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
 
 // ─── App server mode ───
 // The server mode (dev = hot reload, prod = production build served from
-// .next-prod) is RUNTIME state, switchable from the Hilt UI without
-// relaunching the Electron wrapper. Resolution order: persisted state file
-// (the UI's durable choice) > HILT_APP_MODE launcher env (initial default
-// baked by `npm run app` / `app:prod`) > dev. The prod build lives in its own
-// dist dir so builds never fight a dev server over `.next`. After `npm run
-// rebuild`, the stamp file triggers a restart of the owned Next.js children +
-// a window reload — the Electron wrapper itself keeps running.
-const PROD_DIST_DIR = ".next-prod";
-const REBUILD_STAMP = path.join(PROD_DIST_DIR, ".hilt-rebuild-stamp");
-const APP_MODE_STATE_FILE = path.join(DATA_DIR, "app-mode.json");
+// .next-prod) is RUNTIME state, switchable from any Hilt window via the
+// shared supervisor protocol (docs/plans/supervisor-v1.md): the UI POSTs
+// /api/system/app-mode, the route writes an intent file, and the supervisor
+// of this machine's servers — this Electron process, when it spawned them —
+// acts on it. server-mode.ts is the single implementation shared with the
+// headless daemon (server/supervisor.ts) and the Next reporting route.
+import {
+  HEARTBEAT_INTERVAL_MS,
+  REBUILD_STAMP_RELPATH,
+  appModeIntentPath,
+  clearSupervisorHeartbeat,
+  initialAppMode,
+  nextSpawnSpec as sharedNextSpawnSpec,
+  persistAppMode as sharedPersistAppMode,
+  readAppModeIntent,
+  resolveServerMode as sharedResolveServerMode,
+  writeSupervisorHeartbeat,
+  type AppMode,
+  type SupervisorState,
+} from "../server/server-mode";
 
-type AppMode = "dev" | "prod";
+const REBUILD_STAMP = REBUILD_STAMP_RELPATH;
 
-function readPersistedAppMode(): AppMode | null {
-  try {
-    const data = JSON.parse(fs.readFileSync(APP_MODE_STATE_FILE, "utf-8"));
-    if (data?.mode === "prod" || data?.mode === "dev") return data.mode;
-  } catch {
-    // No persisted mode yet.
-  }
-  return null;
-}
+let currentAppMode: AppMode = initialAppMode(DATA_DIR);
 
 function persistAppMode(mode: AppMode): void {
   try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(APP_MODE_STATE_FILE, JSON.stringify({ mode, updated_at: new Date().toISOString() }, null, 2));
+    sharedPersistAppMode(mode, DATA_DIR);
   } catch (err) {
     console.error("Failed to persist app mode:", err);
   }
 }
 
-let currentAppMode: AppMode =
-  readPersistedAppMode() ?? (process.env.HILT_APP_MODE === "prod" ? "prod" : "dev");
-
-function prodBuildAvailable(projectDir: string): boolean {
-  return fs.existsSync(path.join(projectDir, PROD_DIST_DIR, "BUILD_ID"));
-}
-
-/** Effective server mode: prod requires a completed `npm run rebuild` build. */
 function resolveServerMode(projectDir: string): AppMode {
-  if (currentAppMode !== "prod") return "dev";
-  if (prodBuildAvailable(projectDir)) return "prod";
-  console.warn(
-    `App mode is prod but ${PROD_DIST_DIR}/BUILD_ID is missing — run \`npm run rebuild\`. Falling back to the dev server.`
-  );
-  return "dev";
+  return sharedResolveServerMode(projectDir, currentAppMode);
 }
 
 function nextSpawnSpec(projectDir: string, port: number): { args: string[]; env: Record<string, string>; label: string } {
-  if (resolveServerMode(projectDir) === "prod") {
-    return {
-      args: ["run", "start", "--", "--port", String(port)],
-      env: { HILT_DIST_DIR: PROD_DIST_DIR, NODE_ENV: "production" },
-      label: "production",
-    };
-  }
-  return { args: ["run", "dev", "--", "--port", String(port)], env: {}, label: "dev" };
+  return sharedNextSpawnSpec(projectDir, port, currentAppMode);
 }
 
 const PLANS_DIR = path.join(process.env.HOME || "~", ".claude", "plans");
@@ -1127,6 +1108,11 @@ async function createWindow() {
   // In prod mode, watch for `npm run rebuild` completions and hot-swap the
   // Next.js children without restarting the Electron wrapper.
   setupRebuildWatcher();
+
+  // Supervisor protocol: advertise supervision (heartbeat) and act on
+  // mode-switch intents written by POST /api/system/app-mode.
+  startSupervisorHeartbeat();
+  setupModeIntentWatcher();
 }
 
 /**
@@ -1247,10 +1233,15 @@ async function setupRebuildWatcher() {
   }
 }
 
-// ─── Runtime mode switch (UI-driven via IPC) ───
+// ─── Runtime mode switch (supervisor protocol — docs/plans/supervisor-v1.md) ───
+// This Electron process is the supervisor for servers it spawned. It
+// advertises itself via the DATA_DIR heartbeat (which the switch UI gates on,
+// reported through GET /api/system/app-server) and acts on the intent file
+// written by POST /api/system/app-mode. No IPC — one mechanism, shared with
+// the headless daemon.
 
 interface AppModeStatus {
-  state: "idle" | "rebuilding" | "switching" | "reverting";
+  state: SupervisorState;
   mode: AppMode;
   target?: AppMode;
   detail?: string;
@@ -1258,10 +1249,47 @@ interface AppModeStatus {
 
 let appModeStatus: AppModeStatus = { state: "idle", mode: currentAppMode };
 let rebuildChild: ChildProcess | null = null;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+const supervisorStartedAt = new Date().toISOString();
+
+function beatSupervisorHeartbeat(): void {
+  // Attached-only windows (external server found at startup) are not
+  // supervisors — never advertise a switch we can't actuate.
+  if (!hasOwnedServers()) return;
+  try {
+    const children: Record<string, number> = {};
+    if (nextServer?.pid) children.appServer = nextServer.pid;
+    for (const instance of servers.values()) {
+      if (instance.process?.pid) children[`appServer:${instance.name}`] = instance.process.pid;
+    }
+    if (wsServer?.pid) children.wsServer = wsServer.pid;
+    writeSupervisorHeartbeat(
+      {
+        kind: "electron",
+        pid: process.pid,
+        started_at: supervisorStartedAt,
+        state: appModeStatus.state,
+        detail: appModeStatus.detail,
+        children,
+      },
+      DATA_DIR
+    );
+  } catch (err) {
+    console.error("Failed to write supervisor heartbeat:", err);
+  }
+}
+
+function startSupervisorHeartbeat(): void {
+  if (heartbeatTimer) return;
+  beatSupervisorHeartbeat();
+  heartbeatTimer = setInterval(beatSupervisorHeartbeat, HEARTBEAT_INTERVAL_MS);
+}
 
 function sendAppModeStatus(status: AppModeStatus): void {
   appModeStatus = status;
-  mainWindow?.webContents.send("app-mode:status", status);
+  // The UI polls /api/system/app-server, which reads the heartbeat — beat on
+  // every state change so switch progress is visible within a poll tick.
+  beatSupervisorHeartbeat();
 }
 
 /** Run `npm run rebuild` (build into .next-prod + touch the stamp). */
@@ -1342,6 +1370,49 @@ async function switchAppMode(target: AppMode): Promise<{ ok: boolean; mode: AppM
     return { ok: true, mode: target };
   } finally {
     serverTransitionRunning = false;
+  }
+}
+
+/**
+ * Mode-switch intent watcher — the same file-intent pattern as /navigate.
+ * POST /api/system/app-mode (on the server this process spawned) validates
+ * supervision via the heartbeat and writes the intent; we act on it here.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let modeIntentWatcher: any = null;
+let lastModeIntentTs = 0;
+
+async function setupModeIntentWatcher() {
+  try {
+    const chokidar = await import("chokidar");
+    const intentPath = appModeIntentPath(DATA_DIR);
+
+    // A pre-existing intent predates this supervisor — record it as handled
+    // so a stale file can't trigger a surprise switch at boot.
+    const existing = readAppModeIntent(DATA_DIR);
+    if (existing) lastModeIntentTs = existing.ts;
+
+    modeIntentWatcher = chokidar.watch(intentPath, {
+      ignoreInitial: true,
+      awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
+    });
+
+    const handle = () => {
+      const intent = readAppModeIntent(DATA_DIR);
+      if (!intent || intent.ts === lastModeIntentTs) return;
+      lastModeIntentTs = intent.ts;
+      if (!hasOwnedServers()) return;
+      console.log(`Mode intent received: ${intent.mode} (from ${intent.requested_by || "unknown"})`);
+      void switchAppMode(intent.mode).then((result) => {
+        if (!result.ok && result.error) console.error("Mode switch failed:", result.error);
+      });
+    };
+
+    modeIntentWatcher.on("add", handle);
+    modeIntentWatcher.on("change", handle);
+    console.log(`Watching for mode intents at: ${intentPath}`);
+  } catch (err) {
+    console.error("Error setting up mode intent watcher:", err);
   }
 }
 
@@ -1471,20 +1542,6 @@ ipcMain.on("window:focus", () => {
   }
 });
 
-ipcMain.handle("app-mode:get", () => ({
-  mode: currentAppMode,
-  supervised: hasOwnedServers(),
-  prodBuildAvailable: prodBuildAvailable(path.resolve(__dirname, "..")),
-  status: appModeStatus,
-}));
-
-ipcMain.handle("app-mode:switch", async (_event, mode: unknown) => {
-  if (mode !== "dev" && mode !== "prod") {
-    return { ok: false, mode: currentAppMode, error: "Invalid mode" };
-  }
-  return switchAppMode(mode);
-});
-
 ipcMain.handle("dialog:selectFolder", async () => {
   if (!mainWindow) return { cancelled: true };
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -1528,6 +1585,15 @@ function killProcessGroup(proc: ChildProcess | null): void {
 }
 
 function killAllServers() {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+  try {
+    clearSupervisorHeartbeat(DATA_DIR);
+  } catch {
+    // Best effort — a stale heartbeat dies by freshness within 90s anyway.
+  }
   killProcessGroup(rebuildChild);
   rebuildChild = null;
   killProcessGroup(nextServer);
@@ -1546,6 +1612,9 @@ function killAllServers() {
   }
   if (rebuildWatcher) {
     rebuildWatcher.close();
+  }
+  if (modeIntentWatcher) {
+    modeIntentWatcher.close();
   }
 }
 

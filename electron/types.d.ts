@@ -20,26 +20,6 @@ interface NavigateEvent {
   path: string;
 }
 
-interface AppModeStatus {
-  state: "idle" | "rebuilding" | "switching" | "reverting";
-  mode: "dev" | "prod";
-  target?: "dev" | "prod";
-  detail?: string;
-}
-
-interface AppModeState {
-  mode: "dev" | "prod";
-  supervised: boolean;
-  prodBuildAvailable: boolean;
-  status: AppModeStatus;
-}
-
-interface AppModeSwitchResult {
-  ok: boolean;
-  mode: "dev" | "prod";
-  error?: string;
-}
-
 interface ElectronAPI {
   isElectron: true;
   selectFolder: () => Promise<{ path?: string; cancelled?: boolean }>;
@@ -48,11 +28,6 @@ interface ElectronAPI {
   onStartupActivity: (callback: (event: StartupActivityEvent) => void) => () => void;
   focusWindow: () => void;
   onNavigate: (callback: (event: NavigateEvent) => void) => () => void;
-  appMode?: {
-    get: () => Promise<AppModeState>;
-    switch: (mode: "dev" | "prod") => Promise<AppModeSwitchResult>;
-    onStatus: (callback: (status: AppModeStatus) => void) => () => void;
-  };
 }
 
 declare global {

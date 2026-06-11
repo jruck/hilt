@@ -918,18 +918,44 @@ dir via `HILT_DIST_DIR`, so builds never fight a dev server over `.next`. Prod i
 recommended daily driver: React production mode renders roughly twice as fast and ships
 minified bundles.
 
-*Switching from the UI.* The SourceToggle dropdown shows a mode badge for the server the
-window is connected to (`dev` / `prod · built 2h ago`, self-reported via
-`GET /api/system/app-server` and folded into the System machine identity payload as
-`app_server`). When Electron supervises the server (it spawned the child — not attached
-to a terminal server), a "Server mode" section offers the switch over IPC
-(`app-mode:get`/`app-mode:switch`/`app-mode:status` through the preload bridge).
-Switching to dev kills the prod child and respawns the dev server **on the same port**
-(~5–15s, first compile included), then reloads the window. Switching to prod always
-**rebuilds first** (the current server keeps serving during the ~30s build — after a dev
-session the prod build is stale by definition), then swaps (~1s). If the new mode's
-server fails to come up, Electron reverts to the previous mode automatically so the
-window never dies. All transitions share a single-flight guard with the rebuild watcher.
+*Switching from the UI — the supervisor protocol (`docs/plans/supervisor-v1.md`).* The
+SourceToggle dropdown shows a mode badge for the server the window is connected to
+(`dev` / `prod · built 2h ago`, self-reported via `GET /api/system/app-server` and folded
+into the System machine identity payload as `app_server`). Supervision is reported by the
+**server**, not inferred by the window: a supervisor (Electron when it spawned the
+children, or the headless daemon below) writes a heartbeat to
+`${DATA_DIR}/app-supervisor.json` every 30s; `supervised` is true only while the
+heartbeat is ≤90s old with a live pid. When true, the dropdown offers the switch — for
+local **and remote** sources alike: the UI POSTs same-origin
+`/api/system/app-mode`, the route writes `${DATA_DIR}/app-mode-intent.json` on the
+serving machine, and that machine's supervisor performs the swap. The window then polls
+`/api/system/app-server` until `mode` flips and reloads itself (a dev↔prod swap changes
+the client bundle; remote viewers can't be reloaded by the supervisor). Switching to dev
+kills the current child and respawns the dev server **on the same port** (~5–15s, first
+compile included). Switching to prod always **rebuilds first** (the current server keeps
+serving during the ~30s build — after a dev session the prod build is stale by
+definition), then swaps (~1s). If the new mode's server fails to come up, the supervisor
+auto-reverts to the previous mode so the server is never left dead. All transitions share
+a single-flight guard with the rebuild watcher. There is exactly one switch mechanism —
+the former Electron-IPC path was removed. Security note: `/api/system/app-mode` is
+tailnet-reachable (unlike loopback-only `/navigate`) — accepted as single-user,
+non-destructive, and auto-reverting.
+
+*The headless supervisor (`server/supervisor.ts`, `com.hilt.supervisor`).* On server
+machines (the Mini), the serving stack runs as an appliance: a ~400-line tsx daemon under
+a KeepAlive LaunchAgent owns app-server (:3000) + ws-server (:3100) + event-server,
+restarts crashed children with capped exponential backoff, acts on mode intents and
+rebuild stamps exactly like Electron-as-supervisor, persists its children's pids
+(`app-supervisor-children.json`) so a supervisor crash **re-adopts** still-healthy
+children instead of double-spawning, and **stands by** without fighting when an external
+healthy Hilt (e.g. a terminal dev session) owns the port — claiming it when it goes away.
+A dev TTL (`HILT_SUPERVISOR_DEV_TTL_HOURS`, default 12, 0 disables) returns a forgotten
+dev switch to prod automatically. The wrapper (`scripts/hilt-supervisor.sh`) sets the
+same PATH discipline as the .app launcher (Homebrew before /usr/local, nvm wins) because
+launchd hands agents a minimal environment — the exact trap that broke Mercury's spawns.
+Install/uninstall/status via `npm run supervisor:install|uninstall|status`. Electron apps
+launched on a daemon-supervised machine find the existing server and attach as pure
+viewers.
 
 *The rebuild loop (prod mode).* `npm run rebuild` (~30s) builds into `.next-prod` and
 touches `.next-prod/.hilt-rebuild-stamp` as the build-complete signal (BUILD_ID is

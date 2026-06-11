@@ -294,6 +294,26 @@ interface AppServerInfo {
   dist_dir: string;            // ".next" or ".next-prod"
   build_id: string | null;     // prod only
   built_at: string | null;     // ISO build-completion time (rebuild stamp preferred)
+  supervised: boolean;         // fresh supervisor heartbeat on the serving machine
+  supervisor: { kind: "electron" | "daemon"; state: SupervisorState; detail?: string } | null;
+}
+
+// Supervisor protocol files under ${DATA_DIR} (server/server-mode.ts,
+// docs/plans/supervisor-v1.md). All derived/operational state — never vault markdown.
+interface SupervisorHeartbeat {       // app-supervisor.json — written every 30s + on state change
+  kind: "electron" | "daemon";
+  pid: number;
+  started_at: string;
+  beat_at: string;                    // >90s old (or dead pid) ⇒ unsupervised
+  state: "idle" | "rebuilding" | "switching" | "reverting";
+  detail?: string;
+  children?: Record<string, number>;  // child name → pid
+}
+
+interface AppModeIntent {             // app-mode-intent.json — written by POST /api/system/app-mode
+  mode: "dev" | "prod";
+  ts: number;                         // dedupe key; supervisors ignore already-seen ts
+  requested_by?: string;
 }
 
 interface SystemStackSnapshot {

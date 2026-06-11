@@ -40,18 +40,6 @@ electron_1.contextBridge.exposeInMainWorld("electronAPI", {
             electron_1.ipcRenderer.removeListener("navigate:goto", handler);
         };
     },
-    // Server mode (dev/prod) — read state, hot-swap, and follow transitions
-    appMode: {
-        get: () => electron_1.ipcRenderer.invoke("app-mode:get"),
-        switch: (mode) => electron_1.ipcRenderer.invoke("app-mode:switch", mode),
-        onStatus: (callback) => {
-            const handler = (_, data) => callback(data);
-            electron_1.ipcRenderer.on("app-mode:status", handler);
-            return () => {
-                electron_1.ipcRenderer.removeListener("app-mode:status", handler);
-            };
-        },
-    },
 });
 const electronAPI = {
     isElectron: true,
@@ -61,9 +49,4 @@ const electronAPI = {
     onStartupActivity: (_callback) => () => { },
     focusWindow: () => { },
     onNavigate: (_callback) => () => { },
-    appMode: {
-        get: () => Promise.resolve({}),
-        switch: (_mode) => Promise.resolve({}),
-        onStatus: (_callback) => () => { },
-    },
 };

@@ -8,27 +8,24 @@ import { SourceManageModal } from "./SourceManageModal";
 import { withBasePath } from "@/lib/base-path";
 
 // Server mode (dev = hot reload, prod = production build) for the server this
-// window is connected to, plus the Electron-mediated switch when this app
-// supervises that server. Mirrors electron/types.d.ts shapes structurally.
+// window is connected to — local or remote, it's the same-origin self-report.
+// `supervised` (a fresh supervisor heartbeat on the SERVING machine) gates the
+// switch; the switch itself is POST /api/system/app-mode + poll + self-reload
+// (supervisor protocol, docs/plans/supervisor-v1.md).
 interface ActiveAppServerInfo {
   mode: "dev" | "prod";
   build_id: string | null;
   built_at: string | null;
+  supervised?: boolean;
+  supervisor?: {
+    kind: "electron" | "daemon";
+    state: "idle" | "rebuilding" | "switching" | "reverting";
+    detail?: string;
+  } | null;
 }
 
-interface UiAppModeStatus {
-  state: "idle" | "rebuilding" | "switching" | "reverting";
-  mode: "dev" | "prod";
-  target?: "dev" | "prod";
-  detail?: string;
-}
-
-interface UiAppModeState {
-  mode: "dev" | "prod";
-  supervised: boolean;
-  prodBuildAvailable: boolean;
-  status: UiAppModeStatus;
-}
+const MODE_SWITCH_TIMEOUT_MS = 150_000;
+const MODE_SWITCH_POLL_MS = 2_000;
 
 function formatBuildAge(iso: string | null): string | null {
   if (!iso) return null;
@@ -99,49 +96,71 @@ export function SourceToggle() {
     };
   }, [isOpen]);
 
-  // Electron-mediated mode switch (only meaningful when Electron supervises the server)
-  const appModeApi = typeof window !== "undefined" ? window.electronAPI?.appMode : undefined;
-  const [modeState, setModeState] = useState<UiAppModeState | null>(null);
-  const [modeStatus, setModeStatus] = useState<UiAppModeStatus | null>(null);
+  // Mode switch over HTTP: POST the intent to the SERVING machine, then poll
+  // its self-report until the mode flips and reload this window (a dev↔prod
+  // swap changes the client bundle). Mid-swap fetch failures are expected —
+  // keep polling through the blip.
+  const [switchTarget, setSwitchTarget] = useState<"dev" | "prod" | null>(null);
+  const [switchDetail, setSwitchDetail] = useState<string | null>(null);
   const [modeError, setModeError] = useState<string | null>(null);
+  const switchPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    if (!appModeApi) return;
-    let mounted = true;
-    appModeApi
-      .get()
-      .then((state) => {
-        if (mounted) {
-          setModeState(state);
-          setModeStatus(state.status);
-        }
-      })
-      .catch(() => {});
-    const unsubscribe = appModeApi.onStatus((status) => setModeStatus(status));
-    return () => {
-      mounted = false;
-      unsubscribe();
-    };
-  }, [appModeApi, isOpen]);
+  useEffect(() => () => {
+    if (switchPollRef.current) clearInterval(switchPollRef.current);
+  }, []);
 
-  const modeBusy = Boolean(modeStatus && modeStatus.state !== "idle");
-  const effectiveMode = appServer?.mode ?? modeState?.mode ?? null;
+  const modeBusy = switchTarget !== null || (appServer?.supervisor != null && appServer.supervisor.state !== "idle");
+  const effectiveMode = appServer?.mode ?? null;
 
   const handleModeSwitch = useCallback(async (target: "dev" | "prod") => {
-    if (!appModeApi || modeBusy || effectiveMode === target) return;
+    if (modeBusy || effectiveMode === target) return;
     setModeError(null);
     haptics.medium();
+
     try {
-      const result = await appModeApi.switch(target);
-      if (!result.ok && result.error) {
-        setModeError(result.error);
-        setTimeout(() => setModeError(null), 6000);
+      const res = await fetch(withBasePath("/api/system/app-mode"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: target }),
+      });
+      if (res.status !== 202) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || `Switch request failed (HTTP ${res.status})`);
       }
-      // On success Electron reloads the window — nothing more to do here.
-    } catch {
-      // The reload can interrupt the IPC promise; that's the success path.
+    } catch (err) {
+      setModeError(err instanceof Error ? err.message : "Switch request failed");
+      setTimeout(() => setModeError(null), 8000);
+      return;
     }
-  }, [appModeApi, effectiveMode, haptics, modeBusy]);
+
+    setSwitchTarget(target);
+    setSwitchDetail(target === "prod" ? "Building production bundle (~30s)…" : "Restarting with hot reload…");
+
+    const startedAt = Date.now();
+    switchPollRef.current = setInterval(async () => {
+      if (Date.now() - startedAt > MODE_SWITCH_TIMEOUT_MS) {
+        if (switchPollRef.current) clearInterval(switchPollRef.current);
+        switchPollRef.current = null;
+        setSwitchTarget(null);
+        setSwitchDetail(null);
+        setModeError("Timed out waiting for the switch — check the supervisor logs on the serving machine");
+        return;
+      }
+      try {
+        const r = await fetch(withBasePath("/api/system/app-server"), { cache: "no-store" });
+        if (!r.ok) return;
+        const info = (await r.json()) as ActiveAppServerInfo;
+        if (info?.supervisor?.detail) setSwitchDetail(info.supervisor.detail);
+        if (info?.mode === target) {
+          if (switchPollRef.current) clearInterval(switchPollRef.current);
+          switchPollRef.current = null;
+          window.location.reload();
+        }
+      } catch {
+        // Server mid-swap — expected; keep polling.
+      }
+    }, MODE_SWITCH_POLL_MS);
+  }, [effectiveMode, haptics, modeBusy]);
 
   // Health check
   useEffect(() => {
@@ -382,58 +401,52 @@ export function SourceToggle() {
             );
           })}
 
-          {/* Server mode (Electron-supervised local server only) */}
-          {appModeApi && modeState && activeSource?.type === "local" && (
+          {/* Server mode — rendered whenever the SERVING machine has a live
+              supervisor (local or remote source alike); absent otherwise so the
+              user never sees a switch that can't be actuated. */}
+          {appServer?.supervised && (
             <div className="border-t border-[var(--border-default)] px-3 py-2">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">
-                  Server mode
+                  Server mode{activeSource?.type === "remote" ? ` — ${activeSource.name}` : ""}
                 </span>
                 {modeBusy && <Loader2 className="w-3 h-3 animate-spin text-[var(--text-tertiary)]" />}
               </div>
-              {modeState.supervised ? (
-                <>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => void handleModeSwitch("dev")}
-                      disabled={modeBusy}
-                      className={`flex-1 px-2 py-1 text-xs rounded-md transition-colors ${
-                        effectiveMode === "dev"
-                          ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium"
-                          : "text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
-                      }`}
-                      title="Hot reload for rapid iteration — app renders slower"
-                    >
-                      Dev
-                    </button>
-                    <button
-                      onClick={() => void handleModeSwitch("prod")}
-                      disabled={modeBusy}
-                      className={`flex-1 px-2 py-1 text-xs rounded-md transition-colors ${
-                        effectiveMode === "prod"
-                          ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium"
-                          : "text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
-                      }`}
-                      title="Production build — fastest app; rebuilds (~30s) before switching"
-                    >
-                      Prod
-                    </button>
-                  </div>
-                  <p className="mt-1.5 text-[11px] leading-4 text-[var(--text-tertiary)]">
-                    {modeBusy && modeStatus?.detail
-                      ? modeStatus.detail
-                      : effectiveMode === "dev"
-                        ? "Hot reload on. Switching to Prod rebuilds first (~30s), then a quick restart."
-                        : "Production build. Switching to Dev restarts with hot reload (~10s)."}
-                  </p>
-                  {modeError && (
-                    <p className="mt-1 text-[11px] leading-4 text-red-500">{modeError}</p>
-                  )}
-                </>
-              ) : (
-                <p className="text-[11px] leading-4 text-[var(--text-tertiary)]">
-                  This server runs outside the app (e.g. a terminal), so the mode can&apos;t be switched here.
-                </p>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => void handleModeSwitch("dev")}
+                  disabled={modeBusy}
+                  className={`flex-1 px-2 py-1 text-xs rounded-md transition-colors ${
+                    effectiveMode === "dev"
+                      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium"
+                      : "text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+                  }`}
+                  title="Hot reload for rapid iteration — app renders slower"
+                >
+                  Dev
+                </button>
+                <button
+                  onClick={() => void handleModeSwitch("prod")}
+                  disabled={modeBusy}
+                  className={`flex-1 px-2 py-1 text-xs rounded-md transition-colors ${
+                    effectiveMode === "prod"
+                      ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium"
+                      : "text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+                  }`}
+                  title="Production build — fastest app; rebuilds (~30s) before switching"
+                >
+                  Prod
+                </button>
+              </div>
+              <p className="mt-1.5 text-[11px] leading-4 text-[var(--text-tertiary)]">
+                {modeBusy && switchDetail
+                  ? switchDetail
+                  : effectiveMode === "dev"
+                    ? "Hot reload on. Switching to Prod rebuilds first (~30s), then a quick restart."
+                    : "Production build. Switching to Dev restarts with hot reload (~15s)."}
+              </p>
+              {modeError && (
+                <p className="mt-1 text-[11px] leading-4 text-red-500">{modeError}</p>
               )}
             </div>
           )}

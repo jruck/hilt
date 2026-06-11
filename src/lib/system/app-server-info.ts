@@ -1,12 +1,19 @@
 import * as fs from "fs";
 import * as path from "path";
+import {
+  isHeartbeatFresh,
+  readSupervisorHeartbeat,
+  type SupervisorKind,
+  type SupervisorState,
+} from "../../../server/server-mode";
 
 /**
  * How this Next.js server instance is running: dev (next dev via app-server,
  * hot reload, React development mode) or prod (a production build served from
- * its dist dir). Surfaced through /api/system/app-server and the System
- * machine identity payload so source rows and machine views can show
- * "dev" / "prod · built 2h ago".
+ * its dist dir), plus whether a supervisor (Electron or the headless daemon)
+ * currently manages it — which is what gates the mode-switch UI. Surfaced
+ * through /api/system/app-server and the System machine identity payload so
+ * source rows and machine views can show "dev" / "prod · built 2h ago".
  */
 export interface AppServerInfo {
   mode: "dev" | "prod";
@@ -14,6 +21,13 @@ export interface AppServerInfo {
   build_id: string | null;
   /** ISO timestamp of build completion (rebuild stamp preferred over BUILD_ID). */
   built_at: string | null;
+  /** True only with a FRESH supervisor heartbeat (≤90s, live pid). */
+  supervised: boolean;
+  supervisor: {
+    kind: SupervisorKind;
+    state: SupervisorState;
+    detail?: string;
+  } | null;
 }
 
 export function getAppServerInfo(): AppServerInfo {
@@ -41,5 +55,17 @@ export function getAppServerInfo(): AppServerInfo {
     }
   }
 
-  return { mode, dist_dir: distDir, build_id: buildId, built_at: builtAt };
+  const heartbeat = readSupervisorHeartbeat();
+  const supervised = isHeartbeatFresh(heartbeat);
+
+  return {
+    mode,
+    dist_dir: distDir,
+    build_id: buildId,
+    built_at: builtAt,
+    supervised,
+    supervisor: supervised
+      ? { kind: heartbeat.kind, state: heartbeat.state, ...(heartbeat.detail ? { detail: heartbeat.detail } : {}) }
+      : null,
+  };
 }

@@ -296,7 +296,7 @@ Returns the serving machine's System identity and feature availability. Peer dis
 
 ### GET /api/system/app-server
 
-Returns how this Next.js server instance is running — the source of the mode badge in the SourceToggle dropdown. Always same-origin (each server reports only itself).
+Returns how this Next.js server instance is running — the source of the mode badge and switch in the SourceToggle dropdown. Always same-origin (each server reports only itself).
 
 ```typescript
 {
@@ -304,8 +304,26 @@ Returns how this Next.js server instance is running — the source of the mode b
   dist_dir: string;            // ".next" (dev) or ".next-prod" (prod daily driver)
   build_id: string | null;     // prod only
   built_at: string | null;     // ISO; rebuild stamp preferred over BUILD_ID mtime
+  supervised: boolean;         // fresh supervisor heartbeat (≤90s, live pid) on THIS machine
+  supervisor: {                // null when unsupervised
+    kind: "electron" | "daemon";
+    state: "idle" | "rebuilding" | "switching" | "reverting";
+    detail?: string;           // human progress line during a switch
+  } | null;
 }
 ```
+
+### POST /api/system/app-mode
+
+Requests a dev/prod switch for THIS server (supervisor protocol, `docs/plans/supervisor-v1.md`). The route never touches processes — it validates the supervisor heartbeat and writes `${DATA_DIR}/app-mode-intent.json`; the machine's supervisor (Electron or the headless daemon) performs the swap. Callers poll `GET /api/system/app-server` until `mode` flips, then reload themselves.
+
+| Body | Response |
+|---|---|
+| `{ "mode": "dev" \| "prod" }` | `202 { ok, accepted }` — intent written |
+| invalid mode / body | `400 { error }` |
+| no fresh supervisor heartbeat | `409 { error }` |
+
+Deliberately tailnet-reachable (unlike loopback-only `/navigate`): single-user tailnet, non-destructive, auto-reverting.
 
 ### GET /api/system/machines
 

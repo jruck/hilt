@@ -18,6 +18,7 @@ import { FeedCard } from "./FeedCard";
 import { GenerationNoteCard } from "./GenerationNoteCard";
 import { LIBRARY_META_OPEN_KEY, LibraryArtifactDetailPane } from "./LibraryArtifactDetailPane";
 import { LibraryHealthPanel } from "./LibraryHealthPanel";
+import { VirtualFeedRow } from "./VirtualFeedRow";
 
 const SOURCE_WIDTH_KEY = "hilt-library-source-width";
 const CONTENT_WIDTH_KEY = "hilt-library-content-width";
@@ -234,11 +235,12 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   // along as the last virtual row.
   const feedFooterCount = usesRecentPaging && items.length > 0 ? 1 : 0;
   const feedRowCount = items.length + feedFooterCount;
-  const feedVirtualizer = useVirtualizer({
+  const feedVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: density === "feed" ? feedRowCount : 0,
     getScrollElement: () => feedScrollRef.current,
     estimateSize: () => FEED_CARD_ESTIMATED_HEIGHT,
     overscan: FEED_CARD_OVERSCAN,
+    useAnimationFrameWithResizeObserver: true,
   });
 
   const refreshReadAwareData = useCallback(() => {
@@ -293,7 +295,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
 
     frame = window.requestAnimationFrame(restore);
     return () => window.cancelAnimationFrame(frame);
-  }, [density, desktopReaderVisible, items.length, selectedId]);
+  }, [density, desktopReaderVisible, feedVirtualizer, items, selectedId]);
 
   const flushPendingReadIds = useCallback(() => {
     const ids = Array.from(pendingReadIdsRef.current);
@@ -924,27 +926,26 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
                         const artifact = items[virtualRow.index];
                         if (!artifact) {
                           return (
-                            <div
+                            <VirtualFeedRow
                               key="library-feed-footer"
-                              ref={feedVirtualizer.measureElement}
-                              data-index={virtualRow.index}
-                              className="absolute left-0 top-0 w-full py-2 text-center text-xs text-[var(--text-tertiary)]"
-                              style={{ transform: `translateY(${virtualRow.start}px)` }}
+                              virtualizer={feedVirtualizer}
+                              virtualRow={virtualRow}
+                              className="py-2 text-center text-xs text-[var(--text-tertiary)]"
                             >
                               {isLoadingMore ? <LoadingState label="Loading more" size="sm" className="py-0 text-xs" /> : `${items.length} of ${recent.total} loaded`}
-                            </div>
+                            </VirtualFeedRow>
                           );
                         }
                         return (
                           // Row padding stands in for the old flex-column gap; descending
                           // z-index keeps a card's downward-opening menus above the rows
                           // below it (each translateY row is its own stacking context).
-                          <div
+                          <VirtualFeedRow
                             key={artifact.id}
-                            ref={feedVirtualizer.measureElement}
-                            data-index={virtualRow.index}
-                            className={`absolute left-0 top-0 w-full ${desktopReaderVisible ? "pb-3" : "pb-5"}`}
-                            style={{ transform: `translateY(${virtualRow.start}px)`, zIndex: feedRowCount - virtualRow.index }}
+                            virtualizer={feedVirtualizer}
+                            virtualRow={virtualRow}
+                            className={desktopReaderVisible ? "pb-3" : "pb-5"}
+                            style={{ zIndex: feedRowCount - virtualRow.index }}
                           >
                             <FeedCard
                               artifact={artifact}
@@ -959,7 +960,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
                               active={artifact.id === selectedId}
                               wideLayout={!desktopReaderVisible}
                             />
-                          </div>
+                          </VirtualFeedRow>
                         );
                       })}
                     </div>

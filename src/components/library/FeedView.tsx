@@ -7,6 +7,7 @@ import type { RecommendedArtifact } from "@/lib/library/types";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { FeedCard } from "./FeedCard";
 import { LIBRARY_META_OPEN_KEY, LibraryArtifactDetailPane } from "./LibraryArtifactDetailPane";
+import { VirtualFeedRow } from "./VirtualFeedRow";
 
 const FEED_CARD_ESTIMATED_HEIGHT = 400;
 const FEED_CARD_OVERSCAN = 6;
@@ -57,11 +58,12 @@ export function FeedView({
   // Trailing "x of y loaded" row rendered as the last virtual row in recent mode.
   const footerCount = mode === "recent" && items.length > 0 ? 1 : 0;
   const rowCount = items.length + footerCount;
-  const rowVirtualizer = useVirtualizer({
+  const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: rowCount,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => FEED_CARD_ESTIMATED_HEIGHT,
     overscan: FEED_CARD_OVERSCAN,
+    useAnimationFrameWithResizeObserver: true,
   });
   const virtualItems = rowVirtualizer.getVirtualItems();
 
@@ -89,27 +91,26 @@ export function FeedView({
                   const artifact = items[virtualRow.index];
                   if (!artifact) {
                     return (
-                      <div
+                      <VirtualFeedRow
                         key="library-feed-footer"
-                        ref={rowVirtualizer.measureElement}
-                        data-index={virtualRow.index}
-                        className="absolute left-0 top-0 w-full py-2 text-center text-xs text-[var(--text-tertiary)]"
-                        style={{ transform: `translateY(${virtualRow.start}px)` }}
+                        virtualizer={rowVirtualizer}
+                        virtualRow={virtualRow}
+                        className="py-2 text-center text-xs text-[var(--text-tertiary)]"
                       >
                         {recent.isLoadingMore ? <LoadingState label="Loading more" size="sm" className="py-0 text-xs" /> : `${items.length} of ${recent.total} loaded`}
-                      </div>
+                      </VirtualFeedRow>
                     );
                   }
                   return (
                     // Row padding stands in for the old flex-column gap; descending
                     // z-index keeps a card's downward-opening menus above the rows
                     // below it (transform creates a stacking context per row).
-                    <div
+                    <VirtualFeedRow
                       key={artifact.id}
-                      ref={rowVirtualizer.measureElement}
-                      data-index={virtualRow.index}
-                      className={`absolute left-0 top-0 w-full ${detailOpen ? "pb-3" : "pb-5"}`}
-                      style={{ transform: `translateY(${virtualRow.start}px)`, zIndex: rowCount - virtualRow.index }}
+                      virtualizer={rowVirtualizer}
+                      virtualRow={virtualRow}
+                      className={detailOpen ? "pb-3" : "pb-5"}
+                      style={{ zIndex: rowCount - virtualRow.index }}
                     >
                       <FeedCard
                         artifact={artifact}
@@ -124,7 +125,7 @@ export function FeedView({
                         }}
                         active={artifact.id === selectedId}
                       />
-                    </div>
+                    </VirtualFeedRow>
                   );
                 })}
               </div>

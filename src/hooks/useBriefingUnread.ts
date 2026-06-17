@@ -26,8 +26,8 @@ export function useBriefingUnread() {
         const state = await stateRes.json();
         if (cancelled || list.length === 0) return;
 
-        const latestDate = list[0].date;
-        setHasUnread(latestDate !== state.lastRead);
+        const latestId = list[0].id ?? list[0].date;
+        setHasUnread(latestId !== state.lastRead);
       } catch {
         // Silently fail — don't show indicator if we can't check
       }

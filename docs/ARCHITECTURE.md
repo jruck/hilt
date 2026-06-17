@@ -241,6 +241,8 @@ Legacy `/map`, `/local-apps`, and `/stack/...` URLs remain valid compatibility e
 Bridge vault (e.g., ~/work/bridge/)
          │
          ├── lists/now/{date}.md      (weekly task files)
+         ├── areas/index.md           (North Stars rollup)
+         ├── areas/{slug}/index.md    (area goals, standards, projects)
          ├── projects/{slug}/index.md (project definitions)
          └── libraries/*/projects/*/  (nested project areas)
          │
@@ -248,6 +250,9 @@ Bridge vault (e.g., ~/work/bridge/)
 GET /api/bridge/weekly
          │ weekly-parser.ts reads current week file
          │ Extracts: tasks, notes, accomplishments, section order, frontmatter, available weeks
+GET /api/bridge/areas
+         │ area-parser.ts reads areas/index.md + area index files
+         │ Extracts: focus lanes, goals, standards, active project links
          ▼
 BridgeView.tsx
   ├── WeekHeader (week navigation, recycle button)
@@ -256,6 +261,8 @@ BridgeView.tsx
   │   ├── BridgeTaskList (sortable via dnd-kit)
   │   │   └── BridgeTaskItem × N
   │   └── BridgeTaskDetail (selected task editor)
+  ├── AreaBoard (Now / Ongoing / Long-Term / Other goal lanes)
+  │   └── AreaCard × N (shows area goals, opens backing markdown in Docs)
   ├── ProjectKanban (status columns: considering → doing → done)
   │   └── ProjectCard × N
   └── BridgeNotes (raw markdown notes section)
@@ -460,6 +467,9 @@ Durable references are produced by a single **reweave** pass: one in-vault, read
 Ingestion adapter → digestion.ts (digestArtifact)
          │ summarize CLI runs first as EXTRACTION ONLY: recover/clean source text
          │ (article body, transcript, X post text). It no longer dictates note shape.
+         │ X/Twitter video posts are a special source-capture path: yt-dlp resolves
+         │ captions first, then audio transcription, and the transcript becomes the
+         │ canonical Raw Content. Wrapper tweet text is context, not source completion.
          │
          │ Reweave runs ONLY for durable saves:
          │   source.intent === "explicit_save"  OR  saveRecommendation === "file"
@@ -587,7 +597,8 @@ The **third derived cache** (`src/lib/semantic/`, flag-gated `HILT_SEMANTIC_ENAB
 | Semantic index | `${DATA_DIR}/semantic.sqlite` | SQLite (derived cache) | Items/chunks/embeddings/entities/topics/lineage for the Phase-2 Semantic Knowledge Layer (flag-gated `HILT_SEMANTIC_ENABLED`; `foreign_keys=ON`; markdown stays canonical) |
 | Semantic review queue | `${DATA_DIR}/semantic-review-queue/<vault>.json` | Server JSON | Sibling of the Library review queue — the semantic sample/decimal lane (ruling R10) |
 | Reweave attempt counts | `${DATA_DIR}/library-reweave-attempts/<vault>.json` | Server JSON | Per-item failure counts for the nightly reweave drain — repeat-failers sink to the back of the bounded worklist; cleared on success, pruned when items leave the backlog (operational state, never vault markdown) |
-| Briefing run status | `~/.hermes/cron/jobs.json` + `~/.hermes/cron/output/` | Read-only Hermes files | Same-day failed Morning Briefing detection when no `briefings/YYYY-MM-DD.md` exists; retry watcher status is read separately from the real generator job |
+| Briefing markdown | `briefings/YYYY-MM-DD.md`, `briefings/weekend/YYYY-MM-DD.md` | Bridge vault markdown | Weekday daily briefings plus Saturday-start weekend editions; weekend ids use `weekend:YYYY-MM-DD` in Hilt |
+| Briefing run status | `~/.hermes/cron/jobs.json` + `~/.hermes/cron/output/` | Read-only Hermes files | Same-day failed weekday Morning Briefing detection when no `briefings/YYYY-MM-DD.md` exists; retry watcher status is read separately from the real generator job |
 | Scope path | URL + ScopeContext | URL state | Current folder scope |
 
 ## API Routes
@@ -605,9 +616,10 @@ The **third derived cache** (`src/lib/semantic/`, flag-gated `HILT_SEMANTIC_ENAB
 | `/api/bridge/notes` | GET/PUT | Read/write notes section | `content` |
 | `/api/bridge/recycle` | POST | Roll over to new week | - |
 | `/api/bridge/upload` | POST | Upload file to vault | multipart |
-| `/api/bridge/briefings` | GET | List briefing markdown plus same-day Hermes failure row | - |
-| `/api/bridge/briefings/[date]` | GET | Read briefing markdown or failed Hermes run payload | `date` |
-| `/api/bridge/briefings/retry` | POST | Queue existing Hermes Morning Briefing cron job | `date` |
+| `/api/bridge/briefings` | GET | List daily and weekend briefing markdown plus same-day daily Hermes failure row | - |
+| `/api/bridge/briefings/[date]` | GET | Read briefing markdown by id or failed daily Hermes run payload | `date` / `weekend:date` id |
+| `/api/bridge/briefings/link-target` | GET | Resolve briefing links to native Hilt destinations | `href`, `date` |
+| `/api/bridge/briefings/retry` | POST | Queue existing Hermes Morning Briefing cron job | daily `id` or `date` |
 | `/api/bridge/people` | GET | List people + groups | - |
 | `/api/bridge/people/[slug]` | GET | Person detail + meetings | `slug` |
 | `/api/bridge/people/[slug]/notes` | PUT | Update dated notes section | `slug`, `date`, `notes` |
@@ -943,23 +955,29 @@ non-destructive, and auto-reverting.
 
 *The headless supervisor (`server/supervisor.ts`, `com.hilt.supervisor`).* On server
 machines (the Mini), the serving stack runs as an appliance: a ~500-line tsx daemon under
-a KeepAlive LaunchAgent owns app-server (:3000) + ws-server (:3100) + event-server,
+a KeepAlive LaunchAgent owns app-server (:3000) + ws-server (:3100; events, file
+watchers, Calendar sync, and Granola sync),
 restarts crashed children with capped exponential backoff, detects **wedged** servers
 (live pid, ~4 consecutive failed HTTP probes after a 90s startup grace) and restarts
 them, acts on mode intents and rebuild stamps exactly like Electron-as-supervisor
 (a stamp written by a switch's own rebuild is absorbed, never double-restarted),
 persists its children's pids (`app-supervisor-children.json`) so a supervisor crash
-**re-adopts** still-healthy children instead of double-spawning, and **stands by**
+**re-adopts** still-healthy children instead of double-spawning (with one policy check:
+when `HILT_GRANOLA_SYNC_DAEMON=1`, ws-server adoption requires a fresh Granola daemon
+heartbeat with a live pid), and **stands by**
 without fighting when an external healthy Hilt (e.g. a terminal dev session) owns the
 port — claiming it when it goes away. A dev TTL (`HILT_SUPERVISOR_DEV_TTL_HOURS`,
 default 12, 0 disables) returns a forgotten dev switch to prod automatically. Env knobs:
-`HILT_SUPERVISOR_PORT` (default 3000), `HILT_SUPERVISOR_CHILDREN` (default the full
-trio; scratch/test instances set `appServer` to avoid the machine's singleton ws-server
-lock). The wrapper (`scripts/hilt-supervisor.sh`) sets the same PATH discipline as the
-.app launcher (Homebrew before /usr/local, nvm wins) because launchd hands agents a
-minimal environment — the exact trap that broke Mercury's spawns. Install/uninstall/
-status via `npm run supervisor:install|uninstall|status`. Electron apps launched on a
-daemon-supervised machine find the existing server and attach as pure viewers.
+`HILT_SUPERVISOR_PORT` (default 3000), `HILT_SUPERVISOR_CHILDREN` (default
+`appServer,wsServer`; scratch/test instances set `appServer` to avoid the machine's
+singleton ws-server lock). The wrapper (`scripts/hilt-supervisor.sh`) sets the same PATH
+discipline as the .app launcher (Homebrew before /usr/local, nvm wins) because launchd hands agents a
+minimal environment — the exact trap that broke Mercury's spawns — and exports
+`HILT_GRANOLA_SYNC_DAEMON=1` by default so the supervised ws-server keeps meeting-note
+sync alive after reboot/cutover. Install/uninstall/status via
+`npm run supervisor:install|uninstall|status`; status also reports the Granola daemon
+heartbeat. Electron apps launched on a daemon-supervised machine find the existing
+server and attach as pure viewers.
 
 **Known same-checkout constraints (accepted, by design after the Mini cutover):**
 (1) `npm run rebuild` (`next build`, even with `HILT_DIST_DIR=.next-prod`) damages a

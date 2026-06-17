@@ -144,6 +144,7 @@ Every action should have visible feedback:
 - Instant visual feedback (color change on hover)
 - Keyboard shortcuts for power users
 - Drag-and-drop for reordering
+  - After drop, preserve the user's intended order locally while persistence runs. Do not visually snap an item back to its old slot unless the save fails and the UI is explicitly rolling back to server state.
 - Click-to-edit for text fields
 - Persistent state (localStorage for preferences)
 
@@ -317,7 +318,8 @@ This section tracks design decisions and refinements over time. Each entry shoul
 - Floating video should be tied to active playback, not mere scroll position. Do not pop out a video that has not been played or is currently paused; when floating, it should be movable/resizable and dismissible back inline without stopping playback.
 - Transcript playhead tracking should not steal scroll. Keep active-line highlighting synced to the video, but require an explicit `Jump to Live` / live-follow action before the UI scrolls the transcript; any manual scroll should release that live-follow lock.
 - Candidate dismissal should feel like an inbox action: remove the candidate from the active review surface immediately, show a brief undo toast, and keep skipped cache records out of default feeds unless explicitly requested.
-- Feed card actions should collect as a left-aligned cluster in a bottom action row under the text block, separated from the body with a quiet divider. Treat `Candidate` as a plain inline review-state dropdown (`Save` / `Dismiss`) and `Updated` as the analogous plain dropdown (`Approve` / `Reject`). These controls should read like social/media action metadata: icon + text + chevron, no colored pills. Put source navigation plus saved-reference actions in the overflow menu. If an item has no general actions, do not render a dead overflow button. Keep filing/source tags below the description as body metadata across card widths; the source/date row should stay quiet and provenance-only.
+- Feed card actions should collect as a left-aligned cluster in a bottom action row under the text block, separated from the body with a quiet divider. Treat `Candidate` as a plain inline review-state dropdown (`Save` / `Dismiss`) and `Updated` as the analogous plain dropdown (`Approve` / `Reject`). These controls should read like social/media action metadata: icon + text + chevron, no colored pills. Put only truly general/source actions in overflow when needed; if an item has no general actions, do not render a dead overflow button. Keep filing/source tags below the description as body metadata across card widths; the source/date row should stay quiet and provenance-only.
+- Saved vs. candidate lifecycle must be legible at a glance on Feed cards and detail readers. Use the shared lifecycle menu: candidate = amber dashed/pending circle with Save/Dismiss; saved = filled green check-circle with source/unread/archive actions. Archive belongs with the saved lifecycle state rather than a generic overflow menu.
 - Library detail lifecycle state should appear once. For candidate items, put the candidate review dropdown in the top metadata/action line beside the version/score control, using a subtle amber pending-review treatment and a pending/dashed-circle icon. Do not repeat `Candidate` in the lower detail action row. The version/score metadata toggle remains clickable, but it should not show an extra caret; the metadata panel itself provides the expanded/collapsed feedback.
 - Library eval metrics use progressive disclosure. Normal reading surfaces show only the compact worth score (`Zap` icon) as the priority signal in the card action row. It should look like an inline count/action, not a blue pill; clicking it opens the reference and expands the metadata panel. Store and compute eval metrics as 0–1 decimals, but render them in the UI as integer 0–100 scores (`0.87` → `87`) so cards and metadata stay legible. Admin/eval review contexts expand the same action row into component metrics: worth (`Zap`), relevance (`Network`), substance (`Layers`), and freshness (`Clock`), plus an `Archive?` lifecycle flag only when the eval suggests `to_archive`. Avoid artificial bucket labels such as `Must Read`, `Recommended`, or `Interesting`; the score is the truth, and the detail metadata panel is where labels, thresholds, and raw ranking explanations belong. Cards should not render the raw For You/eval `why` text.
 - Library local refresh and source ingestion must be visibly different operations. Local refresh should be fast and reread file-backed state; `Check sources` should clearly mean a live external-source poll, show in-flight state, and report whether it added items, found duplicates/no new items, or hit a credential/source blocker.
@@ -469,6 +471,116 @@ This section tracks design decisions and refinements over time. Each entry shoul
 **Principle**: The sidebar has two species of control. **Browse dimensions** (Status, Sources, Type, Mode) are how the user navigates the collection — top-level, always visible, full-width rows with icon + label + count, an "All" row at top, each with independent state. **Admin filters** (pipeline/eval inspection) are diagnostic — collapsed by default, never entangled with browse state; "clear" resets only admin filters. A new filter belongs to admin only if it inspects the *system*; if it slices the *content*, it's a browse dimension.
 
 **Detail rules learned**: accent colors (e.g. the memo's amber sparkle) belong on cards where attention is the point, not in sidebar chrome; special items (Editor's Memo) anchor the bottom of count-sorted lists rather than sorting as volume peers.
+
+### 2026-06-12: Library Metadata Panel as Pipeline DevTools
+
+**Principle**: The Library detail metadata panel is not just display chrome; it is the user's inspection surface for the ingestion, reweave, connection, and eval pipeline. When a score or connection state looks surprising, the panel should expose the raw decision signals needed to debug it without opening the markdown file.
+
+**Pattern**:
+- Keep the top grid compact for scan-speed, but show truth-bearing state directly: connection count/state, pass status, attention tier, reconnected timestamp, digest method, version, and pending state.
+- Put verbose diagnostics below a divider: evidence markers, `attention_judgment` tier/reason, connection reasoning, connection output, reweave candidates, and explicit missing-pass warnings.
+- Distinguish "no connections found" from "pass never ran." A clean abstention is a successful analyzed state, not an error.
+- Amber belongs on pipeline gaps (`reweave_pending`, `missing_connection_pass`, missing pass markers), not on a low attention judgment by itself.
+
+### 2026-06-12: Compact Dates Without All Caps
+
+**Principle**: Date labels may be shortened for scan speed, but they should not be forced into all caps. `Fri, Jun 12` is preferred over `FRI, JUN 12`; the latter feels loud and unpleasant in Hilt's quiet chrome.
+
+**Pattern**:
+- Use shared date helpers for consistency across Bridge, Briefings, Calendar, People, System, and App HUD.
+- Prefer abbreviated month/day labels in dense chrome, but preserve normal locale casing from `Intl.DateTimeFormat`.
+- Reserve capitalization for ordinary title-case labels and acronyms, not date typography.
+
+### 2026-06-12: Static Cards Should Not Look Selectable
+
+**Principle**: Shared card styling is fine, but hover/selection affordances should only appear when a card itself performs a selection or navigation action. Briefing cards can use the same content surface as Library cards, but they should not highlight like selectable cards when only their inner bullet rows expand.
+
+**Pattern**:
+- Use static card variants for read-only content sections.
+- Keep hover and selected border changes for card-level actions such as Library item selection, People selection, Bridge tasks, and project navigation.
+- Put interaction affordances on the actual interactive child row or control, not on the surrounding static content container.
+
+### 2026-06-12: Briefing Emphasis Uses Existing Hierarchy
+
+**Principle**: Briefing prose should not require a new body text style just to make bold readable. Use the existing text hierarchy: normal briefing copy can sit on `text-secondary`, while true emphasis stays `text-primary` with semibold weight.
+
+**Pattern**:
+- Avoid making entire briefing bullets `text-primary`; it makes normal and bold text collapse into one loud weight.
+- Preserve `strong` as the only primary/semibold inline emphasis inside briefing bullets.
+- Keep section headings primary so the card structure remains easy to scan.
+
+### 2026-06-12: Briefing Links Follow Hilt Chrome, Not Web Blue
+
+**Principle**: Briefing links should not use generic blue web-link styling. The Briefing surface is app chrome and daily reading material, so links should follow Hilt's interaction tokens while preserving the Docs read-mode behavior of staying quiet until hover.
+
+**Pattern**:
+- Use `interactive-default` / `interactive-hover` for Briefing link color.
+- Keep links un-underlined by default and underline on hover, matching Docs read-mode behavior without importing the blue palette.
+- Keep citation links small and quiet; they are navigation aids, not primary emphasis.
+
+### 2026-06-17: Briefing Links Land in Native Hilt Homes
+
+**Principle**: Briefing links should open the thing where Hilt natively owns it, not raw same-origin report/API pages. The briefing is an orchestration surface; clicking through should preserve app context.
+
+**Pattern**:
+- Library editor memo links open the memo as a Library item.
+- Library morning report links open the dated markdown report in Docs.
+- External links can still open outside Hilt; only Hilt-resolvable links should be intercepted.
+
+### 2026-06-17: Weekend Briefings Share The Same Surface
+
+**Principle**: Daily and weekend briefings are the same habit surface with different cadence and judgment, not separate tabs. Daily briefings stay operational; weekend editions take the wider goal and direction-of-travel view.
+
+**Pattern**:
+- Put weekend editions in the existing Briefing dropdown with date-range labels rather than adding a subtab.
+- Key selection/read state by stable briefing id, so `weekend:YYYY-MM-DD` does not collide with the daily date.
+- Use goals as a relevance lens in generation, not as visible daily accountability UI. Avoid checklist/scolding behavior unless lack of progress is itself a meaningful signal.
+- Keep the current Briefing layout and renderer; cadence differences belong in generated content and labels, not in extra chrome.
+
+### 2026-06-12: Mobile Main Content Uses Compact Gutters
+
+**Principle**: On mobile, main content should not inherit desktop-ish horizontal padding. The App HUD's tighter mobile density is the reference point; Briefing and Bridge content should feel aligned with it rather than inset like a desktop page.
+
+**Pattern**:
+- Use smaller mobile gutters for primary scroll shells, then restore wider spacing at `sm` and above.
+- Keep card internals unchanged unless the card content itself is cramped; fix the page shell before adjusting nested surfaces.
+
+### 2026-06-15: Calendar Event Actions Must Be Curated
+
+**Principle**: HUD and Calendar event cards should show the actionable meeting/resource links, not every URL embedded in provider-generated invite email HTML. A single Zoom webinar should read as one `Zoom` action, not a grid of generic `Link` buttons for add-to-calendar URLs, image assets, unsubscribe links, or registration chrome.
+
+**Pattern**:
+- Classify provider-specific join URLs before falling back to generic web links.
+- Filter generated invite boilerplate and static assets out of event actions.
+- Do not render a provider/source button when its URL is just another meeting or generated invite action.
+
+### 2026-06-16: Desktop Calendar Starts With Navigation Context
+
+**Principle**: Desktop Calendar should bias toward showing navigation context by default. Mini-month calendars are useful on larger screens, so an unset preference should start open; only an explicit user toggle should hide them across refreshes.
+
+**Pattern**:
+- Treat missing localStorage as "use the desktop default," not as false.
+- Preserve explicit `true`/`false` values exactly once the user toggles the control.
+- Keep mobile widths hidden by default because the mini-month strip competes with the primary schedule.
+
+### 2026-06-16: Bridge Primary Tab Restores The Last Subview
+
+**Principle**: Bridge is one primary workspace with two sibling subviews: Briefing and Priorities. The app can still default fresh sessions to Briefing, but once the user switches within Bridge, leaving for another primary tab and coming back should restore the last Bridge subview.
+
+**Pattern**:
+- Store only the Bridge subview preference, not a broader navigation history.
+- Treat missing preference as Briefing so first-run/default behavior stays stable.
+- Update the preference from explicit Briefing/Priorities switches and task-entry shortcuts that intentionally open Priorities.
+
+### 2026-06-17: Areas Are Focus Context, Not Tasks
+
+**Principle**: Areas of Focus belong on the Priorities screen because they explain why tasks, writing, and projects matter, but they should not pretend to be actionable tasks. They are ongoing responsibility surfaces and durable goals.
+
+**Pattern**:
+- Place Areas below the weekly task list and above Writing so they bridge immediate execution and longer-horizon work.
+- Use a board/lane layout for scanning the time horizon (`Now`, `Ongoing`, `Long-Term`, `Other`), but keep the cards goal-forward rather than task-like.
+- Show the area title, a domain-specific icon, and each `## Goals` bullet directly on the card. Do not substitute counts, file paths, or metadata chips when the user is trying to understand what sits under Health, Home, Relationships, Career, etc.
+- Open the backing area markdown in Docs for detail editing instead of introducing a custom area drawer on the first pass.
 
 ---
 

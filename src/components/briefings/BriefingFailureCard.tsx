@@ -2,6 +2,7 @@
 
 import { AlertTriangle, Clock3, RefreshCw } from "lucide-react";
 import type { BriefingRunFailure } from "@/hooks/useBriefings";
+import { formatHiltWeekdayDate } from "@/lib/display-date";
 
 interface BriefingFailureCardProps {
   run: BriefingRunFailure;
@@ -14,13 +15,12 @@ function formatDateTime(value: string | null): string | null {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
+  const day = formatHiltWeekdayDate(date, { includeYear: false });
+  const time = date.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
   });
+  return `${day}, ${time}`;
 }
 
 function readableError(error: string): string {
@@ -44,7 +44,7 @@ export function BriefingFailureCard({
   const retryQueued = retryStatus === "queued";
 
   return (
-    <div className="hilt-card hilt-card-warning overflow-hidden">
+    <div className="hilt-card hilt-card-static hilt-card-warning overflow-hidden">
       <div className="border-b border-amber-500/20 bg-amber-500/5 px-4 py-3 flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />

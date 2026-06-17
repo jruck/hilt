@@ -1,60 +1,24 @@
 import { NextResponse } from "next/server";
-import fs from "fs/promises";
-import path from "path";
-import matter from "gray-matter";
+import { listBriefingSummaries, makeDailyBriefingId } from "@/lib/bridge/briefing-files";
 import { getVaultPath } from "@/lib/bridge/vault";
 import {
-  type BriefingRunFailure,
   getEasternDate,
   getHermesBriefingFailureForDate,
 } from "@/lib/bridge/briefing-status";
 
-interface BriefingSummary {
-  date: string;
-  title: string;
-  summary: string | null;
-  status?: "ready" | "failed";
-  run?: BriefingRunFailure;
-}
-
 export async function GET() {
   try {
     const vaultPath = await getVaultPath();
-    const briefingsDir = path.join(vaultPath, "briefings");
-
-    let files: string[];
-    try {
-      files = await fs.readdir(briefingsDir);
-    } catch {
-      // No briefings directory — return empty list
-      return NextResponse.json([]);
-    }
-
-    const mdFiles = files.filter((f) => f.endsWith(".md") && /^\d{4}-\d{2}-\d{2}\.md$/.test(f));
-
-    const briefings: BriefingSummary[] = await Promise.all(
-      mdFiles.map(async (filename) => {
-        const filePath = path.join(briefingsDir, filename);
-        const raw = await fs.readFile(filePath, "utf-8");
-        const { data } = matter(raw);
-        const date = filename.replace(/\.md$/, "");
-        return {
-          date,
-          title: data.title || `Briefing — ${date}`,
-          summary: data.summary || null,
-        };
-      })
-    );
-
-    // Sort newest first
-    briefings.sort((a, b) => b.date.localeCompare(a.date));
+    const briefings = await listBriefingSummaries(vaultPath);
 
     const today = getEasternDate();
-    const hasTodayBriefing = briefings.some((briefing) => briefing.date === today);
+    const hasTodayBriefing = briefings.some((briefing) => briefing.kind === "daily" && briefing.date === today);
     if (!hasTodayBriefing) {
       const failure = await getHermesBriefingFailureForDate(today);
       if (failure) {
         briefings.unshift({
+          id: makeDailyBriefingId(today),
+          kind: "daily",
           date: today,
           title: `Morning Briefing — ${today}`,
           summary: `Generation failed: ${failure.error}`,

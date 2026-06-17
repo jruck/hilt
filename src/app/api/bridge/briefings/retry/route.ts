@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import { NextResponse } from "next/server";
+import { parseBriefingId } from "@/lib/bridge/briefing-files";
 import {
   getEasternDate,
   getHermesBriefingFailureForDate,
@@ -11,6 +12,13 @@ export async function POST(request: Request) {
     let date = getEasternDate();
     try {
       const body = await request.json();
+      if (typeof body?.id === "string") {
+        const parsed = parseBriefingId(body.id);
+        if (!parsed || parsed.kind !== "daily") {
+          return NextResponse.json({ error: "Only daily briefing failures can be retried here" }, { status: 400 });
+        }
+        date = parsed.date;
+      }
       if (typeof body?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date)) {
         date = body.date;
       }

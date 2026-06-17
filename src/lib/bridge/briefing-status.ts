@@ -120,7 +120,11 @@ function isMorningBriefingJob(job: HermesCronJob): boolean {
     ? job.skills.map((item) => asString(item)?.toLowerCase()).filter(Boolean)
     : [];
 
-  return !isBriefingRetryWatchJob(job) && (
+  if (isBriefingRetryWatchJob(job) || name.includes("weekend briefing") || script.includes("weekend")) {
+    return false;
+  }
+
+  return (
     name.includes("morning briefing") ||
     skill === "briefing" ||
     script.includes("briefing") ||

@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import { useHaptics } from "@/hooks/useHaptics";
+import { useScope } from "@/contexts/ScopeContext";
+import { withBasePath } from "@/lib/base-path";
 interface BriefingContentProps {
   content: string;
+  date?: string;
 }
 
 interface BriefingItem {
@@ -114,7 +117,82 @@ function renderCitations(text: string): string {
   return text.replace(/\[\^(\d+)\]/g, '<sup><a href="#fn-$1" class="citation-link">$1</a></sup>');
 }
 
-function CollapsibleItem({ item }: { item: BriefingItem }) {
+function isAppOwnedHref(href: string | undefined): boolean {
+  return Boolean(href && href.startsWith("/") && !href.startsWith("//"));
+}
+
+function isNativeBriefingHref(href: string | undefined): boolean {
+  if (!href) return false;
+  try {
+    const pathname = new URL(href, "http://hilt.local").pathname;
+    return /(?:^|\/)api\/reports\/[a-z0-9][a-z0-9-]{0,63}$/i.test(pathname);
+  } catch {
+    return /(?:^|\/)api\/reports\/[a-z0-9][a-z0-9-]{0,63}$/i.test(href.split(/[?#]/)[0] || "");
+  }
+}
+
+function BriefingLink({
+  href,
+  className,
+  children,
+  date,
+}: {
+  href?: string;
+  className?: string;
+  children: ReactNode;
+  date?: string;
+}) {
+  const { navigateTo } = useScope();
+  const isHash = href?.startsWith("#");
+  const nativeHref = isNativeBriefingHref(href);
+  const displayHref = href && isAppOwnedHref(href) ? withBasePath(href) : href;
+
+  const handleClick = useCallback(async (event: MouseEvent<HTMLAnchorElement>) => {
+    event.stopPropagation();
+    if (!href || isHash || !nativeHref || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+
+    const params = new URLSearchParams({ href });
+    if (date) params.set("date", date);
+    try {
+      const response = await fetch(withBasePath(`/api/bridge/briefings/link-target?${params.toString()}`), { cache: "no-store" });
+      if (!response.ok) throw new Error(`resolve failed: ${response.status}`);
+      const payload = await response.json() as {
+        target?: {
+          view?: "docs" | "library";
+          scope?: string;
+        } | null;
+      };
+      const target = payload.target;
+      if (target?.view && typeof target.scope === "string") {
+        navigateTo(target.view, target.scope);
+        return;
+      }
+    } catch (error) {
+      console.warn("[briefings] failed to resolve native link", error);
+    }
+
+    if (displayHref) {
+      window.open(displayHref, "_blank", "noopener,noreferrer");
+    }
+  }, [date, displayHref, href, isHash, nativeHref, navigateTo]);
+
+  return (
+    <a
+      href={displayHref}
+      className={className === "citation-link"
+        ? "briefing-link briefing-citation-link"
+        : "briefing-link"}
+      target={isHash || nativeHref ? undefined : "_blank"}
+      rel={isHash || nativeHref ? undefined : "noopener noreferrer"}
+      onClick={handleClick}
+    >
+      {children}
+    </a>
+  );
+}
+
+function CollapsibleItem({ item, date }: { item: BriefingItem; date?: string }) {
   const haptics = useHaptics();
   const [expanded, setExpanded] = useState(false);
   const hasDetails = item.details.trim().length > 0;
@@ -124,12 +202,17 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
   const footnoteId = footnoteMatch ? `fn-${footnoteMatch[1]}` : undefined;
 
   return (
-    <li id={footnoteId} className={`text-[var(--text-primary)] ${hasDetails ? `briefing-expandable${expanded ? " briefing-expanded" : ""}` : ""}`}>
+    <li id={footnoteId} className={`text-[var(--text-secondary)] ${hasDetails ? `briefing-expandable${expanded ? " briefing-expanded" : ""}` : ""}`}>
       <div
-        onClick={() => { if (hasDetails) { expanded ? haptics.rigid() : haptics.soft(); setExpanded(!expanded); } }}
+        onClick={() => {
+          if (!hasDetails) return;
+          if (expanded) haptics.rigid();
+          else haptics.soft();
+          setExpanded(!expanded);
+        }}
         className={`py-0.5 ${hasDetails ? "cursor-pointer" : ""}`}
       >
-        <span className="text-[var(--text-primary)] leading-relaxed briefing-inline-md">
+        <span className="text-[var(--text-secondary)] leading-relaxed briefing-inline-md">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeRaw]}
@@ -137,19 +220,7 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
               p: ({ children }) => <>{children}</>,
               strong: ({ children }) => <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>,
               sup: ({ children }) => <sup className="text-xs">{children}</sup>,
-              a: ({ href, children, className }) => (
-                <a
-                  href={href}
-                  className={className === "citation-link"
-                    ? "text-blue-400 no-underline hover:underline text-[10px]"
-                    : "text-blue-400 no-underline hover:underline"}
-                  target={href?.startsWith("#") ? undefined : "_blank"}
-                  rel={href?.startsWith("#") ? undefined : "noopener noreferrer"}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {children}
-                </a>
-              ),
+              a: ({ href, children, className }) => <BriefingLink href={href} className={className} date={date}>{children}</BriefingLink>,
             }}
           >
             {renderCitations(item.headline)}
@@ -162,11 +233,7 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
             remarkPlugins={[remarkGfm]}
             components={{
               strong: ({ children }) => <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>,
-              a: ({ href, children }) => (
-                <a href={href} className="text-blue-400 no-underline hover:underline" target="_blank" rel="noopener noreferrer">
-                  {children}
-                </a>
-              ),
+              a: ({ href, children }) => <BriefingLink href={href} date={date}>{children}</BriefingLink>,
               ul: ({ children }) => <ul className="briefing-list pl-5 space-y-0.5">{children}</ul>,
               li: ({ children }) => <li className="text-[var(--text-secondary)]">{children}</li>,
               p: ({ children }) => <p className="mb-0.5">{children}</p>,
@@ -180,34 +247,42 @@ function CollapsibleItem({ item }: { item: BriefingItem }) {
   );
 }
 
-export function BriefingContent({ content }: BriefingContentProps) {
+export function BriefingContent({ content, date }: BriefingContentProps) {
   const { sections } = useMemo(() => parseBriefing(content), [content]);
 
   // Fall back to plain markdown if no sections found
   if (sections.length === 0) {
     const displayContent = content.replace(/^\s*#\s+.+\n*/, "");
     return (
-      <div className="briefing-content hilt-card prose max-w-none px-4 py-3
+      <div className="briefing-content hilt-card hilt-card-static prose max-w-none px-4 py-3
         prose-headings:text-[var(--text-primary)] prose-headings:font-semibold
         prose-h2:text-lg prose-h2:mb-3 prose-h2:mt-6
         prose-p:text-[var(--text-secondary)] prose-p:leading-relaxed prose-p:mb-3
-        prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
+        prose-a:text-[var(--interactive-default)] hover:prose-a:text-[var(--interactive-hover)]
+        prose-a:no-underline hover:prose-a:underline prose-a:underline-offset-2
         prose-strong:text-[var(--text-primary)]
         prose-li:text-[var(--text-secondary)] prose-li:leading-relaxed
         prose-ul:mb-3 prose-ol:mb-3
         prose-code:text-[var(--text-secondary)] prose-code:bg-[var(--bg-tertiary)]
       ">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayContent}</ReactMarkdown>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            a: ({ href, children, className }) => <BriefingLink href={href} className={className} date={date}>{children}</BriefingLink>,
+          }}
+        >
+          {displayContent}
+        </ReactMarkdown>
       </div>
     );
   }
 
   return (
-    <div className="prose max-w-none prose-headings:text-[var(--text-primary)] prose-headings:font-semibold prose-p:text-[var(--text-secondary)] prose-p:leading-relaxed prose-strong:text-[var(--text-primary)] prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-li:text-[var(--text-secondary)] prose-li:leading-relaxed prose-code:text-[var(--text-secondary)] prose-code:bg-[var(--bg-tertiary)] space-y-5">
+    <div className="briefing-content prose max-w-none prose-headings:text-[var(--text-primary)] prose-headings:font-semibold prose-p:text-[var(--text-secondary)] prose-p:leading-relaxed prose-strong:text-[var(--text-primary)] prose-a:text-[var(--interactive-default)] hover:prose-a:text-[var(--interactive-hover)] prose-a:no-underline hover:prose-a:underline prose-a:underline-offset-2 prose-li:text-[var(--text-secondary)] prose-li:leading-relaxed prose-code:text-[var(--text-secondary)] prose-code:bg-[var(--bg-tertiary)] space-y-5">
       {sections.map((section, si) => {
         const isSourcesSection = /sources/i.test(section.heading);
         return (
-          <div key={si} className="hilt-card overflow-hidden">
+          <div key={si} className="hilt-card hilt-card-static overflow-hidden">
             <div className="px-4 py-3 border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">
               <h2 className="text-base font-semibold text-[var(--text-primary)] !m-0">
                 {section.heading}
@@ -224,6 +299,7 @@ export function BriefingContent({ content }: BriefingContentProps) {
                         rehypePlugins={[rehypeRaw]}
                         components={{
                           p: ({ children }) => <>{children}</>,
+                          a: ({ href, children, className }) => <BriefingLink href={href} className={className} date={date}>{children}</BriefingLink>,
                         }}
                       >
                         {item.headline}
@@ -235,7 +311,7 @@ export function BriefingContent({ content }: BriefingContentProps) {
             ) : (
               <ul className="briefing-list pl-9 pr-4 py-2 space-y-0 !m-0">
                 {section.items.map((item, ii) => (
-                  <CollapsibleItem key={ii} item={item} />
+                  <CollapsibleItem key={ii} item={item} date={date} />
                 ))}
               </ul>
             )}

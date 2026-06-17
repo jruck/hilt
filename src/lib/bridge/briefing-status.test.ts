@@ -103,4 +103,30 @@ describe("briefing status", () => {
     const failure = await getHermesBriefingFailureForDate("2026-06-02", { homeDir });
     assert.equal(failure, null);
   });
+
+  it("does not treat the weekend briefing job as the daily morning briefing run", async () => {
+    const homeDir = await makeHome();
+    const cronDir = path.join(homeDir, ".hermes", "cron");
+    await fs.mkdir(cronDir, { recursive: true });
+    await fs.writeFile(
+      path.join(cronDir, "jobs.json"),
+      JSON.stringify({
+        jobs: [
+          {
+            id: "weekend-1",
+            name: "Weekend Briefing",
+            skill: "briefing",
+            script: "briefing-weekend-gather.sh",
+            last_status: "error",
+            last_error: "weekend failed",
+            last_run_at: "2026-06-06T06:00:00-04:00",
+            next_run_at: "2026-06-07T06:00:00-04:00",
+          },
+        ],
+      })
+    );
+
+    const failure = await getHermesBriefingFailureForDate("2026-06-06", { homeDir });
+    assert.equal(failure, null);
+  });
 });

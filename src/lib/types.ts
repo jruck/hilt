@@ -112,6 +112,45 @@ export interface BridgeThoughtsResponse {
   columns: Record<BridgeThoughtStatus, BridgeThought[]>;
 }
 
+// ============ Bridge Areas Types ============
+
+export type BridgeAreaFocusSection = "now" | "ongoing" | "long-term";
+
+export interface BridgeAreaFocus {
+  section: BridgeAreaFocusSection;
+  text: string;
+  target: string;
+  label: string;
+  raw: string;
+}
+
+export interface BridgeAreaLink {
+  target: string;
+  label: string;
+  raw: string;
+}
+
+export interface BridgeArea {
+  slug: string;            // Folder name
+  path: string;            // Absolute path to area folder
+  indexPath: string;       // Absolute path to the area's index.md
+  relativePath: string;    // Path relative to vault root
+  title: string;           // H1 from index.md, or folder name fallback
+  description: string;     // Frontmatter description or intro text
+  goals: string[];         // Bullet items under ## Goals
+  standards: string[];     // Bullet items under ## Standards
+  activeProjects: BridgeAreaLink[]; // Parsed links/items under ## Active Projects
+  focus: BridgeAreaFocus[]; // North-star lines from areas/index.md targeting this area
+  primaryFocus: BridgeAreaFocusSection | null;
+  lastModified: number;    // Unix timestamp (ms) of most recently modified file in folder
+}
+
+export interface BridgeAreasResponse {
+  vaultPath: string;
+  rollupPath: string | null;
+  areas: BridgeArea[];
+}
+
 // ============ People Types ============
 
 export interface BridgePerson {

@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs/promises";
-import path from "path";
-import matter from "gray-matter";
+import { makeDailyBriefingId, parseBriefingId, readBriefingById } from "@/lib/bridge/briefing-files";
 import { getVaultPath } from "@/lib/bridge/vault";
 import { getHermesBriefingFailureForDate } from "@/lib/bridge/briefing-status";
 
@@ -10,25 +8,28 @@ export async function GET(
   { params }: { params: Promise<{ date: string }> }
 ) {
   try {
-    const { date } = await params;
+    const { date: rawId } = await params;
+    const parsed = parseBriefingId(rawId);
 
-    // Validate date format
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return NextResponse.json({ error: "Invalid date format" }, { status: 400 });
+    if (!parsed) {
+      return NextResponse.json({ error: "Invalid briefing id" }, { status: 400 });
     }
 
     const vaultPath = await getVaultPath();
-    const filePath = path.join(vaultPath, "briefings", `${date}.md`);
-
-    let raw: string;
     try {
-      raw = await fs.readFile(filePath, "utf-8");
+      const briefing = await readBriefingById(vaultPath, parsed.id);
+      if (briefing) return NextResponse.json(briefing);
     } catch {
-      const failure = await getHermesBriefingFailureForDate(date);
+      if (parsed.kind !== "daily") {
+        return NextResponse.json({ error: "Briefing not found" }, { status: 404 });
+      }
+      const failure = await getHermesBriefingFailureForDate(parsed.date);
       if (failure) {
         return NextResponse.json({
-          date,
-          title: `Morning Briefing — ${date}`,
+          id: makeDailyBriefingId(parsed.date),
+          kind: "daily",
+          date: parsed.date,
+          title: `Morning Briefing — ${parsed.date}`,
           summary: `Generation failed: ${failure.error}`,
           content: "",
           status: failure.status,
@@ -38,14 +39,7 @@ export async function GET(
       return NextResponse.json({ error: "Briefing not found" }, { status: 404 });
     }
 
-    const { data, content } = matter(raw);
-
-    return NextResponse.json({
-      date,
-      title: data.title || `Briefing — ${date}`,
-      summary: data.summary || null,
-      content: content.trim(),
-    });
+    return NextResponse.json({ error: "Briefing not found" }, { status: 404 });
   } catch (err) {
     console.error("Failed to read briefing:", err);
     return NextResponse.json({ error: "Failed to read briefing" }, { status: 500 });

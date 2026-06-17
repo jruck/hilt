@@ -3,15 +3,29 @@
 import { useState, useEffect, useCallback } from "react";
 import { withBasePath } from "@/lib/base-path";
 
-interface BriefingSummary {
+export type BriefingKind = "daily" | "weekend";
+
+export interface BriefingDateRange {
+  start: string;
+  end: string;
+}
+
+export interface BriefingSummary {
+  id: string;
+  kind: BriefingKind;
   date: string;
   title: string;
   summary: string | null;
+  dateRange?: BriefingDateRange;
   status?: "ready" | "failed";
   run?: BriefingRunFailure;
 }
 
-interface BriefingDetail {
+interface BriefingDetail extends BriefingSummary {
+  content: string;
+}
+
+interface LegacyBriefingDetail {
   date: string;
   title: string;
   summary: string | null;
@@ -35,7 +49,7 @@ export interface BriefingRunFailure {
 
 export function useBriefings() {
   const [briefings, setBriefings] = useState<BriefingSummary[]>([]);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [briefing, setBriefing] = useState<BriefingDetail | null>(null);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isLoadingContent, setIsLoadingContent] = useState(false);
@@ -52,29 +66,34 @@ export function useBriefings() {
         fetch(withBasePath("/api/bridge/briefings/read-state")),
       ]);
       if (!listRes.ok) throw new Error("Failed to fetch briefings");
-      const data: BriefingSummary[] = await listRes.json();
+      const rawData: Array<BriefingSummary | Omit<BriefingSummary, "id" | "kind">> = await listRes.json();
+      const data: BriefingSummary[] = rawData.map((item) => "id" in item ? item : {
+        ...item,
+        id: item.date,
+        kind: "daily",
+      });
       setBriefings(data);
 
       // Check for unread via server state
       const state = stateRes.ok ? await stateRes.json() : { lastRead: null };
-      if (data.length > 0 && data[0].date !== state.lastRead) {
+      if (data.length > 0 && data[0].id !== state.lastRead) {
         setHasUnread(true);
       }
 
       // Auto-select most recent if none selected
-      if (!selectedDate && data.length > 0) {
-        setSelectedDate(data[0].date);
+      if (!selectedId && data.length > 0) {
+        setSelectedId(data[0].id);
       }
     } catch (err) {
       console.error("Failed to fetch briefing list:", err);
     } finally {
       setIsLoadingList(false);
     }
-  }, [selectedDate]);
+  }, [selectedId]);
 
   const retryBriefing = useCallback(async () => {
-    const date = briefing?.date ?? selectedDate;
-    if (!date) return;
+    const id = briefing?.id ?? selectedId;
+    if (!id) return;
 
     setRetryStatus("idle");
     setRetryMessage(null);
@@ -82,7 +101,7 @@ export function useBriefings() {
       const res = await fetch(withBasePath("/api/bridge/briefings/retry"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date }),
+        body: JSON.stringify({ id }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
@@ -95,11 +114,11 @@ export function useBriefings() {
       setRetryStatus("error");
       setRetryMessage(err instanceof Error ? err.message : "Failed to queue retry");
     }
-  }, [briefing?.date, fetchList, selectedDate]);
+  }, [briefing?.id, fetchList, selectedId]);
 
   // Fetch single briefing content
   useEffect(() => {
-    if (!selectedDate) {
+    if (!selectedId) {
       setBriefing(null);
       return;
     }
@@ -107,20 +126,25 @@ export function useBriefings() {
     let cancelled = false;
     setIsLoadingContent(true);
 
-    fetch(withBasePath(`/api/bridge/briefings/${selectedDate}`))
+    fetch(withBasePath(`/api/bridge/briefings/${encodeURIComponent(selectedId)}`))
       .then((res) => {
         if (!res.ok) throw new Error("Not found");
         return res.json();
       })
-      .then((data: BriefingDetail) => {
+      .then((data: BriefingDetail | LegacyBriefingDetail) => {
         if (!cancelled) {
-          setBriefing(data);
+          const normalized: BriefingDetail = "id" in data ? data : {
+            ...data,
+            id: data.date,
+            kind: "daily",
+          };
+          setBriefing(normalized);
           // Mark as read via server (syncs across devices)
           setHasUnread(false);
           fetch(withBasePath("/api/bridge/briefings/read-state"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ lastRead: data.date }),
+            body: JSON.stringify({ lastRead: normalized.id }),
           }).catch(() => {});
           window.dispatchEvent(new Event("briefing-read"));
         }
@@ -138,7 +162,7 @@ export function useBriefings() {
     return () => {
       cancelled = true;
     };
-  }, [selectedDate]);
+  }, [selectedId]);
 
   // Fetch list on mount
   useEffect(() => {
@@ -147,8 +171,8 @@ export function useBriefings() {
 
   return {
     briefings,
-    selectedDate,
-    setSelectedDate,
+    selectedId,
+    setSelectedId,
     briefing,
     isLoadingList,
     isLoadingContent,

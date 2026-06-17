@@ -618,36 +618,68 @@ The response includes the weekly file's section order so the Bridge view can ren
 
 **File**: `src/app/api/bridge/briefings/route.ts`
 
-List daily briefing summaries, newest first. Reads `briefings/YYYY-MM-DD.md` from the Bridge vault. If today's ET briefing markdown is missing but Hermes reports that the Morning Briefing cron job failed today, the response prepends a synthetic failed briefing row so the Briefing tab shows today's failure instead of falling back to yesterday. Failed rows include the daily job's next run plus any auto-retry watcher `next_run_at` so the UI can distinguish recovery attempts from tomorrow's normal run.
+List briefing summaries, newest first. Reads weekday daily files from `briefings/YYYY-MM-DD.md` and weekend editions from `briefings/weekend/YYYY-MM-DD.md`. Daily ids are `YYYY-MM-DD`; weekend ids are `weekend:YYYY-MM-DD`. If today's ET daily briefing markdown is missing but Hermes reports that the Morning Briefing cron job failed today, the response prepends a synthetic failed daily row so the Briefing tab shows today's failure instead of falling back to yesterday. Failed rows include the daily job's next run plus any auto-retry watcher `next_run_at` so the UI can distinguish recovery attempts from tomorrow's normal run.
 
 **Response**
 
 ```typescript
 Array<{
+  id: string;
+  kind: "daily" | "weekend";
   date: string;
   title: string;
   summary: string | null;
+  dateRange?: { start: string; end: string };
   status?: "ready" | "failed";
   run?: BriefingRunFailure;
 }>
 ```
 
-### GET /api/bridge/briefings/[date]
+### GET /api/bridge/briefings/[id]
 
 **File**: `src/app/api/bridge/briefings/[date]/route.ts`
 
-Read one daily briefing by ISO date. Returns rendered markdown content for successful briefing files. If the file is missing and Hermes has a same-day failed Morning Briefing run, returns a failed briefing payload instead of 404. The failed payload excludes the retry watcher itself from failure detection and surfaces the watcher's next auto-retry time separately.
+Read one briefing by stable id. Daily ids are ISO dates (`2026-06-17`); weekend ids are `weekend:YYYY-MM-DD` and should be URL-encoded by clients (`weekend%3A2026-06-20`). Returns rendered markdown content for successful briefing files. If a daily file is missing and Hermes has a same-day failed Morning Briefing run, returns a failed briefing payload instead of 404. The failed payload excludes the retry watcher itself from failure detection and surfaces the watcher's next auto-retry time separately.
 
 **Response**
 
 ```typescript
 {
+  id: string;
+  kind: "daily" | "weekend";
   date: string;
   title: string;
   summary: string | null;
+  dateRange?: { start: string; end: string };
   content: string;
   status?: "ready" | "failed";
   run?: BriefingRunFailure;
+}
+```
+
+### GET /api/bridge/briefings/link-target
+
+**File**: `src/app/api/bridge/briefings/link-target/route.ts`
+
+Resolve a briefing markdown link into a native Hilt destination when possible. This keeps briefing links such as Library report/memo links inside Hilt instead of opening raw rendered report pages.
+
+**Query Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `href` | string | Required. Link URL from the briefing markdown. |
+| `date` | string | Optional briefing ISO date. Used to resolve reports/memos as-of that briefing. |
+
+**Response**
+
+```typescript
+{
+  target: null | {
+    kind: "library-morning-report" | "library-editors-memo";
+    view: "docs" | "library";
+    scope: string; // absolute Docs path or Library item scope
+    path: string;  // Bridge-vault-relative file path
+  };
 }
 ```
 
@@ -660,7 +692,7 @@ Queue a retry for a failed briefing by invoking the existing Hermes cron job wit
 **Request Body**
 
 ```typescript
-{ date?: string } // defaults to today's ET date
+{ id?: string; date?: string } // id preferred; daily only, defaults to today's ET date
 ```
 
 **Response**
@@ -757,6 +789,22 @@ Get all projects parsed from the vault.
 
 ```typescript
 BridgeProject[]
+```
+
+### GET /api/bridge/areas
+
+**File**: `src/app/api/bridge/areas/route.ts`
+
+Get all area files parsed from `areas/*/index.md`, enriched with matching North Star lines from `areas/index.md`.
+
+**Response**
+
+```typescript
+{
+  vaultPath: string;
+  rollupPath: string | null;
+  areas: BridgeArea[];
+}
 ```
 
 ### PUT /api/bridge/projects/status
@@ -1539,6 +1587,7 @@ Returns the operational Reference Library dashboard contract: launchd scheduler 
 - `npm run library:backfill -- --limit 50 <source-id>` runs cursor-backed historical ingestion for checkpointed sources. Cursors are stored in `meta/sources/.source-state.json`; dry runs report `next_cursor` but do not advance it.
 - `npm run library:audit-quality -- --queue /path/to/queue.json` scans saved references and candidates for warm/cold digestion quality, source-policy mismatches, fallback notes, short summaries, and missing key points.
 - `npm run library:redigest -- --queue /path/to/queue.json --limit 5 --write` re-runs queued items through `summarize` and updates the existing note with `digestion_status`, `digested_with`, `digested_at`, and refreshed summary/key points. Omit `--write` for a dry run.
+- `npm run library:x:videos -- --limit 100` scans saved references/candidates for X/Twitter `/video/1` links that do not have transcript capture. Add `-- --write` to redigest them with X video subtitles/audio transcription and stamp terminal unavailable states (`x_video_transcript_status`) for silent, suspended, private, or deleted videos.
 - `npm run library:book:import -- --input /path/to/book-capture/output --raw-text-json /path/to/raw_text.json --title "Book" --author "Author" --thumbnail "/api/docs/raw?path=..."` imports generated book-capture markdown as a manual durable reference. It dry-runs by default; add `--write` to create `references/books/<book>/index.md`, copy generated topic markdown, add optional cover media, cache the full capture/OCR under `references/.cache/book-captures/`, and run the Bridge-aware reweave/connection pass. Use `--skip-reweave` only when intentionally importing without connection enrichment.
 - `npm run library:reweave -- --vault /path/to/bridge --path references/example.md --write` reruns the durable-reference reweave pass manually. It preserves existing Media/Raw Content blocks, rewrites the digest body, updates `connection_suggestions`, and registers optional review items with `--review-batch`.
 - `npm run library:repair-legacy -- --path references/example.md` performs a non-destructive legacy reference repair: it preserves existing summaries/connections, adds missing `published`, `thumbnail`, `video_url`, `## Media`, and `## Raw Content` where available, and only writes with `-- --write`. Source cache snippets shorter than 500 characters are ignored by default; use `-- --min-cache-chars <n>` only for an intentional source-limited repair.

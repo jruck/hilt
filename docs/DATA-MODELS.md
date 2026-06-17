@@ -86,13 +86,62 @@ interface BridgeProjectsResponse {
 }
 ```
 
-### Briefing
+### BridgeArea
 
-Daily briefing summaries and details are normally backed by `briefings/YYYY-MM-DD.md` in the Bridge vault. When today's markdown is missing because Hermes failed, Hilt can synthesize a failed briefing row from Hermes cron state so the Briefing tab still represents today's run.
+An ongoing responsibility or durable goal area parsed from `areas/<slug>/index.md`, with current focus lines from `areas/index.md`.
 
 ```typescript
+type BridgeAreaFocusSection = "now" | "ongoing" | "long-term";
+
+interface BridgeAreaFocus {
+  section: BridgeAreaFocusSection;
+  text: string;            // North Star line without the wikilink target
+  target: string;          // Raw wikilink target, e.g. "writing" or "family/index"
+  label: string;           // Wikilink label or target basename
+  raw: string;             // Full source bullet from areas/index.md
+}
+
+interface BridgeAreaLink {
+  target: string;          // Raw wikilink target when present
+  label: string;           // Link label or cleaned item text
+  raw: string;             // Full source bullet
+}
+
+interface BridgeArea {
+  slug: string;            // Folder name
+  path: string;            // Absolute path to area folder
+  indexPath: string;       // Absolute path to the area's index.md
+  relativePath: string;    // Path relative to vault root, e.g. "areas/health"
+  title: string;           // H1 from index.md, or folder name fallback
+  description: string;     // Frontmatter description or intro paragraph
+  goals: string[];         // Bullet items under ## Goals
+  standards: string[];     // Bullet items under ## Standards
+  activeProjects: BridgeAreaLink[];
+  focus: BridgeAreaFocus[];
+  primaryFocus: BridgeAreaFocusSection | null;
+  lastModified: number;    // Latest modified time in the area folder
+}
+
+interface BridgeAreasResponse {
+  vaultPath: string;
+  rollupPath: string | null;
+  areas: BridgeArea[];
+}
+```
+
+### Briefing
+
+Briefing summaries and details are backed by markdown in the Bridge vault. Weekday daily files live at `briefings/YYYY-MM-DD.md`; weekend editions live at `briefings/weekend/YYYY-MM-DD.md`, where the date is the Saturday start date. Hilt exposes both in one list using stable ids: daily ids are `YYYY-MM-DD`, and weekend ids are `weekend:YYYY-MM-DD`. When today's daily markdown is missing because Hermes failed, Hilt can synthesize a failed daily row from Hermes cron state so the Briefing tab still represents today's run.
+
+```typescript
+type BriefingKind = "daily" | "weekend";
 type BriefingStatus = "ready" | "failed";
 type BriefingFailureKind = "quota" | "rate_limit" | "model" | "unknown";
+
+interface BriefingDateRange {
+  start: string;           // YYYY-MM-DD
+  end: string;             // YYYY-MM-DD
+}
 
 interface BriefingRunFailure {
   status: "failed";
@@ -108,15 +157,25 @@ interface BriefingRunFailure {
 }
 
 interface BriefingSummary {
+  id: string;              // Daily: YYYY-MM-DD; weekend: weekend:YYYY-MM-DD
+  kind: BriefingKind;
   date: string;
   title: string;
   summary: string | null;
+  dateRange?: BriefingDateRange; // Weekend editions only
   status?: BriefingStatus;
   run?: BriefingRunFailure;
 }
 
 interface BriefingDetail extends BriefingSummary {
   content: string;         // Empty for failed synthetic rows
+}
+
+interface BriefingNativeLinkTarget {
+  kind: "library-morning-report" | "library-editors-memo";
+  view: "docs" | "library";
+  scope: string;           // Absolute Docs path or Library item scope
+  path: string;            // Bridge-vault-relative source markdown path
 }
 ```
 
@@ -737,6 +796,7 @@ interface ReweaveResult {
   connections_first_party: ReweaveConnection[]; // Justin's own authored work — surface all genuine ties
   connections_library: ReweaveConnection[];     // External refs he saved — only ties that sharpen/surprise
   reweave_candidates?: Array<{ target: string; why: string }>;
+  attention_judgment?: { tier: "high" | "medium" | "low"; reason: string };
 }
 ```
 
@@ -754,15 +814,19 @@ summary: string;                                        // Legacy Summary text (
 key_points: string[];                                   // Legacy Key Points (candidates + reweave fallback)
 connection_suggestions?: ConnectionSuggestion[];
 connection_reasoning?: string;                          // Short reasoning, also folded into the assessment `why` tail
+reconnected_at?: string;                                // Positive pass marker, including clean no-connection abstentions
 reweave_candidates?: Array<{ target: string; why: string }>;
+attention_judgment?: { tier: "high" | "medium" | "low"; reason: string };
 connected_projects?: string[];                          // Subset of connection targets matching project-folder slugs
 ```
 
-Connections are produced only when an artifact will be durably saved (explicit-save sources, or discovery items recommended to `file`); plain review candidates get the summarize-based Summary/Key Points, empty connections, and blank reasoning until promoted or re-judged. Saved references and candidates may include `connection_suggestions`, `connection_reasoning`, and `reweave_candidates` in frontmatter.
+Study-mode artifacts (saved references and active candidates) may run the same reweave/connection pass. A successful pass writes either `connection_suggestions` (state `has`) or a positive abstention marker (`reconnected_at`, `connection_reasoning`, or the v2.2 `attention_judgment`, state `abstained`). A hot study item with none of those markers is treated as `missing_connection_pass` and is eligible for deferred repair. Saved references and candidates may include `connection_suggestions`, `connection_reasoning`, `reconnected_at`, `attention_judgment`, and `reweave_candidates` in frontmatter.
 
 The **durable reference body is now a free-form digest**: when `digest_markdown` is present, the model-chosen `##` sections replace the fixed `## Summary` / `## Key Points` template, followed by `## Connections` and `## Raw Content` (and `## Media` when present). Connections render as `- [[target|Title]] - relationship` (the neighbor's human title as the wikilink alias; `- Title - relationship` for a null target); when there are none the section body is empty and reasoning/reweave candidates live in frontmatter. The frontmatter `description` uses `processed.description || processed.summary`. **Candidate** bodies are unchanged — they keep the legacy Summary/Key Points format and render the same `- [[target|Title]] - relationship` shape under `## Suggested Connections`. `connected_projects` remains the compact wiki-target list for filtering and compatibility. New durable references also include precise `captured_at` metadata; `Recent` keeps `created_at` as the source date and uses precise fields such as `captured_at` or `digested_at` only to order items that land on the same source date.
 
 For X/Twitter bookmarks, `title` is source-normalized before file writes: short URLs are removed from human-readable tweet text, URL-only wrappers use an author fallback title, and non-status linked X routes remain `warm`/metadata-limited until a recoverable source body exists. The source URL still lives in `url:` and any cached source stays under `## Raw Content`; titles, descriptions, summaries, and key points should not be raw `t.co` links.
+
+For X/Twitter video posts, `video_url` is persisted when discovered from bookmark URL entities, attached X media, linked X posts, or legacy Raw Content links. The canonical source cache is the video transcript, not the wrapper tweet. Successful transcript captures use `cached_source_extractor: x-video-subtitles` or `x-video-audio` with `source_cache.kind: "transcript"` and may stamp `source_recovered_from: <video_url>` plus `x_video_transcript_status: captured` / `x_video_transcript_method: subtitles|audio`. Terminal non-transcriptable videos are explicit: `x_video_transcript_status: unavailable_no_audio` for silent/no-audio media and `unavailable_source` for suspended/private/deleted/unavailable sources. Any X video without a transcript cache or terminal unavailable status is treated as a capture-health failure and routes to `needs_refetch`.
 
 ```typescript
 interface LibraryArtifact {
@@ -798,6 +862,8 @@ interface LibraryArtifact {
     thumbnail?: string;
     connection_suggestions?: ConnectionSuggestion[];
     connection_reasoning?: string;
+    reconnected_at?: string;
+    attention_judgment?: { tier: "high" | "medium" | "low"; reason: string };
     reweave_candidates?: Array<{ target: string; why: string }>;
   };
 }
@@ -822,7 +888,7 @@ Library read state is stored outside the bridge vault in `${DATA_DIR}/library-re
 
 `pipeline_version` is the **provenance stamp**: the digest/connection/reweave logic is a single versioned skill (`PIPELINE_VERSION` in `src/lib/library/pipeline.ts`), and every durable reference and candidate records the version that produced it in frontmatter, surfaced on `LibraryArtifact`. See [`docs/PIPELINE-VERSIONS.md`](./PIPELINE-VERSIONS.md) for the (non-executable) version registry.
 
-`video_duration_seconds` is captured for video sources via the locally-installed `yt-dlp` (server-only `src/lib/library/video-duration.ts`; no API key). It is written during ingestion (`digestArtifact`, gated to `format: video` / video-host URLs) and backfilled onto existing notes by `scripts/library-video-durations.ts`. Cards render it as a duration pill via the pure `formatVideoDuration` helper in `media.ts`.
+`video_duration_seconds` is captured for video sources via the locally-installed `yt-dlp` (server-only `src/lib/library/video-duration.ts`; no API key). It is written during ingestion (`digestArtifact`, gated to `format: video` / video-host URLs / `video_url`) and backfilled onto existing notes by `scripts/library-video-durations.ts`. Cards render it as a duration pill via the pure `formatVideoDuration` helper in `media.ts`.
 
 `source_tags`, `source_collection`, and `source_folder` preserve source-native organization without polluting semantic tags. The Library UI displays these facets as useful chips and exposes them as child filters under each source. Newsletter sender addresses are normalized through `friendlyNewsletterSender()` before display, while `source_folder_id` can retain the raw sender identity. `artifactDisplayTags()` is the shared helper for chips/filter text; callers should not render raw `tags` when they want the user-facing taxonomy.
 

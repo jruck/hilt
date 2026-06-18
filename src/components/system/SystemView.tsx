@@ -13,7 +13,7 @@ import { StackSummary } from "@/components/stack/StackSummary";
 import { MCPServerDetail } from "@/components/stack/MCPServerDetail";
 import { PluginDetail } from "@/components/stack/PluginDetail";
 import { CodeViewer } from "@/components/docs/CodeViewer";
-import { SecondarySegmentedButton, SecondarySegmentedControl, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
+import { SECONDARY_CHROME_BODY_GUTTER_CLASS, SecondarySegmentedButton, SecondarySegmentedControl, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
 import { LoadingState } from "@/components/ui/LoadingState";
 import type { ClaudeStack, ConfigFile, ConfigFileContent, ConfigLayer, MCPServerConfig, PluginConfig } from "@/lib/claude-config/types";
 import type { SystemStackSnapshot } from "@/lib/system/stack";
@@ -202,7 +202,7 @@ function SystemStackView({
           loading={loading}
           error={error}
         />
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden pt-[13px]">
+        <div className={`flex min-h-0 flex-1 flex-col overflow-hidden ${SECONDARY_CHROME_BODY_GUTTER_CLASS}`}>
           <div className="min-h-0 flex-1 overflow-hidden border-t border-[var(--border-default)]">
             <StackView scopePath={workingFolder} searchQuery={searchQuery} />
           </div>
@@ -237,7 +237,7 @@ function SystemStackView({
         loading={loading}
         error={error}
       />
-      <div data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-4 flex-1 overflow-auto px-4 pt-[13px]">
+      <div data-mobile-scroll-chrome="bottom" className={`hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-4 flex-1 overflow-auto px-4 ${SECONDARY_CHROME_BODY_GUTTER_CLASS}`}>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {snapshots.map((snapshot) => (
             <button
@@ -343,7 +343,7 @@ function RemoteStackInspector({ snapshot, searchQuery }: { snapshot: SystemStack
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden pt-[13px]">
+    <div className={`flex min-h-0 flex-1 flex-col overflow-hidden ${SECONDARY_CHROME_BODY_GUTTER_CLASS}`}>
       <div className="flex min-h-0 flex-1 border-t border-[var(--border-default)]">
         <div className="flex w-[360px] shrink-0 flex-col border-r border-[var(--border-default)]">
           <div className="border-b border-[var(--border-default)] px-3 py-2">

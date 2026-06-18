@@ -26,6 +26,7 @@ import { useHaptics } from "@/hooks/useHaptics";
 import { useScope } from "@/contexts/ScopeContext";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
 import { withBasePath } from "@/lib/base-path";
+import { formatHiltMonthDay } from "@/lib/display-date";
 
 const BridgeTaskEditor = dynamic(
   () => import("../bridge/BridgeTaskEditor").then((mod) => mod.BridgeTaskEditor),
@@ -44,11 +45,7 @@ interface MeetingEntryProps {
 
 function formatDate(isoDate: string, isoTime?: string): string {
   const date = new Date(isoDate + "T00:00:00");
-  const datePart = date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  const datePart = formatHiltMonthDay(date, { includeYear: true });
   if (isoTime) {
     const time = new Date(isoTime);
     const timePart = time.toLocaleTimeString("en-US", {
@@ -242,19 +239,19 @@ function NextCalendarCandidateMenu({
 function formatNextCandidateShortDate(candidate: PersonCalendarCandidate): string {
   const date = new Date(candidate.start);
   if (Number.isNaN(date.getTime())) return "Calendar";
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return formatHiltMonthDay(date);
 }
 
 function formatNextCandidateDate(candidate: PersonCalendarCandidate): string {
   const date = new Date(candidate.start);
   if (Number.isNaN(date.getTime())) return candidate.start;
-  return date.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
+  const datePart = formatHiltMonthDay(date);
+  const timePart = date.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
   });
+  return `${datePart}, ${timePart}`;
 }
 
 function shouldLiveRefreshTranscript(meeting: PersonMeeting): boolean {

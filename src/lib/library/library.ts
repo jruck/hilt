@@ -7,6 +7,7 @@ import { applyLibraryReadState, isLibraryArtifactNew, isLibraryArtifactUnread, r
 import { addStoredComment, deleteStoredComment, editStoredComment, getStoredComments, listStoredFeedback, markStoredCommentsProcessed } from "./library-feedback";
 import { isMutedSender, readMutedSenders } from "./library-mute";
 import { contentTypeForArtifact, type LibraryContentType } from "./content-type";
+import { connectionPassState } from "./connection-state";
 import { readReviewQueue } from "./review-queue";
 import { loadSources, readSourceState } from "./source-config";
 import { compareDatesDesc, dateTimestamp, ensureDir, hashId, isoNow, walkMarkdown } from "./utils";
@@ -212,8 +213,7 @@ function filterArtifacts(artifacts: LibraryArtifactDetail[], options: LibraryLis
       if ((options.substance_graded === "graded") !== graded) return false;
     }
     if (options.connection_state) {
-      const count = Array.isArray(artifact.raw_frontmatter.connection_suggestions) ? artifact.raw_frontmatter.connection_suggestions.length : 0;
-      const state = count > 0 ? "has" : typeof artifact.raw_frontmatter.reconnected_at === "string" ? "abstained" : "never";
+      const state = connectionPassState(artifact.raw_frontmatter);
       if (state !== options.connection_state) return false;
     }
     return true;

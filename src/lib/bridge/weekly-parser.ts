@@ -333,6 +333,28 @@ export function deleteTask(content: string, taskId: string): string {
 export function reorderTasks(content: string, newOrder: string[], groupUpdates?: Record<string, string | null>): string {
   const parsed = parseWeeklyFile(content, "");
   const taskMap = new Map(parsed.tasks.map(t => [t.id, t]));
+  const expectedIds = new Set(parsed.tasks.map(t => t.id));
+  const seenIds = new Set<string>();
+  const duplicateIds = new Set<string>();
+  const unknownIds = new Set<string>();
+
+  for (const id of newOrder) {
+    if (!expectedIds.has(id)) unknownIds.add(id);
+    if (seenIds.has(id)) duplicateIds.add(id);
+    seenIds.add(id);
+  }
+
+  const missingIds = parsed.tasks
+    .map(t => t.id)
+    .filter(id => !seenIds.has(id));
+
+  if (missingIds.length > 0 || unknownIds.size > 0 || duplicateIds.size > 0) {
+    const parts: string[] = [];
+    if (missingIds.length > 0) parts.push(`missing: ${missingIds.join(", ")}`);
+    if (unknownIds.size > 0) parts.push(`unknown: ${Array.from(unknownIds).join(", ")}`);
+    if (duplicateIds.size > 0) parts.push(`duplicate: ${Array.from(duplicateIds).join(", ")}`);
+    throw new Error(`Reorder payload must include each task exactly once (${parts.join("; ")})`);
+  }
 
   const reordered = newOrder
     .map(id => taskMap.get(id))

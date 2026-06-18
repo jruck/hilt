@@ -62,7 +62,7 @@ export function parseTwitterBookmarks(source: LibrarySourceConfig, json: {
   data?: Array<{ id: string; text?: string; created_at?: string; author_id?: string; conversation_id?: string; note_tweet?: { text?: string }; attachments?: { media_keys?: string[] }; entities?: { urls?: Array<{ expanded_url?: string; url?: string }> } }>;
   includes?: {
     users?: Array<{ id: string; username?: string; name?: string }>;
-    media?: Array<{ media_key: string; type?: string; url?: string; preview_image_url?: string }>;
+    media?: Array<{ media_key: string; type?: string; url?: string; preview_image_url?: string; duration_ms?: number }>;
   };
 }): RawArtifact[] {
   const folderId = typeof source.metadata.folder_id === "string" ? source.metadata.folder_id : null;
@@ -71,6 +71,7 @@ export function parseTwitterBookmarks(source: LibrarySourceConfig, json: {
   const mediaByKey = new Map((json.includes?.media || []).map((media) => [media.media_key, media]));
   return (json.data || []).map((tweet) => {
     const user = tweet.author_id ? users.get(tweet.author_id) : undefined;
+    const canonicalUrl = `https://x.com/${user?.username || "i"}/status/${tweet.id}`;
     const expandedUrl = tweet.entities?.urls?.find((item) => item.expanded_url)?.expanded_url;
     const media = (tweet.attachments?.media_keys || [])
       .map((key) => mediaByKey.get(key))
@@ -83,7 +84,14 @@ export function parseTwitterBookmarks(source: LibrarySourceConfig, json: {
       }))
       .filter((item) => typeof item.link === "string" && item.link.length > 0);
     const thumbnail = media.find((item) => item.type === "image")?.link || media.find((item) => item.type === "video")?.link;
-    const videoUrl = expandedUrl && isXVideoUrl(expandedUrl) ? expandedUrl : undefined;
+    const attachedVideo = (tweet.attachments?.media_keys || [])
+      .map((key) => mediaByKey.get(key))
+      .find((item) => item?.type === "video" || item?.type === "animated_gif");
+    const videoUrl = expandedUrl && isXVideoUrl(expandedUrl)
+      ? expandedUrl
+      : attachedVideo
+        ? `${canonicalUrl}/video/1`
+        : undefined;
     // Prefer the long-form note_tweet body (up to 25k chars) over the 280-char truncation.
     const text = sanitizeUnicode(tweet.note_tweet?.text || tweet.text || `X bookmark ${tweet.id}`);
     // conversation_id === id means the tweet is the root of its own thread; without a note_tweet body
@@ -93,7 +101,7 @@ export function parseTwitterBookmarks(source: LibrarySourceConfig, json: {
     );
     const author = user?.name ? sanitizeUnicode(user.name) : user?.username;
     return {
-      url: `https://x.com/${user?.username || "i"}/status/${tweet.id}`,
+      url: canonicalUrl,
       title: cleanTweetTitle(text, tweet.id, author),
       author,
       date: tweet.created_at || new Date().toISOString(),
@@ -103,6 +111,7 @@ export function parseTwitterBookmarks(source: LibrarySourceConfig, json: {
         tweet_id: tweet.id,
         expanded_url: expandedUrl,
         video_url: videoUrl,
+        video_duration_seconds: typeof attachedVideo?.duration_ms === "number" ? Math.round(attachedVideo.duration_ms / 1000) : undefined,
         folder_id: folderId,
         source_folder_id: folderId,
         source_folder: folderName,
@@ -130,13 +139,13 @@ async function fetchTwitterArtifactsWithToken(
   url.searchParams.set("tweet.fields", "created_at,author_id,entities,attachments,note_tweet,conversation_id");
   url.searchParams.set("expansions", "author_id,attachments.media_keys");
   url.searchParams.set("user.fields", "username,name");
-  url.searchParams.set("media.fields", "media_key,type,url,preview_image_url");
+  url.searchParams.set("media.fields", "media_key,type,url,preview_image_url,duration_ms");
 
   const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) throw new Error(`X bookmarks fetch failed: ${response.status} ${await response.text()}`);
   const json = await response.json() as {
     data?: Array<{ id: string; text?: string; created_at?: string; author_id?: string; attachments?: { media_keys?: string[] }; entities?: { urls?: Array<{ expanded_url?: string; url?: string }> } }>;
-    includes?: { users?: Array<{ id: string; username?: string; name?: string }>; media?: Array<{ media_key: string; type?: string; url?: string; preview_image_url?: string }> };
+    includes?: { users?: Array<{ id: string; username?: string; name?: string }>; media?: Array<{ media_key: string; type?: string; url?: string; preview_image_url?: string; duration_ms?: number }> };
     meta?: { next_token?: string; result_count?: number };
   };
   return {
@@ -167,7 +176,7 @@ async function fetchTwitterArtifactsWithXurl(
     const { stdout } = await execFileAsync(xurlBin, args, { timeout: 30000, maxBuffer: 1024 * 1024 * 4 });
     const json = JSON.parse(stripAnsi(stdout)) as {
       data?: Array<{ id: string; text?: string; created_at?: string; author_id?: string; attachments?: { media_keys?: string[] }; entities?: { urls?: Array<{ expanded_url?: string; url?: string }> } }>;
-      includes?: { users?: Array<{ id: string; username?: string; name?: string }>; media?: Array<{ media_key: string; type?: string; url?: string; preview_image_url?: string }> };
+      includes?: { users?: Array<{ id: string; username?: string; name?: string }>; media?: Array<{ media_key: string; type?: string; url?: string; preview_image_url?: string; duration_ms?: number }> };
       meta?: { next_token?: string; result_count?: number };
     };
     return {

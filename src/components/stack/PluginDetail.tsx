@@ -6,6 +6,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import type { PluginConfig } from "@/lib/claude-config/types";
 import { openExternal } from "@/lib/openExternal";
 import { withBasePath } from "@/lib/base-path";
+import { formatHiltMonthDay } from "@/lib/display-date";
 
 interface PluginDetailProps {
   plugin: PluginConfig;
@@ -39,11 +40,7 @@ export function PluginDetail({ plugin, onToggleEnabled, onMCPServerClick }: Plug
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return null;
     try {
-      return new Date(dateStr).toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
+      return formatHiltMonthDay(new Date(dateStr), { includeYear: true });
     } catch {
       return null;
     }

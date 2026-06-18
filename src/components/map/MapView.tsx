@@ -25,7 +25,7 @@ import type {
   MapStatusFilter,
 } from "@/lib/map/local-types";
 import { heatForWindow } from "@/lib/map/activity-heat";
-import { SecondaryIconButton, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
+import { SECONDARY_CHROME_BODY_GUTTER_CLASS, SecondaryIconButton, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { withBasePath } from "@/lib/base-path";
 
@@ -806,7 +806,7 @@ export function MapView({
 
       <div className={`grid min-h-0 flex-1 ${layoutColumns}`}>
           <main className="flex min-h-0 flex-col overflow-hidden">
-            <div className="hilt-mobile-fixed-clearance hilt-mobile-fixed-extra-3 flex min-h-[420px] flex-1 flex-col overflow-hidden px-3 pt-[13px] sm:pb-3">
+            <div className={`hilt-mobile-fixed-clearance hilt-mobile-fixed-extra-3 flex min-h-[420px] flex-1 flex-col overflow-hidden px-3 sm:pb-3 ${SECONDARY_CHROME_BODY_GUTTER_CLASS}`}>
               {selectedId !== "root" && selectedPath.length > 0 && (
                 <div className="mb-2 flex min-h-7 min-w-0 items-center gap-1 text-xs text-[var(--text-tertiary)]">
                   <button
@@ -905,7 +905,7 @@ export function MapView({
             </div>
           </main>
 
-          <aside data-mobile-scroll-chrome="bottom" className={`hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-3 ${selectedId === "root" ? "max-md:hidden" : ""} min-h-0 overflow-auto bg-[var(--bg-primary)] px-3 pt-[13px] sm:pb-3`}>
+          <aside data-mobile-scroll-chrome="bottom" className={`hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-3 ${selectedId === "root" ? "max-md:hidden" : ""} min-h-0 overflow-auto bg-[var(--bg-primary)] px-3 sm:pb-3 ${SECONDARY_CHROME_BODY_GUTTER_CLASS}`}>
             <button
               onClick={() => {
                 setSelectedId("root");
@@ -960,7 +960,7 @@ export function MapView({
           </aside>
 
           {selectedSessionId && (
-            <aside data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-3 min-h-0 overflow-auto bg-[var(--bg-primary)] px-3 pt-[13px] sm:pb-3">
+            <aside data-mobile-scroll-chrome="bottom" className={`hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-3 min-h-0 overflow-auto bg-[var(--bg-primary)] px-3 sm:pb-3 ${SECONDARY_CHROME_BODY_GUTTER_CLASS}`}>
               <div>
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex min-w-0 flex-col gap-2">

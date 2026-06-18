@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import {
   DndContext,
   DragEndEvent,
@@ -10,8 +10,9 @@ import {
   TouchSensor,
   useSensor,
   useSensors,
-  closestCorners,
+  closestCenter,
   DragOverlay,
+  MeasuringStrategy,
 } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
 import { Plus, ChevronRight } from "lucide-react";
@@ -25,11 +26,12 @@ interface BridgeTaskListProps {
   tasks: BridgeTask[];
   selectedTaskId: string | null;
   onToggle: (id: string, done: boolean) => void;
-  onReorder: (order: string[], groupUpdates?: Record<string, string | null>) => void;
+  onReorder: (order: string[], groupUpdates?: Record<string, string | null>) => void | Promise<void>;
   onUpdateTitle: (id: string, title: string) => void;
   onDeleteTask: (id: string) => void;
   onSelectTask: (task: BridgeTask) => void;
   onAddTask?: () => void;
+  reorderDisabled?: boolean;
 }
 
 type ContainerMap = Record<string, string[]>; // groupId → taskIds
@@ -99,10 +101,13 @@ export function BridgeTaskList({
   onDeleteTask,
   onSelectTask,
   onAddTask,
+  reorderDisabled = false,
 }: BridgeTaskListProps) {
   const haptics = useHaptics();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [localContainers, setLocalContainers] = useState<ContainerMap | null>(null);
+  const [reorderPending, setReorderPending] = useState(false);
+  const reorderTokenRef = useRef(0);
   const [doneExpanded, setDoneExpanded] = useState(() => {
     try { return sessionStorage.getItem("bridge-task-done-expanded") === "true"; } catch { return false; }
   });
@@ -137,6 +142,7 @@ export function BridgeTaskList({
   );
 
   const containers = localContainers || sourceContainers;
+  const effectiveReorderDisabled = reorderDisabled || reorderPending;
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -193,6 +199,32 @@ export function BridgeTaskList({
     });
   }, [containers]);
 
+  const persistReorder = useCallback(async (nextContainers: ContainerMap) => {
+    const token = reorderTokenRef.current + 1;
+    reorderTokenRef.current = token;
+    setReorderPending(true);
+
+    const { tasks: flatTasks, groupUpdates } = flattenContainers(nextContainers, groupOrder, groupLabels, taskMap);
+    const order = [...flatTasks.map(t => t.id), ...doneTasks.map(t => t.id)];
+    const changedGroups = Object.keys(groupUpdates).length > 0 ? groupUpdates : undefined;
+
+    try {
+      await onReorder(order, changedGroups);
+      if (reorderTokenRef.current === token) {
+        setLocalContainers(null);
+      }
+    } catch (err) {
+      console.error("[BridgeTaskList] Failed to reorder tasks:", err);
+      if (reorderTokenRef.current === token) {
+        setLocalContainers(null);
+      }
+    } finally {
+      if (reorderTokenRef.current === token) {
+        setReorderPending(false);
+      }
+    }
+  }, [doneTasks, groupLabels, groupOrder, onReorder, taskMap]);
+
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     setActiveId(null);
     const { active, over } = event;
@@ -223,25 +255,16 @@ export function BridgeTaskList({
           [activeContainer]: arrayMove(items, oldIndex, newIndex),
         };
         setLocalContainers(updated);
-
-        // Flatten and send to backend
-        const { tasks: flatTasks, groupUpdates } = flattenContainers(updated, groupOrder, groupLabels, taskMap);
-        onReorder(
-          flatTasks.map(t => t.id),
-          Object.keys(groupUpdates).length > 0 ? groupUpdates : undefined
-        );
+        void persistReorder(updated);
+      } else {
+        setLocalContainers(null);
       }
     } else {
       // Cross-container move already handled in dragOver — just persist
-      const { tasks: flatTasks, groupUpdates } = flattenContainers(current, groupOrder, groupLabels, taskMap);
-      onReorder(
-        flatTasks.map(t => t.id),
-        Object.keys(groupUpdates).length > 0 ? groupUpdates : undefined
-      );
+      setLocalContainers(current);
+      void persistReorder(current);
     }
-
-    setTimeout(() => setLocalContainers(null), 500);
-  }, [localContainers, containers, groupOrder, groupLabels, taskMap, onReorder]);
+  }, [localContainers, containers, persistReorder]);
 
   const handleDragCancel = useCallback(() => {
     setActiveId(null);
@@ -278,11 +301,12 @@ export function BridgeTaskList({
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
-      onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
-      onDragEnd={handleDragEnd}
-      onDragCancel={handleDragCancel}
+      collisionDetection={closestCenter}
+      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+      onDragStart={effectiveReorderDisabled ? undefined : handleDragStart}
+      onDragOver={effectiveReorderDisabled ? undefined : handleDragOver}
+      onDragEnd={effectiveReorderDisabled ? undefined : handleDragEnd}
+      onDragCancel={effectiveReorderDisabled ? undefined : handleDragCancel}
     >
       <div className="space-y-5">
         {/* === To Do === */}
@@ -300,7 +324,9 @@ export function BridgeTaskList({
                 </span>
               </h2>
               {onAddTask && (
-                <Plus className="w-4 h-4 text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)] transition-colors" />
+                <span className="rounded p-0.5">
+                  <Plus className="h-4 w-4 text-[var(--text-tertiary)] transition-colors group-hover:text-[var(--text-secondary)]" />
+                </span>
               )}
             </div>
             <div className="space-y-1">
@@ -312,6 +338,7 @@ export function BridgeTaskList({
                   tasks={section.tasks}
                   showTopPadding={sectionIdx > 0}
                   selectedTaskId={selectedTaskId}
+                  reorderDisabled={effectiveReorderDisabled}
                   onToggle={onToggle}
                   onUpdateTitle={onUpdateTitle}
                   onSelectTask={onSelectTask}
@@ -353,6 +380,7 @@ export function BridgeTaskList({
                       <BridgeTaskItem
                         task={task}
                         isSelected={task.id === selectedTaskId}
+                        reorderDisabled={effectiveReorderDisabled}
                         onToggle={onToggle}
                         onUpdateTitle={onUpdateTitle}
                         onSelect={onSelectTask}
@@ -374,6 +402,8 @@ export function BridgeTaskList({
             <BridgeTaskItem
               task={activeTask}
               isSelected={false}
+              reorderDisabled
+              sortableDisabled
               onToggle={() => {}}
               onUpdateTitle={() => {}}
               onSelect={() => {}}

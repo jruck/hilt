@@ -3,12 +3,15 @@
  * eval gate (needs_refetch lifecycle), the metrics scorecard, the refetch drain, and the reweave
  * drain (never weave a stub). PURE module (client-safe).
  *
- * Two positive failure signals (absence of evidence is NOT failure — legacy items stay gradable):
+ * Positive failure signals (absence of evidence is NOT failure — legacy items stay gradable):
  *   1. The explicit empty-cache marker in the body.
  *   2. A metadata-fallback digest with a sub-threshold source (the "t.co stub" case, found on
  *      2026-06-10's the-untrainable: an X post whose entire text is one shortlink to a login-walled
  *      X Article — the fetch "succeeded" with 127 chars of nothing and was wrongly graded hot).
  *      Real tweet captures carry text + author + links and clear the threshold comfortably.
+ *   3. An X video URL whose cached source is not an X-video transcript. The tweet wrapper is not the
+ *      content; the video audio/captions are. Terminal unavailable states (silent/no-audio video or
+ *      unavailable/suspended source) are explicit non-failures so they don't churn forever.
  */
 
 export const NO_SOURCE_MARKER = "No cached source content available";
@@ -40,17 +43,32 @@ function proseWordCount(text: string): number {
 
 /** The cached source text from the Raw Content `<details>` block (what was actually captured). */
 function rawContentText(body: string): string {
-  const section = body.split("## Raw Content")[1] || "";
+  const match = body.match(/^##\s+Raw Content\s*$/mi);
+  if (!match || match.index === undefined) return "";
+  const afterHeading = body.slice(match.index + match[0].length);
+  const nextHeading = afterHeading.search(/\n##\s+/);
+  const section = nextHeading >= 0 ? afterHeading.slice(0, nextHeading) : afterHeading;
   return section
     .replace(/<\/?details>|<summary>[\s\S]*?<\/summary>/gi, "")
     .replace(/```[\s\S]*?```/g, " ")
     .trim();
 }
 
+function isXVideoFrontmatter(fm: Record<string, unknown>): boolean {
+  const videoUrl = typeof fm.video_url === "string" ? fm.video_url : "";
+  return /^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/[^/\s]+\/status\/\d+\/video(?:\/\d+)?(?:[?#].*)?$/i.test(videoUrl);
+}
+
 export function captureFailed(input: CaptureHealthInput): boolean {
   const body = input.body || "";
   if (body.includes(NO_SOURCE_MARKER)) return true;
   const fm = input.frontmatter || {};
+  if (isXVideoFrontmatter(fm)) {
+    const extractor = typeof fm.cached_source_extractor === "string" ? fm.cached_source_extractor : "";
+    const transcriptStatus = typeof fm.x_video_transcript_status === "string" ? fm.x_video_transcript_status : "";
+    if (transcriptStatus === "unavailable_no_audio" || transcriptStatus === "unavailable_source") return false;
+    if (extractor !== "x-video-subtitles" && extractor !== "x-video-audio") return true;
+  }
   // Only metadata-fallback captures are suspect; a real summarize/source-cache extract is trusted.
   if (fm.digested_with === "source-metadata") {
     return proseWordCount(rawContentText(body)) < METADATA_STUB_MIN_PROSE_WORDS;

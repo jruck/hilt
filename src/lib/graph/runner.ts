@@ -65,6 +65,7 @@ const PEOPLE_DIRS = ["people", "meetings"] as const;
 const BRIDGE_DIR_GROUPS: Record<string, readonly string[]> = {
   projects: ["projects"],
   people: PEOPLE_DIRS,
+  areas: ["areas"],
   thoughts: ["thoughts"],
   weekly: ["lists/now"],
 };

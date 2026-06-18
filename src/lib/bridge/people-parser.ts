@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import * as crypto from "crypto";
 import type {
   BridgePerson,
   BridgePeopleResponse,
@@ -7,9 +8,13 @@ import type {
   PersonDetail,
   InboxDetail,
   PersonCalendarCandidate,
+  PersonActiveMeeting,
+  PersonResourceLink,
   SuggestedMeeting,
 } from "../types";
 import type { CalendarEvent, CalendarEventNoteTarget } from "../calendar/types";
+import { getCalendarEvent } from "../calendar/db";
+import { canonicalResourceUrl, classifyCalendarResourceUrl } from "../calendar/links";
 import { resolvePersonCalendarLinks } from "./person-calendar";
 
 interface InlineNoteMeeting extends PersonMeeting {
@@ -36,6 +41,7 @@ const NEXT_CALENDAR_FIELDS = [
 const BRIDGE_PREFS_FILE = ".hilt-preferences.json";
 const HIDDEN_SUGGESTIONS_KEY = "people.hiddenSuggestions";
 const PERSON_SERIES_HISTORY_CACHE_TTL_MS = 30_000;
+const PERSON_RESOURCES_FIELD = "resources";
 
 type SuggestedPersonType = "person" | "group";
 
@@ -204,6 +210,137 @@ function normalizeAliasesForWrite(aliases: string[]): string[] {
     result.push(trimmed);
   }
   return result;
+}
+
+function parsePersonResources(fileContent: string): PersonResourceLink[] {
+  const { fm } = parseFrontmatter(fileContent);
+  const raw = fm[PERSON_RESOURCES_FIELD];
+  if (!raw) return [];
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  const resources: PersonResourceLink[] = [];
+  const seen = new Set<string>();
+  for (const item of parsed) {
+    if (!item || typeof item !== "object") continue;
+    const rawItem = item as Record<string, unknown>;
+    if (typeof rawItem.url !== "string") continue;
+    const url = normalizeHttpResourceUrl(rawItem.url);
+    if (!url) continue;
+
+    const key = canonicalResourceUrl(url);
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const classification = classifyCalendarResourceUrl(url);
+    const kind = isPersonResourceKind(rawItem.kind) ? rawItem.kind : classification?.kind ?? "web";
+    const label = typeof rawItem.label === "string" && rawItem.label.trim()
+      ? rawItem.label.replace(/\s+/g, " ").trim()
+      : classification?.label ?? "Resource";
+    const id = typeof rawItem.id === "string" && rawItem.id.trim()
+      ? rawItem.id.trim()
+      : personResourceIdForUrl(url);
+    const createdAt = typeof rawItem.createdAt === "string" && !Number.isNaN(Date.parse(rawItem.createdAt))
+      ? rawItem.createdAt
+      : new Date().toISOString();
+
+    resources.push({ id, label, url, kind, createdAt });
+  }
+
+  return resources;
+}
+
+function isPersonResourceKind(value: unknown): value is PersonResourceLink["kind"] {
+  return value === "doc" || value === "sheet" || value === "slide" || value === "office" || value === "sharepoint" || value === "web";
+}
+
+function normalizeHttpResourceUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim());
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function personResourceIdForUrl(url: string): string {
+  return `res_${crypto.createHash("sha1").update(canonicalResourceUrl(url)).digest("hex").slice(0, 12)}`;
+}
+
+function createPersonResource(input: { url: string; label?: string | null }, now = new Date()): PersonResourceLink {
+  const url = normalizeHttpResourceUrl(input.url);
+  if (!url) throw new Error("Resource URL must be http(s)");
+  const classification = classifyCalendarResourceUrl(url);
+  const label = input.label?.replace(/\s+/g, " ").trim() || classification?.label || "Resource";
+  return {
+    id: personResourceIdForUrl(url),
+    label,
+    url,
+    kind: classification?.kind ?? "web",
+    createdAt: now.toISOString(),
+  };
+}
+
+function writePersonResources(fileContent: string, resources: PersonResourceLink[]): string {
+  return updateFrontmatterField(fileContent, PERSON_RESOURCES_FIELD, JSON.stringify(resources));
+}
+
+function writePersonFileAtomic(filePath: string, fileContent: string): void {
+  const tmpPath = filePath + ".tmp." + Date.now();
+  fs.writeFileSync(tmpPath, fileContent, "utf-8");
+  fs.renameSync(tmpPath, filePath);
+}
+
+export function addPersonResource(
+  vaultPath: string,
+  slug: string,
+  input: { url: string; label?: string | null },
+): PersonResourceLink {
+  const filePath = path.join(vaultPath, "people", `${slug}.md`);
+  if (!fs.existsSync(filePath)) throw new Error(`Person not found: ${slug}`);
+
+  const fileContent = fs.readFileSync(filePath, "utf-8");
+  const resources = parsePersonResources(fileContent);
+  const nextResource = createPersonResource(input);
+  const nextKey = canonicalResourceUrl(nextResource.url);
+  const existingIndex = resources.findIndex((resource) => canonicalResourceUrl(resource.url) === nextKey);
+  let savedResource = nextResource;
+
+  if (existingIndex >= 0) {
+    savedResource = {
+      ...resources[existingIndex],
+      label: input.label?.replace(/\s+/g, " ").trim() || resources[existingIndex].label,
+      kind: nextResource.kind,
+      url: nextResource.url,
+    };
+    resources[existingIndex] = savedResource;
+  } else {
+    resources.push(nextResource);
+  }
+
+  writePersonFileAtomic(filePath, writePersonResources(fileContent, resources));
+  return savedResource;
+}
+
+export function removePersonResource(vaultPath: string, slug: string, id: string): boolean {
+  const filePath = path.join(vaultPath, "people", `${slug}.md`);
+  if (!fs.existsSync(filePath)) throw new Error(`Person not found: ${slug}`);
+
+  const fileContent = fs.readFileSync(filePath, "utf-8");
+  const resources = parsePersonResources(fileContent);
+  const nextResources = resources.filter((resource) => resource.id !== id);
+  if (nextResources.length === resources.length) return false;
+
+  writePersonFileAtomic(filePath, writePersonResources(fileContent, nextResources));
+  return true;
 }
 
 function updateFrontmatterField(content: string, key: string, value: string): string {
@@ -1240,6 +1377,48 @@ function applyNextCalendarFields(
   fm[NEXT_CALENDAR_TITLE_FIELD] = candidate.title;
 }
 
+function buildActiveMeetings(calendarLinks: ReturnType<typeof resolvePersonCalendarLinks>): PersonActiveMeeting[] {
+  return calendarLinks.candidates.map((candidate) => {
+    const event = getCalendarEvent(candidate.eventId);
+    const joinLinks = event?.joinLinks ?? [];
+    const resourceLinks = event?.resourceLinks ?? [];
+    return {
+      eventId: candidate.eventId,
+      title: event?.title ?? candidate.title,
+      start: event?.start ?? candidate.start,
+      end: event?.end ?? candidate.end,
+      uid: event?.uid ?? candidate.uid,
+      seriesKey: candidate.seriesKey,
+      method: candidate.method,
+      confidence: candidate.confidence,
+      historicalCount: candidate.historicalCount,
+      lastSeenAt: candidate.lastSeenAt,
+      joinLinks,
+      resourceLinks,
+      providerUrl: distinctProviderUrl(event?.providerUrl ?? null, [
+        ...joinLinks.map((link) => link.url),
+        ...resourceLinks.map((link) => link.url),
+      ]),
+    };
+  });
+}
+
+function distinctProviderUrl(providerUrl: string | null, actionUrls: string[]): string | null {
+  if (!providerUrl) return null;
+  const providerKey = comparableUrl(providerUrl);
+  return actionUrls.some((url) => comparableUrl(url) === providerKey) ? null : providerUrl;
+}
+
+function comparableUrl(value: string): string {
+  try {
+    const parsed = new URL(value);
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "").toLowerCase();
+  } catch {
+    return value.trim().replace(/\/$/, "").toLowerCase();
+  }
+}
+
 function extractNextRaw(fileContent: string): string {
   const { body } = parseFrontmatter(fileContent);
   const nextRawMatch = body.match(/^##[ \t]+Next[ \t]*\n([\s\S]*?)(?=^##[ \t]+Notes[ \t]*$|(?![\s\S]))/m);
@@ -1672,6 +1851,8 @@ export async function getPersonDetail(
   const meetings = mergeInlineNotesIntoGranola(granolaMeetings, inlineMeetings);
   meetings.sort((a, b) => meetingSortKey(b).localeCompare(meetingSortKey(a)));
   const calendarLinks = resolvePersonCalendarLinks(meetings, nextCalendarContext.seriesKey);
+  const resources = parsePersonResources(content);
+  const activeMeetings = buildActiveMeetings(calendarLinks);
 
   // Update counts to reflect total
   const totalMeetings = meetings.length;
@@ -1685,5 +1866,7 @@ export async function getPersonDetail(
     meetings,
     personFilePath: filePath,
     calendarLinks,
+    resources,
+    activeMeetings,
   };
 }

@@ -1,5 +1,6 @@
 import path from "path";
 import { CANDIDATE_CACHE_DIR } from "./candidate-cache";
+import { hasConnectionPass } from "./connection-state";
 import { parseMarkdownFile, relativeVaultPath } from "./markdown";
 import { CURRENT_PIPELINE_VERSIONS } from "./pipeline";
 import { captureFailed } from "./capture-health";
@@ -33,14 +34,6 @@ function queuedAt(data: Record<string, unknown>): string | null {
     || asString(data.saved_at)
     || asString(data.captured)
     || asString(data.published);
-}
-
-function hasConnectionPass(data: Record<string, unknown>): boolean {
-  return Boolean(
-    asString(data.reconnected_at)
-      || (Array.isArray(data.connection_suggestions) && data.connection_suggestions.length > 0)
-      || asString(data.connection_reasoning),
-  );
 }
 
 function isCurrentVersion(data: Record<string, unknown>): boolean {

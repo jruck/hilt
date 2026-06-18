@@ -13,6 +13,7 @@ import { extractBullets } from "./markdown";
 import { DIGEST_PROMPT } from "./pipeline";
 import { artifactTaxonomy } from "./taxonomy";
 import { getVideoDurationSeconds, isLikelyVideoUrl } from "./video-duration";
+import { extractXVideoTranscript } from "./x-video-transcript";
 import { detectYouTubeContentForm } from "./youtube-clip-detector";
 
 const execFileAsync = promisify(execFile);
@@ -231,6 +232,9 @@ async function resolveLinkedUrl(raw: RawArtifact): Promise<string | null> {
 interface XPostFetch {
   text: string;
   partialThread: boolean;
+  videoUrl?: string;
+  thumbnail?: string;
+  videoDurationSeconds?: number;
 }
 
 async function fetchXPostText(url: string, source: LibrarySourceConfig): Promise<XPostFetch | null> {
@@ -238,7 +242,7 @@ async function fetchXPostText(url: string, source: LibrarySourceConfig): Promise
   if (!id) return null;
   const xurlBin = String(source.metadata.xurl_path || process.env.XURL_BIN || "");
   if (!xurlBin) return null;
-  const apiPath = `/2/tweets/${id}?tweet.fields=note_tweet,conversation_id,created_at,entities&expansions=author_id&user.fields=username,name`;
+  const apiPath = `/2/tweets/${id}?tweet.fields=note_tweet,conversation_id,created_at,entities,attachments&expansions=author_id,attachments.media_keys&user.fields=username,name&media.fields=media_key,type,url,preview_image_url,duration_ms`;
   try {
     const { stdout } = await execFileAsync(xurlBin, ["-X", "GET", apiPath, "--auth", "oauth2"], { timeout: 30000, maxBuffer: 1024 * 1024 * 4 });
     const parsed = JSON.parse(stripInvisibleTracking(stdout)) as {
@@ -249,8 +253,12 @@ async function fetchXPostText(url: string, source: LibrarySourceConfig): Promise
         conversation_id?: string;
         note_tweet?: { text?: string };
         entities?: { urls?: Array<{ expanded_url?: string; display_url?: string; url?: string }> };
+        attachments?: { media_keys?: string[] };
       };
-      includes?: { users?: Array<{ username?: string; name?: string }> };
+      includes?: {
+        users?: Array<{ username?: string; name?: string }>;
+        media?: Array<{ media_key?: string; type?: string; preview_image_url?: string; duration_ms?: number }>;
+      };
     };
     // Prefer the long-form note_tweet body (up to 25k chars) over the 280-char truncation.
     const fullText = stripInvisibleCharacters(parsed.data?.note_tweet?.text || parsed.data?.text || "");
@@ -264,13 +272,31 @@ async function fetchXPostText(url: string, source: LibrarySourceConfig): Promise
       .map((item) => item.expanded_url || item.display_url || item.url)
       .filter(Boolean)
       .join("\n");
+    const mediaByKey = new Map((parsed.includes?.media || [])
+      .filter((item) => item.media_key)
+      .map((item) => [String(item.media_key), item]));
+    const attachedMedia = (parsed.data?.attachments?.media_keys || [])
+      .map((key) => mediaByKey.get(key))
+      .filter((item): item is NonNullable<ReturnType<typeof mediaByKey.get>> => Boolean(item));
+    const attachedVideo = attachedMedia.find((item) => item.type === "video" || item.type === "animated_gif");
+    const videoUrl = isXVideoUrl(url)
+      ? url
+      : attachedVideo
+        ? url.replace(/[?#].*$/, "").replace(/\/video\/\d+$/i, "") + "/video/1"
+        : undefined;
     const text = [
       fullText,
       user?.name || user?.username ? `Author: ${user.name || user.username}` : "",
       parsed.data?.created_at ? `Published: ${parsed.data.created_at}` : "",
       links ? `Links:\n${links}` : "",
     ].filter(Boolean).join("\n\n");
-    return { text, partialThread };
+    return {
+      text,
+      partialThread,
+      videoUrl,
+      thumbnail: attachedVideo?.preview_image_url,
+      videoDurationSeconds: typeof attachedVideo?.duration_ms === "number" ? Math.round(attachedVideo.duration_ms / 1000) : undefined,
+    };
   } catch {
     return null;
   }
@@ -544,20 +570,25 @@ export async function digestArtifact(
   if (directXContent) {
     const fetchedLength = cleanSourceForDigest(directXContent).length;
     const originalLength = cleanSourceForDigest(raw.content || "").length;
-    extractionNotes.push(fetchedLength > originalLength + 80
-      ? "Fetched full X post text for digest context."
-      : "Verified X post text for digest context.");
+    const directIsRicher = fetchedLength > originalLength + 80 || originalLength < 400;
+    extractionNotes.push(directIsRicher
+      ? fetchedLength > originalLength + 80
+        ? "Fetched full X post text for digest context."
+        : "Verified X post text for digest context."
+      : "Kept richer cached X source text; direct post text was only wrapper metadata.");
     if (directX?.partialThread) {
       extractionNotes.push("X post is the root of a multi-tweet thread; only the opening post was captured (current X API plan has no thread/search access).");
     }
-    raw = {
-      ...raw,
-      content: directXContent,
-      metadata: {
-        ...raw.metadata,
-        ...(directX?.partialThread ? { partial_thread: true } : {}),
-      },
-    };
+    if (directIsRicher) {
+      raw = {
+        ...raw,
+        content: directXContent,
+        metadata: {
+          ...raw.metadata,
+          ...(directX?.partialThread ? { partial_thread: true } : {}),
+        },
+      };
+    }
   }
   if (linkedXContent) {
     extractionNotes.push("Fetched linked X post text for digest context.");
@@ -577,31 +608,87 @@ export async function digestArtifact(
       extractionNotes.push("Normalized X/Twitter title by removing duplicate URL text.");
     }
   }
-  if (xSource && linkedUrl && isXVideoUrl(linkedUrl)) {
+  const xVideoUrl = xSource
+    ? [
+      metadataString(raw.metadata.video_url),
+      linkedUrl && isXVideoUrl(linkedUrl) ? linkedUrl : null,
+      linkedX?.videoUrl || null,
+      directX?.videoUrl || null,
+      isXVideoUrl(raw.url) ? raw.url : null,
+    ].find((item): item is string => Boolean(item && isXVideoUrl(item))) || null
+    : null;
+  if (xSource && xVideoUrl) {
     const existingMedia = Array.isArray(raw.metadata.media) ? raw.metadata.media : [];
     const hasLinkedVideo = existingMedia.some((item) => {
       if (!item || typeof item !== "object") return false;
       const record = item as Record<string, unknown>;
-      return record.link === linkedUrl || record.embed_url === linkedUrl;
+      return record.link === xVideoUrl || record.embed_url === xVideoUrl;
     });
     raw = {
       ...raw,
+      thumbnail: raw.thumbnail || linkedX?.thumbnail || directX?.thumbnail,
       metadata: {
         ...raw.metadata,
-        expanded_url: typeof raw.metadata.expanded_url === "string" ? raw.metadata.expanded_url : linkedUrl,
-        video_url: linkedUrl,
+        expanded_url: typeof raw.metadata.expanded_url === "string" ? raw.metadata.expanded_url : xVideoUrl,
+        video_url: xVideoUrl,
+        video_duration_seconds: metadataNumber(raw.metadata.video_duration_seconds)
+          ?? linkedX?.videoDurationSeconds
+          ?? directX?.videoDurationSeconds
+          ?? undefined,
         media: hasLinkedVideo ? existingMedia : [
-          { link: linkedUrl, type: "video", source: "x_linked_post" },
+          { link: xVideoUrl, type: "video", source: linkedUrl === xVideoUrl ? "x_linked_post" : "x_post_media" },
           ...existingMedia,
         ],
       },
     };
-    extractionNotes.push("Added linked X video embed metadata.");
+    extractionNotes.push(linkedUrl === xVideoUrl ? "Added linked X video embed metadata." : "Added X video embed metadata.");
+  }
+  const xVideoTranscript = xVideoUrl ? await extractXVideoTranscript(xVideoUrl) : null;
+  if (xVideoTranscript?.cache) {
+    const tweetContext = [linkedXContent, directXContent, raw.content || ""]
+      .filter((part): part is string => Boolean(part && cleanSourceForDigest(part).length))
+      .join("\n\n");
+    raw = {
+      ...raw,
+      content: [
+        `X video transcript:\n${xVideoTranscript.cache.content}`,
+        tweetContext ? `X post context:\n${tweetContext}` : "",
+      ].filter(Boolean).join("\n\n"),
+      metadata: {
+        ...raw.metadata,
+        video_url: xVideoUrl,
+        source_recovered_from: xVideoUrl,
+        x_video_transcript_status: xVideoTranscript.status,
+        x_video_transcript_method: xVideoTranscript.method,
+      },
+    };
+    extractionNotes.push(...xVideoTranscript.notes);
+  } else if (xVideoTranscript && xVideoUrl) {
+    raw = {
+      ...raw,
+      metadata: {
+        ...raw.metadata,
+        video_url: xVideoUrl,
+        x_video_transcript_status: xVideoTranscript.status,
+      },
+    };
+    extractionNotes.push(...xVideoTranscript.notes);
+  } else if (xVideoUrl) {
+    raw = {
+      ...raw,
+      metadata: {
+        ...raw.metadata,
+        x_video_transcript_status: "failed",
+      },
+    };
+    extractionNotes.push("X video transcript was unavailable; capture remains video-metadata-limited.");
   }
   const shouldSummarizeUrl = requestedSummarize && (!xSource || (linkedUrl ? !isXUrl(linkedUrl) : false));
-  const contentParts = xSource && linkedXContent
-    ? [linkedXContent, raw.content || ""]
-    : [raw.content || "", linkedXContent || ""];
+  const contentParts = xVideoTranscript
+    ? [raw.content || ""]
+    : xSource && linkedXContent
+      ? [linkedXContent, raw.content || ""]
+      : [raw.content || "", linkedXContent || ""];
   const cleanedRawContent = cleanSourceForDigest(contentParts.filter(Boolean).join("\n\n"));
   // When the caller prefers the cached/source text and it is substantial and not chrome,
   // summarize from the cached text locally and skip the network round-trips.
@@ -621,7 +708,7 @@ export async function digestArtifact(
         : "Summarized source-provided text with summarize CLI.");
     }
   }
-  let sourceCache = shouldSummarizeUrl && !preferCachedSource ? await extractSourceContent({ ...raw, url: summarizeTarget }, source) : null;
+  let sourceCache = xVideoTranscript?.cache || (shouldSummarizeUrl && !preferCachedSource ? await extractSourceContent({ ...raw, url: summarizeTarget }, source) : null);
   if (!sourceCache && source.channel === "raindrop" && !xSource) {
     sourceCache = await fetchRaindropCache(raw);
     if (sourceCache) {
@@ -695,6 +782,7 @@ export async function digestArtifact(
   );
   const xSourceComplete = Boolean(
     xSource &&
+    (!xVideoUrl || Boolean(xVideoTranscript?.cache) || xVideoTranscript?.status === "unavailable_no_audio" || xVideoTranscript?.status === "unavailable_source") &&
     sourceText.length >= 80 &&
     !isUrlOnlyText(sourceText) &&
     !xLooksPartial &&
@@ -727,6 +815,7 @@ export async function digestArtifact(
   let attentionJudgment: ProcessedArtifact["attention_judgment"];
   let connectedProjects: string[] = [];
   let connectionReasoning = "";
+  let reconnectedAt: string | undefined;
   let reweaveCandidates: ProcessedArtifact["reweave_candidates"] = [];
   // L1 default body for EVERYONE: the free-form CAPTURE_VOICE digest from `summarize --prompt
   // DIGEST_PROMPT`. A study reweave overrides it below; a keep item keeps it; a study item whose
@@ -756,7 +845,7 @@ export async function digestArtifact(
       vaultPath,
       timeoutMs: options.reweaveTimeoutMs,
     });
-    if (reweave) {
+    if (reweave && reweave.digest_markdown.trim()) {
       digestMarkdown = reweave.digest_markdown || digestMarkdown;
       description = reweave.description || description;
       // Keep first-party ties ahead of library cross-references so rendering reflects priority.
@@ -768,7 +857,8 @@ export async function digestArtifact(
       }));
       connectionReasoning = connectionSuggestions.length
         ? `Woven into ${connectionSuggestions.length} note${connectionSuggestions.length === 1 ? "" : "s"} across Justin's work.`
-        : "";
+        : "Connection pass completed; no durable first-party or library connections passed the gate.";
+      reconnectedAt = isoNow();
       reweaveCandidates = reweave.reweave_candidates || [];
       attentionJudgment = reweave.attention_judgment;
       // connected_projects are the first-party targets whose path lives under projects/<slug>/.
@@ -793,10 +883,11 @@ export async function digestArtifact(
 
   // For video sources, capture total duration (via yt-dlp) so the feed/list can badge it.
   let videoDurationSeconds: number | undefined;
-  if (format === "video" || isLikelyVideoUrl(raw.url)) {
+  const durationProbeUrl = metadataString(raw.metadata.video_url) || raw.url;
+  if (format === "video" || isLikelyVideoUrl(durationProbeUrl) || isXVideoUrl(durationProbeUrl)) {
     videoDurationSeconds = metadataNumber(raw.metadata.video_duration_seconds)
       ?? metadataNumber(raw.metadata.youtube_duration_seconds)
-      ?? (await getVideoDurationSeconds(raw.url))
+      ?? (await getVideoDurationSeconds(durationProbeUrl))
       ?? undefined;
   }
   const preflightClip = raw.metadata.youtube_clip && typeof raw.metadata.youtube_clip === "object"
@@ -847,6 +938,7 @@ export async function digestArtifact(
     connected_projects: connectedProjects,
     connection_suggestions: connectionSuggestions,
     connection_reasoning: connectionReasoning || undefined,
+    reconnected_at: reconnectedAt,
     reweave_candidates: reweaveCandidates && reweaveCandidates.length ? reweaveCandidates : undefined,
     attention_judgment: attentionJudgment,
     reasoning: source.intent === "explicit_save" ? "Explicit save signal" : "Automated discovery assessment",

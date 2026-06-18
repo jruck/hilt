@@ -11,6 +11,7 @@ import path from "path";
 import { loadEnvConfig } from "@next/env";
 import { evaluateLibrary } from "../src/lib/library/recommendations";
 import { listLibraryArtifactDetails } from "../src/lib/library/library";
+import { connectionPassState, connectionSuggestionsFromFrontmatter } from "../src/lib/library/connection-state";
 
 loadEnvConfig(process.cwd());
 const vaultPath = process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || process.cwd();
@@ -36,11 +37,11 @@ function main() {
   const all = listLibraryArtifactDetails(vaultPath, { limit: 5000, includeCandidates: true, mode: "all" } as Parameters<typeof listLibraryArtifactDetails>[1]).artifacts;
   const keep = all.filter((a) => a.library_mode === "keep");
 
-  const conns = (a: (typeof scored)[number]) => { const c = fm(a).connection_suggestions; return Array.isArray(c) ? c : []; };
+  const conns = (a: (typeof scored)[number]) => connectionSuggestionsFromFrontmatter(fm(a));
   const graded = scored.filter((a) => typeof fm(a).substance === "number");
   const hasConns = scored.filter((a) => conns(a).length > 0);
-  const judgedAbstain = scored.filter((a) => conns(a).length === 0 && typeof fm(a).reconnected_at === "string");
-  const neverJudged = scored.filter((a) => conns(a).length === 0 && typeof fm(a).reconnected_at !== "string");
+  const judgedAbstain = scored.filter((a) => connectionPassState(fm(a)) === "abstained");
+  const neverJudged = scored.filter((a) => connectionPassState(fm(a)) === "never");
   const toArchive = scored.filter((a) => a.lifecycle === "to_archive");
 
   const byVersion: Record<string, number> = {};

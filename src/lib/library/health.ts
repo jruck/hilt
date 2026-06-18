@@ -119,7 +119,8 @@ function firstActionableStderrLine(stderr: string | null): string | null {
 function isKnownSchedulerNoiseLine(line: string): boolean {
   return /^\(Use `node --trace-deprecation/.test(line)
     || /\[DEP0205\] DeprecationWarning: `module\.register\(\)` is deprecated/.test(line)
-    || /^npm notice\b/.test(line);
+    || /^npm notice\b/.test(line)
+    || /^\[refetch\]\s+RECOVERED\b/.test(line);
 }
 
 function schedulerStatus(job: ReturnType<typeof librarySchedulerJobs>[number], options: HealthOptions): LibrarySchedulerJobSummary {

@@ -75,7 +75,7 @@ export interface RawArtifact {
 
 export interface SourceCache {
   kind: "article" | "transcript" | "source";
-  extractor: "summarize-cli" | "source-metadata" | "raindrop-cache";
+  extractor: "summarize-cli" | "source-metadata" | "raindrop-cache" | "x-video-subtitles" | "x-video-audio";
   captured_at: string;
   content: string;
   chars: number;
@@ -167,6 +167,8 @@ export interface ProcessedArtifact {
   connected_projects: string[];
   connection_suggestions?: ConnectionSuggestion[];
   connection_reasoning?: string;
+  /** Positive marker that the reweave/connection pass completed, including clean abstentions. */
+  reconnected_at?: string;
   reweave_candidates?: Array<{ target: string; why: string }>;
   attention_judgment?: AttentionJudgment;
   reasoning: string;

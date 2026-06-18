@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Loader2, Network } from "lucide-react";
-import { SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
+import { SecondaryChromeContent, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useScope } from "@/contexts/ScopeContext";
@@ -966,7 +966,9 @@ export function GraphView({ modeSwitcher, scopePath = "" }: GraphViewProps) {
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="graph-view">
       {toolbar}
-      <div className="flex min-h-0 flex-1 flex-col border-t border-[var(--border-default)]">{body}</div>
+      <SecondaryChromeContent className="flex min-h-0 flex-1 flex-col overflow-hidden" topBorder>
+        {body}
+      </SecondaryChromeContent>
     </div>
   );
 }

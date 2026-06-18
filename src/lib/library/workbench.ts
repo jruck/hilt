@@ -3,6 +3,7 @@ import { listStoredFeedback } from "./library-feedback";
 import { readMutedSenders } from "./library-mute";
 import { friendlyNewsletterSender } from "./taxonomy";
 import { evaluateLibrary } from "./recommendations";
+import { connectionPassState, connectionSuggestionsFromFrontmatter } from "./connection-state";
 import { contentTypeForArtifact, type LibraryContentType } from "./content-type";
 
 /**
@@ -58,8 +59,7 @@ export function buildWorkbenchRows(vaultPath: string): WorkbenchData {
 
   const rows: WorkbenchRow[] = all.map((a) => {
     const fm = a.raw_frontmatter;
-    const connections = Array.isArray(fm.connection_suggestions) ? fm.connection_suggestions.length : 0;
-    const reconnected = typeof fm.reconnected_at === "string" && fm.reconnected_at.length > 0;
+    const connections = connectionSuggestionsFromFrontmatter(fm).length;
     const scored = scoredById.get(a.id);
     const disposition = a.library_mode === "keep" ? "keep" : "study";
     return {
@@ -78,7 +78,7 @@ export function buildWorkbenchRows(vaultPath: string): WorkbenchData {
       pipeline_version: str(fm.pipeline_version),
       digested_with: str(fm.digested_with),
       reweave_pending: fm.reweave_pending === true,
-      connection_state: connections > 0 ? "has" : reconnected ? "abstained" : "never",
+      connection_state: connectionPassState(fm),
       connections,
       substance_graded: typeof fm.substance === "number",
       youtube_clip_policy: a.youtube_clip?.policy_action || null,

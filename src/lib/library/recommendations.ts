@@ -10,6 +10,7 @@ import type { LibraryScoringConfig } from "./scoring-config";
 import { readLibraryEvents } from "./events";
 import { hashId } from "./utils";
 import { captureFailed } from "./capture-health";
+import { connectionSuggestionsFromFrontmatter, hasConnectionPass } from "./connection-state";
 
 interface ContextSignal {
   kind: "project" | "task" | "area" | "person" | "recent_save";
@@ -146,9 +147,7 @@ function scoreAgainstSignals(artifact: LibraryArtifactDetail, signals: ContextSi
 }
 
 function connectionSuggestionsForArtifact(artifact: LibraryArtifactDetail): ConnectionSuggestion[] {
-  return Array.isArray(artifact.raw_frontmatter.connection_suggestions)
-    ? artifact.raw_frontmatter.connection_suggestions.filter((item): item is ConnectionSuggestion => Boolean(item && typeof item === "object" && typeof (item as ConnectionSuggestion).label === "string"))
-    : [];
+  return connectionSuggestionsFromFrontmatter(artifact.raw_frontmatter);
 }
 
 /** Substance for an item: a model-judged grade if present, else the structural proxy from the source. */
@@ -201,9 +200,9 @@ function scoreArtifact(vaultPath: string, artifact: LibraryArtifactDetail, signa
     createdAt: artifact.created_at,
     substance: substanceFor(artifact),
     extraction_ok: extractionOk,
-    // `reconnected_at` is stamped whenever the connection judge runs (success OR abstain) — positive
-    // evidence we looked, the precondition for ever flagging a zero-tie item to_archive.
-    analyzed: typeof artifact.raw_frontmatter.reconnected_at === "string" && artifact.raw_frontmatter.reconnected_at.length > 0,
+    // Positive evidence we looked, including older v2.2 abstentions whose only marker is the
+    // attention_judgment stamped by the reweave pass.
+    analyzed: hasConnectionPass(artifact.raw_frontmatter),
   }, config);
   const matchedTerms = Array.from(new Set(contextScore.matches.flatMap((match) => match.terms))).slice(0, 8);
   const evalAttrs: LibraryEvalAttrs = {

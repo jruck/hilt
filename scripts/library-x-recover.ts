@@ -6,7 +6,7 @@ import { loadEnvConfig } from "@next/env";
 import { parseMarkdownFile, stringifyMarkdown } from "../src/lib/library/markdown";
 import { CANDIDATE_CACHE_DIR } from "../src/lib/library/candidate-cache";
 import { walkMarkdown } from "../src/lib/library/utils";
-import { captureFailed, NO_SOURCE_MARKER } from "../src/lib/library/capture-health";
+import { captureFailed } from "../src/lib/library/capture-health";
 
 loadEnvConfig(process.cwd());
 const execFileAsync = promisify(execFile);
@@ -40,9 +40,10 @@ const X_URL_RE = /^https?:\/\/(www\.)?(x|twitter)\.com\//i;
 // Accept any non-trivial extractor hit (>=80 chars): tweets are legitimately short, and the
 // extractor only reads tweet/article selectors — a login wall or deleted post returns empty.
 const MIN_TEXT = 80;
-// The DOM extractor: X Article rich text, then a tweet's text, then the article container — first
-// non-trivial hit wins. Single-quoted/paren-safe so it survives shell argv.
-const EXTRACT_JS = "(function(){var a=document.querySelector('[data-testid=twitterArticleRichTextView]');var t=document.querySelector('[data-testid=tweetText]');var ar=document.querySelector('article');return (a&&a.innerText)||(t&&t.innerText)||(ar&&ar.innerText)||'';})()";
+const MIN_PROSE_WORDS = 6;
+// The DOM extractor returns the longest readable article/main/body candidate. Recovery rejects
+// link-metadata stubs below, so early X hydration cannot pass a t.co wrapper as real content.
+const EXTRACT_JS = "(function(){function c(s){return (s||'').replace(/\\n{3,}/g,'\\n\\n').trim();}function texts(sels){var xs=[];sels.forEach(function(sel){document.querySelectorAll(sel).forEach(function(el){var t=c(el.innerText);if(t)xs.push(t);});});xs.sort(function(a,b){return b.length-a.length;});return xs;}var article=texts(['[data-testid=twitterArticleRichTextView]','article','[role=article]']);if(article[0])return article[0];var main=texts(['main']);if(main[0])return main[0];return c(document.body&&document.body.innerText);})()";
 
 interface XTarget { relative_path: string; title: string; contentUrl: string }
 
@@ -102,6 +103,21 @@ async function buAttach(commandArgs: string[]): Promise<string> {
   return stdout;
 }
 
+function proseWordCount(text: string): number {
+  const stripped = text
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z?/g, " ")
+    .replace(/\b(Author|Published|Links|Link|Source|via)\s*:/gi, " ");
+  return (stripped.match(/\b[A-Za-z]{3,}\b/g) || []).length;
+}
+
+function isUsableRecoveredText(text: string): boolean {
+  if (/(Something went wrong|Try reloading|This post is unavailable|This Post is from an account that no longer exists|These posts are protected|Hmm\.\.\.this page doesn.?t exist|Sign in to X|Don.?t miss what.?s happening|JavaScript is not available)/i.test(text)) {
+    return false;
+  }
+  return text.length >= MIN_TEXT && proseWordCount(text) >= MIN_PROSE_WORDS;
+}
+
 /** Open the URL and extract its readable text, tolerating X's client-side hydration with a couple
  *  of retries (browser-use's open can return before the article paints). */
 async function readXText(contentUrl: string): Promise<string> {
@@ -112,9 +128,37 @@ async function readXText(contentUrl: string): Promise<string> {
     let out: string;
     try { out = await buAttach(["eval", EXTRACT_JS]); } catch { continue; }
     const text = (out.split(/result:\s?/).pop() || "").trim();
-    if (text.length >= MIN_TEXT) return text;
+    if (isUsableRecoveredText(text)) return text;
   }
   return "";
+}
+
+function replaceRawContentSection(body: string, text: string): string | null {
+  const match = body.match(/^##\s+Raw Content\s*$/mi);
+  if (!match || match.index === undefined) return null;
+  const sectionStart = match.index + match[0].length;
+  const afterHeading = body.slice(sectionStart);
+  const nextHeading = afterHeading.search(/\n##\s+/);
+  const sectionEnd = nextHeading >= 0 ? sectionStart + nextHeading : body.length;
+  const replacement = `\n\n<details>\n<summary>Full source cache</summary>\n\n${text.trim()}\n\n</details>\n`;
+  return `${body.slice(0, sectionStart)}${replacement}${body.slice(sectionEnd)}`;
+}
+
+function clearStaleJudgmentFields(data: Record<string, unknown>): void {
+  for (const key of [
+    "connected_projects",
+    "connection_suggestions",
+    "connection_reasoning",
+    "reconnected_at",
+    "reweave_candidates",
+    "attention_judgment",
+    "substance",
+    "substance_reason",
+    "substance_version",
+    "substance_graded_at",
+  ]) {
+    delete data[key];
+  }
 }
 
 async function recoverOne(target: XTarget): Promise<"recovered" | "still_failed"> {
@@ -123,15 +167,13 @@ async function recoverOne(target: XTarget): Promise<"recovered" | "still_failed"
 
   const filePath = path.join(vaultPath, target.relative_path);
   const { data, body } = parseMarkdownFile(filePath);
-  // Replace the stub inside Raw Content only; redigest rebuilds Summary/Key Points from it.
-  const [head, rawTail] = body.split("## Raw Content");
-  if (rawTail === undefined) return "still_failed";
-  const newRaw = rawTail.replace(new RegExp(`[\\s\\S]*?${NO_SOURCE_MARKER}\\.?`), `\n\n${text}`)
-    .includes(text) ? rawTail.replace(NO_SOURCE_MARKER + ".", text).replace(NO_SOURCE_MARKER, text) : `${rawTail}\n\n${text}`;
+  // Replace exactly the Raw Content section; redigest rebuilds Summary/Key Points from it.
+  const nextBody = replaceRawContentSection(body, text);
+  if (!nextBody) return "still_failed";
   data.source_recovered_from = `browser:${target.contentUrl}`;
   data.cached_source_chars = text.length;
   data.extracted_chars = text.length;
-  fs.writeFileSync(filePath, stringifyMarkdown(data, `${head}## Raw Content${newRaw}`), "utf-8");
+  fs.writeFileSync(filePath, stringifyMarkdown(data, nextBody), "utf-8");
 
   // Cache-preferring redigest (no API/X refetch), then flag for the nightly weave.
   const tsxBin = fs.existsSync("node_modules/.bin/tsx") ? "node_modules/.bin/tsx" : "npx";
@@ -141,6 +183,7 @@ async function recoverOne(target: XTarget): Promise<"recovered" | "still_failed"
   });
   const after = parseMarkdownFile(filePath);
   if (captureFailed({ body: after.body, frontmatter: after.data })) return "still_failed";
+  clearStaleJudgmentFields(after.data);
   after.data.reweave_pending = true;
   fs.writeFileSync(filePath, stringifyMarkdown(after.data, after.body), "utf-8");
   return "recovered";

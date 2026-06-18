@@ -185,6 +185,38 @@ export interface PersonCalendarLinks {
   selectedSeriesKey: string | null;
 }
 
+export interface PersonResourceLink {
+  id: string;
+  label: string;
+  url: string;
+  kind: "doc" | "sheet" | "slide" | "office" | "sharepoint" | "web";
+  createdAt: string;
+}
+
+export interface PersonActiveMeeting {
+  eventId: string;
+  title: string;
+  start: string;
+  end: string;
+  uid: string | null;
+  seriesKey: string;
+  method: PersonCalendarCandidate["method"];
+  confidence: number;
+  historicalCount: number;
+  lastSeenAt: string | null;
+  joinLinks: Array<{
+    kind: "teams" | "meet" | "zoom" | "web";
+    url: string;
+    label: string;
+  }>;
+  resourceLinks: Array<{
+    kind: PersonResourceLink["kind"];
+    url: string;
+    label: string;
+  }>;
+  providerUrl: string | null;
+}
+
 export interface PersonMeeting {
   source: "inline" | "granola" | "next";  // Where it came from
   date: string;                    // ISO date (YYYY-MM-DD)
@@ -220,6 +252,8 @@ export interface PersonDetail extends BridgePerson {
   meetings: PersonMeeting[];       // Sorted timeline (newest first), not merged
   personFilePath: string;          // Absolute path to person .md file (for editing)
   calendarLinks: PersonCalendarLinks;
+  resources: PersonResourceLink[];
+  activeMeetings: PersonActiveMeeting[];
 }
 
 export interface SuggestedMeeting {

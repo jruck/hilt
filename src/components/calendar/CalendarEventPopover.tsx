@@ -5,6 +5,7 @@ import {
   Check,
   Clock,
   ExternalLink,
+  FileText,
   Link as LinkIcon,
   Loader2,
   MapPin,
@@ -17,9 +18,11 @@ import {
 import { mutate } from "swr";
 import { useScope } from "@/contexts/ScopeContext";
 import { prepareCalendarDescription, type CalendarDescriptionDisplay } from "@/lib/calendar/description";
+import { shouldRenderCalendarProviderUrl } from "@/lib/calendar/links";
 import { displayCalendarEventTitle } from "@/lib/calendar/title";
 import type { CalendarEvent, CalendarEventNoteTarget } from "@/lib/calendar/types";
 import { withBasePath } from "@/lib/base-path";
+import { formatHiltWeekdayDate } from "@/lib/display-date";
 
 const TIME_ZONE = "America/New_York";
 const JOIN_LABELS: Record<CalendarEvent["joinLinks"][number]["kind"], string> = {
@@ -27,6 +30,14 @@ const JOIN_LABELS: Record<CalendarEvent["joinLinks"][number]["kind"], string> = 
   meet: "Meet",
   zoom: "Zoom",
   web: "Link",
+};
+const RESOURCE_LABELS: Record<CalendarEvent["resourceLinks"][number]["kind"], string> = {
+  doc: "Doc",
+  sheet: "Sheet",
+  slide: "Slides",
+  office: "Office",
+  sharepoint: "SharePoint",
+  web: "Resource",
 };
 
 interface CalendarEventPopoverContentProps {
@@ -175,6 +186,7 @@ interface CalendarEventActionsProps {
   className?: string;
   event: CalendarEvent;
   onClose?: () => void;
+  showNotes?: boolean;
   sourceLabel?: string | null;
   stopPropagation?: boolean;
   variant?: "default" | "compact";
@@ -185,14 +197,20 @@ export function CalendarEventActions({
   className,
   event,
   onClose,
+  showNotes = true,
   sourceLabel,
   stopPropagation = false,
   variant = "default",
 }: CalendarEventActionsProps) {
   const { navigateTo } = useScope();
   const [openingNoteTarget, setOpeningNoteTarget] = useState<string | null>(null);
-  const eventNoteTargets = event.meetingNotes?.length ? [] : event.noteTargets ?? [];
-  const hasActions = event.joinLinks.length > 0 || Boolean(event.meetingNotes?.length) || eventNoteTargets.length > 0 || Boolean(event.providerUrl);
+  const eventNoteTargets = showNotes && event.meetingNotes?.length ? [] : showNotes ? event.noteTargets ?? [] : [];
+  const meetingNotes = showNotes ? event.meetingNotes ?? [] : [];
+  const resourceLinks = event.resourceLinks ?? [];
+  const providerUrl = shouldRenderCalendarProviderUrl(event.providerUrl, [...event.joinLinks, ...resourceLinks])
+    ? event.providerUrl
+    : null;
+  const hasActions = event.joinLinks.length > 0 || resourceLinks.length > 0 || meetingNotes.length > 0 || eventNoteTargets.length > 0 || Boolean(providerUrl);
   if (!hasActions) return null;
 
   const isCompact = variant === "compact";
@@ -269,7 +287,23 @@ export function CalendarEventActions({
           {JOIN_LABELS[link.kind]}
         </a>
       ))}
-      {event.meetingNotes?.map((note) => (
+      {resourceLinks.map((link) => (
+        <a
+          key={`resource:${link.kind}:${link.url}`}
+          href={link.url}
+          target="_blank"
+          rel="noreferrer"
+          className={secondaryClassName}
+          style={secondaryStyle}
+          onKeyDown={stopIfNeeded}
+          onClick={stopIfNeeded}
+          title={link.label}
+        >
+          {link.kind === "web" ? <LinkIcon className={iconClassName} /> : <FileText className={iconClassName} />}
+          {link.label || RESOURCE_LABELS[link.kind]}
+        </a>
+      ))}
+      {meetingNotes.map((note) => (
         <button
           key={note.granolaId}
           type="button"
@@ -311,9 +345,9 @@ export function CalendarEventActions({
           {eventNoteTargets.length > 1 ? `Notes: ${target.name}` : "Notes"}
         </button>
       ))}
-      {event.providerUrl ? (
+      {providerUrl ? (
         <a
-          href={event.providerUrl}
+          href={providerUrl}
           target="_blank"
           rel="noreferrer"
           className={secondaryClassName}
@@ -322,7 +356,7 @@ export function CalendarEventActions({
           onClick={stopIfNeeded}
         >
           <ExternalLink className={iconClassName} />
-          {providerLinkLabel(event.providerUrl, sourceLabel)}
+          {providerLinkLabel(providerUrl, sourceLabel)}
         </a>
       ) : null}
     </div>
@@ -409,7 +443,7 @@ function formatEventTime(event: CalendarEvent): string {
   if (event.allDay) return "All day";
   const start = new Date(event.start);
   const end = new Date(event.end);
-  const day = new Intl.DateTimeFormat(undefined, { timeZone: TIME_ZONE, weekday: "short", month: "short", day: "numeric" }).format(start);
+  const day = formatHiltWeekdayDate(start, { includeYear: false, timeZone: TIME_ZONE });
   const time = new Intl.DateTimeFormat(undefined, { timeZone: TIME_ZONE, hour: "numeric", minute: "2-digit" });
   return `${day}, ${time.format(start)} - ${time.format(end)}`;
 }

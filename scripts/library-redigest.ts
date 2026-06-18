@@ -179,7 +179,12 @@ function mergeFrontmatter(existing: Record<string, unknown>, processed: Processe
     extracted_chars: processed.digestion?.extracted_chars,
     cached_source_chars: processed.digestion?.cached_source_chars,
     cached_source_extractor: processed.digestion?.cached_source_extractor,
+    video_url: typeof processed.raw.metadata.video_url === "string" ? processed.raw.metadata.video_url : existing.video_url,
+    x_video_transcript_status: typeof processed.raw.metadata.x_video_transcript_status === "string" ? processed.raw.metadata.x_video_transcript_status : existing.x_video_transcript_status,
+    x_video_transcript_method: typeof processed.raw.metadata.x_video_transcript_method === "string" ? processed.raw.metadata.x_video_transcript_method : existing.x_video_transcript_method,
     redigested_at: new Date().toISOString(),
+    source_recovered_from: typeof processed.raw.metadata.source_recovered_from === "string" ? processed.raw.metadata.source_recovered_from : existing.source_recovered_from,
+    reweave_pending: processed.reweave_pending ? true : existing.reweave_pending,
   };
   if (existing.type === "reference-candidate") {
     merged.score = processed.score;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { addTask, parseWeeklyFile, updateNotes } from "./weekly-parser";
+import { addTask, parseWeeklyFile, reorderTasks, updateNotes } from "./weekly-parser";
 
 const frontmatter = `---
 type: weekly-list
@@ -64,5 +64,39 @@ Old note.
     const parsed = parseWeeklyFile(updated, "2026-05-25.md");
     assert.equal(parsed.notes, "Updated old note.");
     assert.equal(parsed.tasks[0].title, "Existing task");
+  });
+
+  it("rejects partial reorder payloads instead of dropping omitted tasks", () => {
+    const content = `${frontmatter}
+
+## Tasks
+- [ ] First task
+- [ ] Second task
+- [x] Done task
+`;
+
+    assert.throws(
+      () => reorderTasks(content, ["task-1", "task-0"]),
+      /must include each task exactly once/
+    );
+  });
+
+  it("preserves done tasks when a full reorder moves todo tasks", () => {
+    const content = `${frontmatter}
+
+## Tasks
+- [ ] First task
+- [ ] Second task
+- [x] Done task
+`;
+
+    const updated = reorderTasks(content, ["task-1", "task-0", "task-2"]);
+    const parsed = parseWeeklyFile(updated, "2026-05-25.md");
+
+    assert.deepEqual(parsed.tasks.map((task) => task.title), [
+      "Second task",
+      "First task",
+      "Done task",
+    ]);
   });
 });

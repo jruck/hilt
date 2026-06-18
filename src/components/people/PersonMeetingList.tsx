@@ -1,15 +1,16 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowLeft, CalendarDays, Check, Copy, EyeOff, FolderOpen, Inbox, MoreVertical, Network, Settings } from "lucide-react";
+import { ArrowLeft, CalendarDays, Check, Copy, ExternalLink, EyeOff, FileText, FolderOpen, Inbox, Link as LinkIcon, Loader2, MoreVertical, Network, Plus, Settings, Trash2, Video } from "lucide-react";
 import { useScope } from "@/contexts/ScopeContext";
 import { isGraphEnabled } from "@/lib/graph/config";
 import { buildGraphScope } from "@/components/graph/graph-deeplink";
 import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import MeetingRow from "./MeetingRow";
-import type { PersonCalendarCandidate, PersonDetail, PersonMeeting, SuggestedMeeting } from "@/lib/types";
+import type { PersonActiveMeeting, PersonCalendarCandidate, PersonDetail, PersonMeeting, PersonResourceLink, SuggestedMeeting } from "@/lib/types";
 import { withBasePath } from "@/lib/base-path";
+import { formatHiltMonthDay } from "@/lib/display-date";
 
 type MeetingFilter = "all" | "notes" | "granola";
 
@@ -64,13 +65,20 @@ export function PersonMeetingList({
   const [showPromoteForm, setShowPromoteForm] = useState(false);
   const [showCalendarMenu, setShowCalendarMenu] = useState(false);
   const [showActionsMenu, setShowActionsMenu] = useState(false);
+  const [showResourceForm, setShowResourceForm] = useState(false);
+  const [resourceUrl, setResourceUrl] = useState("");
+  const [resourceLabel, setResourceLabel] = useState("");
+  const [resourcePending, setResourcePending] = useState<"add" | string | null>(null);
+  const [resourceError, setResourceError] = useState<string | null>(null);
   const [promoteType, setPromoteType] = useState<"person" | "group">("group");
   const [description, setDescription] = useState("");
   const [actionPending, setActionPending] = useState<"promote" | "hide" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
-  useMobileChromeVisibilityLock(showConfig || showSuggestedActions || showPromoteForm || showCalendarMenu || showActionsMenu || actionPending !== null);
-  const mobileHeaderChromeEnabled = !(showConfig || showSuggestedActions || showPromoteForm || showCalendarMenu || showActionsMenu || actionPending !== null);
+  const topChromeContentRef = useRef<HTMLDivElement>(null);
+  const [topChromeHeight, setTopChromeHeight] = useState(104);
+  useMobileChromeVisibilityLock(showConfig || showSuggestedActions || showPromoteForm || showCalendarMenu || showActionsMenu || showResourceForm || actionPending !== null || resourcePending !== null);
+  const mobileHeaderChromeEnabled = !(showConfig || showSuggestedActions || showPromoteForm || showCalendarMenu || showActionsMenu || showResourceForm || actionPending !== null || resourcePending !== null);
   const calendarCandidates = person?.calendarLinks.candidates ?? [];
   const selectedCalendarKey = person?.calendarLinks.selectedSeriesKey ?? person?.calendarLinks.primary?.seriesKey ?? null;
 
@@ -125,6 +133,58 @@ export function PersonMeetingList({
     void onSelectCalendarCandidate?.(candidate);
   }, [onSelectCalendarCandidate]);
 
+  const handleAddResource = useCallback(async () => {
+    if (!person) return;
+    const url = resourceUrl.trim();
+    if (!url) {
+      setResourceError("URL is required");
+      return;
+    }
+
+    setResourcePending("add");
+    setResourceError(null);
+    try {
+      const response = await fetch(withBasePath(`/api/bridge/people/${person.slug}/resources`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url,
+          label: resourceLabel.trim() || undefined,
+        }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error || `Save failed with HTTP ${response.status}`);
+      setResourceUrl("");
+      setResourceLabel("");
+      setShowResourceForm(false);
+      await onPersonUpdated?.();
+    } catch (error) {
+      setResourceError(error instanceof Error ? error.message : "Could not save resource");
+    } finally {
+      setResourcePending(null);
+    }
+  }, [onPersonUpdated, person, resourceLabel, resourceUrl]);
+
+  const handleRemoveResource = useCallback(async (resource: PersonResourceLink) => {
+    if (!person) return;
+    setResourcePending(resource.id);
+    setResourceError(null);
+    try {
+      const response = await fetch(withBasePath(`/api/bridge/people/${person.slug}/resources`), {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: resource.id }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error || `Delete failed with HTTP ${response.status}`);
+      await onPersonUpdated?.();
+    } catch (error) {
+      setResourceError(error instanceof Error ? error.message : "Could not remove resource");
+    } finally {
+      setResourcePending(null);
+    }
+  }, [onPersonUpdated, person]);
+
   const handleCopyPersonPath = useCallback(() => {
     if (!person?.personFilePath) return;
     void navigator.clipboard.writeText(person.personFilePath);
@@ -153,9 +213,26 @@ export function PersonMeetingList({
   }, [showActionsMenu]);
 
   useEffect(() => {
+    const element = topChromeContentRef.current;
+    if (!element) return;
+
+    const updateHeight = () => {
+      setTopChromeHeight(Math.max(1, Math.ceil(element.getBoundingClientRect().height)));
+    };
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [person?.slug, inboxMode, suggestedName, showConfig, showSuggestedActions, showPromoteForm, showCalendarMenu, showResourceForm, resourceError, resourcePending]);
+
+  useEffect(() => {
     setShowActionsMenu(false);
     setShowCalendarMenu(false);
     setShowConfig(false);
+    setShowResourceForm(false);
+    setResourceUrl("");
+    setResourceLabel("");
+    setResourceError(null);
   }, [person?.slug, inboxMode, suggestedName]);
 
   const meetingListRef = useRef<HTMLDivElement>(null);
@@ -178,6 +255,7 @@ export function PersonMeetingList({
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
       <MobileChromeTopBar enabled={mobileHeaderChromeEnabled}>
+        <div ref={topChromeContentRef}>
         {/* Header */}
         <div className="flex h-16 items-center border-b border-[var(--border-default)] px-4">
           <div className="flex-1 min-w-0">
@@ -356,6 +434,31 @@ export function PersonMeetingList({
           />
         )}
 
+        {person && !inboxMode && !suggestedName && (
+          <PeopleResourcesSection
+            error={resourceError}
+            label={resourceLabel}
+            onAdd={() => void handleAddResource()}
+            onLabelChange={setResourceLabel}
+            onRemove={(resource) => void handleRemoveResource(resource)}
+            onShowFormChange={setShowResourceForm}
+            onUrlChange={setResourceUrl}
+            pending={resourcePending}
+            resources={person.resources ?? []}
+            showForm={showResourceForm}
+            url={resourceUrl}
+          />
+        )}
+
+        {person && !inboxMode && !suggestedName && (person.activeMeetings ?? []).length > 0 && (
+          <ActiveMeetingsSection
+            meetings={person.activeMeetings ?? []}
+            onOpenCalendar={(meeting) => {
+              navigateTo("calendar", `/event/${encodeURIComponent(meeting.eventId)}/${meeting.start.slice(0, 10)}`);
+            }}
+          />
+        )}
+
       {showSuggestedActions && suggestedName && (
         <div className="flex-shrink-0 px-4 py-3 border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">
           <div className="grid grid-cols-2 gap-2">
@@ -494,11 +597,12 @@ export function PersonMeetingList({
             </div>
           )}
         </div>
+        </div>
       </MobileChromeTopBar>
 
       <MobileChromeContent
         enabled={mobileHeaderChromeEnabled}
-        offset="104px"
+        offset={`${topChromeHeight}px`}
         className="flex min-h-0 flex-1 flex-col overflow-hidden"
       >
         {/* Meeting List */}
@@ -534,6 +638,208 @@ export function PersonMeetingList({
         </div>
       </MobileChromeContent>
     </div>
+  );
+}
+
+function PeopleResourcesSection({
+  error,
+  label,
+  onAdd,
+  onLabelChange,
+  onRemove,
+  onShowFormChange,
+  onUrlChange,
+  pending,
+  resources,
+  showForm,
+  url,
+}: {
+  error: string | null;
+  label: string;
+  onAdd: () => void;
+  onLabelChange: (value: string) => void;
+  onRemove: (resource: PersonResourceLink) => void;
+  onShowFormChange: (value: boolean) => void;
+  onUrlChange: (value: string) => void;
+  pending: "add" | string | null;
+  resources: PersonResourceLink[];
+  showForm: boolean;
+  url: string;
+}) {
+  const hasResources = resources.length > 0;
+  return (
+    <div className="flex-shrink-0 border-b border-[var(--border-default)] px-4 py-2.5">
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Resources</div>
+          {hasResources ? (
+            <div className="flex flex-wrap gap-1.5">
+              {resources.map((resource) => (
+                <span
+                  key={resource.id}
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2 py-1 text-xs text-[var(--text-primary)]"
+                >
+                  <a
+                    href={resource.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-w-0 items-center gap-1.5 hover:text-[var(--interactive-default)]"
+                    title={resource.url}
+                  >
+                    {resource.kind === "web" ? <LinkIcon className="h-3 w-3 flex-shrink-0" /> : <FileText className="h-3 w-3 flex-shrink-0" />}
+                    <span className="truncate">{resource.label}</span>
+                  </a>
+                  <button
+                    type="button"
+                    className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] hover:text-red-500 disabled:cursor-wait disabled:opacity-60"
+                    disabled={pending === resource.id}
+                    onClick={() => onRemove(resource)}
+                    title="Remove resource"
+                  >
+                    {pending === resource.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xs text-[var(--text-tertiary)]">No saved resources</div>
+          )}
+        </div>
+        <button
+          type="button"
+          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+          onClick={() => onShowFormChange(!showForm)}
+          title="Add resource"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      </div>
+      {showForm ? (
+        <form
+          className="mt-2 grid gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onAdd();
+          }}
+        >
+          <input
+            value={url}
+            onChange={(event) => onUrlChange(event.target.value)}
+            placeholder="https://..."
+            className="h-8 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)] focus:border-[var(--interactive-default)]"
+          />
+          <div className="flex items-center gap-2">
+            <input
+              value={label}
+              onChange={(event) => onLabelChange(event.target.value)}
+              placeholder="Label (optional)"
+              className="h-8 min-w-0 flex-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)] focus:border-[var(--interactive-default)]"
+            />
+            <button
+              type="submit"
+              disabled={pending === "add"}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--interactive-default)] px-2.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+            >
+              {pending === "add" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+              Add
+            </button>
+          </div>
+          {error ? <div className="text-xs text-red-500">{error}</div> : null}
+        </form>
+      ) : error ? (
+        <div className="mt-1.5 text-xs text-red-500">{error}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function ActiveMeetingsSection({
+  meetings,
+  onOpenCalendar,
+}: {
+  meetings: PersonActiveMeeting[];
+  onOpenCalendar: (meeting: PersonActiveMeeting) => void;
+}) {
+  return (
+    <div className="flex-shrink-0 border-b border-[var(--border-default)] px-4 py-2.5">
+      <div className="mb-2 text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Active meetings</div>
+      <div className="grid gap-2">
+        {meetings.map((meeting) => (
+          <div key={meeting.seriesKey} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-2.5">
+            <div className="flex min-w-0 items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-[var(--text-primary)]">{meeting.title}</div>
+                <div className="mt-0.5 text-xs text-[var(--text-secondary)]">{formatActiveMeetingTime(meeting)}</div>
+                <div className="mt-0.5 text-[11px] text-[var(--text-tertiary)]">
+                  {meeting.method === "icaluid" ? "iCal UID" : "Title"} · {Math.round(meeting.confidence * 100)}% · {meeting.historicalCount} recording{meeting.historicalCount === 1 ? "" : "s"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => onOpenCalendar(meeting)}
+                className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                title="Open in Calendar"
+              >
+                <CalendarDays className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {meeting.joinLinks.map((link, index) => (
+                <PeopleActionLink
+                  key={`${link.kind}:${link.url}`}
+                  href={link.url}
+                  icon={<Video className="h-3 w-3" />}
+                  label={joinLinkLabel(link.kind)}
+                  primary={index === 0}
+                />
+              ))}
+              {meeting.resourceLinks.map((link) => (
+                <PeopleActionLink
+                  key={`resource:${link.kind}:${link.url}`}
+                  href={link.url}
+                  icon={link.kind === "web" ? <LinkIcon className="h-3 w-3" /> : <FileText className="h-3 w-3" />}
+                  label={link.label}
+                />
+              ))}
+              {meeting.providerUrl ? (
+                <PeopleActionLink
+                  href={meeting.providerUrl}
+                  icon={<ExternalLink className="h-3 w-3" />}
+                  label="Provider"
+                />
+              ) : null}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PeopleActionLink({
+  href,
+  icon,
+  label,
+  primary = false,
+}: {
+  href: string;
+  icon: ReactNode;
+  label: string;
+  primary?: boolean;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className={primary
+        ? "inline-flex h-7 items-center gap-1.5 rounded-md bg-[var(--interactive-default)] px-2 text-xs font-medium text-white hover:bg-[var(--interactive-hover)]"
+        : "inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"}
+      title={href}
+    >
+      {icon}
+      {label}
+    </a>
   );
 }
 
@@ -590,19 +896,40 @@ function CalendarCandidateMenu({
 function formatCandidateShortDate(candidate: PersonCalendarCandidate): string {
   const date = new Date(candidate.start);
   if (Number.isNaN(date.getTime())) return "Calendar";
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return formatHiltMonthDay(date);
 }
 
 function formatCandidateDate(candidate: PersonCalendarCandidate): string {
   const date = new Date(candidate.start);
   if (Number.isNaN(date.getTime())) return candidate.start;
-  return date.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
+  const datePart = formatHiltMonthDay(date);
+  const timePart = date.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
   });
+  return `${datePart}, ${timePart}`;
+}
+
+function formatActiveMeetingTime(meeting: PersonActiveMeeting): string {
+  const start = new Date(meeting.start);
+  const end = new Date(meeting.end);
+  if (Number.isNaN(start.getTime())) return meeting.start;
+  const datePart = formatHiltMonthDay(start);
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+  if (Number.isNaN(end.getTime())) return `${datePart}, ${formatter.format(start)}`;
+  return `${datePart}, ${formatter.format(start)} - ${formatter.format(end)}`;
+}
+
+function joinLinkLabel(kind: PersonActiveMeeting["joinLinks"][number]["kind"]): string {
+  if (kind === "teams") return "Teams";
+  if (kind === "meet") return "Meet";
+  if (kind === "zoom") return "Zoom";
+  return "Link";
 }
 
 // ─── Config Panel ───

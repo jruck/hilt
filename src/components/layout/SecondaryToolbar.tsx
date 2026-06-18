@@ -2,16 +2,21 @@
 
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 
-export const SECONDARY_TOOLBAR_BODY_GUTTER_CLASS = "pt-[13px]";
+export const SECONDARY_CHROME_BODY_GUTTER_CLASS = "pt-3";
+export const SECONDARY_CHROME_INLINE_BODY_GUTTER_CLASS = "pt-5";
+export const SECONDARY_CHROME_MOBILE_OFFSET = "60px";
+export const SECONDARY_TOOLBAR_BODY_GUTTER_CLASS = SECONDARY_CHROME_BODY_GUTTER_CLASS;
 
 export function SecondaryToolbar({
   left,
   right,
   children,
+  allowOverflow = false,
 }: {
   left?: ReactNode;
   right?: ReactNode;
   children?: ReactNode;
+  allowOverflow?: boolean;
 }) {
   const content = children ?? (
     <>
@@ -21,12 +26,43 @@ export function SecondaryToolbar({
   );
 
   return (
-    <div data-secondary-toolbar className="h-11 shrink-0 overflow-hidden px-3 sm:px-5">
-      <div className="scrollbar-none flex h-full w-full items-center overflow-x-auto">
+    <div data-secondary-toolbar className={`h-12 shrink-0 px-3 sm:px-5 ${allowOverflow ? "overflow-visible" : "overflow-hidden"}`}>
+      <div className={`scrollbar-none flex h-full w-full items-center ${allowOverflow ? "overflow-visible" : "overflow-x-auto"}`}>
         <div className="flex min-w-max flex-1 items-center gap-3">
           {content}
         </div>
       </div>
+    </div>
+  );
+}
+
+export function SecondaryChromeContent({
+  children,
+  className = "",
+  topBorder = false,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & {
+  topBorder?: boolean;
+}) {
+  return (
+    <div className={`${SECONDARY_CHROME_BODY_GUTTER_CLASS} ${className}`} {...props}>
+      {topBorder ? (
+        <div className="flex min-h-0 flex-1 overflow-hidden border-t border-[var(--border-default)]">
+          {children}
+        </div>
+      ) : children}
+    </div>
+  );
+}
+
+export function SecondaryInlineContent({
+  children,
+  className = "",
+  ...props
+}: HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div className={`${SECONDARY_CHROME_INLINE_BODY_GUTTER_CLASS} ${className}`} {...props}>
+      {children}
     </div>
   );
 }
@@ -51,7 +87,7 @@ export function SecondarySegmentedButton({
   active,
   icon,
   children,
-  collapseLabel = false,
+  collapseLabel,
   className = "",
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -66,7 +102,7 @@ export function SecondarySegmentedButton({
       {...props}
     >
       {icon}
-      <span className={collapseLabel ? "hidden sm:inline" : undefined}>{children}</span>
+      <span className={(collapseLabel ?? Boolean(icon)) ? "hidden sm:inline" : undefined}>{children}</span>
     </button>
   );
 }

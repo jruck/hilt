@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { FileText, List, Loader2, PanelLeft, RefreshCw, X } from "lucide-react";
+import { CirclePlus, Clock3, FileText, List, Loader2, PanelLeft, RefreshCw, Sparkles, X } from "lucide-react";
 import { useSWRConfig } from "swr";
 import { useScope } from "@/contexts/ScopeContext";
 import type { LibraryArtifact, RecommendedArtifact } from "@/lib/library/types";
@@ -11,7 +11,7 @@ import { buildLibraryUrl, libraryConcreteSource, libraryItemIdFromScope, library
 import { archiveArtifact, ingestLibrarySources, markLibraryArtifactsRead, markLibraryArtifactsUnread, restoreCandidate, setReviewStatus, skipCandidate, useInfiniteLibrary, useRecommendations, useReviewQueue } from "@/hooks/useLibrary";
 import type { ReviewQueueStatus } from "@/lib/library/review-queue";
 import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
-import { SecondaryIconButton, SecondarySegmentedButton, SecondarySegmentedControl, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
+import { SECONDARY_CHROME_BODY_GUTTER_CLASS, SECONDARY_CHROME_MOBILE_OFFSET, SecondaryIconButton, SecondarySegmentedButton, SecondarySegmentedControl, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { ArtifactList, SourceNav } from "./BrowseView";
 import { FeedCard } from "./FeedCard";
@@ -110,7 +110,7 @@ function applyLocalReadState<T extends LibraryArtifact | RecommendedArtifact>(it
     : artifact);
 }
 
-export function LibraryView({ searchQuery }: { searchQuery: string }) {
+export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery: string; activationToken?: number }) {
   const { mutate: mutateGlobal } = useSWRConfig();
   const { scopePath, navigateTo } = useScope();
   const [density, setDensityState] = useState<LibraryDensity>(() => initialLibraryControls().density);
@@ -148,6 +148,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
   const pendingReadIdsRef = useRef<Set<string>>(new Set());
   const readFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const readEligibleIdsRef = useRef<Set<string>>(new Set());
+  const lastActivationTokenRef = useRef<number | null>(null);
   const resizeRef = useRef<{ startX: number; startWidth: number; moved: boolean } | null>(null);
   const selectedChannel = librarySourceChannel(selectedSource);
   const selectedSourceId = libraryConcreteSource(selectedSource);
@@ -250,9 +251,17 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
       key.startsWith("/api/library?") ||
       key.startsWith("/api/library/sources") ||
       key.startsWith("/api/library/recommendations") ||
+      key.startsWith("/api/library/review") ||
+      key.startsWith("/api/library/workbench") ||
       /^\/api\/library\/[^/]+(?:\?.*)?$/.test(key)
     ));
   }, [mutateGlobal, recent, recommendations]);
+
+  useEffect(() => {
+    if (lastActivationTokenRef.current === activationToken) return;
+    lastActivationTokenRef.current = activationToken;
+    refreshReadAwareData();
+  }, [activationToken, refreshReadAwareData]);
 
   const captureFeedScrollAnchor = useCallback((id: string | null) => {
     if (density !== "feed" || !id) return;
@@ -809,20 +818,40 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
             <>
               {searchQuery && <div className="max-w-[180px] truncate text-xs text-[var(--text-tertiary)] sm:max-w-[260px]">Search: {searchQuery}</div>}
               <SecondarySegmentedControl>
-                <SecondarySegmentedButton onClick={() => selectRanking("recent")} active={ranking === "recent"}>
+                <SecondarySegmentedButton
+                  onClick={() => selectRanking("recent")}
+                  active={ranking === "recent"}
+                  icon={<Clock3 className="h-4 w-4" />}
+                  title="Recent"
+                >
                   Recent<span className="ml-1.5 text-xs tabular-nums text-[var(--text-tertiary)]">{recentCount}</span>
                 </SecondarySegmentedButton>
-                <SecondarySegmentedButton onClick={() => selectRanking("for-you")} active={ranking === "for-you"}>
+                <SecondarySegmentedButton
+                  onClick={() => selectRanking("for-you")}
+                  active={ranking === "for-you"}
+                  icon={<Sparkles className="h-4 w-4" />}
+                  title="For You"
+                >
                   For You<span className="ml-1.5 text-xs tabular-nums text-[var(--text-tertiary)]">{forYouCount}</span>
                 </SecondarySegmentedButton>
                 {newCount > 0 && (
-                  <SecondarySegmentedButton onClick={() => selectRanking("new")} active={ranking === "new"}>
+                  <SecondarySegmentedButton
+                    onClick={() => selectRanking("new")}
+                    active={ranking === "new"}
+                    icon={<CirclePlus className="h-4 w-4" />}
+                    title="New"
+                  >
                     New
                     <span className="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[11px] font-medium leading-none text-blue-500 tabular-nums">{newCount}</span>
                   </SecondarySegmentedButton>
                 )}
                 {updatedCount > 0 && (
-                  <SecondarySegmentedButton onClick={() => selectRanking("updated")} active={ranking === "updated"}>
+                  <SecondarySegmentedButton
+                    onClick={() => selectRanking("updated")}
+                    active={ranking === "updated"}
+                    icon={<RefreshCw className="h-4 w-4" />}
+                    title="Updated"
+                  >
                     Updated
                     <span className="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium leading-none text-amber-600 tabular-nums">{updatedCount}</span>
                   </SecondarySegmentedButton>
@@ -846,8 +875,8 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
       </MobileChromeTopBar>
 
       <MobileChromeContent
-        offset="calc(var(--hilt-mobile-top-chrome-height) + 13px)"
-        inactiveClassName="pt-[13px]"
+        offset={SECONDARY_CHROME_MOBILE_OFFSET}
+        inactiveClassName={SECONDARY_CHROME_BODY_GUTTER_CLASS}
         className={`flex min-h-0 flex-1 flex-col overflow-hidden ${resizing ? "select-none" : ""}`}
       >
         <div className="relative flex min-h-0 flex-1 overflow-hidden border-t border-[var(--border-default)]">
@@ -901,7 +930,7 @@ export function LibraryView({ searchQuery }: { searchQuery: string }) {
           )}
 
           <div
-            className={`${mobileReaderVisible ? "hidden" : "flex"} ${desktopReaderVisible ? "lg:flex lg:w-[var(--library-content-width)] lg:flex-none lg:shrink-0" : "lg:flex lg:flex-1"} min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-primary)]`}
+            className={`relative z-0 ${mobileReaderVisible ? "hidden" : "flex"} ${desktopReaderVisible ? "lg:flex lg:w-[var(--library-content-width)] lg:flex-none lg:shrink-0" : "lg:flex lg:flex-1"} min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-primary)]`}
             style={{ "--library-content-width": `${contentWidth}px` } as CSSProperties}
           >
             {density === "feed" ? (

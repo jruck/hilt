@@ -17,6 +17,10 @@ cd "$PROJECT_DIR"
 export HOME="${HOME:-/Users/$(whoami)}"
 export DATA_DIR="${DATA_DIR:-$HOME/.hilt/data}"
 export WS_PORT="${WS_PORT:-3100}"
+# The ws-server owns background sync daemons. The superseded launchd dev
+# wrapper enabled Granola here; keep that contract when the supervisor owns
+# ws-server so meeting notes continue syncing after reboot/cutover.
+export HILT_GRANOLA_SYNC_DAEMON="${HILT_GRANOLA_SYNC_DAEMON:-1}"
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 if [ -d "$HOME/.nvm/versions/node" ]; then
     NODE_DIR=$(ls -1 "$HOME/.nvm/versions/node" | tail -1)

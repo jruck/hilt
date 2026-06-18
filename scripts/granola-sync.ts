@@ -1,6 +1,9 @@
+import { loadEnvConfig } from "@next/env";
 import { disableObsidianGranolaSync, getObsidianHandoffStatus, restoreObsidianGranolaSync } from "../src/lib/granola/handoff";
 import { getGranolaSyncStatus, runGranolaSync } from "../src/lib/granola/sync";
 import type { GranolaSyncMode } from "../src/lib/granola/types";
+
+loadEnvConfig(process.cwd());
 
 async function main() {
   const [command = "status", ...args] = process.argv.slice(2);

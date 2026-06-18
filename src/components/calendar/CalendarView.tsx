@@ -56,7 +56,9 @@ import {
 } from "@/lib/calendar/deeplink";
 import { calendarSourcesNeedSync } from "@/lib/calendar/freshness";
 import { LoadingState } from "@/components/ui/LoadingState";
+import { SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
 import { displayCalendarEventTitle } from "@/lib/calendar/title";
+import { formatHiltMonthYear, formatHiltWeekdayDate, formatHiltWeekRange } from "@/lib/display-date";
 import type { CalendarDefinition, CalendarEvent, CalendarSource } from "@/lib/calendar/types";
 import { isVisibleCalendarForegroundEvent } from "@/lib/calendar/visibility";
 import type { WeatherForecastDay, WeatherIconKey } from "@/lib/weather/types";
@@ -153,8 +155,6 @@ const MINI_MONTH_OFFSETS = Array.from(
   (_, index) => index - MINI_MONTH_PAST_MONTHS,
 );
 const MINI_MONTH_WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
-const MINI_MONTH_LABEL_FORMATTER = new Intl.DateTimeFormat(undefined, { timeZone: TIME_ZONE, month: "long", year: "numeric" });
-const MINI_MONTH_DAY_LABEL_FORMATTER = new Intl.DateTimeFormat(undefined, { timeZone: TIME_ZONE, weekday: "long", month: "long", day: "numeric", year: "numeric" });
 const EVERCOMMERCE_WORKDAY_START_HOUR = 9;
 const EVERCOMMERCE_WORKDAY_END_HOUR = 17;
 const EMPTY_SOURCES: CalendarSource[] = [];
@@ -184,13 +184,24 @@ function isCalendarMobileViewport(): boolean {
   return typeof window !== "undefined" && window.matchMedia(MOBILE_CALENDAR_MEDIA_QUERY).matches;
 }
 
+type MiniMonthsVisiblePreference = boolean | null | "unavailable";
+
+function readMiniMonthsVisiblePreference(): MiniMonthsVisiblePreference {
+  if (typeof window === "undefined") return "unavailable";
+  try {
+    const stored = window.localStorage.getItem(MINI_MONTHS_VISIBLE_STORAGE_KEY);
+    if (stored === "true") return true;
+    if (stored === "false") return false;
+    return null;
+  } catch {
+    return "unavailable";
+  }
+}
+
 function defaultMiniMonthsVisible(): boolean {
   if (typeof window === "undefined" || isCalendarMobileViewport()) return false;
-  try {
-    return window.localStorage.getItem(MINI_MONTHS_VISIBLE_STORAGE_KEY) === "true";
-  } catch {
-    return false;
-  }
+  const preference = readMiniMonthsVisiblePreference();
+  return preference === "unavailable" ? true : preference ?? true;
 }
 
 function useCalendarMobileViewport(): boolean {
@@ -227,11 +238,11 @@ function dateFromPlainDate(date: string, time = "12:00"): Date {
 }
 
 function formatMiniMonthLabel(monthDate: string): string {
-  return MINI_MONTH_LABEL_FORMATTER.format(dateFromPlainDate(monthDate));
+  return formatHiltMonthYear(dateFromPlainDate(monthDate), TIME_ZONE);
 }
 
 function formatMiniMonthDayLabel(date: string): string {
-  return MINI_MONTH_DAY_LABEL_FORMATTER.format(dateFromPlainDate(date));
+  return formatHiltWeekdayDate(dateFromPlainDate(date), { timeZone: TIME_ZONE });
 }
 
 function buildMiniMonth(anchorDate: string, monthOffset: number): MiniMonthModel {
@@ -529,14 +540,13 @@ function shiftPlainDate(date: string, mode: CalendarMode, direction: -1 | 1): st
 function formatCalendarTitle(mode: CalendarMode, selectedDate: string): string {
   const date = dateFromPlainDate(selectedDate);
   if (mode === "day") {
-    return new Intl.DateTimeFormat(undefined, { timeZone: TIME_ZONE, weekday: "long", month: "long", day: "numeric" }).format(date);
+    return formatHiltWeekdayDate(date, { includeYear: false, timeZone: TIME_ZONE });
   }
   if (mode === "week") {
     const range = rangeAround(mode, selectedDate);
-    const formatter = new Intl.DateTimeFormat(undefined, { timeZone: TIME_ZONE, month: "short", day: "numeric" });
-    return `${formatter.format(range.start)} - ${formatter.format(range.end)}`;
+    return formatHiltWeekRange(range.start, range.end, { includeYear: false, timeZone: TIME_ZONE });
   }
-  return new Intl.DateTimeFormat(undefined, { timeZone: TIME_ZONE, month: "long", year: "numeric" }).format(date);
+  return formatHiltMonthYear(date, TIME_ZONE);
 }
 
 function formatHourLabel(hour: number): string {
@@ -567,16 +577,11 @@ function WeekGridDateHeader({
 }) {
   if (!date) return null;
   const plainDate = Temporal.PlainDate.from(date);
-  const fullDate = new Intl.DateTimeFormat(undefined, {
-    timeZone: TIME_ZONE,
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  }).format(dateFromPlainDate(date));
+  const fullDate = formatHiltWeekdayDate(dateFromPlainDate(date), { includeYear: false, timeZone: TIME_ZONE });
   const weekday = new Intl.DateTimeFormat(undefined, {
     timeZone: TIME_ZONE,
     weekday: "short",
-  }).format(dateFromPlainDate(date)).toUpperCase();
+  }).format(dateFromPlainDate(date));
 
   return (
     <div className="hilt-week-grid-date-header">
@@ -1271,6 +1276,11 @@ export function CalendarView() {
 
   useEffect(() => {
     if (typeof window === "undefined" || isCalendarMobile) return;
+    const preference = readMiniMonthsVisiblePreference();
+    if (preference === null && !miniMonthsVisible) {
+      setMiniMonthsVisible(true);
+      return;
+    }
     try {
       window.localStorage.setItem(MINI_MONTHS_VISIBLE_STORAGE_KEY, miniMonthsVisible ? "true" : "false");
     } catch {
@@ -1383,8 +1393,9 @@ export function CalendarView() {
   return (
     <div className="h-full min-h-0 bg-[var(--bg-primary)] text-[var(--text-primary)]" data-testid="calendar-view">
       <div className="flex h-full min-h-0 flex-col">
-        <div className="relative z-30 shrink-0 px-3 py-2 sm:px-5">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="relative z-30 shrink-0">
+          <SecondaryToolbar allowOverflow>
+          <div className="flex w-full flex-wrap items-center gap-2">
             <div className="order-1 flex min-w-0 flex-1 items-center gap-2 sm:order-none">
               <div className="min-w-[128px] max-w-full shrink truncate text-sm font-semibold sm:text-base" data-testid="calendar-title">{formatCalendarTitle(mode, selectedDate)}</div>
 
@@ -1413,7 +1424,8 @@ export function CalendarView() {
                   type="button"
                   onClick={goToday}
                 >
-                  Today
+                  <span>Today</span>
+                  <i className="calendar-period-today-dot" aria-hidden="true" />
                 </button>
                 <button
                   aria-label="Next period"
@@ -1462,6 +1474,7 @@ export function CalendarView() {
               />
             </div>
           </div>
+          </SecondaryToolbar>
         </div>
 
         {syncError ? (

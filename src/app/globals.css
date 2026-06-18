@@ -309,6 +309,10 @@ input, textarea, select, [contenteditable] {
   border-color: var(--hilt-card-hover-border);
 }
 
+.hilt-card-static {
+  --hilt-card-hover-border: var(--hilt-card-border);
+}
+
 .hilt-card-selected,
 .hilt-card-accent {
   --hilt-card-border: var(--interactive-default);
@@ -2001,6 +2005,17 @@ body [data-radix-popper-content-wrapper]::after {
    Briefing Footnotes
    ============================================ */
 
+.briefing-content a {
+  color: var(--interactive-default);
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+.briefing-content a:hover {
+  color: var(--interactive-hover);
+  text-decoration: underline;
+}
+
 /* Footnote reference links (superscript in body text) */
 .briefing-content [data-footnote-ref] {
   font-size: 0.7em;
@@ -2015,6 +2030,21 @@ body [data-radix-popper-content-wrapper]::after {
 
 .briefing-content [data-footnote-ref]:hover {
   color: var(--interactive-hover) !important;
+}
+
+.briefing-link {
+  color: var(--interactive-default);
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+.briefing-link:hover {
+  color: var(--interactive-hover);
+  text-decoration: underline;
+}
+
+.briefing-citation-link {
+  font-size: 10px;
 }
 
 /* Footnotes section at bottom */
@@ -2232,6 +2262,14 @@ body[data-dev-focus="inspector"] [data-feedback-toolbar] {
   background: var(--bg-elevated);
   color: var(--text-primary);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.calendar-period-today-dot {
+  display: none;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 9999px;
+  background: currentColor;
 }
 
 .calendar-mini-month-strip {
@@ -2808,6 +2846,10 @@ body[data-dev-focus="inspector"] [data-feedback-toolbar] {
   .calendar-mode-button {
     width: 2.25rem;
     padding: 0;
+  }
+
+  .calendar-period-today-dot {
+    display: block;
   }
 
   .calendar-text-button {

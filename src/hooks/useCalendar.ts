@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import useSWR, { mutate as mutateCache } from "swr";
 import type {
   CalendarDefinition,
@@ -9,6 +10,7 @@ import type {
   CalendarSyncReport,
 } from "@/lib/calendar/types";
 import { withBasePath } from "@/lib/base-path";
+import { useEventSocketContext } from "@/contexts/EventSocketContext";
 
 export interface CalendarSourcesResponse {
   sources: CalendarSource[];
@@ -39,6 +41,7 @@ const fetcher = async <T>(url: string): Promise<T> => {
 };
 
 const CALENDAR_DEDUPING_INTERVAL_MS = 60 * 1000;
+const CALENDAR_EVENTS_REFRESH_INTERVAL_MS = 60 * 1000;
 
 export function useCalendarSetupStatus() {
   return useSWR<CalendarSetupStatus>("/api/calendar/setup/status", fetcher);
@@ -56,10 +59,13 @@ export function useCalendarHealth() {
 }
 
 export function useCalendarEvents(query: CalendarEventQuery) {
+  useCalendarCacheInvalidation();
+
   return useSWR<CalendarEventsResponse>(calendarEventsKey(query), fetcher, {
     dedupingInterval: CALENDAR_DEDUPING_INTERVAL_MS,
     keepPreviousData: true,
     revalidateOnFocus: false,
+    refreshInterval: CALENDAR_EVENTS_REFRESH_INTERVAL_MS,
   });
 }
 
@@ -102,6 +108,22 @@ export async function mutateCalendarCaches() {
     mutateCache("/api/calendar/health"),
     mutateCache((key) => typeof key === "string" && key.startsWith("/api/calendar/events")),
   ]);
+}
+
+function useCalendarCacheInvalidation() {
+  const { connected, subscribe, unsubscribe, on } = useEventSocketContext();
+
+  useEffect(() => {
+    if (!connected) return;
+    subscribe("calendar");
+    const unsubscribeHandler = on("calendar", "changed", () => {
+      void mutateCalendarCaches();
+    });
+    return () => {
+      unsubscribeHandler();
+      unsubscribe("calendar");
+    };
+  }, [connected, on, subscribe, unsubscribe]);
 }
 
 function calendarEventsKey(query: CalendarEventQuery): string {

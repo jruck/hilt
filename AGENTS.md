@@ -98,12 +98,21 @@ Views: `bridge`, `people`, `briefings`, `library`, `docs`, `system`
 ## Development
 
 ```bash
-npm run app       # Build the dev-mode macOS app (dist/Hilt.app)
+npm run app:prod  # Build the prod-mode macOS app (dist/Hilt.app) — recommended daily driver
+npm run rebuild   # ~30s: rebuild .next-prod; a running supervised server restarts itself
+npm run app       # Build the dev-mode macOS app (hot reload, for hacking on Hilt)
+npm run supervisor:install   # Server machines: launchd-supervised serving stack
+npm run supervisor:status    # Heartbeat + launchctl state (also :run / :uninstall)
 npm run dev:all   # Or run in browser: Next.js + WebSocket servers
 npm run test:library
 npm run test:system
 ```
 
-**Electron app**: `npm run app` compiles TypeScript and creates `dist/Hilt.app` — a dev-mode launcher with hot reload. This is the daily-driver app. Drag it to the Dock, launch from Spotlight/Raycast, etc. Re-run `npm run app` after changing `electron/main.ts`.
+⚠️ `npm run rebuild` breaks a RUNNING terminal `next dev` on this checkout (Next clobbers
+`.next/dev` even with an overridden dist dir — ARCHITECTURE §7). Supervised topologies are immune.
 
-**"Build the Electron app"** = `npm run app` (dev mode). Production builds (`electron:dist:mac`) are only for distribution and are rarely needed.
+**Agent rule**: after user-visible app code changes (UI, API/server behavior, shared app libraries), run `npm run rebuild` before the final response so the prod daily-driver app picks up the change. Skip it for docs-only/test-only changes, or when the user explicitly says not to; if skipped for any other reason, say why.
+
+**Electron app**: `npm run app:prod` / `npm run app` compile TypeScript and create `dist/Hilt.app` — same bundle; the launcher env only seeds the *initial* mode. The mode itself is runtime state (`${DATA_DIR}/app-mode.json`) switchable live from the SourceToggle dropdown ("Server mode" section, Electron-supervised servers only): to dev = quick restart with hot reload; to prod = rebuild (~30s, old server keeps serving) then swap. The dropdown also badges the active source `dev` / `prod · built 2h ago`. Prod mode serves a production build from `.next-prod` (React production mode, ~2x faster rendering); after code changes run `npm run rebuild` — the running app detects the new build, restarts only its Next.js child, and reloads the window (no app relaunch). Re-run `npm run app`/`app:prod` after changing `electron/main.ts`.
+
+**"Build the Electron app"** = `npm run app:prod` (or `npm run app` for dev mode). Production *distribution* builds (`electron:dist:mac`) are only for shipping and are rarely needed.

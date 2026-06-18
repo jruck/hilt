@@ -10,7 +10,9 @@ import { formatXurlFailureMessage, parseTwitterBookmarks } from "./adapters/twit
 import { fetchRaindropArtifacts } from "./adapters/raindrop";
 import { fetchYouTubeArtifacts } from "./adapters/youtube";
 import { buildCandidateMarkdown, listCandidates } from "./candidate-cache";
+import { captureFailed } from "./capture-health";
 import { parseConnectionJudgment } from "./connection-prompt";
+import { connectionPassState } from "./connection-state";
 import { detectRateLimit, detectRateLimitInEnvelope } from "./connections";
 import { unresolvedDeadLetterSources } from "./dead-letter";
 import * as digestion from "./digestion";
@@ -36,6 +38,7 @@ import { loadSources } from "./source-config";
 import { parseTimedTranscript } from "./transcript";
 import { buildLibraryItemUrl, buildLibraryUrl, libraryItemIdFromScope, libraryItemScope, parseLibraryControls } from "./url";
 import { buildWorkbenchRows } from "./workbench";
+import { cleanXVideoSubtitleContent } from "./x-video-transcript";
 import type { ConnectionSuggestion, LibrarySourceConfig, ProcessedArtifact, RawArtifact } from "./types";
 import { detectYouTubeContentForm, parseYouTubeDurationSeconds } from "./youtube-clip-detector";
 
@@ -319,6 +322,125 @@ test("parses X video media previews and embed hints from bookmarks", () => {
     type: "video",
     source: "x_bookmark",
   }]);
+});
+
+test("synthesizes X video urls from attached media when no expanded video url is present", () => {
+  const source: LibrarySourceConfig = {
+    id: "twitter-bookmarks",
+    name: "X bookmarks",
+    channel: "twitter",
+    url: "x://bookmarks",
+    enabled: true,
+    cadence: "hourly",
+    intent: "explicit_save",
+    signal: "twitter_bookmark",
+    retention: { mode: "durable", candidate_ttl_days: 30, auto_promote_threshold: 0.85 },
+    backfill: { enabled: true, mode: "checkpointed" },
+    tags: [],
+    filters: { include_topics: [], exclude_topics: [] },
+    metadata: {},
+    path: "",
+  };
+  const [artifact] = parseTwitterBookmarks(source, {
+    data: [{
+      id: "789",
+      text: "A useful video without an entity URL",
+      created_at: "2026-05-27T00:00:00Z",
+      author_id: "u1",
+      attachments: { media_keys: ["v1"] },
+    }],
+    includes: {
+      users: [{ id: "u1", username: "justin", name: "Justin" }],
+      media: [{ media_key: "v1", type: "video", preview_image_url: "https://img.example/video-preview.jpg", duration_ms: 123400 }],
+    },
+  });
+
+  assert.equal(artifact.url, "https://x.com/justin/status/789");
+  assert.equal(artifact.metadata.video_url, "https://x.com/justin/status/789/video/1");
+  assert.equal(artifact.metadata.video_duration_seconds, 123);
+});
+
+test("cleans X video VTT word markup into timestamped transcript text", () => {
+  const transcript = cleanXVideoSubtitleContent(`WEBVTT
+
+00:00:00.000 --> 00:00:01.860
+<X-word-ms ms=60,200 index=1 character_ranges=0-0,1-6>I think we're AI-pilled.</X-word-ms>
+
+00:00:01.980 --> 00:00:03.180
+<X-word-ms ms=140,80 index=2 character_ranges=0-2,3-5>And if you're AI-pilled, that</X-word-ms>
+`);
+
+  assert.equal(transcript, "[0:00] I think we're AI-pilled.\n[0:01] And if you're AI-pilled, that");
+  assert.doesNotMatch(transcript, /X-word-ms|character_ranges/);
+});
+
+test("X video captures require an X transcript cache, not wrapper tweet metadata", () => {
+  const body = `# Video tweet
+
+## Raw Content
+
+<details>
+<summary>Full source cache</summary>
+
+Good interview Author: Elon Musk Published: 2026-06-12T06:19:00.000Z Links: https://x.com/BG2Pod/status/2065217980141908034/video/1
+
+</details>`;
+
+  assert.equal(captureFailed({
+    body,
+    frontmatter: {
+      video_url: "https://x.com/BG2Pod/status/2065217980141908034/video/1",
+      digested_with: "summarize-cli",
+      cached_source_extractor: "source-metadata",
+    },
+  }), true);
+  assert.equal(captureFailed({
+    body,
+    frontmatter: {
+      video_url: "https://x.com/BG2Pod/status/2065217980141908034/video/1",
+      digested_with: "summarize-cli",
+      cached_source_extractor: "x-video-subtitles",
+    },
+  }), false);
+  assert.equal(captureFailed({
+    body,
+    frontmatter: {
+      video_url: "https://x.com/BG2Pod/status/2065217980141908034/video/1",
+      digested_with: "summarize-cli",
+      cached_source_extractor: "source-metadata",
+      x_video_transcript_status: "unavailable_no_audio",
+    },
+  }), false);
+});
+
+test("capture health ignores Source Notes when judging metadata-only X article stubs", () => {
+  const body = `# Factory 2.0: From coding agents to software factories
+
+Content unavailable — X Notes article could not be fetched.
+
+## Raw Content
+
+<details>
+<summary>Full source cache</summary>
+
+https://t.co/Yp4MzETtYs Author: Matan Grinberg Published: 2026-06-15T17:46:26.000Z Links: http://x.com/i/article/2066394250074599424
+
+</details>
+
+## Source Notes
+
+- Fetched full X post text for digest context.
+- Used X/Twitter source text as canonical source metadata.
+`;
+
+  assert.equal(captureFailed({
+    body,
+    frontmatter: {
+      digested_with: "source-metadata",
+      cached_source_chars: 132,
+      cached_source_extractor: "source-metadata",
+    },
+  }), true);
 });
 
 test("extracts representative Open Graph media for article captures", () => {
@@ -2645,6 +2767,17 @@ reconnected_at: '2026-05-01T12:00:00.000Z'
 ---
 # Already Reconnected
 `, "utf-8");
+  fs.writeFileSync(path.join(vault, "references", "attention-judged-abstain.md"), `---
+type: reference
+title: Attention Judged Abstain
+library_mode: study
+digestion_status: hot
+attention_judgment:
+  tier: low
+  reason: No active-work tie.
+---
+# Attention Judged Abstain
+`, "utf-8");
   fs.writeFileSync(path.join(candidateDir, "pending-candidate.md"), `---
 type: reference-candidate
 title: Pending Candidate
@@ -2699,6 +2832,7 @@ reweave_pending: true
   assert.deepEqual(findReweavePendingTargets(vault, { limit: 1 }).map((target) => target.relative_path), [
     "references/pending-old.md",
   ]);
+  assert.equal(connectionPassState({ attention_judgment: { tier: "low", reason: "No active-work tie." } }), "abstained");
 });
 
 test("detectRateLimitInEnvelope never flags a successful result, even one ABOUT rate limits", () => {
@@ -2886,6 +3020,74 @@ fixtures: []
   assert.match(health.scheduler.jobs[0].stderr_excerpt || "", /DEP0205/);
   assert.doesNotMatch(health.scheduler.jobs[0].stderr_excerpt || "", /^nstead/);
   assert.doesNotMatch(health.scheduler.jobs[0].stderr_excerpt || "", /^\(Use `node --trace-deprecation/);
+});
+
+test("library health treats refetch recovered lines as scheduler progress", () => {
+  const vault = tempVault();
+  writeSource(vault, "health.yaml", `
+id: health-source
+name: Health Source
+channel: fixture
+url: fixture://health
+enabled: true
+intent: discovery
+fixtures: []
+`);
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-library-logs-"));
+  const stderr = path.join(logDir, "job.err.log");
+  const stdout = path.join(logDir, "job.out.log");
+  fs.writeFileSync(stderr, [
+    "[refetch] RECOVERED    2026-05-05-the-validator",
+    "[refetch] RECOVERED    2026-06-02-a-harness-for-every-task-dynamic-workflows-in-cla",
+    "",
+  ].join("\n"), "utf-8");
+  fs.writeFileSync(stdout, "ok\n", "utf-8");
+
+  const health = getLibraryOperationalHealth(vault, {
+    launchctl: () => "last exit code = 0",
+    schedulerJobs: [{
+      id: "refetch",
+      label: "com.hilt.library.refetch",
+      script: "library:refetch",
+      schedule: { hour: 4, minute: 45 },
+      stdout,
+      stderr,
+    }],
+  });
+  assert.equal(health.scheduler.jobs[0].status, "ok");
+  assert.match(health.scheduler.jobs[0].message || "", /known scheduler noise/);
+});
+
+test("library health keeps failed refetch outcomes actionable", () => {
+  const vault = tempVault();
+  writeSource(vault, "health.yaml", `
+id: health-source
+name: Health Source
+channel: fixture
+url: fixture://health
+enabled: true
+intent: discovery
+fixtures: []
+`);
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-library-logs-"));
+  const stderr = path.join(logDir, "job.err.log");
+  const stdout = path.join(logDir, "job.out.log");
+  fs.writeFileSync(stderr, "[refetch] STILL_FAILED 2026-05-05-the-validator\n", "utf-8");
+  fs.writeFileSync(stdout, "ok\n", "utf-8");
+
+  const health = getLibraryOperationalHealth(vault, {
+    launchctl: () => "last exit code = 0",
+    schedulerJobs: [{
+      id: "refetch",
+      label: "com.hilt.library.refetch",
+      script: "library:refetch",
+      schedule: { hour: 4, minute: 45 },
+      stdout,
+      stderr,
+    }],
+  });
+  assert.equal(health.scheduler.jobs[0].status, "warning");
+  assert.match(health.scheduler.jobs[0].message || "", /STILL_FAILED/);
 });
 
 test("library health surfaces actionable scheduler stderr in warning message", () => {

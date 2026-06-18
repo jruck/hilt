@@ -32,6 +32,7 @@ const SystemView = dynamic(() => import("./system").then(m => ({ default: m.Syst
 const SYSTEM_MODE_STORAGE_KEY = "hilt-system-mode";
 const PEOPLE_SCOPE_STORAGE_KEY = "hilt-people-scope";
 const HUD_VISIBILITY_STORAGE_KEY = "hilt-app-hud-visible";
+const BRIDGE_MODE_STORAGE_KEY = "hilt-bridge-mode";
 const CALENDAR_WARMUP_DELAY_MS = 1_200;
 const CALENDAR_WARMUP_IDLE_TIMEOUT_MS = 4_000;
 
@@ -126,6 +127,25 @@ function getStoredPeopleScope(): string {
   return scope.startsWith("/") ? scope : `/${scope}`;
 }
 
+function isBridgeMode(value: string | null): value is BridgeMode {
+  return value === "briefing" || value === "priorities";
+}
+
+function bridgePrefixForMode(mode: BridgeMode): ViewPrefix {
+  return mode === "priorities" ? "bridge" : "briefings";
+}
+
+function getStoredBridgeMode(): BridgeMode {
+  if (typeof window === "undefined") return "briefing";
+  const stored = localStorage.getItem(BRIDGE_MODE_STORAGE_KEY);
+  return isBridgeMode(stored) ? stored : "briefing";
+}
+
+function storeBridgeMode(mode: BridgeMode) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(BRIDGE_MODE_STORAGE_KEY, mode);
+}
+
 export function Board() {
   // Scope path and view mode from context — URL-based routing
   const { scopePath, setScopePath, viewMode: urlViewMode, setViewMode: setUrlViewMode, replaceViewMode, navigateTo } = useScope();
@@ -158,7 +178,7 @@ export function Board() {
   // Unified setter
   const setViewMode = useCallback((mode: ViewMode) => {
     if (mode === "bridge") {
-      setUrlViewMode("briefings");
+      navigateTo(bridgePrefixForMode(getStoredBridgeMode()), "");
     } else if (mode === "docs") {
       setUrlViewMode("docs");
     } else if (mode === "briefings") {
@@ -181,12 +201,14 @@ export function Board() {
   }, [navigateTo, setUrlViewMode, stackScopePath, systemMode]);
 
   const setBridgeMode = useCallback((mode: BridgeMode) => {
-    setUrlViewMode(mode === "briefing" ? "briefings" : "bridge");
-  }, [setUrlViewMode]);
+    storeBridgeMode(mode);
+    navigateTo(bridgePrefixForMode(mode), "");
+  }, [navigateTo]);
 
   const openPriorities = useCallback(() => {
-    setUrlViewMode("bridge");
-  }, [setUrlViewMode]);
+    storeBridgeMode("priorities");
+    navigateTo("bridge", "");
+  }, [navigateTo]);
 
   const setSystemMode = useCallback((mode: SystemMode) => {
     if (typeof window !== "undefined") {
@@ -240,6 +262,15 @@ export function Board() {
     }
   }, [viewMode, isHydrated]);
 
+  useEffect(() => {
+    if (!isHydrated) return;
+    if (urlViewMode === "briefings") {
+      storeBridgeMode("briefing");
+    } else if (urlViewMode === "bridge") {
+      storeBridgeMode("priorities");
+    }
+  }, [isHydrated, urlViewMode]);
+
 
   // Fetch workingFolder from server
   useEffect(() => {
@@ -256,10 +287,14 @@ export function Board() {
   const isMobile = useIsMobile();
   const { hasUnread: hasBriefingUnread } = useBriefingUnread();
   const { hasUnread: hasLibraryUnread, markVisited: markLibraryVisited } = useLibraryUnread();
+  const [libraryActivationToken, setLibraryActivationToken] = useState(0);
   // Opening the Library tab clears its nav dot: stamp the visit so the dot only returns when NEW
-  // items arrive afterward (not just because unread items still exist).
+  // items arrive afterward (not just because unread items still exist). It also bumps an activation
+  // token so LibraryView revalidates its cached feed when switching back from another tab.
   useEffect(() => {
-    if (viewMode === "library") void markLibraryVisited();
+    if (viewMode !== "library") return;
+    void markLibraryVisited();
+    setLibraryActivationToken((token) => token + 1);
   }, [viewMode, markLibraryVisited]);
   const unreadTabs = useMemo(() => {
     const tabs = new Set<string>();
@@ -267,7 +302,7 @@ export function Board() {
     if (hasLibraryUnread) tabs.add("library");
     return tabs.size ? tabs : undefined;
   }, [hasBriefingUnread, hasLibraryUnread]);
-  const usesWorkspaceGutter = !isMobile && (viewMode === "docs" || viewMode === "people" || viewMode === "system" || viewMode === "library" || viewMode === "calendar");
+  const usesWorkspaceGutter = !isMobile && (viewMode === "bridge" || viewMode === "briefings" || viewMode === "docs" || viewMode === "people" || viewMode === "system" || viewMode === "library" || viewMode === "calendar");
   const usesWorkspaceTopBorder = !isMobile && (viewMode === "docs" || viewMode === "people");
 
   // Search state
@@ -276,12 +311,13 @@ export function Board() {
   const [bridgeTaskOpenRequest, setBridgeTaskOpenRequest] = useState<BridgeTaskOpenRequest | null>(null);
 
   const openBridgeTaskFromHud = useCallback((taskId: string) => {
-    setUrlViewMode("bridge");
+    storeBridgeMode("priorities");
+    navigateTo("bridge", "");
     setBridgeTaskOpenRequest((current) => ({
       taskId,
       token: (current?.token ?? 0) + 1,
     }));
-  }, [setUrlViewMode]);
+  }, [navigateTo]);
 
   const openCalendarEventFromHud = useCallback((detail: CalendarEventOpenDetail) => {
     if (typeof window !== "undefined") {
@@ -382,6 +418,9 @@ export function Board() {
             onHudVisibleChange={setHudVisible}
             searchQuery={searchQuery}
             onBridgeModeChange={setBridgeMode}
+            onNavigateToArea={(area) => {
+              navigateTo("docs", area.indexPath);
+            }}
             onNavigateToProject={(project) => {
               navigateTo("docs", project.path);
             }}
@@ -402,11 +441,17 @@ export function Board() {
             scopePath={graphScopePath}
           />
         ) : viewMode === "briefings" ? (
-          <BriefingsView onBridgeModeChange={setBridgeMode} />
+          <BriefingsView
+            hudVisible={hudVisible}
+            onHudVisibleChange={setHudVisible}
+            onOpenCalendarEvent={openCalendarEventFromHud}
+            onOpenTask={openBridgeTaskFromHud}
+            onBridgeModeChange={setBridgeMode}
+          />
         ) : viewMode === "calendar" ? (
           <CalendarView />
         ) : viewMode === "library" ? (
-          <LibraryView searchQuery={searchQuery} />
+          <LibraryView searchQuery={searchQuery} activationToken={libraryActivationToken} />
         ) : viewMode === "people" ? (
           <PeopleView searchQuery={searchQuery} />
         ) : null}
@@ -423,6 +468,9 @@ export function Board() {
             onOpenCalendarEvent={openCalendarEventFromHud}
             searchQuery={searchQuery}
             onBridgeModeChange={setBridgeMode}
+            onNavigateToArea={(area) => {
+              navigateTo("docs", area.indexPath);
+            }}
             onNavigateToProject={(project) => {
               navigateTo("docs", project.path);
             }}
@@ -443,11 +491,15 @@ export function Board() {
             scopePath={graphScopePath}
           />
         ) : viewMode === "briefings" ? (
-          <BriefingsView onBridgeModeChange={setBridgeMode} />
+          <BriefingsView
+            onOpenCalendarEvent={openCalendarEventFromHud}
+            onOpenTask={openBridgeTaskFromHud}
+            onBridgeModeChange={setBridgeMode}
+          />
         ) : viewMode === "calendar" ? (
           <CalendarView />
         ) : viewMode === "library" ? (
-          <LibraryView searchQuery={searchQuery} />
+          <LibraryView searchQuery={searchQuery} activationToken={libraryActivationToken} />
         ) : viewMode === "people" ? (
           <PeopleView searchQuery={searchQuery} />
         ) : null}

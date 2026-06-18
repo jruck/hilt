@@ -14,6 +14,12 @@ export interface CalendarJoinLink {
   label: string;
 }
 
+export interface CalendarResourceLink {
+  kind: "doc" | "sheet" | "slide" | "office" | "sharepoint" | "web";
+  url: string;
+  label: string;
+}
+
 export interface CalendarEventNoteTarget {
   kind: "person-next";
   slug: string;
@@ -96,6 +102,7 @@ export interface CalendarEvent {
   description: string | null;
   location: string | null;
   joinLinks: CalendarJoinLink[];
+  resourceLinks: CalendarResourceLink[];
   attendees: CalendarParticipant[];
   organizer: CalendarParticipant | null;
   recurrence: {
@@ -157,6 +164,7 @@ export interface CalendarEventInput {
   description: string | null;
   location: string | null;
   joinLinks: CalendarJoinLink[];
+  resourceLinks?: CalendarResourceLink[];
   attendees: CalendarParticipant[];
   organizer: CalendarParticipant | null;
   recurrence: CalendarEvent["recurrence"];

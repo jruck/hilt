@@ -3,13 +3,14 @@ import * as path from "path";
 import Database from "better-sqlite3";
 import { CALENDAR_SOURCE_CONFIGS, getCalendarDbPath, hashValue, sourceUrl } from "./config";
 import { sourcePriority } from "./ics";
-import { dedupeJoinLinks } from "./links";
+import { dedupeJoinLinks, dedupeResourceLinks, extractCalendarResourceLinks } from "./links";
 import type {
   CalendarDefinition,
   CalendarEvent,
   CalendarEventInput,
   CalendarFieldCoverage,
   CalendarJoinLink,
+  CalendarResourceLink,
   CalendarSource,
 } from "./types";
 
@@ -57,6 +58,7 @@ interface EventRow {
   description: string | null;
   location: string | null;
   join_links_json: string;
+  resource_links_json: string;
   attendees_json: string;
   organizer_json: string | null;
   recurrence_json: string;
@@ -135,6 +137,7 @@ export function ensureCalendarSchema(db = getCalendarDb()): void {
       description TEXT,
       location TEXT,
       join_links_json TEXT NOT NULL,
+      resource_links_json TEXT NOT NULL DEFAULT '[]',
       attendees_json TEXT NOT NULL,
       organizer_json TEXT,
       recurrence_json TEXT NOT NULL,
@@ -150,6 +153,7 @@ export function ensureCalendarSchema(db = getCalendarDb()): void {
     CREATE INDEX IF NOT EXISTS idx_calendar_events_dedupe ON calendar_events(dedupe_key);
     CREATE INDEX IF NOT EXISTS idx_calendar_events_source ON calendar_events(source_id);
   `);
+  ensureColumn(db, "calendar_events", "resource_links_json", "TEXT NOT NULL DEFAULT '[]'");
 }
 
 export function ensureConfiguredSources(db = getCalendarDb()): void {
@@ -195,9 +199,9 @@ export function replaceSourceEvents(sourceId: string, events: CalendarEventInput
   const insert = db.prepare(`
     INSERT INTO calendar_events (
       id, source_id, calendar_id, uid, recurrence_id, dedupe_key, title, start_at, end_at,
-      sort_start, sort_end, all_day, description, location, join_links_json, attendees_json,
+      sort_start, sort_end, all_day, description, location, join_links_json, resource_links_json, attendees_json,
       organizer_json, recurrence_json, status, provider_url, raw_json, visible, hidden_by_id, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?)
   `);
   db.transaction(() => {
     db.prepare(`
@@ -222,6 +226,7 @@ export function replaceSourceEvents(sourceId: string, events: CalendarEventInput
         event.description,
         event.location,
         JSON.stringify(event.joinLinks),
+        JSON.stringify(event.resourceLinks ?? []),
         JSON.stringify(event.attendees),
         event.organizer ? JSON.stringify(event.organizer) : null,
         JSON.stringify(event.recurrence),
@@ -469,6 +474,7 @@ function rowToCalendar(row: CalendarRow): CalendarDefinition {
 
 function rowToEvent(row: EventRow): CalendarEvent {
   const sourceIds = (getCalendarDb().prepare("SELECT DISTINCT source_id FROM calendar_events WHERE dedupe_key = ? ORDER BY source_id").all(row.dedupe_key) as Array<{ source_id: string }>).map((item) => item.source_id);
+  const resourceLinks = dedupeResourceLinks(parseJson<CalendarResourceLink[]>(row.resource_links_json, []));
   return {
     id: row.id,
     sourceIds,
@@ -484,6 +490,9 @@ function rowToEvent(row: EventRow): CalendarEvent {
     description: row.description,
     location: row.location,
     joinLinks: dedupeJoinLinks(parseJson<CalendarJoinLink[]>(row.join_links_json, [])),
+    resourceLinks: resourceLinks.length
+      ? resourceLinks
+      : extractCalendarResourceLinks({ description: row.description, location: row.location }),
     attendees: parseJson(row.attendees_json, []),
     organizer: parseJson(row.organizer_json, null),
     recurrence: parseJson(row.recurrence_json, { recurring: false, recurrenceId: null, rules: [] }),
@@ -492,6 +501,12 @@ function rowToEvent(row: EventRow): CalendarEvent {
     readOnly: true,
     duplicateSourceCount: sourceIds.length,
   };
+}
+
+function ensureColumn(db: Database.Database, table: string, column: string, definition: string): void {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (rows.some((row) => row.name === column)) return;
+  db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
 }
 
 function parseJson<T>(value: string | null, fallback: T): T {

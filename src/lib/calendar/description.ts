@@ -42,8 +42,9 @@ function findGeneratedDetailsStart(lines: string[]): number | null {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     if (isProviderDetailsStarter(line)) return index;
+    const next = nextContentLine(lines, index + 1);
+    if (next && isProviderDetailsStarter(`${line} ${next}`)) return index;
     if (isSeparatorLine(line)) {
-      const next = nextContentLine(lines, index + 1);
       if (next && isProviderDetailsStarter(next)) return index;
     }
   }
@@ -106,5 +107,9 @@ function isProviderDetailsStarter(line: string): boolean {
     /^More phone numbers:/i,
     /^Meeting ID:/i,
     /^Passcode:/i,
+    /^Hi\b.*\bThank you for registering\b/i,
+    /^Thank you for registering for\b/i,
+    /^You can find information about this webinar below\b/i,
+    /^https?:\/\/\S*zoom\.us\/(?:j|my|u|w|wc)\//i,
   ].some((pattern) => pattern.test(text));
 }

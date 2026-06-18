@@ -79,17 +79,26 @@ export function useBridgeWeekly() {
         .map(id => taskMap.get(id))
         .filter((t): t is NonNullable<typeof t> => t !== undefined)
         .map(t => groupUpdates && t.id in groupUpdates ? { ...t, group: groupUpdates[t.id] } : t);
-      // Re-assign IDs based on new positions
-      const reassigned = reordered.map((t, i) => ({ ...t, id: `task-${i}` }));
-      mutate({ ...data, tasks: reassigned }, false);
+      mutate({ ...data, tasks: reordered }, false);
     }
 
-    await fetch(withBasePath("/api/bridge/tasks/reorder"), {
+    const res = await fetch(withBasePath("/api/bridge/tasks/reorder"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ order, groupUpdates }),
+      body: JSON.stringify({ order, groupUpdates, week: data?.week }),
     });
-    mutate();
+    if (!res.ok) {
+      await mutate();
+      let detail = `HTTP ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body?.error) detail = `${detail}: ${body.error}`;
+      } catch {
+        // Keep the HTTP status when the response cannot be parsed.
+      }
+      throw new Error(detail);
+    }
+    await mutate();
   }
 
   async function updateTaskDetails(id: string, details: string[]) {

@@ -3,6 +3,7 @@
 import { NotebookPen } from "lucide-react";
 import type { PersonMeeting } from "@/lib/types";
 import { useHaptics } from "@/hooks/useHaptics";
+import { formatHiltMonthDay } from "@/lib/display-date";
 
 interface MeetingRowProps {
   meeting: PersonMeeting;
@@ -16,11 +17,7 @@ function formatDateTime(meeting: PersonMeeting): string {
   const now = new Date();
   const sameYear = date.getFullYear() === now.getFullYear();
 
-  const datePart = date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    ...(sameYear ? {} : { year: "numeric" }),
-  });
+  const datePart = formatHiltMonthDay(date, { includeYear: !sameYear });
 
   if (meeting.time) {
     const time = new Date(meeting.time);
@@ -49,7 +46,7 @@ export default function MeetingRow({ meeting, selected, onClick, inboxMode }: Me
 
   const formattedDate = isNext
     ? meeting.date
-      ? `Next · ${new Date(`${meeting.date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+      ? `Next · ${formatHiltMonthDay(new Date(`${meeting.date}T00:00:00`))}`
       : "Next"
     : formatDateTime(meeting);
 

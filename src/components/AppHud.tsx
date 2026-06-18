@@ -28,6 +28,7 @@ import { CalendarEventActions, CalendarEventPopoverContent } from "./calendar/Ca
 import { prepareCalendarDescription } from "@/lib/calendar/description";
 import type { CalendarEventOpenDetail } from "@/lib/calendar/deeplink";
 import { displayCalendarEventTitle } from "@/lib/calendar/title";
+import { formatHiltMonthDay, formatHiltWeekdayDate } from "@/lib/display-date";
 import { buildHudAgendaItems, hudAgendaConflictPositions, selectHudNextEventGroup } from "@/lib/calendar/hud-agenda";
 import type { HudAgendaConflictPosition, HudAgendaItem } from "@/lib/calendar/hud-agenda";
 import type { CalendarDefinition, CalendarEvent, CalendarSource } from "@/lib/calendar/types";
@@ -1412,12 +1413,7 @@ function formatEndedCurrentEventReason(reason?: HudEndedEventReason | null): str
 }
 
 function formatHudDate(date: Date): string {
-  return new Intl.DateTimeFormat(undefined, {
-    timeZone: TIME_ZONE,
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  }).format(date);
+  return formatHiltWeekdayDate(date, { includeYear: false, timeZone: TIME_ZONE });
 }
 
 function formatClock(date: Date): string {
@@ -1477,7 +1473,7 @@ function agendaHeadingLabel(date: Date, now: Date): string {
   if (dayDifference > 1 && dayDifference < 7) {
     return new Intl.DateTimeFormat(undefined, { timeZone: TIME_ZONE, weekday: "short" }).format(date);
   }
-  return new Intl.DateTimeFormat(undefined, { timeZone: TIME_ZONE, month: "short", day: "numeric" }).format(date);
+  return formatHiltMonthDay(date, { timeZone: TIME_ZONE });
 }
 
 function compactTimeParts(date: Date): { hour: number; minute: number; period: "a" | "p" } {

@@ -569,6 +569,7 @@ function itemText(item: ItemChunks): string {
 const BRIDGE_DIR_GROUPS: Record<string, readonly string[]> = {
   projects: ["projects"],
   people: ["people", "meetings"],
+  areas: ["areas"],
   thoughts: ["thoughts"],
   weekly: ["lists/now"],
 };

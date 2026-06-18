@@ -6,11 +6,11 @@ import type { PromotionReason } from "@/lib/library/types";
 import type { ReviewQueueStatus } from "@/lib/library/review-queue";
 import { formatVideoDuration } from "@/lib/library/media";
 import { artifactDisplayTags } from "@/lib/library/taxonomy";
-import { Archive, Check, ChevronDown, CircleDashed, CircleDot, ExternalLink, FileText, MoreHorizontal, Play, ThumbsDown, X } from "lucide-react";
+import { Check, ChevronDown, ExternalLink, FileText, MoreHorizontal, Play, ThumbsDown } from "lucide-react";
 import { contentTypeForArtifact } from "@/lib/library/content-type";
 import { ContentTypeIcon } from "./ContentTypeIcon";
-import { archiveArtifact, promoteCandidate, skipCandidate } from "@/hooks/useLibrary";
 import { EvalMetricPills } from "./EvalMetricPills";
+import { LibraryLifecycleMenu } from "./LibraryLifecycleMenu";
 
 function clipPolicyLabel(policy: string): string {
   if (policy === "label_review") return "Clip review";
@@ -64,20 +64,21 @@ export function FeedCard({
   const useWideLayout = wideLayout && hasThumbnail;
   const [actionsOpen, setActionsOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [lifecycleOpen, setLifecycleOpen] = useState(false);
   const openArtifact = (intent: "default" | "metadata" = "default") => onOpen?.(artifact, intent);
   const stopCardClick = (event: MouseEvent) => event.stopPropagation();
   const openArtifactMetadata = (event: MouseEvent) => {
     event.stopPropagation();
     setActionsOpen(false);
     setReviewOpen(false);
+    setLifecycleOpen(false);
     openArtifact("metadata");
   };
   const hasUpdatedReviewActions = !isCandidate && Boolean(onReviewStatus);
-  const hasSavedReferenceActions = !isCandidate;
-  const hasGeneralActions = Boolean(artifact.url || hasSavedReferenceActions);
+  const hasGeneralActions = Boolean(isCandidate && artifact.url);
   const displayTags = artifactDisplayTags(artifact).slice(0, 4);
   const clipReview = artifact.youtube_clip && artifact.youtube_clip.policy_action !== "process" ? artifact.youtube_clip : null;
-  const hasCardActionRow = Boolean(artifact.eval_attrs || isCandidate || hasUpdatedReviewActions || hasGeneralActions);
+  const hasCardActionRow = Boolean(artifact.lifecycle_status || artifact.eval_attrs || hasUpdatedReviewActions || hasGeneralActions);
   const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.target !== event.currentTarget) return;
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -92,6 +93,12 @@ export function FeedCard({
     setThumbnailFailed(false);
   }, [artifact.id, artifact.thumbnail]);
 
+  useEffect(() => {
+    setActionsOpen(false);
+    setReviewOpen(false);
+    setLifecycleOpen(false);
+  }, [artifact.id]);
+
   return (
     <article
       role="button"
@@ -101,7 +108,7 @@ export function FeedCard({
       aria-current={active ? "true" : undefined}
       onClick={() => openArtifact()}
       onKeyDown={handleCardKeyDown}
-      className={`hilt-card group relative cursor-pointer overflow-visible transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)] focus:ring-offset-2 focus:ring-offset-[var(--bg-primary)] ${actionsOpen || reviewOpen ? "z-30" : "z-0"} ${useWideLayout ? "md:flex md:min-h-[190px] md:flex-row-reverse md:items-start" : ""} ${activeClass}`}
+      className={`hilt-card group relative cursor-pointer overflow-visible transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)] focus:ring-offset-2 focus:ring-offset-[var(--bg-primary)] ${actionsOpen || reviewOpen || lifecycleOpen ? "z-30" : "z-0"} ${useWideLayout ? "md:flex md:min-h-[190px] md:flex-row-reverse md:items-start" : ""} ${activeClass}`}
     >
       {hasThumbnail && (
         <div className={`relative z-10 block aspect-video w-full overflow-hidden rounded-t-lg bg-[var(--bg-secondary)] text-left ${useWideLayout ? "md:m-4 md:ml-0 md:aspect-auto md:w-[34%] md:min-w-[220px] md:max-w-[320px] md:shrink-0 md:self-start md:rounded-md" : ""}`}>
@@ -159,154 +166,98 @@ export function FeedCard({
               />
             </div>
             <div className="flex shrink-0 items-center gap-1">
-            {isCandidate && (
-              <div className="pointer-events-auto relative" onClick={stopCardClick}>
-                <button
-                  onClick={() => {
-                    setReviewOpen((value) => !value);
+              <LibraryLifecycleMenu
+                artifact={artifact}
+                promoteReason={promoteReason}
+                onChanged={onChanged}
+                onMarkUnread={onMarkUnread}
+                onDismissCandidate={onDismissCandidate}
+                onArchiveReference={onArchiveReference}
+                open={lifecycleOpen}
+                onOpenChange={(open) => {
+                  setLifecycleOpen(open);
+                  if (open) {
                     setActionsOpen(false);
-                  }}
-                  className="inline-flex min-h-7 items-center gap-1 rounded-md px-1 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
-                  title="Candidate review actions"
-                >
-                  <CircleDashed className="h-3.5 w-3.5" />
-                  Candidate
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-                {reviewOpen && (
-                  <div className="absolute left-0 z-50 mt-1 w-36 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] p-1 content-card-shadow">
-                    <button
-                      onClick={async () => {
-                        setReviewOpen(false);
-                        await promoteCandidate(artifact.id, promoteReason);
-                        onChanged?.();
-                      }}
-                      className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                      Save
-                    </button>
-                    <button
-                      onClick={async () => {
-                        setReviewOpen(false);
-                        if (onDismissCandidate) await onDismissCandidate(artifact);
-                        else {
-                          await skipCandidate(artifact.id);
-                          onChanged?.();
-                        }
-                      }}
-                      className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                      Dismiss
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-            {hasUpdatedReviewActions && (
-              <div className="pointer-events-auto relative" onClick={stopCardClick}>
-                <button
-                  onClick={() => {
-                    setReviewOpen((value) => !value);
-                    setActionsOpen(false);
-                  }}
-                  className="inline-flex min-h-7 items-center gap-1 rounded-md px-1 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
-                  title="Updated reference review actions"
-                >
-                  <FileText className="h-3.5 w-3.5" />
-                  Updated
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-                {reviewOpen && (
-                  <div className="absolute left-0 z-50 mt-1 w-36 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] p-1 content-card-shadow">
-                    <button
-                      onClick={async () => {
-                        setReviewOpen(false);
-                        await onReviewStatus?.(artifact.id, "approved");
-                        onChanged?.();
-                      }}
-                      className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                      Approve
-                    </button>
-                    <button
-                      onClick={async () => {
-                        setReviewOpen(false);
-                        const note = window.prompt("Reason for rejecting (optional):") ?? undefined;
-                        await onReviewStatus?.(artifact.id, "rejected", note || undefined);
-                        onChanged?.();
-                      }}
-                      className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                    >
-                      <ThumbsDown className="h-3.5 w-3.5" />
-                      Reject
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-            {hasGeneralActions && (
-              <div className="pointer-events-auto relative" onClick={stopCardClick}>
-                <button
-                  onClick={() => {
-                    setActionsOpen((value) => !value);
                     setReviewOpen(false);
-                  }}
-                  className="inline-flex min-h-7 min-w-7 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                  title="More reference actions"
-                >
-                  <MoreHorizontal className="h-4 w-4" />
-                </button>
-                {actionsOpen && (
-                  <div className="absolute right-0 z-50 mt-1 w-44 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] p-1 content-card-shadow">
-                    {artifact.url && (
-                      <a
-                        href={artifact.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={() => setActionsOpen(false)}
-                        className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                        Open source
-                      </a>
-                    )}
-                    {!isCandidate && onMarkUnread && !artifact.is_unread && (
+                  }
+                }}
+                stopPropagation
+              />
+              {hasUpdatedReviewActions && (
+                <div className="pointer-events-auto relative" onClick={stopCardClick}>
+                  <button
+                    onClick={() => {
+                      setReviewOpen((value) => !value);
+                      setActionsOpen(false);
+                      setLifecycleOpen(false);
+                    }}
+                    className="inline-flex min-h-7 items-center gap-1 rounded-md px-1 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+                    title="Updated reference review actions"
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    Updated
+                    <ChevronDown className="h-3 w-3" />
+                  </button>
+                  {reviewOpen && (
+                    <div className="absolute left-0 z-50 mt-1 w-36 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] p-1 content-card-shadow">
                       <button
                         onClick={async () => {
-                          setActionsOpen(false);
-                          await onMarkUnread(artifact.id);
-                        }}
-                        className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                      >
-                        <CircleDot className="h-3.5 w-3.5" />
-                        Mark as unread
-                      </button>
-                    )}
-                    {!isCandidate && (
-                      <button
-                        onClick={async () => {
-                          if (!window.confirm("Archive this saved reference? It will move out of the active Library.")) return;
-                          setActionsOpen(false);
-                          if (onArchiveReference) {
-                            await onArchiveReference(artifact);
-                            return;
-                          }
-                          await archiveArtifact(artifact.id);
+                          setReviewOpen(false);
+                          await onReviewStatus?.(artifact.id, "approved");
                           onChanged?.();
                         }}
                         className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
                       >
-                        <Archive className="h-3.5 w-3.5" />
-                        Archive reference
+                        <Check className="h-3.5 w-3.5" />
+                        Approve
                       </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+                      <button
+                        onClick={async () => {
+                          setReviewOpen(false);
+                          const note = window.prompt("Reason for rejecting (optional):") ?? undefined;
+                          await onReviewStatus?.(artifact.id, "rejected", note || undefined);
+                          onChanged?.();
+                        }}
+                        className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                      >
+                        <ThumbsDown className="h-3.5 w-3.5" />
+                        Reject
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {hasGeneralActions && (
+                <div className="pointer-events-auto relative" onClick={stopCardClick}>
+                  <button
+                    onClick={() => {
+                      setActionsOpen((value) => !value);
+                      setReviewOpen(false);
+                      setLifecycleOpen(false);
+                    }}
+                    className="inline-flex min-h-7 min-w-7 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                    title="More reference actions"
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                  </button>
+                  {actionsOpen && (
+                    <div className="absolute right-0 z-50 mt-1 w-44 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] p-1 content-card-shadow">
+                      {artifact.url && (
+                        <a
+                          href={artifact.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={() => setActionsOpen(false)}
+                          className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          Open source
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

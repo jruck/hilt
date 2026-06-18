@@ -32,22 +32,15 @@ export async function probeServices(services: Service[]): Promise<void> {
 
 async function probeHttp(service: Service): Promise<void> {
   let lastError: string | null = null;
-  for (const url of probeUrls(service)) {
+  let lastResult: HttpProbeResult | null = null;
+  for (const url of serviceProbeUrls(service)) {
     try {
       const result = await requestUrl(url);
-      service.health = {
-        status: result.statusCode >= 200 && result.statusCode < 400 ? "up" : "down",
-        label: `${result.statusCode} ${result.statusMessage}`.trim(),
-        http_status: result.statusCode,
-        latency_ms: result.latencyMs,
-        checked_at: new Date().toISOString(),
-        error: null,
-        url: result.finalUrl,
-      };
-      service.page_title = extractTitle(result.body);
-      service.favicon_url = extractFavicon(result.body, result.finalUrl);
-      service.framework_hints = frameworkHints(result.body, headerValue(result.headers["x-powered-by"]));
-      return;
+      lastResult = result;
+      if (result.statusCode >= 200 && result.statusCode < 400) {
+        applyProbeResult(service, result, "up");
+        return;
+      }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
       service.health = {
@@ -59,6 +52,43 @@ async function probeHttp(service: Service): Promise<void> {
       };
     }
   }
+
+  if (lastResult) {
+    applyProbeResult(service, lastResult, "down");
+  }
+}
+
+function serviceProbeUrls(service: Service): string[] {
+  const urls = probeUrls(service);
+  if (service.kind !== "backend") return urls;
+
+  const expanded: string[] = [];
+  for (const url of urls) {
+    expanded.push(url);
+    for (const pathName of ["/health", "/api/health"]) {
+      try {
+        expanded.push(new URL(pathName, url).toString());
+      } catch {
+        // Ignore malformed candidates; requestUrl will report the original.
+      }
+    }
+  }
+  return [...new Set(expanded)];
+}
+
+function applyProbeResult(service: Service, result: HttpProbeResult, status: "up" | "down"): void {
+  service.health = {
+    status,
+    label: `${result.statusCode} ${result.statusMessage}`.trim(),
+    http_status: result.statusCode,
+    latency_ms: result.latencyMs,
+    checked_at: new Date().toISOString(),
+    error: null,
+    url: result.finalUrl,
+  };
+  service.page_title = extractTitle(result.body);
+  service.favicon_url = extractFavicon(result.body, result.finalUrl);
+  service.framework_hints = frameworkHints(result.body, headerValue(result.headers["x-powered-by"]));
 }
 
 function requestUrl(url: string, redirects = 0): Promise<HttpProbeResult> {
@@ -163,4 +193,3 @@ function htmlUnescape(value: string): string {
 function headerValue(value: string | string[] | undefined): string | null {
   return Array.isArray(value) ? value[0] || null : value || null;
 }
-

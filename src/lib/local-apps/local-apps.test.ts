@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, test } from "node:test";
@@ -184,6 +185,34 @@ describe("local apps settings, health, and safety", () => {
     await probeServices([service]);
     assert.equal(service.health.status, "up");
     assert.equal(service.health.label, "Listening");
+  });
+
+  test("probes backend health endpoints before marking 404 root as down", async () => {
+    const server = http.createServer((request, response) => {
+      if (request.url === "/health") {
+        response.writeHead(200, "OK", { "content-type": "text/plain" });
+        response.end("ok");
+        return;
+      }
+      response.writeHead(404, "Not Found", { "content-type": "text/plain" });
+      response.end("not found");
+    });
+
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address !== "object") throw new Error("Expected test server to listen on a TCP port");
+      const port = address.port;
+      const service = classify(observed("node", "tsx server/ws-server.ts", "/Users/jane/work/hilt", port), settings());
+
+      await probeServices([service]);
+
+      assert.equal(service.health.status, "up");
+      assert.equal(service.health.http_status, 200);
+      assert.equal(service.health.url, `http://127.0.0.1:${port}/health`);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
   });
 
   test("builds tailnet preview URL with IPv6-safe host formatting", () => {

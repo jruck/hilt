@@ -1,8 +1,8 @@
 /**
  * Bridge Watcher
  *
- * Watches the bridge vault's lists/now/ and projects/ directories.
- * Emits events when weekly lists or projects change.
+ * Watches the bridge vault's weekly lists and primary Bridge directories.
+ * Emits events when Bridge-backed files change.
  */
 
 import * as chokidar from "chokidar";
@@ -11,7 +11,7 @@ import * as path from "path";
 import * as os from "os";
 
 export interface BridgeChangedEvent {
-  type: "weekly" | "projects" | "people" | "thoughts";
+  type: "weekly" | "projects" | "people" | "thoughts" | "areas";
   path: string;
 }
 
@@ -29,6 +29,7 @@ export class BridgeWatcher extends EventEmitter {
     const watchPaths = [
       path.join(this.vaultPath, "lists", "now"),
       path.join(this.vaultPath, "projects"),
+      path.join(this.vaultPath, "areas"),
       path.join(this.vaultPath, "thoughts"),
       path.join(this.vaultPath, "people"),
       path.join(this.vaultPath, "meetings"),
@@ -52,11 +53,13 @@ export class BridgeWatcher extends EventEmitter {
         return;
       }
 
-      let changeType: "weekly" | "projects" | "people" | "thoughts";
+      let changeType: "weekly" | "projects" | "people" | "thoughts" | "areas";
       if (filePath.includes(path.join("lists", "now"))) {
         changeType = "weekly";
       } else if (filePath.includes(path.sep + "people" + path.sep) || filePath.includes(path.sep + "meetings" + path.sep)) {
         changeType = "people";
+      } else if (filePath.includes(path.sep + "areas" + path.sep)) {
+        changeType = "areas";
       } else if (filePath.includes(path.sep + "thoughts" + path.sep)) {
         changeType = "thoughts";
       } else {
@@ -73,7 +76,7 @@ export class BridgeWatcher extends EventEmitter {
     console.log(`[BridgeWatcher] Watching: ${watchPaths.join(", ")}`);
   }
 
-  private debouncedEmit(type: "weekly" | "projects" | "people" | "thoughts", filePath: string): void {
+  private debouncedEmit(type: "weekly" | "projects" | "people" | "thoughts" | "areas", filePath: string): void {
     const key = type;
     const existing = this.debounceTimers.get(key);
     if (existing) clearTimeout(existing);
@@ -84,6 +87,7 @@ export class BridgeWatcher extends EventEmitter {
         weekly: "weekly-changed",
         projects: "projects-changed",
         people: "people-changed",
+        areas: "areas-changed",
         thoughts: "thoughts-changed",
       };
       const eventName = eventNames[type] || "projects-changed";

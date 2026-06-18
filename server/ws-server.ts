@@ -248,6 +248,10 @@ async function startServer() {
     eventServer.broadcast("bridge", "people-changed", {});
   });
 
+  bridgeWatcher.on("areas-changed", () => {
+    eventServer.broadcast("bridge", "areas-changed", {});
+  });
+
   bridgeWatcher.on("thoughts-changed", () => {
     eventServer.broadcast("bridge", "thoughts-changed", {});
   });
@@ -288,6 +292,7 @@ async function startServer() {
         // BridgeWatcher: dir-rescan-by-mtime (do NOT trust the single collapsed path).
         bridgeWatcher.on("projects-changed", () => graphRunner?.onDirChanged("projects"));
         bridgeWatcher.on("people-changed", () => graphRunner?.onDirChanged("people")); // + meetings
+        bridgeWatcher.on("areas-changed", () => graphRunner?.onDirChanged("areas"));
         bridgeWatcher.on("thoughts-changed", () => graphRunner?.onDirChanged("thoughts"));
         bridgeWatcher.on("weekly-changed", () => graphRunner?.onDirChanged("weekly"));
 
@@ -328,6 +333,7 @@ async function startServer() {
         // BridgeWatcher: dir-rescan-by-content-hash (do NOT trust the single collapsed path).
         bridgeWatcher.on("projects-changed", () => semanticRunner?.onDirChanged("projects"));
         bridgeWatcher.on("people-changed", () => semanticRunner?.onDirChanged("people")); // + meetings
+        bridgeWatcher.on("areas-changed", () => semanticRunner?.onDirChanged("areas"));
         bridgeWatcher.on("thoughts-changed", () => semanticRunner?.onDirChanged("thoughts"));
         bridgeWatcher.on("weekly-changed", () => semanticRunner?.onDirChanged("weekly"));
 

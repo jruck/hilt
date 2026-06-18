@@ -1,7 +1,7 @@
 "use client";
 
 import type { MouseEvent } from "react";
-import { Archive, Ban, Clock, Layers, Network, Zap, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Archive, Clock, Layers, Network, Zap, type LucideIcon } from "lucide-react";
 import type { LibraryEvalAttrs } from "@/lib/library/types";
 
 export function formatEvalScore(value: number): string {
@@ -65,8 +65,8 @@ export function EvalMetricPills({
         title="Source capture failed — held for re-fetch. No worth score until the real content is in."
         className="inline-flex min-h-7 items-center gap-1 rounded-md px-1 text-xs font-medium text-amber-500"
       >
-        <Ban className="h-3.5 w-3.5" />
-        {breakdown ? "Unfetched" : null}
+        <AlertTriangle className="h-3.5 w-3.5" />
+        unfetched
       </span>
     );
   }

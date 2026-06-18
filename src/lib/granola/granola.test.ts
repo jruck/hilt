@@ -182,6 +182,7 @@ describe("Granola calendar links", () => {
       description: null,
       location: null,
       joinLinks: [],
+      resourceLinks: [],
       attendees: [],
       organizer: null,
       recurrence: { recurring: false, recurrenceId: null, rules: [] },
@@ -211,7 +212,7 @@ describe("Granola calendar links", () => {
       calendarMatch: match,
       syncedAt: "2026-05-20T15:01:00.000Z",
     });
-    const calendarEvent: CalendarEvent = { ...event, sourceIds: ["personal"], duplicateSourceCount: 1, readOnly: true };
+    const calendarEvent: CalendarEvent = { ...event, resourceLinks: [], sourceIds: ["personal"], duplicateSourceCount: 1, readOnly: true };
     const linked = attachGranolaMeetingNotes([calendarEvent]);
     assert.equal(linked[0].meetingNotes?.[0]?.granolaId, "doc_3");
     assert.equal(linked[0].meetingNotes?.[0]?.meetingEndCount, 1);

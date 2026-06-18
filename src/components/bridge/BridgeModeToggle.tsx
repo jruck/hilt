@@ -28,6 +28,7 @@ export function BridgeModeToggle({ mode, onModeChange }: BridgeModeToggleProps) 
           onClick={() => onModeChange(option.id)}
           icon={<option.icon className="h-4 w-4" />}
           aria-pressed={mode === option.id}
+          title={option.label}
         >
           {option.label}
         </SecondarySegmentedButton>

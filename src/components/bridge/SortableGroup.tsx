@@ -14,6 +14,7 @@ interface SortableGroupProps {
   tasks: BridgeTask[];
   showTopPadding: boolean;
   selectedTaskId: string | null;
+  reorderDisabled?: boolean;
   onToggle: (id: string, done: boolean) => void;
   onUpdateTitle: (id: string, title: string) => void;
   onSelectTask: (task: BridgeTask) => void;
@@ -26,6 +27,7 @@ export function SortableGroup({
   tasks,
   showTopPadding,
   selectedTaskId,
+  reorderDisabled = false,
   onToggle,
   onUpdateTitle,
   onSelectTask,
@@ -50,7 +52,7 @@ export function SortableGroup({
         strategy={verticalListSortingStrategy}
       >
         <div
-          className={`min-h-[4px] rounded transition-colors space-y-1.5 ${
+          className={`flex min-h-[4px] flex-col gap-1.5 rounded transition-colors ${
             isOver && tasks.length === 0 ? "bg-[var(--bg-tertiary)]" : ""
           }`}
         >
@@ -59,6 +61,7 @@ export function SortableGroup({
               key={task.id}
               task={task}
               isSelected={task.id === selectedTaskId}
+              reorderDisabled={reorderDisabled}
               onToggle={onToggle}
               onUpdateTitle={onUpdateTitle}
               onSelect={onSelectTask}

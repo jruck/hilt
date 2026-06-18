@@ -11,7 +11,7 @@ import {
   ShieldOff,
 } from "lucide-react";
 import { openExternal } from "@/lib/openExternal";
-import { SecondaryIconButton, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
+import { SECONDARY_CHROME_BODY_GUTTER_CLASS, SecondaryIconButton, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { preserveLocalAppsPreviews } from "@/lib/local-apps/preview-merge";
 import type { LocalAppsMachineSnapshot, LocalAppsResponse, Service, ServiceGroup } from "@/lib/local-apps/types";
@@ -232,7 +232,7 @@ export function LocalAppsView({ searchQuery = "", modeSwitcher }: LocalAppsViewP
           </div>
         ) : null}
 
-        <div data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-4 flex-1 overflow-auto px-4 pb-4 pt-[13px]">
+        <div data-mobile-scroll-chrome="bottom" className={`hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-4 flex-1 overflow-auto px-4 pb-4 ${SECONDARY_CHROME_BODY_GUTTER_CLASS}`}>
           {machines.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">
               No matching local apps

@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Archive, ArrowLeft, Check, ChevronDown, CircleDashed, CircleDot, Clock, Copy, FileText, Layers, Link2, MoreHorizontal, Network, Play, ThumbsDown, X, Zap, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Archive, ArrowLeft, Check, ChevronDown, Clock, Copy, FileText, Layers, Link2, Network, Play, ThumbsDown, X, Zap, type LucideIcon } from "lucide-react";
 import type { ReviewQueueStatus } from "@/lib/library/review-queue";
 import { useScope } from "@/contexts/ScopeContext";
 import { isGraphEnabled } from "@/lib/graph/config";
 import { buildGraphScope } from "@/components/graph/graph-deeplink";
-import { archiveArtifact, promoteCandidate, skipCandidate, useLibraryArtifact } from "@/hooks/useLibrary";
+import { useLibraryArtifact } from "@/hooks/useLibrary";
+import { attentionJudgmentFromFrontmatter, connectionPassEvidence, connectionPassState, connectionSuggestionsFromFrontmatter } from "@/lib/library/connection-state";
 import { stripLegacyReferenceBodyCruft } from "@/lib/library/legacy-cleanup";
 import { getYouTubeVideoId } from "@/lib/library/media";
 import { parseTimedTranscript } from "@/lib/library/transcript";
@@ -16,6 +17,7 @@ import { LoadingState } from "@/components/ui/LoadingState";
 import { withBasePath } from "@/lib/base-path";
 import { EvalMetricPill, evalMetricTitle, formatEvalScore } from "./EvalMetricPills";
 import { LibraryMarkdown } from "./LibraryMarkdown";
+import { LibraryLifecycleMenu } from "./LibraryLifecycleMenu";
 import { VideoTranscript } from "./VideoTranscript";
 import { YouTubeEmbed, type YouTubeSeekRequest } from "./YouTubeEmbed";
 
@@ -118,6 +120,23 @@ function frontmatterString(data: Record<string, unknown>, keys: string[]): strin
     if (typeof value === "string" && value.trim()) return value.trim();
   }
   return null;
+}
+
+function frontmatterRecords(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+    : [];
+}
+
+function formatTimestamp(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) return "—";
+  return value.slice(0, 16).replace("T", " ");
+}
+
+function tierClass(tier: string): string {
+  if (tier === "high") return "text-emerald-500";
+  if (tier === "medium") return "text-sky-500";
+  return "text-[var(--text-tertiary)]";
 }
 
 function artifactVideoId(artifact: NonNullable<ReturnType<typeof useLibraryArtifact>["artifact"]>): string | null {
@@ -243,8 +262,8 @@ export function LibraryArtifactDetailPane({
   const { navigateTo } = useScope();
   const graphEnabled = isGraphEnabled();
   const [mode, setMode] = useState<"summary" | "cache">("summary");
-  const [actionsOpen, setActionsOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [lifecycleOpen, setLifecycleOpen] = useState(false);
   const [videoSeconds, setVideoSeconds] = useState<number | null>(null);
   const [seekRequest, setSeekRequest] = useState<YouTubeSeekRequest | null>(null);
   const [copied, setCopied] = useState<"link" | "path" | null>(null);
@@ -265,11 +284,7 @@ export function LibraryArtifactDetailPane({
   const [commentBusy, setCommentBusy] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
-  const [feedbackText, setFeedbackText] = useState("");
-  const [feedbackSaving, setFeedbackSaving] = useState(false);
-  const [feedbackSaved, setFeedbackSaved] = useState(false);
   useEffect(() => { setNewComment(""); setEditingId(null); }, [artifact?.id]);
-  useEffect(() => { setFeedbackText(""); setFeedbackSaved(false); }, [artifact?.id]);
   const postComment = useCallback(async () => {
     const text = newComment.trim();
     if (!id || !text) return;
@@ -299,24 +314,10 @@ export function LibraryArtifactDetailPane({
       onChanged?.();
     } finally { setCommentBusy(false); }
   }, [id, mutate, onChanged]);
-  const saveFeedback = useCallback(async () => {
-    const text = feedbackText.trim();
-    if (!id || !text) return;
-    setFeedbackSaving(true);
-    try {
-      await fetch(withBasePath(`/api/library/${id}/feedback`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
-      setFeedbackText("");
-      setFeedbackSaved(true);
-      await mutate();
-      onChanged?.();
-    } finally {
-      setFeedbackSaving(false);
-    }
-  }, [id, feedbackText, mutate, onChanged]);
 
   useEffect(() => {
-    setActionsOpen(false);
     setReviewOpen(false);
+    setLifecycleOpen(false);
     setVideoSeconds(null);
     setSeekRequest(null);
     setCopied(null);
@@ -426,62 +427,30 @@ export function LibraryArtifactDetailPane({
                 <span><span className="text-[var(--text-tertiary)]">v</span> {artifact.pipeline_version.replace(/^v/i, "")}</span>
               )}
               {artifact.eval_attrs && (
-                <EvalMetricPill icon={Zap} value={artifact.eval_attrs.worth} title={evalMetricTitle("worth")} />
+                artifact.eval_attrs.lifecycle === "needs_refetch" ? (
+                  <span className="inline-flex items-center gap-1 font-medium text-amber-500" title="Source capture failed — no honest worth score until the real content is fetched.">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    unfetched
+                  </span>
+                ) : (
+                  <EvalMetricPill icon={Zap} value={artifact.eval_attrs.worth} title={evalMetricTitle("worth")} />
+                )
               )}
               {!artifact.pipeline_version && !artifact.eval_attrs && <span>metadata</span>}
             </button>
-            {isCandidate ? (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setReviewOpen((value) => !value);
-                    setActionsOpen(false);
-                  }}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 font-medium text-amber-700 transition-colors hover:bg-amber-500/15 dark:text-amber-300"
-                  title="Candidate review actions"
-                >
-                  <CircleDashed className="h-3.5 w-3.5" />
-                  Candidate
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-                {reviewOpen && (
-                  <div className="absolute right-0 z-10 mt-1 w-36 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] p-1 content-card-shadow">
-                    <button
-                      onClick={async () => {
-                        setReviewOpen(false);
-                        await promoteCandidate(artifact.id);
-                        await handleChanged();
-                      }}
-                      className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                      Save
-                    </button>
-                    <button
-                      onClick={async () => {
-                        setReviewOpen(false);
-                        if (onCandidateDismissed) await onCandidateDismissed(artifact);
-                        else {
-                          await skipCandidate(artifact.id);
-                          await handleChanged();
-                        }
-                      }}
-                      className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                      title="Dismiss this candidate from review; it remains in the temporary candidate cache until cleanup"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                      Dismiss
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 px-1 py-0.5 text-[var(--text-secondary)]">
-                <Check className="h-3.5 w-3.5" />
-                Saved
-              </span>
-            )}
+            <LibraryLifecycleMenu
+              artifact={artifact}
+              align="right"
+              onChanged={handleChanged}
+              onMarkUnread={onMarkUnread}
+              onDismissCandidate={onCandidateDismissed}
+              onArchiveReference={onArchiveReference}
+              open={lifecycleOpen}
+              onOpenChange={(open) => {
+                setLifecycleOpen(open);
+                if (open) setReviewOpen(false);
+              }}
+            />
           </div>
         </div>
         <h1 className="text-xl font-semibold leading-tight text-[var(--text-primary)] sm:text-2xl">{artifact.title}</h1>
@@ -490,13 +459,38 @@ export function LibraryArtifactDetailPane({
           const meta = artifact.raw_frontmatter || {};
           const ev = artifact.eval_attrs;
           const clip = artifact.youtube_clip;
-          const connCount = Array.isArray(meta.connection_suggestions) ? meta.connection_suggestions.length : 0;
-          const connState = connCount > 0 ? "has" : typeof meta.reconnected_at === "string" ? "abstained" : "never";
+          const connectionSuggestions = connectionSuggestionsFromFrontmatter(meta);
+          const connCount = connectionSuggestions.length;
+          const connState = connectionPassState(meta);
+          const passEvidence = connectionPassEvidence(meta);
+          const attentionJudgment = attentionJudgmentFromFrontmatter(meta);
+          const connectionReasoning = typeof meta.connection_reasoning === "string" ? meta.connection_reasoning.trim() : "";
+          const reweaveCandidates = frontmatterRecords(meta.reweave_candidates)
+            .map((candidate) => ({
+              target: typeof candidate.target === "string" ? candidate.target : "",
+              why: typeof candidate.why === "string" ? candidate.why : "",
+            }))
+            .filter((candidate) => candidate.target || candidate.why);
+          const reconnectedAt = typeof meta.reconnected_at === "string" ? meta.reconnected_at : "";
+          const isHotStudy = artifact.library_mode === "study" && meta.digestion_status === "hot";
+          const missingConnectionPass = isHotStudy && connState === "never" && meta.reweave_pending !== true;
+          const reweaveState = meta.reweave_pending === true
+            ? "pending"
+            : connState === "never"
+              ? "not recorded"
+              : "complete";
+          const evalLifecycle = ev?.lifecycle || "";
+          const evalNeedsRefetch = evalLifecycle === "needs_refetch";
+          const evalLifecycleLabel = evalNeedsRefetch ? "needs refetch" : evalLifecycle === "to_archive" ? "archive?" : evalLifecycle;
+          const evalLifecycleWarn = evalNeedsRefetch || evalLifecycle === "to_archive";
           const fields: Array<[string, string, boolean?]> = [
             ["disposition", artifact.library_mode || "study"],
             ["connections", `${connCount} · ${connState}`, connState === "never"],
+            ["connection pass", reweaveState, meta.reweave_pending === true || missingConnectionPass],
+            ["attention", attentionJudgment ? attentionJudgment.tier : "—"],
             ["digest", typeof meta.digested_with === "string" ? meta.digested_with : "—"],
             ["version", artifact.pipeline_version || "—"],
+            ["reconnected", reconnectedAt ? formatTimestamp(reconnectedAt) : attentionJudgment ? "judge only" : "—", Boolean(attentionJudgment && !reconnectedAt)],
             ["substance graded", typeof meta.substance === "number" ? "yes" : "no"],
             ["reweave pending", meta.reweave_pending === true ? "yes" : "no", meta.reweave_pending === true],
           ];
@@ -508,7 +502,7 @@ export function LibraryArtifactDetailPane({
                   <EvalMetadataField icon={Network} label="relevance" value={formatEvalScore(ev.relevance)} title={evalMetricTitle("relevance")} />
                   <EvalMetadataField icon={Layers} label="substance" value={formatEvalScore(ev.substance)} title={evalMetricTitle("substance")} />
                   <EvalMetadataField icon={Clock} label="freshness" value={formatEvalScore(ev.freshness)} title={evalMetricTitle("freshness")} />
-                  <EvalMetadataField icon={Archive} label="lifecycle" value={ev.lifecycle === "to_archive" ? "archive?" : ev.lifecycle} warn={ev.lifecycle === "to_archive"} />
+                  <EvalMetadataField icon={evalNeedsRefetch ? AlertTriangle : Archive} label="lifecycle" value={evalLifecycleLabel} warn={evalLifecycleWarn} />
                   <EvalMetadataField icon={Archive} label="archive threshold" value={`< ${formatEvalScore(TO_ARCHIVE_WORTH)}`} title="Worth below this threshold, after analysis, enters archive review." />
                 </div>
               )}
@@ -538,6 +532,72 @@ export function LibraryArtifactDetailPane({
                   <div className="text-[var(--text-secondary)]">{formatEvalExplanation(ev.why)}</div>
                 </div>
               )}
+              <div className="mt-2 border-t border-[var(--border-default)] pt-2">
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="text-[var(--text-tertiary)]">connection pass</span>
+                  <span className={`tabular-nums ${missingConnectionPass || meta.reweave_pending === true ? "text-amber-500" : "text-[var(--text-primary)]"}`}>{connState}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {passEvidence.length ? passEvidence.map((signal) => (
+                    <span key={signal} className="rounded border border-[var(--border-default)] bg-[var(--content-surface)] px-1.5 py-0.5 text-[10px] text-[var(--text-secondary)]">
+                      {signal}
+                    </span>
+                  )) : (
+                    <span className="text-[var(--text-tertiary)]">no pass markers</span>
+                  )}
+                </div>
+                {attentionJudgment && (
+                  <div className="mt-2 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] px-2 py-1.5">
+                    <div className="mb-0.5 flex items-baseline justify-between gap-2">
+                      <span className="text-[var(--text-tertiary)]">attention_judgment</span>
+                      <span className={`font-medium ${tierClass(attentionJudgment.tier)}`}>{attentionJudgment.tier}</span>
+                    </div>
+                    {attentionJudgment.reason && <div className="text-[var(--text-secondary)]">{attentionJudgment.reason}</div>}
+                  </div>
+                )}
+                {connectionReasoning && (
+                  <div className="mt-2">
+                    <div className="mb-0.5 text-[var(--text-tertiary)]">connection reasoning</div>
+                    <div className="text-[var(--text-secondary)]">{connectionReasoning}</div>
+                  </div>
+                )}
+                {connectionSuggestions.length > 0 && (
+                  <div className="mt-2">
+                    <div className="mb-1 text-[var(--text-tertiary)]">connection output</div>
+                    <ul className="space-y-1">
+                      {connectionSuggestions.slice(0, 5).map((connection, index) => (
+                        <li key={`${connection.target || connection.label}-${index}`} className="rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] px-2 py-1">
+                          <span className="text-[var(--text-primary)]">{connection.label}</span>
+                          {connection.relationship && <span className="text-[var(--text-secondary)]"> — {connection.relationship}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {reweaveCandidates.length > 0 && (
+                  <div className="mt-2">
+                    <div className="mb-1 text-[var(--text-tertiary)]">reweave candidates</div>
+                    <ul className="space-y-1">
+                      {reweaveCandidates.slice(0, 3).map((candidate, index) => (
+                        <li key={`${candidate.target}-${index}`} className="text-[var(--text-secondary)]">
+                          <span className="text-[var(--text-primary)]">{candidate.target || "untitled"}</span>{candidate.why ? ` — ${candidate.why}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {missingConnectionPass && (
+                  <div className="mt-2 flex gap-1.5 rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1.5 text-amber-700 dark:text-amber-300">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>Hot study item has no connection-pass marker; the repair queue treats this as missing_connection_pass.</span>
+                  </div>
+                )}
+                {attentionJudgment && !reconnectedAt && (
+                  <div className="mt-2 text-[var(--text-tertiary)]">
+                    Legacy v2.2 signal: attention_judgment proves the pass ran, but reconnected_at was not stamped.
+                  </div>
+                )}
+              </div>
               <div className="mt-2 border-t border-[var(--border-default)] pt-2">
                 <div className="mb-1 text-[var(--text-tertiary)]">Feedback</div>
                 {(artifact.comments || []).length > 0 && (
@@ -668,7 +728,7 @@ export function LibraryArtifactDetailPane({
                       type="button"
                       onClick={() => {
                         setReviewOpen((value) => !value);
-                        setActionsOpen(false);
+                        setLifecycleOpen(false);
                       }}
                       className="inline-flex min-h-9 items-center gap-1.5 rounded-md px-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
                       title="Updated reference review actions"
@@ -704,50 +764,6 @@ export function LibraryArtifactDetailPane({
                     )}
                   </div>
                 )}
-                <div className="relative">
-                  <button
-                    onClick={() => {
-                      setActionsOpen((value) => !value);
-                      setReviewOpen(false);
-                    }}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                    title="More saved-reference actions"
-                  >
-                    <MoreHorizontal className="h-4 w-4" />
-                  </button>
-                  {actionsOpen && (
-                    <div className="absolute right-0 z-10 mt-1 w-44 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] p-1 content-card-shadow">
-                    {onMarkUnread && !artifact.is_unread && (
-                      <button
-                        onClick={async () => {
-                          setActionsOpen(false);
-                          await onMarkUnread(artifact.id);
-                        }}
-                        className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                      >
-                        <CircleDot className="h-3.5 w-3.5" />
-                        Mark as unread
-                      </button>
-                    )}
-                    <button
-                      onClick={async () => {
-                        if (!window.confirm("Archive this saved reference? It will move out of the active Library.")) return;
-                        setActionsOpen(false);
-                        if (onArchiveReference) {
-                          await onArchiveReference(artifact);
-                          return;
-                        }
-                        await archiveArtifact(artifact.id);
-                        onChanged?.();
-                      }}
-                      className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                    >
-                      <Archive className="h-3.5 w-3.5" />
-                      Archive reference
-                    </button>
-                  </div>
-                )}
-                </div>
               </>
             )}
           </div>

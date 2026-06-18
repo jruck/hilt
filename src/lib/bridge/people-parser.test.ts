@@ -12,10 +12,12 @@ import type { CalendarEventInput } from "../calendar/types";
 import {
   getAllPeople,
   getPersonDetail,
+  addPersonResource,
   resolveCalendarEventNoteTargets,
   hideSuggestedMeeting,
   promoteSuggestedMeeting,
   attachPeopleNoteTargetsToCalendarEvents,
+  removePersonResource,
   updatePersonMetadata,
   updatePersonNext,
 } from "./people-parser";
@@ -398,6 +400,134 @@ Recorded summary.
       method: "icaluid",
       historicalCount: 1,
     });
+  });
+
+  it("returns manual resources from person frontmatter and dedupes equivalent URLs", async () => {
+    const vaultPath = makeVault();
+    fs.writeFileSync(
+      path.join(vaultPath, "people", "alex.md"),
+      `---
+type: person
+resources: [{"id":"manual_doc","label":"Agenda","url":"https://docs.google.com/document/d/example-doc-id/edit?utm_source=test","kind":"doc","createdAt":"2026-06-01T12:00:00.000Z"},{"id":"duplicate_doc","label":"Duplicate","url":"https://docs.google.com/document/d/example-doc-id/","kind":"doc","createdAt":"2026-06-02T12:00:00.000Z"},{"url":"not a url"}]
+---
+
+# Alex
+
+## Next
+
+## Notes
+`,
+      "utf-8",
+    );
+
+    const detail = await getPersonDetail(vaultPath, "alex");
+
+    expect(detail?.resources).toEqual([{
+      id: "manual_doc",
+      label: "Agenda",
+      url: "https://docs.google.com/document/d/example-doc-id/edit?utm_source=test",
+      kind: "doc",
+      createdAt: "2026-06-01T12:00:00.000Z",
+    }]);
+  });
+
+  it("adds and removes person resources atomically with stable URL dedupe", async () => {
+    const vaultPath = makeVault();
+    const personPath = path.join(vaultPath, "people", "alex.md");
+    fs.writeFileSync(
+      personPath,
+      `---
+type: person
+---
+
+# Alex
+
+## Next
+
+## Notes
+`,
+      "utf-8",
+    );
+
+    const first = addPersonResource(vaultPath, "alex", {
+      url: "https://docs.google.com/document/d/example-doc-id/edit",
+      label: "Weekly notes",
+    });
+    const second = addPersonResource(vaultPath, "alex", {
+      url: "https://docs.google.com/document/d/example-doc-id/",
+      label: "Renamed notes",
+    });
+    let detail = await getPersonDetail(vaultPath, "alex");
+
+    expect(first.id).toBe(second.id);
+    expect(detail?.resources).toHaveLength(1);
+    expect(detail?.resources[0]).toMatchObject({
+      id: first.id,
+      label: "Renamed notes",
+      kind: "doc",
+    });
+    expect(fs.readFileSync(personPath, "utf-8")).toContain("resources: [{");
+
+    removePersonResource(vaultPath, "alex", first.id);
+    detail = await getPersonDetail(vaultPath, "alex");
+    expect(detail?.resources).toEqual([]);
+  });
+
+  it("returns active meetings with join, resource, and provider links", async () => {
+    const vaultPath = makeVault();
+    seedFutureCalendarEvent({
+      description: [
+        "Meeting notes, please add to and review as needed:",
+        "https://docs.google.com/document/d/162wRZeX9CFeSvZNsUx8-qRxqGCLDyknRpfbE8br7RJ4/edit",
+      ].join("\n"),
+      joinLinks: [{
+        kind: "teams",
+        label: "Teams",
+        url: "https://teams.microsoft.com/l/meetup-join/19%3ameeting_INSIGHTS%40thread.v2/0",
+      }],
+      providerUrl: "https://outlook.office.com/calendar/item/example",
+    });
+    fs.writeFileSync(
+      path.join(vaultPath, "people", "alex.md"),
+      `---
+type: group
+---
+
+# Alex
+
+## Next
+
+## Notes
+`,
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(vaultPath, "meetings", "Alex Weekly-2026-05-26 @ 11-32-08.md"),
+      `---
+title: Alex Weekly
+created: 2026-05-26T15:32:08.316Z
+calendar_ical_uid: alex-weekly@example.com
+hilt_calendar_event_id: cal_alex_weekly_history
+---
+
+# Alex Weekly
+
+Recorded summary.
+`,
+      "utf-8",
+    );
+
+    const detail = await getPersonDetail(vaultPath, "alex");
+
+    expect(detail?.activeMeetings).toHaveLength(1);
+    expect(detail?.activeMeetings[0]).toMatchObject({
+      eventId: "cal_alex_weekly_next",
+      title: "Alex Weekly",
+      joinLinks: [{ kind: "teams", label: "Teams" }],
+      resourceLinks: [{ kind: "doc", label: "Google Doc" }],
+      providerUrl: "https://outlook.office.com/calendar/item/example",
+    });
+    expect(detail?.activeMeetings[0].resourceLinks[0].url).toContain("162wRZeX9CFeSvZNsUx8-qRxqGCLDyknRpfbE8br7RJ4");
   });
 
   it("resolves People Next note targets for future calendar events with saved meeting history", () => {

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { formatHiltMonthDay, formatHiltMonthYear, formatHiltWeekdayDate } from "@/lib/display-date";
 
 interface DatePickerPopoverProps {
   value: string | null;
@@ -10,24 +11,6 @@ interface DatePickerPopoverProps {
 }
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
-
-const monthFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "long",
-  year: "numeric",
-});
-
-const displayDateFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-});
-
-const fullDateFormatter = new Intl.DateTimeFormat("en-US", {
-  weekday: "short",
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-});
 
 function pad(value: number): string {
   return String(value).padStart(2, "0");
@@ -82,7 +65,7 @@ function getCalendarDays(month: Date): Date[] {
 
 export function formatDueDate(value: string | null): string {
   const date = parseIsoDate(value);
-  return date ? displayDateFormatter.format(date) : "";
+  return date ? formatHiltMonthDay(date, { includeYear: true }) : "";
 }
 
 export function DatePickerPopover({ value, onSelect, onClose }: DatePickerPopoverProps) {
@@ -146,7 +129,7 @@ export function DatePickerPopover({ value, onSelect, onClose }: DatePickerPopove
             <ChevronLeft className="w-4 h-4" />
           </button>
           <div className="text-sm font-medium text-[var(--text-primary)]">
-            {monthFormatter.format(visibleMonth)}
+            {formatHiltMonthYear(visibleMonth)}
           </div>
           <button
             onClick={() => setVisibleMonth((current) => addMonths(current, 1))}
@@ -187,7 +170,7 @@ export function DatePickerPopover({ value, onSelect, onClose }: DatePickerPopove
                         ? "text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
                         : "text-[var(--text-quaternary)] hover:bg-[var(--bg-secondary)]"
                 }`}
-                aria-label={fullDateFormatter.format(day)}
+                aria-label={formatHiltWeekdayDate(day)}
                 aria-pressed={selected}
               >
                 {day.getDate()}

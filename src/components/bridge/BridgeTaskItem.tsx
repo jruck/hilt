@@ -8,6 +8,7 @@ import { GripVertical, ChevronRight } from "lucide-react";
 import { parseLifecycle, parseMention } from "@/lib/attribution";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useHaptics } from "@/hooks/useHaptics";
+import { formatHiltMonthDay } from "@/lib/display-date";
 
 function DueDateBadge({ dueDate, done }: { dueDate: string; done?: boolean }) {
   const today = new Date();
@@ -26,7 +27,7 @@ function DueDateBadge({ dueDate, done }: { dueDate: string; done?: boolean }) {
     colorClass = "bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]"; // future
   }
 
-  const label = due.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const label = formatHiltMonthDay(due);
 
   return (
     <span className={`flex-shrink-0 px-1.5 py-0.5 rounded text-xs font-medium ${colorClass}`}>
@@ -38,6 +39,8 @@ function DueDateBadge({ dueDate, done }: { dueDate: string; done?: boolean }) {
 interface BridgeTaskItemProps {
   task: BridgeTask;
   isSelected: boolean;
+  reorderDisabled?: boolean;
+  sortableDisabled?: boolean;
   onToggle: (id: string, done: boolean) => void;
   onUpdateTitle: (id: string, title: string) => void;
   onSelect: (task: BridgeTask) => void;
@@ -47,6 +50,8 @@ interface BridgeTaskItemProps {
 export function BridgeTaskItem({
   task,
   isSelected,
+  reorderDisabled = false,
+  sortableDisabled = false,
   onToggle,
   onUpdateTitle,
   onSelect,
@@ -102,12 +107,16 @@ export function BridgeTaskItem({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: task.id });
+  } = useSortable({ id: task.id, disabled: sortableDisabled });
+
+  const dragHandleDisabled = reorderDisabled || sortableDisabled;
 
   const style = {
-    transform: CSS.Translate.toString(transform),
+    transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : undefined,
+    willChange: isDragging ? "transform" : undefined,
   };
 
   const isNew = lifecycle.state === "new";
@@ -137,11 +146,13 @@ export function BridgeTaskItem({
         >
           {/* Drag handle — always visible, only way to reorder */}
           <button
-            {...attributes}
-            {...listeners}
+            {...(dragHandleDisabled ? {} : attributes)}
+            {...(dragHandleDisabled ? {} : listeners)}
+            disabled={dragHandleDisabled}
             onClick={(e) => e.stopPropagation()}
-            className={`flex-shrink-0 cursor-grab text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] active:cursor-grabbing ${isTouch ? "p-1 -m-1" : ""}`}
+            className={`flex-shrink-0 text-[var(--text-tertiary)] ${dragHandleDisabled ? "cursor-not-allowed opacity-35" : "cursor-grab hover:text-[var(--text-secondary)] active:cursor-grabbing"} ${isTouch ? "p-1 -m-1" : ""}`}
             style={{ touchAction: "none" }}
+            title={dragHandleDisabled ? "Clear search to reorder" : "Drag to reorder"}
           >
             <GripVertical className={isTouch ? "w-5 h-5" : "w-4 h-4"} />
           </button>

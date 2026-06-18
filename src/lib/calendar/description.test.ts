@@ -42,6 +42,17 @@ Passcode: Sm7pu5`);
     assert.match(description.full ?? "", /Meeting ID/);
   });
 
+  test("hides Zoom webinar registration confirmations", () => {
+    const description = prepareCalendarDescription(`Hi Justin Ruckman,
+Thank you for registering for 8090 Software Factory Demo + Q&A. You can find information about this webinar below.
+You can cancel<https://8090-ai.zoom.us/webinar/register/WN_example?tk=registration#detail> your registration at any time.
+Join webinar https://8090-ai.zoom.us/w/99201005295?tk=join-token`);
+
+    assert.equal(description.visible, null);
+    assert.match(description.hidden ?? "", /Thank you for registering/);
+    assert.match(description.full ?? "", /99201005295/);
+  });
+
   test("does not hide ordinary descriptions without provider details", () => {
     const description = prepareCalendarDescription("Bring launch notes and review final risks.");
 

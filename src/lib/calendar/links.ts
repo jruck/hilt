@@ -1,4 +1,4 @@
-import type { CalendarJoinLink } from "./types";
+import type { CalendarJoinLink, CalendarResourceLink } from "./types";
 
 const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/gi;
 type JoinLinkSource = "description" | "generic" | "location" | "url";
@@ -6,8 +6,19 @@ type JoinLinkCandidate = CalendarJoinLink & {
   source: JoinLinkSource;
   sourceScore: number;
 };
+type ResourceLinkSource = JoinLinkSource;
+type ResourceLinkCandidate = CalendarResourceLink & {
+  source: ResourceLinkSource;
+  sourceScore: number;
+};
 
 interface CalendarJoinLinkFields {
+  description?: string | null;
+  location?: string | null;
+  url?: string | null;
+}
+
+interface CalendarResourceLinkFields {
   description?: string | null;
   location?: string | null;
   url?: string | null;
@@ -33,6 +44,97 @@ export function dedupeJoinLinks(links: CalendarJoinLink[]): CalendarJoinLink[] {
   return dedupeJoinLinkCandidates(links.map((link) => ({ ...link, source: "generic", sourceScore: 0 })));
 }
 
+export function extractResourceLinks(...values: Array<string | null | undefined>): CalendarResourceLink[] {
+  const candidates: ResourceLinkCandidate[] = [];
+  for (const value of values) {
+    candidates.push(...extractResourceLinkCandidates(value, "generic"));
+  }
+  return dedupeResourceLinkCandidates(candidates);
+}
+
+export function extractCalendarResourceLinks(fields: CalendarResourceLinkFields): CalendarResourceLink[] {
+  return dedupeResourceLinkCandidates([
+    ...extractResourceLinkCandidates(fields.description, "description"),
+    ...extractResourceLinkCandidates(fields.location, "location"),
+    ...extractResourceLinkCandidates(fields.url, "url"),
+  ]);
+}
+
+export function dedupeResourceLinks(links: CalendarResourceLink[]): CalendarResourceLink[] {
+  return dedupeResourceLinkCandidates(links.map((link) => ({ ...link, source: "generic", sourceScore: 0 })));
+}
+
+export function canonicalCalendarActionUrlKey(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const normalized = normalizeRawUrl(value);
+  if (!normalized) return null;
+  const parsed = parseUrl(normalized);
+  if (!parsed) return normalized.toLowerCase();
+
+  const classification = classifyUrl(normalized);
+  if (isKnownMeetingKind(classification.kind)) return `join:${canonicalJoinLinkKey(normalized, classification.kind)}`;
+
+  const resourceClassification = classifyCalendarResourceUrl(normalized);
+  if (resourceClassification) return `resource:${canonicalResourceUrl(normalized)}`;
+
+  return `web:${canonicalExactUrl(parsed)}`;
+}
+
+export function shouldRenderCalendarProviderUrl(
+  value: string | null | undefined,
+  visibleActionLinks: Array<{ url: string | null | undefined }>,
+): value is string {
+  const key = canonicalCalendarActionUrlKey(value);
+  if (!value || !key) return false;
+  if (isGeneratedCalendarActionUrl(value)) return false;
+  if (isZoomRegistrationUrl(value) && visibleActionLinks.some((link) => canonicalCalendarActionUrlKey(link.url)?.startsWith("join:zoom:"))) return false;
+  return !visibleActionLinks.some((link) => canonicalCalendarActionUrlKey(link.url) === key);
+}
+
+export function classifyCalendarResourceUrl(url: string): Pick<CalendarResourceLink, "kind" | "label"> | null {
+  const parsed = parseUrl(normalizeRawUrl(url));
+  if (!parsed) return null;
+  const host = normalizedHost(parsed.hostname);
+  const path = normalizedPathname(parsed).toLowerCase();
+
+  if (host === "docs.google.com") {
+    if (path.startsWith("/document/d/")) return { kind: "doc", label: "Google Doc" };
+    if (path.startsWith("/spreadsheets/d/")) return { kind: "sheet", label: "Google Sheet" };
+    if (path.startsWith("/presentation/d/")) return { kind: "slide", label: "Google Slides" };
+  }
+
+  if (host.endsWith("sharepoint.com")) return { kind: "sharepoint", label: "SharePoint" };
+  if (host === "onedrive.live.com" || host.endsWith("1drv.ms")) return { kind: "office", label: "Office" };
+  if (host.endsWith("office.com") || host.endsWith("office365.com") || host.endsWith("microsoft365.com")) {
+    if (path.includes("word")) return { kind: "office", label: "Word" };
+    if (path.includes("excel")) return { kind: "office", label: "Excel" };
+    if (path.includes("powerpoint")) return { kind: "office", label: "PowerPoint" };
+    return { kind: "office", label: "Office" };
+  }
+
+  if (/\.(docx?|xlsx?|pptx?|pdf)$/i.test(path)) return { kind: "doc", label: "Document" };
+  return null;
+}
+
+export function canonicalResourceUrl(value: string): string {
+  const normalized = normalizeRawUrl(value);
+  const parsed = parseUrl(normalized);
+  if (!parsed) return normalized.toLowerCase();
+  const host = normalizedHost(parsed.hostname);
+  const googleDocMatch = normalizedPathname(parsed).match(/^\/(document|spreadsheets|presentation)\/d\/([^/]+)/i);
+  if (host === "docs.google.com" && googleDocMatch) {
+    return `${parsed.protocol.toLowerCase()}//${host}/${googleDocMatch[1].toLowerCase()}/d/${googleDocMatch[2]}/`;
+  }
+
+  parsed.protocol = parsed.protocol.toLowerCase();
+  parsed.hostname = host;
+  parsed.hash = "";
+  for (const key of Array.from(parsed.searchParams.keys())) {
+    if (/^(utm_|fbclid$|gclid$|mc_cid$|mc_eid$)/i.test(key)) parsed.searchParams.delete(key);
+  }
+  return canonicalExactUrl(parsed);
+}
+
 function extractJoinLinkCandidates(value: string | null | undefined, source: JoinLinkSource): JoinLinkCandidate[] {
   if (!value) return [];
   const candidates: JoinLinkCandidate[] = [];
@@ -48,6 +150,30 @@ function extractJoinLinkCandidates(value: string | null | undefined, source: Joi
       ...classification,
       source,
       sourceScore: joinLinkSourceScore(source),
+    });
+  }
+  return candidates;
+}
+
+function extractResourceLinkCandidates(value: string | null | undefined, source: ResourceLinkSource): ResourceLinkCandidate[] {
+  if (!value) return [];
+  const candidates: ResourceLinkCandidate[] = [];
+  for (const match of value.matchAll(URL_PATTERN)) {
+    const raw = match[0];
+    const url = normalizeRawUrl(raw);
+    if (!url) continue;
+    const joinClassification = classifyUrl(url);
+    if (isKnownMeetingKind(joinClassification.kind) || isLikelyGenericMeetingUrl(url)) continue;
+    if (isKnownMeetingBoilerplateUrl(url, joinClassification.kind)) continue;
+
+    const context = contextAroundMatch(value, match.index ?? 0, raw.length);
+    const classification = classifyCalendarResourceUrl(url) ?? classifyContextualResourceLink(context);
+    if (!classification) continue;
+    candidates.push({
+      url,
+      ...classification,
+      source,
+      sourceScore: resourceLinkSourceScore(source),
     });
   }
   return candidates;
@@ -75,6 +201,33 @@ function dedupeJoinLinkCandidates(links: JoinLinkCandidate[]): CalendarJoinLink[
     }
   }
   return collapseJoinLinkRecords(orderedKeys.map((key) => linksByKey.get(key)!)).map((record) => record.link);
+}
+
+function dedupeResourceLinkCandidates(links: ResourceLinkCandidate[]): CalendarResourceLink[] {
+  const linksByKey = new Map<string, { index: number; link: CalendarResourceLink; score: number }>();
+  const orderedKeys: string[] = [];
+  for (const [index, link] of links.entries()) {
+    const url = normalizeRawUrl(link.url);
+    if (!url) continue;
+    const classification = classifyCalendarResourceUrl(url) ?? { kind: link.kind, label: link.label };
+    const normalizedLink: CalendarResourceLink = { url, ...classification };
+    const key = canonicalResourceUrl(url);
+    const score = link.sourceScore + resourceLinkScore(url, classification.kind);
+    const existing = linksByKey.get(key);
+    if (!existing) {
+      linksByKey.set(key, { index, link: normalizedLink, score });
+      orderedKeys.push(key);
+      continue;
+    }
+    if (score > existing.score) {
+      linksByKey.set(key, { ...existing, link: normalizedLink, score });
+    }
+  }
+
+  return orderedKeys
+    .map((key) => linksByKey.get(key)!)
+    .sort((left, right) => left.index - right.index)
+    .map((record) => record.link);
 }
 
 export function htmlToText(value: string | null | undefined): string | null {
@@ -136,15 +289,16 @@ function unwrapTeamsLauncherUrl(url: URL): string | null {
 }
 
 function classifyUrl(url: string): Pick<CalendarJoinLink, "kind" | "label"> {
+  const parsed = parseUrl(url);
+  if (parsed && isZoomJoinUrl(parsed)) {
+    return { kind: "zoom", label: "Zoom" };
+  }
   const lower = url.toLowerCase();
   if (lower.includes("teams.microsoft.com") || lower.includes("teams.live.com")) {
     return { kind: "teams", label: "Teams" };
   }
   if (lower.includes("meet.google.com")) {
     return { kind: "meet", label: "Google Meet" };
-  }
-  if (lower.includes("zoom.us/j/") || lower.includes("zoom.us/my/")) {
-    return { kind: "zoom", label: "Zoom" };
   }
   return { kind: "web", label: "Web link" };
 }
@@ -156,10 +310,17 @@ function joinLinkSourceScore(source: JoinLinkSource): number {
   return 0;
 }
 
+function resourceLinkSourceScore(source: ResourceLinkSource): number {
+  if (source === "description") return 20_000;
+  if (source === "url") return 8_000;
+  if (source === "location") return 1_000;
+  return 0;
+}
+
 function shouldIncludeWebJoinLink(url: string, fullValue: string, context: string, raw: string, source: JoinLinkSource): boolean {
   if (source === "generic" && isBareUrlValue(fullValue, raw)) return true;
   if (isLikelyGenericMeetingUrl(url)) return true;
-  return /\b(join|meeting|meet|video|conference|call|room|webinar)\b/i.test(context);
+  return /\b(join|meeting|meet|video|conference|call|room)\b/i.test(context);
 }
 
 function isBareUrlValue(value: string, raw: string): boolean {
@@ -169,11 +330,21 @@ function isBareUrlValue(value: string, raw: string): boolean {
 function isLikelyGenericMeetingUrl(url: string): boolean {
   const parsed = parseUrl(url);
   if (!parsed) return false;
+  if (isZoomJoinUrl(parsed)) return true;
   const host = normalizedHost(parsed.hostname);
   const path = normalizedPathname(parsed).toLowerCase();
   if (/(^|\.)whereby\.com$/.test(host)) return true;
   if (/(^|\.)(webex|gotomeeting|bluejeans|ringcentral|chime\.aws)\./.test(host)) return true;
-  return /\/(join|meet|meeting|room|conference|call|webinar)(\/|$)/.test(path);
+  return /\/(join|meet|meeting|room|conference|call)(\/|$)/.test(path);
+}
+
+function classifyContextualResourceLink(context: string): Pick<CalendarResourceLink, "kind" | "label"> | null {
+  if (/\b(agenda|running agenda)\b/i.test(context)) return { kind: "web", label: "Agenda" };
+  if (/\b(notes?|meeting notes?)\b/i.test(context)) return { kind: "web", label: "Notes" };
+  if (/\b(deck|slides?)\b/i.test(context)) return { kind: "web", label: "Deck" };
+  if (/\b(sheet|spreadsheet|tracker)\b/i.test(context)) return { kind: "web", label: "Sheet" };
+  if (/\b(doc|document|resource|reference|pre[- ]?read|brief|plan)\b/i.test(context)) return { kind: "web", label: "Resource" };
+  return null;
 }
 
 function collapseJoinLinkRecords<T extends { index: number; link: CalendarJoinLink; score: number }>(records: T[]): T[] {
@@ -222,11 +393,18 @@ function canonicalMeetKey(url: URL): string {
 
 function canonicalZoomKey(url: URL): string {
   const segments = normalizedPathSegments(url);
-  const joinIndex = segments.findIndex((segment) => segment === "j");
-  const roomIndex = segments.findIndex((segment) => segment === "my");
-  if (joinIndex >= 0 && segments[joinIndex + 1]) {
-    return `zoom:j:${segments[joinIndex + 1].replace(/[-\s]/g, "")}`;
+  const keyedSegment = ["j", "w", "u"].find((segment) => {
+    const index = segments.findIndex((candidate) => candidate === segment);
+    return index >= 0 && Boolean(segments[index + 1]);
+  });
+  if (keyedSegment) {
+    const index = segments.findIndex((segment) => segment === keyedSegment);
+    return `zoom:${keyedSegment}:${segments[index + 1].replace(/[-\s]/g, "")}`;
   }
+  const wcJoinIndex = segments.findIndex((segment, index) => segment === "join" && segments[index - 1] === "wc");
+  if (wcJoinIndex >= 0 && segments[wcJoinIndex + 1]) return `zoom:j:${segments[wcJoinIndex + 1].replace(/[-\s]/g, "")}`;
+
+  const roomIndex = segments.findIndex((segment) => segment === "my");
   if (roomIndex >= 0 && segments[roomIndex + 1]) {
     return `zoom:my:${segments[roomIndex + 1]}`;
   }
@@ -263,12 +441,26 @@ function joinLinkScore(url: string, kind: CalendarJoinLink["kind"]): number {
   return score;
 }
 
+function resourceLinkScore(url: string, kind: CalendarResourceLink["kind"]): number {
+  const parsed = parseUrl(url);
+  if (!parsed) return url.length;
+  const path = parsed.pathname.toLowerCase();
+  let score = url.length;
+  if (kind !== "web") score += 1_000;
+  if (path.includes("/edit")) score += 100;
+  return score;
+}
+
 function isKnownMeetingBoilerplateUrl(url: string, kind: CalendarJoinLink["kind"]): boolean {
   const parsed = parseUrl(url);
   if (!parsed) return false;
   const host = normalizedHost(parsed.hostname);
   const path = parsed.pathname.toLowerCase();
   const full = url.toLowerCase();
+
+  if (isStaticAssetUrl(parsed)) return true;
+  if (isGeneratedCalendarActionUrl(url)) return true;
+  if (isZoomRegistrationUrl(url)) return true;
 
   if (kind === "teams") {
     return path.includes("meetingoptions") || path.includes("/dl/launcher");
@@ -280,6 +472,45 @@ function isKnownMeetingBoilerplateUrl(url: string, kind: CalendarJoinLink["kind"
     return full.includes("download") || full.includes("join-a-meeting") || full.includes("meetingoptions");
   }
   return false;
+}
+
+function isZoomJoinUrl(url: URL): boolean {
+  if (!isZoomHost(normalizedHost(url.hostname))) return false;
+  const segments = normalizedPathSegments(url);
+  if (["j", "my", "w", "u"].includes(segments[0]) && Boolean(segments[1])) return true;
+  return segments[0] === "wc" && segments[1] === "join" && Boolean(segments[2]);
+}
+
+function isGeneratedCalendarActionUrl(value: string): boolean {
+  const parsed = parseUrl(normalizeRawUrl(value));
+  if (!parsed) return false;
+  const host = normalizedHost(parsed.hostname);
+  const path = normalizedPathname(parsed).toLowerCase();
+
+  if (isStaticAssetUrl(parsed)) return true;
+
+  if (isZoomHost(host)) {
+    if (path.startsWith("/webinar/email/")) return true;
+    if (path.includes("/calendar/")) return true;
+    if (path.endsWith("/ics")) return true;
+  }
+
+  return false;
+}
+
+function isZoomRegistrationUrl(value: string): boolean {
+  const parsed = parseUrl(normalizeRawUrl(value));
+  if (!parsed) return false;
+  return isZoomHost(normalizedHost(parsed.hostname)) && normalizedPathname(parsed).toLowerCase().startsWith("/webinar/register/");
+}
+
+function isZoomHost(host: string): boolean {
+  return /(^|\.)zoom\.us$/.test(host);
+}
+
+function isStaticAssetUrl(url: URL): boolean {
+  const path = normalizedPathname(url).toLowerCase();
+  return /\.(?:avif|gif|jpe?g|png|svg|webp)(?:$|[?#])/.test(path);
 }
 
 function parseUrl(value: string): URL | null {

@@ -48,6 +48,7 @@ const HEALTH_TICK_MS = 15_000;
 const STANDBY_POLL_MS = 30_000;
 const RESTART_BACKOFF_CAP_MS = 60_000;
 const LOG_DIR = path.join(DATA_DIR, "logs", "supervisor");
+const GRANOLA_DAEMON_STALE_MS = 5 * 60_000;
 
 type ChildName = "appServer" | "wsServer" | "eventServer";
 
@@ -310,10 +311,32 @@ async function adoptOrClean(): Promise<void> {
       await waitForPortFree(APP_PORT, 10_000);
       continue;
     }
+    if (name === "wsServer" && process.env.HILT_GRANOLA_SYNC_DAEMON === "1" && !granolaDaemonActive()) {
+      log(`previous ws-server pid ${entry.pid} lacks an active Granola daemon heartbeat — cleaning`);
+      killGroup(entry.pid);
+      await sleep(1000);
+      continue;
+    }
     log(`adopted ${name} from previous supervisor (pid ${entry.pid})`);
     children.set(name, { name, pid: entry.pid, proc: null, restartAttempts: 0, lastSpawnAt: Date.now() });
   }
   persistChildrenRecord();
+}
+
+function granolaDaemonActive(): boolean {
+  try {
+    const statePath = path.join(DATA_DIR, "granola-sync-daemon.json");
+    const state = JSON.parse(fs.readFileSync(statePath, "utf-8")) as {
+      enabled?: unknown;
+      pid?: unknown;
+      updatedAt?: unknown;
+    };
+    if (state.enabled !== true || typeof state.pid !== "number" || !isPidAlive(state.pid)) return false;
+    const updatedAt = typeof state.updatedAt === "string" ? Date.parse(state.updatedAt) : NaN;
+    return Number.isFinite(updatedAt) && Date.now() - updatedAt < GRANOLA_DAEMON_STALE_MS;
+  } catch {
+    return false;
+  }
 }
 
 /** True while some OTHER process serves a healthy Hilt on the app port. */

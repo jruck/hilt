@@ -1,7 +1,7 @@
 import * as crypto from "crypto";
 import ICAL from "ical.js";
 import { CALENDAR_SOURCE_CONFIGS, type CalendarSourceConfig } from "./config";
-import { extractCalendarJoinLinks, htmlToText } from "./links";
+import { extractCalendarJoinLinks, extractCalendarResourceLinks, htmlToText } from "./links";
 import type { CalendarEventInput, CalendarFieldCoverage, CalendarParticipant } from "./types";
 
 interface ParseWindow {
@@ -115,6 +115,7 @@ function eventToInput(
   const organizer = organizerFromComponent(component, event);
   const rules = component.getAllProperties("rrule").map((property) => String(property.getFirstValue())).filter(Boolean);
   const joinLinks = extractCalendarJoinLinks({ description, location, url });
+  const resourceLinks = extractCalendarResourceLinks({ description, location, url });
   const allDay = Boolean(start.isDate);
   const startValue = timeToStorage(start);
   const endValue = timeToStorage(end);
@@ -140,6 +141,7 @@ function eventToInput(
     description,
     location,
     joinLinks,
+    resourceLinks,
     attendees,
     organizer,
     recurrence: {

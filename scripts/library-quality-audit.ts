@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { loadEnvConfig } from "@next/env";
 import { CANDIDATE_CACHE_DIR } from "../src/lib/library/candidate-cache";
+import { hasConnectionPass } from "../src/lib/library/connection-state";
 import { extractBullets, extractConnections, extractHeading, extractSection, parseMarkdownFile, relativeVaultPath } from "../src/lib/library/markdown";
 import { walkMarkdown } from "../src/lib/library/utils";
 
@@ -53,14 +54,6 @@ function hasFreeformDigest(body: string): boolean {
   return [...body.matchAll(/^##\s+(.+)$/gm)]
     .map((match) => match[1]?.trim().toLowerCase())
     .some((heading) => Boolean(heading && !structural.has(heading)));
-}
-
-function hasConnectionPass(data: Record<string, unknown>, connectionCount: number): boolean {
-  return Boolean(
-    (typeof data.reconnected_at === "string" && data.reconnected_at.length > 0)
-      || connectionCount > 0
-      || (typeof data.connection_reasoning === "string" && data.connection_reasoning.length > 0)
-  );
 }
 
 function qualityFor(item: AuditItem): "hot" | "warm" | "cold" {
@@ -126,7 +119,7 @@ function auditFile(filePath: string): AuditItem | null {
   const keyPoints = extractBullets(extractSection(body, "Key Points"));
   const connections = extractConnections(body);
   const connectionCount = Array.isArray(data.connection_suggestions) ? data.connection_suggestions.length : connections.length;
-  const connectionPass = hasConnectionPass(data, connectionCount);
+  const connectionPass = hasConnectionPass(data);
   const rawContent = stripDetails(extractSection(body, "Raw Content"));
   const mediaSection = extractSection(body, "Media");
   const digestionStatus = typeof data.digestion_status === "string" ? data.digestion_status : null;

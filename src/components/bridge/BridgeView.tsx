@@ -4,21 +4,24 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useBridgeWeekly } from "@/hooks/useBridgeWeekly";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
 import { useBridgeThoughts } from "@/hooks/useBridgeThoughts";
+import { useBridgeAreas } from "@/hooks/useBridgeAreas";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import { WeekHeader } from "./WeekHeader";
 import { BridgeTaskList } from "./BridgeTaskList";
 import { BridgeNotes } from "./BridgeNotes";
+import { AreaBoard } from "./AreaBoard";
 import { ProjectBoard } from "./ProjectBoard";
 import { ThoughtBoard } from "./ThoughtBoard";
 import { RecycleModal } from "./RecycleModal";
 import { BridgeTaskPanel } from "./BridgeTaskPanel";
 import { AppHud, AppHudCollapsedBar } from "@/components/AppHud";
 import { LoadingState } from "@/components/ui/LoadingState";
+import { SecondaryInlineContent } from "@/components/layout/SecondaryToolbar";
 import { BridgeModeToggle, type BridgeMode } from "./BridgeModeToggle";
 import { parseLifecycle } from "@/lib/attribution";
 import type { CalendarEventOpenDetail } from "@/lib/calendar/deeplink";
-import type { BridgeTask, BridgeProject, BridgeWeeklySection } from "@/lib/types";
+import type { BridgeArea, BridgeTask, BridgeProject, BridgeWeeklySection } from "@/lib/types";
 
 interface BridgeViewProps {
   addTaskTrigger?: number;
@@ -27,6 +30,7 @@ interface BridgeViewProps {
   onOpenCalendarEvent?: (detail: CalendarEventOpenDetail) => void;
   openTaskRequest?: { taskId: string; token: number } | null;
   searchQuery?: string;
+  onNavigateToArea?: (area: BridgeArea) => void;
   onNavigateToProject?: (project: BridgeProject) => void;
   onBridgeModeChange?: (mode: BridgeMode) => void;
 }
@@ -40,6 +44,7 @@ export function BridgeView({
   onOpenCalendarEvent,
   openTaskRequest,
   searchQuery = "",
+  onNavigateToArea,
   onNavigateToProject,
   onBridgeModeChange,
 }: BridgeViewProps) {
@@ -66,6 +71,7 @@ export function BridgeView({
 
   const { data: projects, isLoading: projectsLoading, updateProjectStatus } = useBridgeProjects();
   const { data: thoughts, isLoading: thoughtsLoading, updateThoughtStatus } = useBridgeThoughts();
+  const { data: areas, isLoading: areasLoading } = useBridgeAreas();
   const isMobile = useIsMobile();
 
   const [showRecycleModal, setShowRecycleModal] = useState(false);
@@ -224,14 +230,33 @@ export function BridgeView({
     return result as typeof thoughts.columns;
   }, [thoughts, q]);
 
+  const filteredAreas = useMemo(() => {
+    if (!areas) return null;
+    if (!q) return areas.areas;
+    return areas.areas.filter((area) => {
+      const haystack = [
+        area.title,
+        area.slug,
+        area.relativePath,
+        area.description,
+        ...area.goals,
+        ...area.standards,
+        ...area.focus.map((focus) => focus.text),
+        ...area.activeProjects.map((project) => project.raw),
+      ].join(" ").toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [areas, q]);
+
   const hasFilteredTasks = filteredTasks.length > 0;
+  const hasFilteredAreas = (filteredAreas?.length ?? 0) > 0;
   const hasFilteredProjects = filteredColumns
     ? Object.values(filteredColumns).some(col => col.length > 0)
     : false;
   const hasFilteredThoughts = filteredThoughtColumns
     ? Object.values(filteredThoughtColumns).some(col => col.length > 0)
     : false;
-  const hasAnyResults = hasFilteredTasks || showNotes || showAccomplishments || hasFilteredProjects || hasFilteredThoughts;
+  const hasAnyResults = hasFilteredTasks || showNotes || showAccomplishments || hasFilteredAreas || hasFilteredProjects || hasFilteredThoughts;
 
   const handleSelectTask = useCallback((task: BridgeTask) => {
     // Mark outgoing task as read before switching
@@ -330,6 +355,7 @@ export function BridgeView({
         }}
         onSelectTask={handleSelectTask}
         onAddTask={() => handleAddTask(NEW_TASK_TITLE)}
+        reorderDisabled={Boolean(q)}
       />
     );
   }, [
@@ -346,6 +372,7 @@ export function BridgeView({
     selectedTask?.id,
     handleSelectTask,
     handleAddTask,
+    q,
     updateNotes,
     updateAccomplishments,
   ]);
@@ -382,7 +409,7 @@ export function BridgeView({
 
       {/* Main content */}
       <div data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-        <div className="max-w-3xl mx-auto px-6 py-8">
+        <div className="mx-auto max-w-3xl px-4 pb-0 pt-8 sm:px-6 sm:pb-8 sm:pt-2">
           <WeekHeader
             week={weekly.week}
             needsRecycle={weekly.needsRecycle}
@@ -397,8 +424,15 @@ export function BridgeView({
             }
           />
 
-          <div className="mt-6 space-y-8">
+          <SecondaryInlineContent className="space-y-8">
             {weeklySectionOrder.map(renderWeeklySection)}
+
+            {filteredAreas && hasFilteredAreas && (
+              <AreaBoard
+                areas={filteredAreas}
+                onAreaClick={onNavigateToArea}
+              />
+            )}
 
             {filteredThoughtColumns && hasFilteredThoughts && (
               <ThoughtBoard
@@ -418,7 +452,7 @@ export function BridgeView({
               />
             )}
 
-            {(projectsLoading || thoughtsLoading) && !projects && !thoughts && (
+            {(areasLoading || projectsLoading || thoughtsLoading) && !areas && !projects && !thoughts && (
               <LoadingState className="min-h-16 py-4" />
             )}
 
@@ -427,7 +461,7 @@ export function BridgeView({
                 No matching items
               </div>
             )}
-          </div>
+          </SecondaryInlineContent>
         </div>
 
         {showRecycleModal && (

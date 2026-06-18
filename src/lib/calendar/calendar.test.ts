@@ -7,7 +7,7 @@ import { NextRequest } from "next/server";
 import { CALENDAR_SOURCE_CONFIGS } from "./config";
 import { CALENDAR_FIXTURE_ICS } from "./fixtures";
 import { parseIcsFeed } from "./ics";
-import { extractCalendarJoinLinks, extractJoinLinks } from "./links";
+import { extractCalendarJoinLinks, extractCalendarResourceLinks, extractJoinLinks, shouldRenderCalendarProviderUrl } from "./links";
 import { closeCalendarDbForTests, listCalendarSources, listCalendars, queryCalendarAvailabilityBlocks, queryCalendarEvents, queryCalendarHolidayEvents, replaceSourceEvents, upsertCalendar } from "./db";
 import { calendarSetupStatus, syncCalendarSources } from "./sync";
 
@@ -268,6 +268,31 @@ END:VCALENDAR`, {
     assert.match(links[0].url, /pwd=secret/);
   });
 
+  test("keeps only the Zoom join action from webinar registration email chrome", () => {
+    const registrationUrl = "https://8090-ai.zoom.us/webinar/register/WN_05f6uaHXRP2GDt0P5IbY3Q?tk=registration#detail";
+    const links = extractCalendarJoinLinks({
+      url: registrationUrl,
+      description: [
+        "Hi Justin Ruckman,",
+        "Thank you for registering for 8090 Software Factory Demo + Q&A. You can find information about this webinar below.",
+        `You can cancel<${registrationUrl}> your registration at any time.`,
+        "Add to Google Calendar https://8090-ai.zoom.us/webinar/tJ0vd-iorj4oE9FL4Buh28XjC6e0pOUgmFLl/calendar/google/add?user_id=abc&type=google",
+        "Google icon https://st3.zoom.us/static/6.3.58662/image/new/google.png",
+        "Add to iCal https://8090-ai.zoom.us/webinar/tJ0vd-iorj4oE9FL4Buh28XjC6e0pOUgmFLl/ics?user_id=abc&type=icalendar",
+        "Join webinar https://8090-ai.zoom.us/w/99201005295?tk=join-token&uuid=WN_05f6uaHXRP2GDt0P5IbY3Q",
+        "Zoom short link https://8090-ai.zoom.us/u/aCxmLav5u",
+        "LinkedIn icon https://file-paa.zoom.us/example/Linkedin.png",
+        "Unsubscribe https://zoom.us/webinar/email/3c9e18a8/unsubscribe?email=example",
+      ].join("\n"),
+    });
+
+    assert.equal(links.length, 1);
+    assert.equal(links[0].kind, "zoom");
+    assert.match(links[0].url, /\/w\/99201005295/);
+    assert.equal(shouldRenderCalendarProviderUrl(registrationUrl, links), false);
+    assert.equal(shouldRenderCalendarProviderUrl(registrationUrl, []), true);
+  });
+
   test("keeps distinct generic web links when no provider meeting link is present", () => {
     const links = extractJoinLinks(
       "https://example.com/room",
@@ -294,6 +319,41 @@ END:VCALENDAR`, {
     assert.equal(links.length, 1);
     assert.equal(links[0].kind, "teams");
     assert.match(links[0].url, /meeting_PRIMARY/);
+  });
+
+  test("keeps calendar document resources alongside Teams join links", () => {
+    const description = [
+      "Meeting notes, please add to and review as needed:",
+      "https://docs.google.com/document/d/162wRZeX9CFeSvZNsUx8-qRxqGCLDyknRpfbE8br7RJ4/edit",
+      "Join the meeting now https://teams.microsoft.com/l/meetup-join/19%3ameeting_INSIGHTS%40thread.v2/0",
+      "Meeting options https://teams.microsoft.com/meetingOptions/?threadId=19%3ameeting_INSIGHTS%40thread.v2",
+      "Microsoft Teams Need help? https://aka.ms/JoinTeamsMeeting",
+    ].join("\n");
+    const joinLinks = extractCalendarJoinLinks({ description });
+    const resourceLinks = extractCalendarResourceLinks({ description });
+
+    assert.deepEqual(joinLinks.map((link) => link.kind), ["teams"]);
+    assert.equal(resourceLinks.length, 1);
+    assert.deepEqual(resourceLinks[0], {
+      kind: "doc",
+      label: "Google Doc",
+      url: "https://docs.google.com/document/d/162wRZeX9CFeSvZNsUx8-qRxqGCLDyknRpfbE8br7RJ4/edit",
+    });
+  });
+
+  test("deduplicates equivalent resource URLs and suppresses meeting boilerplate", () => {
+    const resources = extractCalendarResourceLinks({
+      description: [
+        "Agenda https://docs.google.com/document/d/example-doc-id/edit?usp=sharing",
+        "Notes https://docs.google.com/document/d/example-doc-id/",
+        "Meeting options https://teams.microsoft.com/meetingOptions/?threadId=abc",
+        "Join https://teams.microsoft.com/l/meetup-join/19%3ameeting_ABC%40thread.v2/0",
+      ].join("\n"),
+    });
+
+    assert.equal(resources.length, 1);
+    assert.equal(resources[0].kind, "doc");
+    assert.match(resources[0].url, /\/edit/);
   });
 
   test("keeps all-day holidays and observances from the US holidays source", () => {

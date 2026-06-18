@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, type ReactNode } from "react";
 import { RefreshCw, ChevronDown, ArrowLeft } from "lucide-react";
+import { formatHiltWeekRange } from "@/lib/display-date";
 
 interface WeekHeaderProps {
   week: string;
@@ -19,16 +20,7 @@ function formatWeekDate(week: string): string {
     const sunday = new Date(monday);
     sunday.setDate(monday.getDate() + 6);
 
-    const monMonth = monday.toLocaleDateString("en-US", { month: "long" });
-    const sunMonth = sunday.toLocaleDateString("en-US", { month: "long" });
-    const monDay = monday.getDate();
-    const sunDay = sunday.getDate();
-    const year = sunday.getFullYear();
-
-    if (monMonth === sunMonth) {
-      return `${monMonth} ${monDay} – ${sunDay}, ${year}`;
-    }
-    return `${monMonth} ${monDay} – ${sunMonth} ${sunDay}, ${year}`;
+    return formatHiltWeekRange(monday, sunday);
   } catch {
     return week;
   }
@@ -40,15 +32,7 @@ function formatWeekShort(week: string): string {
     const sunday = new Date(monday);
     sunday.setDate(monday.getDate() + 6);
 
-    const monMonth = monday.toLocaleDateString("en-US", { month: "short" });
-    const sunMonth = sunday.toLocaleDateString("en-US", { month: "short" });
-    const monDay = monday.getDate();
-    const sunDay = sunday.getDate();
-
-    if (monMonth === sunMonth) {
-      return `${monMonth} ${monDay} – ${sunDay}`;
-    }
-    return `${monMonth} ${monDay} – ${sunMonth} ${sunDay}`;
+    return formatHiltWeekRange(monday, sunday, { includeYear: false });
   } catch {
     return week;
   }
@@ -111,7 +95,7 @@ export function WeekHeader({
         </button>
       )}
 
-      <div className="flex items-center justify-between gap-3 text-[var(--text-primary)]">
+      <div className="flex min-h-8 items-center justify-between gap-3 text-[var(--text-primary)]">
         {/* Week heading with optional dropdown */}
         <div className="relative" ref={dropdownRef}>
           {hasOtherWeeks ? (
@@ -119,11 +103,11 @@ export function WeekHeader({
               onClick={() => setDropdownOpen(!dropdownOpen)}
               className="flex items-center gap-1.5 text-lg font-semibold hover:text-[var(--text-secondary)] transition-colors"
             >
-              Week of {formatWeekDate(week)}
+              {formatWeekDate(week)}
               <ChevronDown className={`w-4 h-4 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
             </button>
           ) : (
-            <h1 className="text-lg font-semibold">Week of {formatWeekDate(week)}</h1>
+            <h1 className="text-lg font-semibold">{formatWeekDate(week)}</h1>
           )}
 
           {/* Dropdown */}

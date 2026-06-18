@@ -26,6 +26,7 @@ const PROJECT_DIR = path.resolve(__dirname, "..");
 const PLIST_PATH = path.join(os.homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);
 const WRAPPER = path.join(PROJECT_DIR, "scripts", "hilt-supervisor.sh");
 const LOG_DIR = path.join(os.homedir(), ".hilt", "logs");
+const GRANOLA_DAEMON_STALE_MS = 5 * 60_000;
 
 function plistEscape(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -50,6 +51,8 @@ function renderPlist(): string {
         <string>${plistEscape(os.homedir())}</string>
         <key>DATA_DIR</key>
         <string>${plistEscape(defaultDataDir())}</string>
+        <key>HILT_GRANOLA_SYNC_DAEMON</key>
+        <string>1</string>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     </dict>
@@ -111,16 +114,51 @@ function status(): void {
   const heartbeat = readSupervisorHeartbeat();
   if (!heartbeat) {
     console.log("heartbeat: none");
+  } else {
+    const fresh = isHeartbeatFresh(heartbeat);
+    console.log(
+      `heartbeat: ${heartbeat.kind} pid ${heartbeat.pid}, state ${heartbeat.state}${heartbeat.detail ? ` (${heartbeat.detail})` : ""}, beat ${heartbeat.beat_at} — ${fresh ? "FRESH" : "STALE"}`
+    );
+    if (heartbeat.children) {
+      for (const [name, pid] of Object.entries(heartbeat.children)) {
+        console.log(`  child ${name}: pid ${pid}`);
+      }
+    }
+  }
+  printGranolaDaemonStatus();
+}
+
+function printGranolaDaemonStatus(): void {
+  const statePath = path.join(defaultDataDir(), "granola-sync-daemon.json");
+  let state: { enabled?: unknown; running?: unknown; pid?: unknown; updatedAt?: unknown; nextRunAt?: unknown };
+  try {
+    state = JSON.parse(fs.readFileSync(statePath, "utf-8"));
+  } catch {
+    console.log("granola daemon: no heartbeat");
     return;
   }
-  const fresh = isHeartbeatFresh(heartbeat);
+
+  const enabled = state.enabled === true;
+  const running = state.running === true;
+  const pid = typeof state.pid === "number" ? state.pid : null;
+  const pidStatus = pid ? (isPidAlive(pid) ? "alive" : "dead") : "missing";
+  const updatedAt = typeof state.updatedAt === "string" ? state.updatedAt : null;
+  const updatedMs = updatedAt ? Date.parse(updatedAt) : NaN;
+  const stale = !Number.isFinite(updatedMs) || Date.now() - updatedMs >= GRANOLA_DAEMON_STALE_MS;
+  const active = enabled && pidStatus === "alive" && !stale;
+  const nextRunAt = typeof state.nextRunAt === "string" ? state.nextRunAt : null;
+
   console.log(
-    `heartbeat: ${heartbeat.kind} pid ${heartbeat.pid}, state ${heartbeat.state}${heartbeat.detail ? ` (${heartbeat.detail})` : ""}, beat ${heartbeat.beat_at} — ${fresh ? "FRESH" : "STALE"}`
+    `granola daemon: ${active ? "ACTIVE" : "INACTIVE"} (${enabled ? "enabled" : "disabled"}, ${running ? "running" : "idle"}, pid ${pid ?? "none"} ${pidStatus}, updated ${updatedAt ?? "never"}${stale ? ", stale" : ""}${nextRunAt ? `, next ${nextRunAt}` : ""})`
   );
-  if (heartbeat.children) {
-    for (const [name, pid] of Object.entries(heartbeat.children)) {
-      console.log(`  child ${name}: pid ${pid}`);
-    }
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
   }
 }
 

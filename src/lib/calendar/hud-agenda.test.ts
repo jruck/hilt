@@ -19,6 +19,7 @@ function calendarEvent(id: string, title: string, start: string, end: string): C
     description: null,
     location: null,
     joinLinks: [],
+    resourceLinks: [],
     attendees: [],
     organizer: null,
     recurrence: { recurring: false, recurrenceId: null, rules: [] },

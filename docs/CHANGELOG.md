@@ -28,6 +28,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
+- **Lint no longer walks generated production Next output** — ESLint now ignores `.next-prod/**` and `.next-gateway/**` alongside the default `.next/**` build directory, keeping `npm run lint` focused on source files instead of generated standalone chunks.
+
 - **Editor's memo article mentions now open native Library items** — The latest memo was backfilled with Hilt wikilinks for saved references and active candidates mentioned in the prose. Future `library:memo` runs now ask Claude to emit `[[path|title]]` links for referenced intake items and run a deterministic post-pass over the returned `referenced_items` manifest to link any plain title mentions that still resolve in Library.
 
 - **Library memo dates now survive machine migration timestamps** — Saved references now honor `created_at`, `captured_at`, `saved_at`, `digested_at`, and `fetched_at` frontmatter before falling back to filesystem birthtime. This fixes migrated editor's memos appearing with the Mercury copy date even though their memo frontmatter carried the real generation dates.

@@ -15,7 +15,7 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    files: ["electron/**/*.js", "electron/**/*.cjs"],
+    files: ["electron/**/*.js", "electron/**/*.cjs", "server/**/*.js"],
     rules: {
       "@typescript-eslint/no-require-imports": "off",
     },
@@ -24,6 +24,8 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    ".next-prod/**",
+    ".next-gateway/**",
     ".next-graph-dev/**",
     ".next-graph-live/**",
     "out/**",

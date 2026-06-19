@@ -1,7 +1,7 @@
 import { normalizeForParity } from "../src/lib/local-apps/parity";
 import { scanLocalApps } from "../src/lib/local-apps/scanner";
 
-const oracleUrl = process.env.PORT_AUTHORITY_ORACLE_URL || "http://xochipilli.tailc0acaa.ts.net:47878/v1/services";
+const oracleUrl = process.env.PORT_AUTHORITY_ORACLE_URL || "http://hestia.tailc0acaa.ts.net:47878/v1/services";
 
 async function main() {
   const oracle = await fetch(oracleUrl).then((res) => {

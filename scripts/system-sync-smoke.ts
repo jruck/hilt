@@ -36,7 +36,6 @@ interface SystemSyncResponse {
 
 const DEFAULT_URLS = [
   "http://mercury-v.tailc0acaa.ts.net:3000/api/system/sync?force=true",
-  "http://xochipilli.tailc0acaa.ts.net:3000/api/system/sync?force=true",
 ];
 
 async function main(): Promise<void> {

@@ -38,7 +38,28 @@ function referenceCreatedDate(data: Record<string, unknown>, stat: fs.Stats): st
     || dateOnly(stat.birthtime);
 }
 
+// Per-file derived-detail cache. parseMarkdownFile already memoizes the raw gray-matter parse one
+// layer down; this memoizes the full LibraryArtifactDetail transform — the regex Summary/Key
+// Points/Connections extraction, tag derivation, and object construction that otherwise re-run for
+// EVERY reference file on every list request. Keyed on mtimeMs+size, so any write (in-place edit or
+// atomic temp+rename) changes the stat and invalidates exactly the touched file — no manual busting.
+// Sharing the returned object is safe: the read path is mutation-free (read-state and YouTube-clip
+// review derive new objects via spread; nothing mutates raw_frontmatter / tags / connections in
+// place — verified), and write paths rebuild from ProcessedArtifact, never from a cached detail.
+const detailCache = new Map<string, { mtimeMs: number; size: number; detail: LibraryArtifactDetail }>();
+const DETAIL_CACHE_MAX_ENTRIES = 8192;
+
 export function parseReferenceFile(vaultPath: string, filePath: string): LibraryArtifactDetail | null {
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(filePath);
+  } catch {
+    return null;
+  }
+  const cached = detailCache.get(filePath);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    return cached.detail;
+  }
   let parsed: ReturnType<typeof parseMarkdownFile>;
   try {
     parsed = parseMarkdownFile(filePath);
@@ -49,7 +70,6 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
   }
   const { data, body } = parsed;
   if (data.type !== "reference") return null;
-  const stat = fs.statSync(filePath);
   const relPath = relativeVaultPath(vaultPath, filePath);
   const fallbackTitle = path.basename(filePath, ".md");
   const title = String(data.title || extractHeading(body, fallbackTitle));
@@ -95,7 +115,7 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
       : null;
   const tags = semanticTags(frontmatterTags(data));
 
-  return {
+  const detail: LibraryArtifactDetail = {
     id: hashId(relPath),
     path: relPath,
     title,
@@ -131,6 +151,9 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
     connections: extractConnections(body),
     raw_frontmatter: data,
   };
+  if (detailCache.size >= DETAIL_CACHE_MAX_ENTRIES) detailCache.clear();
+  detailCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, detail });
+  return detail;
 }
 
 export function listSavedReferences(vaultPath: string): LibraryArtifactDetail[] {

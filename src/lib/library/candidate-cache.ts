@@ -1,3 +1,4 @@
+import fs from "fs";
 import path from "path";
 import type { CandidateStatus, ReferenceCandidate, ProcessedArtifact, PromotionReason } from "./types";
 import { addDays, atomicWriteFile, canonicalUrl, dateOnly, ensureDir, hashId, isoNow, slugify, walkMarkdown } from "./utils";
@@ -19,7 +20,22 @@ export function candidateCacheDir(vaultPath: string): string {
   return path.join(vaultPath, CANDIDATE_CACHE_DIR);
 }
 
+// Per-file parsed-candidate cache — the candidate-lane twin of the reference detailCache in
+// references.ts (same rationale, same mtimeMs+size invalidation, same read-only sharing contract).
+const candidateCache = new Map<string, { mtimeMs: number; size: number; candidate: ReferenceCandidate }>();
+const CANDIDATE_CACHE_MAX_ENTRIES = 8192;
+
 export function parseCandidateFile(vaultPath: string, filePath: string): ReferenceCandidate | null {
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(filePath);
+  } catch {
+    return null;
+  }
+  const cached = candidateCache.get(filePath);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    return cached.candidate;
+  }
   const { data, body } = parseMarkdownFile(filePath);
   if (data.type !== "reference-candidate") return null;
   const title = String(data.title || path.basename(filePath, ".md"));
@@ -51,7 +67,7 @@ export function parseCandidateFile(vaultPath: string, filePath: string): Referen
       : sourceId === MANUAL_SOURCE_ID
         ? MANUAL_SOURCE_NAME
         : String(data.source_name || "");
-  return {
+  const candidate: ReferenceCandidate = {
     id: hashId(relativeVaultPath(vaultPath, filePath)),
     path: relativeVaultPath(vaultPath, filePath),
     title,
@@ -94,6 +110,9 @@ export function parseCandidateFile(vaultPath: string, filePath: string): Referen
     content: body.trim(),
     raw_frontmatter: data,
   };
+  if (candidateCache.size >= CANDIDATE_CACHE_MAX_ENTRIES) candidateCache.clear();
+  candidateCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, candidate });
+  return candidate;
 }
 
 export function listCandidates(vaultPath: string, status?: CandidateStatus): ReferenceCandidate[] {

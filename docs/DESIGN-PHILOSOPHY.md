@@ -518,6 +518,15 @@ This section tracks design decisions and refinements over time. Each entry shoul
 - Keep links un-underlined by default and underline on hover, matching Docs read-mode behavior without importing the blue palette.
 - Keep citation links small and quiet; they are navigation aids, not primary emphasis.
 
+### 2026-06-19: Library Reader Links Are Document Affordances
+
+**Principle**: Library article links should read as part of the document, not as generic web chrome. The reader is a study surface, so links need to be visible without shouting.
+
+**Pattern**:
+- Use the same primary prose color as headings/strong text for Library reader links, but do not add weight just because text is linked.
+- Keep Library links underlined by default; hover should refine the individual link underline only, never restyle all links in the pane.
+- Markdown separators in reader prose should use neutral border tokens, not accent colors.
+
 ### 2026-06-17: Briefing Links Land in Native Hilt Homes
 
 **Principle**: Briefing links should open the thing where Hilt natively owns it, not raw same-origin report/API pages. The briefing is an orchestration surface; clicking through should preserve app context.

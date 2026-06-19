@@ -18,6 +18,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
+- **Library reader links now behave like document links, not blue web chrome** — Library markdown links are always underlined in the same primary prose color as strong/header text, without becoming bold. Hover now affects only the individual link underline instead of underlining every link when the article pane is hovered, and markdown separators use the neutral border token rather than inheriting a blue accent.
+
 - **Library saved/candidate lifecycle controls are now visually distinct and shared** — Feed cards and the detail reader now use one lifecycle menu component: candidates show an amber dashed-circle state with Save/Dismiss, while saved references show a filled green check-circle with source/unread/archive actions. Saved-reference archive moved out of the generic overflow menu so the action sits with the saved lifecycle state it changes.
 
 - **Agent instructions clarify prod rebuild responsibility** — `AGENTS.md` now matches `CLAUDE.md` on the prod daily-driver workflow (`npm run app:prod`, `npm run rebuild`, supervisor status) and both files explicitly require agents to run `npm run rebuild` after user-visible app code changes unless the change is docs/test-only or the user says not to.
@@ -25,6 +27,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - **Library nav dot = "new since you last looked," not "unread exists"** — The top-nav Library dot was driven by `hasUnreadLibraryArtifacts` (any item not yet individually read), which is perma-on under steady ingestion — useless as a signal. It now means *items arrived since you last opened the Library tab*: a single `last_visited_at` timestamp on the read-state, with `isLibraryArtifactNew` (arrival-time vs. last-visit, independent of per-item read state) and `hasNewLibraryArtifacts`. `GET /api/library/unread` returns `has_new` (with `has_unread` kept as a back-compat alias); a new `POST` marks the tab visited. Board stamps the visit (optimistically clearing the dot) whenever the Library view opens, via a stable `markVisited` from `useLibraryUnread`. Per-item unread dots on feed cards are unchanged — this only re-defines the nav-level signal.
 
 ### Fixed
+
+- **Editor's memo article mentions now open native Library items** — The latest memo was backfilled with Hilt wikilinks for saved references and active candidates mentioned in the prose. Future `library:memo` runs now ask Claude to emit `[[path|title]]` links for referenced intake items and run a deterministic post-pass over the returned `referenced_items` manifest to link any plain title mentions that still resolve in Library.
+
+- **Library memo dates now survive machine migration timestamps** — Saved references now honor `created_at`, `captured_at`, `saved_at`, `digested_at`, and `fetched_at` frontmatter before falling back to filesystem birthtime. This fixes migrated editor's memos appearing with the Mercury copy date even though their memo frontmatter carried the real generation dates.
+
+- **Library X recovery no longer accepts login-wall boilerplate as source text** — `library:x:recover` now rejects X login/signup/footer copy such as "Continue with Apple", "By continuing, you agree…", and "Download the X app" before replacing a reference's Raw Content. This keeps Mercury browser-profile misses from falsely clearing `unfetched` X Article cards; the bad local recovery writes from the audit were restored from Xochipilli before retrying.
 
 - **Hilt source app no longer bakes or silently falls back to absolute project paths** — `scripts/create-dev-app.sh` now recreates `dist/Hilt.app` cleanly, keeps the launcher C source out of the bundle, resolves the checkout from the app's `dist/` location at runtime, rejects `/Volumes` source launches with a clear dialog, prefers the `.nvmrc` Node 22 runtime, and fails fast when Electron or native modules are missing instead of creating a bundle that only fails after double-click.
 

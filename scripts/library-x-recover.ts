@@ -112,7 +112,7 @@ function proseWordCount(text: string): number {
 }
 
 function isUsableRecoveredText(text: string): boolean {
-  if (/(Something went wrong|Try reloading|This post is unavailable|This Post is from an account that no longer exists|These posts are protected|Hmm\.\.\.this page doesn.?t exist|Sign in to X|Don.?t miss what.?s happening|JavaScript is not available)/i.test(text)) {
+  if (/(Something went wrong|Try reloading|This post is unavailable|This Post is from an account that no longer exists|These posts are protected|Hmm\.\.\.this page doesn.?t exist|Sign in to X|Log in to X|Sign up for X|Don.?t miss what.?s happening|JavaScript is not available|Continue with (Google|Apple|phone|Email|username)|By continuing, you agree to our Terms of Service|Download the X app|Ads info|X for Business|©\s*\d{4}\s+X Corp)/i.test(text)) {
     return false;
   }
   return text.length >= MIN_TEXT && proseWordCount(text) >= MIN_PROSE_WORDS;

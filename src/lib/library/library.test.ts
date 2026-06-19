@@ -1362,6 +1362,26 @@ Older manually captured reference.
   assert.equal(reference.created_at, "2026-02-14");
 });
 
+test("saved references use captured_at before filesystem creation time", () => {
+  const vault = tempVault();
+  const memoPath = path.join(vault, "references", "process", "memos", "2026-06-10-editors-memo.md");
+  fs.mkdirSync(path.dirname(memoPath), { recursive: true });
+  fs.writeFileSync(memoPath, `---
+type: reference
+title: The Bottleneck Isn't the Model
+format: memo
+source_id: library-memo
+source_name: Editor's Memo
+captured_at: '2026-06-10T03:34:33.790Z'
+digested_at: '2026-06-10T03:34:33.790Z'
+---
+# The Bottleneck Isn't the Model
+`, "utf-8");
+
+  const [reference] = listSavedReferences(vault);
+  assert.equal(reference.created_at, "2026-06-10");
+});
+
 test("cleans legacy reference body navigation and metadata into frontmatter", () => {
   const body = `# Legacy Video
 

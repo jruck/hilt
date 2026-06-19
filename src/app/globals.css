@@ -1497,6 +1497,39 @@ body [data-radix-popper-content-wrapper]::after {
 }
 
 /* ============================================
+   Library Markdown Styling
+   ============================================ */
+
+.library-markdown a {
+  color: var(--text-primary) !important;
+  font-weight: inherit !important;
+  text-decoration-line: underline !important;
+  text-decoration-color: color-mix(in srgb, var(--text-primary) 55%, transparent) !important;
+  text-decoration-thickness: 1px !important;
+  text-underline-offset: 2px;
+  transition: text-decoration-color 150ms ease;
+}
+
+.library-markdown a:visited {
+  color: var(--text-primary) !important;
+}
+
+.library-markdown a:hover {
+  color: var(--text-primary) !important;
+  text-decoration-color: var(--text-primary) !important;
+}
+
+.library-markdown a[href^="#wikilink:"] {
+  cursor: pointer;
+}
+
+.library-markdown hr {
+  border: 0;
+  border-top: 1px solid var(--border-default) !important;
+  background: transparent !important;
+}
+
+/* ============================================
    Code Block: Read Mode (copy button, hide edit controls)
    ============================================ */
 

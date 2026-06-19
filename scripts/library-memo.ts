@@ -93,6 +93,89 @@ interface MemoResponse {
   referenced_items: string[];
 }
 
+function memoLinkTarget(input: string): string {
+  return input.replace(/^\/+/, "").replace(/\.md$/, "");
+}
+
+function wikilinkLabel(input: string): string {
+  return input.replace(/\[/g, "(").replace(/]/g, ")").replace(/\s+/g, " ").trim();
+}
+
+function sanitizeWikilinkLabels(markdown: string): string {
+  return markdown.replace(/\[\[([^\]|\n]+)\|([\s\S]*?)]]/g, (match, target: string, label: string) => {
+    if (label.includes("\n")) return match;
+    return `[[${memoLinkTarget(target.trim())}|${wikilinkLabel(label)}]]`;
+  });
+}
+
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function protectMarkdownLinks(markdown: string): { text: string; restore: (text: string) => string } {
+  const protectedSpans: string[] = [];
+  const text = markdown.replace(/```[\s\S]*?```|`[^`\n]+`|!?\[\[[^\]]+]]|!?\[[^\]]*]\([^)]*\)/g, (match) => {
+    const token = `@@HILT_MEMO_PROTECTED_${protectedSpans.length}@@`;
+    protectedSpans.push(match);
+    return token;
+  });
+  return {
+    text,
+    restore: (value: string) => value.replace(/@@HILT_MEMO_PROTECTED_(\d+)@@/g, (_match, index: string) => protectedSpans[Number(index)] || ""),
+  };
+}
+
+function titleMentionVariants(title: string): string[] {
+  const variants = new Set<string>();
+  const add = (value: string | null | undefined) => {
+    const trimmed = value?.replace(/\s+/g, " ").trim();
+    if (trimmed && trimmed.length >= 8) variants.add(trimmed);
+  };
+
+  add(title);
+  const bracketedSource = title.match(/^\[([^\]]+)]\s*(.+)$/);
+  if (bracketedSource) {
+    add(`${bracketedSource[1]}: ${bracketedSource[2]}`);
+    add(bracketedSource[2]);
+    add(bracketedSource[2].split(":")[0]);
+  }
+  const homePageTitle = title.match(/^Home Page\s*-\s*(.+)$/i);
+  if (homePageTitle) add(homePageTitle[1]);
+  const withAttribution = title.match(/^(.+?)\s+With\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){1,3})$/);
+  if (withAttribution) add(`${withAttribution[1]} (${withAttribution[2]})`);
+
+  return [...variants].sort((a, b) => b.length - a.length);
+}
+
+function referencedBodyLinkItems(memo: MemoResponse, items: IntakeItem[]): IntakeItem[] {
+  const byPath = new Map(items.map((item) => [memoLinkTarget(item.path), item]));
+  const linked: IntakeItem[] = [];
+  for (const referenced of memo.referenced_items) {
+    const item = byPath.get(memoLinkTarget(referenced));
+    if (item && !linked.some((existing) => memoLinkTarget(existing.path) === memoLinkTarget(item.path))) linked.push(item);
+  }
+  return linked;
+}
+
+function linkReferencedItemMentions(markdown: string, items: IntakeItem[]): string {
+  let linked = markdown;
+  const entries = items.flatMap((item) => {
+    const target = memoLinkTarget(item.path);
+    return titleMentionVariants(item.title).map((label) => ({ label, target }));
+  }).sort((a, b) => b.label.length - a.label.length);
+
+  for (const entry of entries) {
+    const protectedMarkdown = protectMarkdownLinks(linked);
+    const pattern = new RegExp(`(^|[^\\p{L}\\p{N}_])(${escapeRegExp(entry.label)})(?![\\p{L}\\p{N}_])`, "gu");
+    const replaced = protectedMarkdown.text.replace(pattern, (_match, prefix: string, label: string) => (
+      `${prefix}[[${entry.target}|${wikilinkLabel(label)}]]`
+    ));
+    linked = protectedMarkdown.restore(replaced);
+  }
+
+  return linked;
+}
+
 function buildPrompt(items: IntakeItem[]): string {
   const kbIndex = buildKbIndex(vaultPath, { noWrite: true });
   const itemBlocks = items.map((item) => [
@@ -113,6 +196,10 @@ function buildPrompt(items: IntakeItem[]): string {
     "- 2-4 THROUGH-LINES, each tying at least 2 of the week's items to a SPECIFIC active project or",
     "  area from the index, ending with a concrete \"consider this\" recommendation.",
     "- A \"worth your time this week\" shortlist: at most 3 items, one-line reason each.",
+    "- When naming a specific item from THIS WEEK'S ITEMS in the memo body, link it with Hilt",
+    "  wikilink syntax: [[<ITEM path without .md>|<human title>]]. Use the ITEM path exactly as",
+    "  the target, minus a trailing .md. Do not put square brackets inside the alias label; write",
+    "  [AINews] as AINews, for example. Do not link generic concepts or active project names this way.",
     "",
     // The long free-form body must NOT travel inside a JSON string — escaping a multi-paragraph
     // markdown document is exactly where models slip (first live run failed on an unescaped char at
@@ -219,7 +306,8 @@ async function main(): Promise<void> {
     reconnected_at: now,
     connection_suggestions: suggestions,
   };
-  const body = `# ${memo.title}\n\n${memo.memo_markdown}`;
+  const linkedMemoMarkdown = linkReferencedItemMentions(sanitizeWikilinkLabels(memo.memo_markdown), referencedBodyLinkItems(memo, items));
+  const body = `# ${memo.title}\n\n${linkedMemoMarkdown}`;
 
   const memoDir = path.join(vaultPath, "references", "process", "memos");
   fs.mkdirSync(memoDir, { recursive: true });

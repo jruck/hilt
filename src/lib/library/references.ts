@@ -26,6 +26,18 @@ function frontmatterDate(value: unknown): string | null {
   return Number.isFinite(date.getTime()) ? dateOnly(date) : null;
 }
 
+function referenceCreatedDate(data: Record<string, unknown>, stat: fs.Stats): string {
+  return frontmatterDate(data.published)
+    || frontmatterDate(data.created)
+    || frontmatterDate(data.created_at)
+    || frontmatterDate(data.captured)
+    || frontmatterDate(data.captured_at)
+    || frontmatterDate(data.saved_at)
+    || frontmatterDate(data.digested_at)
+    || frontmatterDate(data.fetched_at)
+    || dateOnly(stat.birthtime);
+}
+
 export function parseReferenceFile(vaultPath: string, filePath: string): LibraryArtifactDetail | null {
   let parsed: ReturnType<typeof parseMarkdownFile>;
   try {
@@ -61,7 +73,7 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
           : explicitSourceId
             ? null
             : MANUAL_SOURCE_NAME;
-  const created = frontmatterDate(data.published) || frontmatterDate(data.created) || frontmatterDate(data.captured) || dateOnly(stat.birthtime);
+  const created = referenceCreatedDate(data, stat);
   const updated = stat.mtime.toISOString();
   const keyPoints = extractBullets(extractSection(body, "Key Points"));
   const sourceTags = uniqueTags(toArray(data.source_tags));

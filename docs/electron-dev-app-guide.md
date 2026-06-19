@@ -10,15 +10,16 @@ There are **two different `.app` bundles** this project can produce, and they wo
 
 ### 1. The Dev App (`dist/Hilt.app` via `create-dev-app.sh`)
 
-This is what you're running day-to-day. It's a **thin shell script disguised as a macOS app** that launches Electron pointing at your live source code.
+This is what you're running day-to-day. It's a **thin native macOS launcher plus a shell helper** that launches Electron pointing at your live source code.
 
 **How it works:**
 
 ```
 You double-click Hilt.app
-  → macOS runs Contents/MacOS/launcher (a bash script)
-    → It cd's to your project directory
-    → It runs: node_modules/.bin/electron electron/launcher.cjs
+  → macOS runs Contents/MacOS/launcher (a tiny native Mach-O stub)
+    → The stub execs Contents/MacOS/launcher.sh
+    → launcher.sh cd's to your project directory
+    → launcher.sh runs: node_modules/.bin/electron electron/launcher.cjs
       → launcher.cjs uses tsx to load electron/main.ts directly (no compile step)
         → main.ts checks: is a Next.js dev server already running on ports 3000-3004?
           → YES: reuses it (you had `npm run dev` in a terminal)
@@ -33,11 +34,14 @@ You double-click Hilt.app
 Hilt.app/
   Contents/
     Info.plist          (app metadata, icon reference)
-    MacOS/launcher      (bash script that runs Electron)
+    MacOS/launcher      (native stub, CFBundleExecutable)
+    MacOS/launcher.sh   (bash script that runs Electron)
     Resources/icon.icns (your app icon)
 ```
 
-It references your project directory by absolute path. The actual code, node_modules, everything lives in your normal working directory. That's why edits to your source files show up immediately — Electron is loading your dev server which is watching your real source files.
+The native stub matters on Apple Silicon systems without Rosetta: LaunchServices inspects `CFBundleExecutable` before the shell helper runs, and a script executable can trigger a Rosetta prompt even though Electron itself is arm64.
+
+It resolves your project directory relative to `dist/Hilt.app` at launch time. The actual code, node_modules, everything lives in your normal working directory. That's why edits to your source files show up immediately — Electron is loading your dev server which is watching your real source files.
 
 ### 2. The Production App (`dist/mac-arm64/Hilt.app` via `electron-builder`)
 
@@ -53,6 +57,8 @@ Your project needs:
 - A Next.js app (or any web app with a dev server)
 - Electron as a dev dependency
 - `tsx` for running TypeScript without a compile step
+- `.nvmrc` declaring the supported Node major (Hilt uses Node 22)
+- Xcode Command Line Tools (`clang`) to compile the native `.app` launcher stub
 
 ```bash
 npm install --save-dev electron tsx
@@ -223,76 +229,35 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
 ### Step 4: The Dev App Shell Script (`scripts/create-dev-app.sh`)
 
-This creates the clickable `.app` bundle:
+This creates the clickable `.app` bundle. In Hilt, use the checked-in
+`scripts/create-dev-app.sh` as the source of truth; the important parts are:
 
 ```bash
-#!/bin/bash
-set -e
-
-PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="YourApp"
-APP_PATH="$PROJECT_DIR/dist/$APP_NAME.app"
-
-echo "Creating $APP_NAME.app..."
-
+rm -rf "$APP_PATH"
 mkdir -p "$APP_PATH/Contents/MacOS"
 mkdir -p "$APP_PATH/Contents/Resources"
 
-# Info.plist — tells macOS this is an app and what to run
-cat > "$APP_PATH/Contents/Info.plist" << 'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key>
-    <string>launcher</string>
-    <key>CFBundleIconFile</key>
-    <string>icon</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.yourapp.dev</string>
-    <key>CFBundleName</key>
-    <string>YourApp</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleVersion</key>
-    <string>1.0</string>
-</dict>
-</plist>
-EOF
+# Info.plist sets CFBundleExecutable to "launcher" (the native stub).
 
-# The launcher — a bash script that starts Electron
-cat > "$APP_PATH/Contents/MacOS/launcher" << 'LAUNCHER_EOF'
+cat > "$APP_PATH/Contents/MacOS/launcher.sh" << 'LAUNCHER_EOF'
 #!/bin/bash
-PROJECT_DIR="PLACEHOLDER_PROJECT_DIR"
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SELF_DIR/../../../.." 2>/dev/null && pwd)"
 cd "$PROJECT_DIR"
 
-# Finder doesn't inherit your shell PATH, so we need to find node manually
-export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
-if [ -d "$HOME/.nvm/versions/node" ]; then
-    NODE_DIR=$(ls -1 "$HOME/.nvm/versions/node" | tail -1)
-    if [ -n "$NODE_DIR" ]; then
-        export PATH="$HOME/.nvm/versions/node/$NODE_DIR/bin:$PATH"
-    fi
-fi
+# Prefer the Node major from .nvmrc, then Homebrew's normal PATH.
+# Fail with a clear dialog if dependencies are missing or stale.
 
 exec "$PROJECT_DIR/node_modules/.bin/electron" "$PROJECT_DIR/electron/launcher.cjs"
 LAUNCHER_EOF
 
-# Inject the actual project path
-sed -i '' "s|PLACEHOLDER_PROJECT_DIR|$PROJECT_DIR|g" "$APP_PATH/Contents/MacOS/launcher"
-chmod +x "$APP_PATH/Contents/MacOS/launcher"
+chmod +x "$APP_PATH/Contents/MacOS/launcher.sh"
 
-# Copy icon if it exists
-if [ -f "$PROJECT_DIR/build/icon.icns" ]; then
-    cp "$PROJECT_DIR/build/icon.icns" "$APP_PATH/Contents/Resources/icon.icns"
-fi
-
-echo "Created: $APP_PATH"
-open -R "$APP_PATH"
+# Compile a tiny native C stub to Contents/MacOS/launcher.
+# The stub execs the adjacent launcher.sh with /bin/bash.
 ```
 
-**Critical detail: the PATH setup.** When you double-click an app from Finder/Dock, it does NOT get your shell's PATH. It gets the bare macOS system PATH. So the launcher must explicitly add `/opt/homebrew/bin` (Apple Silicon), `/usr/local/bin` (Intel), and your nvm node directory. Without this, `node` and `electron` won't be found and the app silently fails to launch.
+**Critical detail: the PATH setup.** When you double-click an app from Finder/Dock, it does NOT get your shell's PATH. It gets the bare macOS system PATH. The launcher must prefer the exact Node major in `.nvmrc` (nvm or Homebrew `node@22`) before falling back to `/opt/homebrew/bin` and `/usr/local/bin`; choosing the newest installed Node can break native modules.
 
 ### Step 5: Package.json Scripts
 
@@ -301,7 +266,9 @@ open -R "$APP_PATH"
   "main": "electron/main.js",
   "scripts": {
     "dev": "next dev --turbopack",
-    "electron:create-dev-app": "bash scripts/create-dev-app.sh"
+    "doctor:local": "node scripts/doctor-local.mjs",
+    "verify:desktop": "node scripts/verify-desktop.mjs",
+    "electron:create-dev-app": "npm run doctor:local && bash scripts/create-dev-app.sh && npm run verify:desktop"
   }
 }
 ```

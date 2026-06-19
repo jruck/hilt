@@ -22,6 +22,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
+- **Granola sync no longer dirties Bridge markdown with runtime timestamps** — Meeting notes and transcript frontmatter no longer write `hilt_synced_at`; Bridge markdown keeps stable Granola/calendar provenance fields only, while operational sync timing remains in Hilt's local Granola DB (`last_synced_at`). The markdown writer also strips legacy `hilt_synced_at` if an old file is rewritten. Added regression tests that repeated writes with unchanged source content/provenance are no-ops, and removed 1,345 existing `hilt_synced_at` lines from tracked Bridge markdown as a one-time cleanup.
+
 - **Briefing report links now stay inside Hilt** — Briefing markdown links to `/api/reports/memo` and `/api/reports/morning` now resolve through a native-link route before navigation. Editor's memo links open the matching memo as a Library item, and full Library report links open the dated markdown report in Docs, avoiding the raw Tailnet-served HTML report window.
 
 - **Bridge nav remembers Briefing vs. Priorities while preserving the default** — The primary Bridge tab now restores the last Bridge subview (`Briefing` or `Priorities`) from localStorage when returning from Calendar, People, Library, Docs, or System. A missing preference still defaults to Briefing, while explicit switches and task-entry shortcuts update the remembered Bridge mode.

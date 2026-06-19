@@ -591,6 +591,7 @@ The **third derived cache** (`src/lib/semantic/`, flag-gated `HILT_SEMANTIC_ENAB
 | Working folder | `data/preferences.json` | Server JSON | Default scope for all views |
 | Draft prompts | `Todo.md` / `data/inbox.json` | Local files | Queued prompts |
 | Source list | `${DATA_DIR}/sources.json` | Server JSON | Local/remote Hilt sources; rank order controls startup and fallback |
+| Granola sync index | `${DATA_DIR}/granola-sync.sqlite` | SQLite | Granola document/linkage state and operational sync timing (`last_synced_at`); Bridge markdown stores durable document/calendar provenance only |
 | Map index | `${DATA_DIR}/map.sqlite` | SQLite | Local Codex/Claude session metadata, source scan status, overrides |
 | Local Apps settings/previews | `${DATA_DIR}/local-apps/` | Server JSON + PNG cache | Local service monitor settings and optional screenshots |
 | Graph index | `${DATA_DIR}/graph.sqlite` | SQLite (derived cache) | Nodes/edges/positions/meta for System → Graph (flag-gated; markdown stays canonical) |

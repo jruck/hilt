@@ -11,7 +11,9 @@ import {
   augmentExistingMarkdown,
   buildNoteMarkdown,
   buildTranscriptMarkdown,
+  calendarAugmentationFields,
   computeMeetingPaths,
+  writeAugmentedMarkdown,
   writeTranscriptMarkdownIfChanged,
 } from "./markdown";
 import { normalizeGranolaDocument } from "./normalize";
@@ -160,6 +162,98 @@ describe("Granola markdown", () => {
     const rewritten = fs.readFileSync(paths.transcriptPath, "utf-8");
     assert.match(rewritten, /custom_flag: keep-me/);
     assert.match(rewritten, /Second live row\./);
+  });
+
+  it("does not rewrite Bridge markdown when source content and provenance are unchanged", async () => {
+    const doc = normalizeGranolaDocument(
+      {
+        id: "doc_stable",
+        title: "Stable Sync",
+        created_at: "2026-06-04T14:00:00.000Z",
+        updated_at: "2026-06-04T14:05:00.000Z",
+        last_viewed_panel: { content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Stable notes." }] }] } },
+        google_calendar_event: {
+          id: "google_event_stable",
+          iCalUID: "stable@example.com",
+          start: { dateTime: "2026-06-04T14:00:00.000Z" },
+          end: { dateTime: "2026-06-04T14:30:00.000Z" },
+          htmlLink: "https://calendar.example/stable",
+        },
+      },
+      [{ text: "Stable transcript row.", source: "microphone", start_timestamp: "2026-06-04T14:01:00.000Z" }],
+    );
+    const paths = computeMeetingPaths(tempDir, doc);
+    const match = {
+      hiltCalendarEventId: "cal_stable",
+      method: "icaluid" as const,
+      confidence: 1,
+      reason: "test",
+    };
+
+    fs.mkdirSync(path.dirname(paths.notePath), { recursive: true });
+    fs.writeFileSync(paths.notePath, buildNoteMarkdown(doc, paths, match)!, "utf-8");
+    assert.doesNotMatch(fs.readFileSync(paths.notePath, "utf-8"), /hilt_synced_at/);
+
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const augmented = writeAugmentedMarkdown(
+      paths.notePath,
+      {
+        ...calendarAugmentationFields(doc, match),
+        transcript: `[[${paths.transcriptRelativePath}]]`,
+      },
+      false,
+    );
+    assert.equal(augmented, false);
+
+    fs.mkdirSync(path.dirname(paths.transcriptPath), { recursive: true });
+    assert.equal(writeTranscriptMarkdownIfChanged(paths.transcriptPath, doc, paths, match, false), true);
+    const transcriptOnce = fs.readFileSync(paths.transcriptPath, "utf-8");
+    assert.doesNotMatch(transcriptOnce, /hilt_synced_at/);
+
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    assert.equal(writeTranscriptMarkdownIfChanged(paths.transcriptPath, doc, paths, match, false), false);
+    assert.equal(fs.readFileSync(paths.transcriptPath, "utf-8"), transcriptOnce);
+  });
+
+  it("strips legacy sync bookkeeping when rewriting existing Granola markdown", () => {
+    const doc = normalizeGranolaDocument(
+      {
+        id: "doc_legacy_sync",
+        title: "Legacy Sync Field",
+        created_at: "2026-06-05T14:00:00.000Z",
+        updated_at: "2026-06-05T14:05:00.000Z",
+        last_viewed_panel: { content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Legacy notes." }] }] } },
+        google_calendar_event: {
+          id: "google_event_legacy",
+          iCalUID: "legacy@example.com",
+          start: { dateTime: "2026-06-05T14:00:00.000Z" },
+          end: { dateTime: "2026-06-05T14:30:00.000Z" },
+          htmlLink: "https://calendar.example/legacy",
+        },
+      },
+      [{ text: "Legacy transcript row.", source: "microphone", start_timestamp: "2026-06-05T14:01:00.000Z" }],
+    );
+    const paths = computeMeetingPaths(tempDir, doc);
+    const match = {
+      hiltCalendarEventId: "cal_legacy",
+      method: "icaluid" as const,
+      confidence: 1,
+      reason: "test",
+    };
+
+    fs.mkdirSync(path.dirname(paths.notePath), { recursive: true });
+    const noteWithLegacyField = buildNoteMarkdown(doc, paths, match)!.replace("---\n", "---\nhilt_synced_at: 2026-06-05T14:10:00.000Z\n");
+    fs.writeFileSync(paths.notePath, noteWithLegacyField, "utf-8");
+    assert.equal(writeAugmentedMarkdown(paths.notePath, calendarAugmentationFields(doc, match), false), true);
+    assert.doesNotMatch(fs.readFileSync(paths.notePath, "utf-8"), /hilt_synced_at/);
+    assert.equal(writeAugmentedMarkdown(paths.notePath, calendarAugmentationFields(doc, match), false), false);
+
+    fs.mkdirSync(path.dirname(paths.transcriptPath), { recursive: true });
+    const transcriptWithLegacyField = buildTranscriptMarkdown(doc, paths, match)!.replace("---\n", "---\nhilt_synced_at: 2026-06-05T14:10:00.000Z\n");
+    fs.writeFileSync(paths.transcriptPath, transcriptWithLegacyField, "utf-8");
+    assert.equal(writeTranscriptMarkdownIfChanged(paths.transcriptPath, doc, paths, match, false), true);
+    assert.doesNotMatch(fs.readFileSync(paths.transcriptPath, "utf-8"), /hilt_synced_at/);
+    assert.equal(writeTranscriptMarkdownIfChanged(paths.transcriptPath, doc, paths, match, false), false);
   });
 });
 

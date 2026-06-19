@@ -6,6 +6,8 @@ import { atomicWriteFile, ensureDir } from "../library/utils";
 import { buildGranolaNoteBody, formatTranscriptMarkdown } from "./content";
 import type { GranolaCalendarMatch, GranolaDocument } from "./types";
 
+const VOLATILE_FRONTMATTER_KEYS = new Set(["hilt_synced_at"]);
+
 export interface ExistingMeetingFiles {
   notesByGranolaId: Map<string, string>;
   transcriptsByGranolaId: Map<string, string>;
@@ -145,7 +147,6 @@ export function buildNoteFrontmatter(doc: GranolaDocument, transcriptRelativePat
     hilt_calendar_event_id: match.hiltCalendarEventId ?? undefined,
     hilt_calendar_match_method: match.method !== "none" ? match.method : undefined,
     hilt_calendar_match_confidence: match.method !== "none" ? match.confidence : undefined,
-    hilt_synced_at: new Date().toISOString(),
   };
 }
 
@@ -169,7 +170,6 @@ export function buildTranscriptFrontmatter(doc: GranolaDocument, noteRelativePat
     hilt_calendar_event_id: match.hiltCalendarEventId ?? undefined,
     hilt_calendar_match_method: match.method !== "none" ? match.method : undefined,
     hilt_calendar_match_confidence: match.method !== "none" ? match.confidence : undefined,
-    hilt_synced_at: new Date().toISOString(),
   };
 }
 
@@ -185,12 +185,13 @@ export function calendarAugmentationFields(doc: GranolaDocument, match: GranolaC
     hilt_calendar_event_id: match.hiltCalendarEventId ?? undefined,
     hilt_calendar_match_method: match.method !== "none" ? match.method : undefined,
     hilt_calendar_match_confidence: match.method !== "none" ? match.confidence : undefined,
-    hilt_synced_at: new Date().toISOString(),
   };
 }
 
 function stringifyMarkdown(data: Record<string, unknown>, body: string): string {
-  const cleaned = Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined && value !== null && value !== ""));
+  const cleaned = Object.fromEntries(
+    Object.entries(data).filter(([key, value]) => !VOLATILE_FRONTMATTER_KEYS.has(key) && value !== undefined && value !== null && value !== ""),
+  );
   const yaml = YAML.stringify(cleaned, { lineWidth: 0 }).trimEnd();
   return `---\n${yaml}\n---\n\n${body.trimStart()}`;
 }

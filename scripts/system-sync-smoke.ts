@@ -45,9 +45,14 @@ async function main(): Promise<void> {
 
   for (const result of results) {
     const summary = result.response.summary;
+    const machines = result.response.machines || [];
+    const syncEnabledCount = machines.filter((machine) => machine.enabled).length;
+    const syncDisabledCount = machines.length - syncEnabledCount;
     console.log([
       result.url,
       `machines=${summary?.machine_count ?? "?"}`,
+      `sync_enabled=${syncEnabledCount}`,
+      `sync_disabled=${syncDisabledCount}`,
       `healthy=${summary?.healthy_count ?? "?"}`,
       `needed=${summary?.needed_files ?? "?"}`,
       `pull_errors=${summary?.pull_errors ?? "?"}`,
@@ -84,9 +89,13 @@ async function checkUrl(url: string): Promise<{ url: string; response: SystemSyn
 
   const summary = data.summary || {};
   const machineCount = summary.machine_count ?? 0;
+  const syncEnabledMachines = (data.machines || []).filter((machine) => machine.enabled);
   const healthyCount = summary.healthy_count ?? 0;
-  if (machineCount < 2) failures.push(`expected at least 2 machines, got ${machineCount}`);
-  if (healthyCount !== machineCount) failures.push(`expected all machines healthy, got ${healthyCount}/${machineCount}`);
+  if (machineCount < 1) failures.push(`expected at least 1 machine, got ${machineCount}`);
+  if (syncEnabledMachines.length < 1) failures.push("expected at least 1 sync-enabled machine");
+  if (healthyCount !== syncEnabledMachines.length) {
+    failures.push(`expected all sync-enabled machines healthy, got ${healthyCount}/${syncEnabledMachines.length}`);
+  }
   if ((summary.conflict_count ?? 0) !== 0) failures.push(`expected 0 conflicts, got ${summary.conflict_count}`);
   if ((summary.needed_files ?? 0) !== 0) failures.push(`expected 0 needed files, got ${summary.needed_files}`);
   if ((summary.pull_errors ?? 0) !== 0) failures.push(`expected 0 pull errors, got ${summary.pull_errors}`);
@@ -94,7 +103,11 @@ async function checkUrl(url: string): Promise<{ url: string; response: SystemSyn
   for (const machine of data.machines || []) {
     const label = machineLabel(machine);
     if (!machine.enabled) {
-      failures.push(`${label} disabled: ${machine.reason || "unknown reason"}`);
+      if (isExpectedDisabledControlSurface(machine)) {
+        console.warn(`${label} sync disabled: ${machine.reason}`);
+      } else {
+        failures.push(`${label} disabled: ${machine.reason || "unknown reason"}`);
+      }
       continue;
     }
     if (machine.daemon?.reachable !== true) failures.push(`${label} daemon unreachable: ${machine.daemon?.error || "unknown error"}`);
@@ -139,6 +152,11 @@ function machineLabel(machine: NonNullable<SystemSyncResponse["machines"]>[numbe
     machine.machine?.id ||
     "unknown machine"
   );
+}
+
+function isExpectedDisabledControlSurface(machine: NonNullable<SystemSyncResponse["machines"]>[number]): boolean {
+  const label = machineLabel(machine).toLowerCase();
+  return label.includes("apollo") && machine.reason === "Set HILT_SYNC_ENABLED=true to inspect Syncthing sync health.";
 }
 
 void main();

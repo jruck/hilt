@@ -10,8 +10,9 @@
  *
  * Contract preserved from the Library scheduler: `--install` / `--uninstall`, dry-run by
  * default (neither flag → only print the plan), and `RunAtLoad=false` unless a job's schedule
- * is `{ runAtLoad: true }` (the cold-start one-shot). Weekly jobs set `Weekday` in the
- * calendar-interval dict (launchd has no native weekly key).
+ * is `{ runAtLoad: true }` (the cold-start one-shot). `--only id[,id]` / `--skip id[,id]`
+ * filter the job set for controlled installs during host cutovers. Weekly jobs set `Weekday`
+ * in the calendar-interval dict (launchd has no native weekly key).
  */
 
 import { execFileSync } from "child_process";
@@ -116,6 +117,32 @@ function launchctl(...launchArgs: string[]): void {
   execFileSync("launchctl", launchArgs, { stdio: "inherit" });
 }
 
+function readJobFilter(args: string[], flag: "--only" | "--skip"): Set<string> {
+  const values: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === flag && args[i + 1]) {
+      values.push(args[i + 1]);
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith(`${flag}=`)) {
+      values.push(arg.slice(flag.length + 1));
+    }
+  }
+  return new Set(values.flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean));
+}
+
+function filterJobs(jobs: ResolvedJob[], args: string[]): ResolvedJob[] {
+  const only = readJobFilter(args, "--only");
+  const skip = readJobFilter(args, "--skip");
+  const known = new Set(jobs.map((job) => job.id));
+  for (const id of [...only, ...skip]) {
+    if (!known.has(id)) throw new Error(`Unknown scheduler job id: ${id}`);
+  }
+  return jobs.filter((job) => (only.size === 0 || only.has(job.id)) && !skip.has(job.id));
+}
+
 function installJobs(jobs: ResolvedJob[], logDir: string): void {
   fs.mkdirSync(launchAgentsDir, { recursive: true });
   fs.mkdirSync(logDir, { recursive: true });
@@ -173,7 +200,8 @@ function printPlan(feature: string, jobs: ResolvedJob[], logDir: string, mode: s
 
 /** Render the plan and (when flagged) install/uninstall the launchd plists. */
 export function runScheduler(opts: RunSchedulerOptions): void {
-  const args = new Set(opts.argv ?? process.argv.slice(2));
+  const rawArgs = opts.argv ?? process.argv.slice(2);
+  const args = new Set(rawArgs);
   const install = args.has("--install");
   const uninstall = args.has("--uninstall");
   if (install && uninstall) throw new Error("Use only one of --install or --uninstall.");
@@ -186,8 +214,9 @@ export function runScheduler(opts: RunSchedulerOptions): void {
     stdout: job.stdout,
     stderr: job.stderr,
   }));
+  const selectedJobs = filterJobs(jobs, rawArgs);
 
-  printPlan(opts.feature, jobs, opts.logDir, install ? "install" : uninstall ? "uninstall" : "dry-run");
-  if (install) installJobs(jobs, opts.logDir);
-  if (uninstall) uninstallJobs(jobs);
+  printPlan(opts.feature, selectedJobs, opts.logDir, install ? "install" : uninstall ? "uninstall" : "dry-run");
+  if (install) installJobs(selectedJobs, opts.logDir);
+  if (uninstall) uninstallJobs(selectedJobs);
 }

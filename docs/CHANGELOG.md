@@ -24,7 +24,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
-- **Hilt launchd scheduler jobs now use the supervisor Node runtime** — Library and Semantic calendar jobs now launch through `scripts/hilt-launchd-npm.sh`, mirroring the headless supervisor's nvm-first PATH discipline. This prevents Mercury's scheduled jobs from resolving Homebrew Node 26 while the supervised Hilt server and native modules are running under the nvm Node 22 runtime.
+- **Hilt launchd scheduler jobs now use the supervisor Node runtime** — Library and Semantic calendar jobs now launch through `scripts/hilt-launchd-npm.sh`, mirroring the headless supervisor's nvm-first PATH discipline. This prevents Mercury's scheduled jobs from resolving Homebrew Node 26 while the supervised Hilt server and native modules are running under the nvm Node 22 runtime. Scheduler installs also accept `--only` / `--skip` job filters so a host cutover can install recurring Semantic jobs without firing the one-time `cold-start` backfill.
 
 - **Granola sync no longer dirties Bridge markdown with runtime timestamps** — Meeting notes and transcript frontmatter no longer write `hilt_synced_at`; Bridge markdown keeps stable Granola/calendar provenance fields only, while operational sync timing remains in Hilt's local Granola DB (`last_synced_at`). The markdown writer also strips legacy `hilt_synced_at` if an old file is rewritten. Added regression tests that repeated writes with unchanged source content/provenance are no-ops, and removed 1,345 existing `hilt_synced_at` lines from tracked Bridge markdown as a one-time cleanup.
 

@@ -53,6 +53,10 @@ function renderPlist(): string {
         <string>${plistEscape(defaultDataDir())}</string>
         <key>HILT_GRANOLA_SYNC_DAEMON</key>
         <string>1</string>
+        <key>HILT_GRANOLA_REMOTE_HOST</key>
+        <string>apollo</string>
+        <key>HILT_GRANOLA_REMOTE_NODE_PATH</key>
+        <string>/opt/homebrew/bin/node</string>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     </dict>

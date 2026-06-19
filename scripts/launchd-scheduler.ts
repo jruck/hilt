@@ -59,7 +59,8 @@ function plistPath(job: ResolvedJob): string {
 }
 
 function command(script: string): string {
-  return `cd ${shellQuote(process.cwd())} && /usr/bin/env npm run ${script}`;
+  const wrapper = path.join(process.cwd(), "scripts", "hilt-launchd-npm.sh");
+  return `cd ${shellQuote(process.cwd())} && ${shellQuote(wrapper)} ${shellQuote(script)}`;
 }
 
 function schedulePlist(schedule: SchedulerJobSchedule): string {

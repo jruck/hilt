@@ -130,27 +130,39 @@ function isUsableRecoveredText(text: string): boolean {
  *  tab. The TS-side isUsableRecoveredText gate (length + prose words + login-wall rejection) is the
  *  final arbiter — the snippet only short-circuits early once the text is clearly a full article. */
 async function readXText(contentUrl: string): Promise<string> {
+  // Wait for the article view to actually PAINT before trusting an extract. The early page body is
+  // nav/footer chrome (>800 chars) that the login-wall gate would reject — breaking on length alone
+  // returns that junk. So prefer the article-view selector once present; only fall back to the
+  // longest body text if it never paints (which the TS gate will then reject as a wall).
+  const hasArticle = "(function(){return !!document.querySelector('[data-testid=twitterArticleRichTextView], article, [role=article]');})()";
   const py = [
     "import os, time, json",
     "tid = new_tab(os.environ['BH_URL'])",
     "wait_for_load()",
     "extract = os.environ['BH_EXTRACT']",
+    `has_article = ${JSON.stringify(hasArticle)}`,
     "best = ''",
-    "for _ in range(4):",
-    "    time.sleep(4)",
+    "fallback = ''",
+    "for _ in range(8):",
+    "    time.sleep(3)",
+    "    try:",
+    "        ready = bool(js(has_article))",
+    "    except Exception:",
+    "        ready = False",
     "    try:",
     "        t = js(extract) or ''",
     "    except Exception:",
     "        t = ''",
-    "    if len(t) > len(best):",
+    "    if ready and len(t) >= 200:",
     "        best = t",
-    "    if len(best) >= 800:",
     "        break",
+    "    if len(t) > len(fallback):",
+    "        fallback = t",
     "try:",
     "    cdp('Target.closeTarget', targetId=tid)",
     "except Exception:",
     "    pass",
-    "print(json.dumps({'text': best}))",
+    "print(json.dumps({'text': best or fallback}))",
   ].join("\n");
   let out: string;
   try { out = await runHarness(py, { BH_URL: contentUrl, BH_EXTRACT: EXTRACT_JS }); }

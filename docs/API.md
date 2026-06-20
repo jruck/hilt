@@ -404,6 +404,22 @@ Returns conflict-copy files for the configured Syncthing folder. Parameters:
 | `scope=local` | string | Return only the serving machine's conflicts |
 | `force=true` | string | Bypass cached sync snapshot |
 
+### Mercury (System → Performance)
+
+Server-side proxies to the standalone Mercury observability dashboard (collector + server on Mercury's tailnet IP, port 8787). Proxying avoids CORS and keeps the host off the client. Base URL via `MERCURY_API_URL` (default `http://mercury-v.tailc0acaa.ts.net:8787`); 8s `AbortController` timeout; both return `502 { error: "Mercury dashboard unreachable" }` on outage. `runtime = "nodejs"`, `dynamic = "force-dynamic"`. **File**: `src/lib/system/mercury.ts`.
+
+#### GET /api/system/mercury/series
+
+Proxies Mercury `/api/series`. Returns `{ columns: string[], rows: MercurySample[], generatedAt }`.
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `range` | `6h \| 24h \| 7d \| all` | Defaults to `24h`; invalid value → `400` |
+
+#### GET /api/system/mercury/latest
+
+Proxies Mercury `/api/latest`. Returns `{ sample: MercurySample \| null, ageSeconds }`. A `MercurySample` carries `ts` plus nullable closet temp/humidity/motion, room/outdoor temp, cpu/gpu die temp + power, mem, load, cpu/gpu %, fan, thermal pressure (`src/hooks/useMercury.ts`).
+
 ### Knowledge Graph (System → Graph)
 
 Opt-in: every route below returns `404 { error: "Graph disabled" }` unless `HILT_GRAPH_ENABLED=true` (the `isGraphEnabled()` predicate). The graph index is a derived SQLite cache (`graph.sqlite` under `DATA_DIR`); markdown remains source of truth. `runtime = "nodejs"`, `dynamic = "force-dynamic"`.

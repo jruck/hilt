@@ -267,6 +267,24 @@ Global/Local segmented control (Lucide `Globe`/`Locate`), a local-scope hop step
 
 ---
 
+## Performance Components
+
+All live under `src/components/performance/` and render the System → Performance subtab (Mercury closet/compute telemetry). No chart library — the chart is hand-rolled SVG per Hilt's design philosophy.
+
+### PerformanceView.tsx
+
+**File**: `src/components/performance/PerformanceView.tsx`
+
+The subtab shell: `SecondaryToolbar` with the System mode switcher (`left`) and range segmented control (6h/24h/7d/all) + Detail/Util layer toggles + freshness + refresh (`right`); a **stat strip** that doubles as legend, per-series visibility toggle (colored items), and hover readout (retargets to the hovered sample); and the chart filling remaining height. Data via `useMercurySeries(range)` + `useMercuryLatest()` (SWR, 60s). Shows a clean error card when Mercury is unreachable.
+
+### PerfChart.tsx
+
+**File**: `src/components/performance/PerfChart.tsx`
+
+Hand-rolled, responsive SVG time-series ("Closet Climate Strip"). Two °F axes — left auto-fits ambient (closet/room/outdoor) so closet variation stays legible, right carries hot cpu/gpu die temps — plus a hidden 0–100 scale for utilization lines and a power-draw wash behind the lines. `CHANNELS`/`COLOR` are exported and shared with the stat strip. Null samples break the line; height tracks the container via `ResizeObserver`; hover lifts the nearest sample to the parent via `onHover`.
+
+---
+
 ## Bridge Components
 
 ### BridgeView.tsx

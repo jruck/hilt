@@ -97,6 +97,12 @@ describe("system navigation", () => {
     assert.equal(isSystemMode("sync"), true);
   });
 
+  it("routes performance as a first-class System mode", () => {
+    assert.equal(systemModeFromUrl("system", "/performance"), "performance");
+    assert.equal(systemScopeForMode("performance"), "/performance");
+    assert.equal(isSystemMode("performance"), true);
+  });
+
   it("keeps Stack scope behavior separate from other System modes", () => {
     assert.equal(systemScopeForMode("stack", "/Users/jruck/work/engineering/hilt"), "/stack/Users/jruck/work/engineering/hilt");
     assert.equal(stackScopeFromSystemUrl("system", "/stack/Users/jruck/work/engineering/hilt"), "/Users/jruck/work/engineering/hilt");

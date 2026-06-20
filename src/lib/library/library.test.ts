@@ -543,7 +543,11 @@ test("URL-only X bookmark digestion does not promote the URL to summary text", a
     assert.equal(processed.summary, "X bookmark by Siddharth");
     assert.equal(processed.digestion?.status, "warm");
     assert.equal(processed.source_cache, undefined);
-    assert.match(processed.extraction_notes.join("\n"), /metadata-limited/);
+    // An x.com/i/article link is an X Article share: classify it as x-article (not a bare tweet) and
+    // route it to browser recovery rather than emitting the generic metadata-limited note.
+    assert.equal(processed.format, "x-article");
+    assert.match(processed.extraction_notes.join("\n"), /X Article share/);
+    assert.match(buildDurableReferenceMarkdown(processed), /format: x-article/);
     assert.doesNotMatch(buildDurableReferenceMarkdown(processed), /https:\/\/t\.co\/only/);
   } finally {
     if (originalDisabled === undefined) delete process.env.LIBRARY_SUMMARIZE_DISABLED;

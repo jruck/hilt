@@ -33,7 +33,6 @@ interface StripItem {
 
 const STRIP: StripItem[] = [
   { id: "closet", label: "Closet", color: COLOR.closet, toggle: "channel", channelId: "closet", unit: "°F", value: (s) => s.closet_temp_f },
-  { id: "room", label: "Ambient", color: COLOR.room, toggle: "channel", channelId: "room", unit: "°F", value: (s) => s.room_temp_f },
   { id: "outdoor", label: "Outdoor", color: COLOR.outdoor, toggle: "channel", channelId: "outdoor", unit: "°F", value: (s) => s.outdoor_temp_f },
   { id: "compute", label: "Compute", color: COLOR.compute, toggle: "channel", channelId: "compute", unit: "°F", value: (s) => maxOrNull(s.cpu_temp_c == null ? null : cToF(s.cpu_temp_c), s.gpu_temp_c == null ? null : cToF(s.gpu_temp_c)) },
   { id: "draw", label: "Draw", color: "#10b981", toggle: "draw", unit: "W", digits: 1, value: (s) => (s.cpu_power_w == null && s.gpu_power_w == null ? null : (s.cpu_power_w ?? 0) + (s.gpu_power_w ?? 0)) },

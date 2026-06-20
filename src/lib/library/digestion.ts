@@ -75,6 +75,14 @@ function isXUrl(url: string): boolean {
   return /^https?:\/\/(www\.)?(x|twitter)\.com\//i.test(url);
 }
 
+/** An X Article share (x.com/i/article/<id>): a login-walled long-form post the API can't read. The
+ *  bookmarked tweet is just a wrapper whose only text is a t.co link to the article — the user's
+ *  intent is to save the article itself, so we classify it as an x-article and route it to browser
+ *  recovery rather than landing it as a bare metadata stub. */
+function isXArticleUrl(url: string | null | undefined): boolean {
+  return Boolean(url && /^https?:\/\/(?:www\.)?x\.com\/i\/article\/\d+/i.test(url));
+}
+
 function stripInvisibleTracking(text: string): string {
   return text
     .replace(/[\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, "")
@@ -477,6 +485,8 @@ async function fetchRaindropCache(raw: RawArtifact): Promise<ProcessedArtifact["
 function inferFormat(raw: RawArtifact, source: LibrarySourceConfig): string {
   const explicit = typeof raw.metadata.format === "string" ? raw.metadata.format : null;
   if (explicit) return explicit;
+  // An X Article share is a long-form article, not a tweet — classify it before the channel default.
+  if (typeof raw.metadata.x_article_url === "string") return "x-article";
   if (source.channel === "youtube") return "video";
   if (source.channel === "twitter") return "tweet";
   if (source.channel === "email") return "newsletter";
@@ -567,6 +577,12 @@ export async function digestArtifact(
   if (linkedUrl && linkedUrl !== raw.url) {
     extractionNotes.push(`Resolved linked URL from source metadata: ${linkedUrl}`);
   }
+  // An X Article share — the bookmarked tweet wraps a login-walled x.com/i/article link. Stamp the
+  // article URL so the format classifier marks it x-article and browser recovery has a clean target.
+  const xArticleUrl = xSource && isXArticleUrl(linkedUrl) ? linkedUrl : null;
+  if (xArticleUrl) {
+    raw = { ...raw, metadata: { ...raw.metadata, x_article_url: xArticleUrl } };
+  }
   if (directXContent) {
     const fetchedLength = cleanSourceForDigest(directXContent).length;
     const originalLength = cleanSourceForDigest(raw.content || "").length;
@@ -595,6 +611,8 @@ export async function digestArtifact(
     if (linkedX?.partialThread) {
       extractionNotes.push("Linked X post is the root of a multi-tweet thread; only the opening post was captured (current X API plan has no thread/search access).");
     }
+  } else if (xArticleUrl) {
+    extractionNotes.push("X Article share — full text is login-walled and the API can't read it; run browser recovery (npm run library:x:recover) to fetch the article body.");
   } else if (xSource && linkedUrl && isXUrl(linkedUrl) && !xStatusId(linkedUrl)) {
     extractionNotes.push("Linked X URL is not a standard post URL; source text remains metadata-limited.");
   }

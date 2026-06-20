@@ -50,7 +50,7 @@ export interface Channel {
 
 export const CHANNELS: Channel[] = [
   { id: "closet", label: "Closet", color: COLOR.closet, unit: "°F", axis: "cool", layer: "base", hero: true, value: (s) => s.closet_temp_f },
-  { id: "room", label: "Ambient", color: COLOR.room, unit: "°F", axis: "cool", layer: "base", value: (s) => s.room_temp_f },
+  // Outdoor (NWS) is the ambient reference; Dreo room temp was dropped (unreliable cloud).
   { id: "outdoor", label: "Outdoor", color: COLOR.outdoor, unit: "°F", axis: "cool", layer: "base", dashed: true, value: (s) => s.outdoor_temp_f },
   { id: "compute", label: "Compute", color: COLOR.compute, unit: "°F", axis: "hot", layer: "base", value: (s) => maxOrNull(s.cpu_temp_c == null ? null : cToF(s.cpu_temp_c), s.gpu_temp_c == null ? null : cToF(s.gpu_temp_c)) },
   { id: "cpu_temp", label: "CPU °F", color: COLOR.cpu_temp, unit: "°F", axis: "hot", layer: "detail", value: (s) => (s.cpu_temp_c == null ? null : cToF(s.cpu_temp_c)) },

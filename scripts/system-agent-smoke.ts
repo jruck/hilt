@@ -18,7 +18,9 @@
 export {}; // isolate module scope (avoids global-script identifier collisions under tsc)
 
 const BASE = (process.argv[2] || process.env.HILT_SYSTEM_AGENT_SMOKE_URL || "http://127.0.0.1:3200").replace(/\/$/, "");
-const TIMEOUT_MS = 8_000;
+// Generous: the FIRST hit to a map route builds the local index from cold (full
+// Hilt does the same), and Serve adds network latency. Override with HILT_SYSTEM_AGENT_SMOKE_TIMEOUT_MS.
+const TIMEOUT_MS = Number(process.env.HILT_SYSTEM_AGENT_SMOKE_TIMEOUT_MS) || 30_000;
 const failures: string[] = [];
 
 function check(condition: unknown, message: string): void {
@@ -35,6 +37,9 @@ async function req(p: string, init?: RequestInit): Promise<{ status: number; con
     let body: any = null;
     try { body = JSON.parse(text); } catch { /* PNG or non-JSON */ }
     return { status: res.status, contentType: res.headers.get("content-type") ?? "", text, body };
+  } catch (error) {
+    // Surface a timeout/network error as a recorded failure on that route, not a crash.
+    return { status: 0, contentType: "", text: error instanceof Error ? error.message : String(error), body: null };
   } finally {
     clearTimeout(timeout);
   }

@@ -283,6 +283,7 @@ Returns the serving machine's System identity and feature availability. Peer dis
 {
   app: "hilt-system";
   enabled: true;
+  role: "full" | "agent";             // "full" Hilt server vs a read-only System Agent (see below)
   machine: MachineIdentity;
   features: {
     map: boolean;
@@ -290,9 +291,21 @@ Returns the serving machine's System identity and feature availability. Peer dis
     stack: boolean;
     sync: boolean;
   };
-  app_server?: AppServerInfo | null;  // how this server runs: dev or prod + build age
+  app_server?: AppServerInfo | null;  // how this server runs: dev or prod + build age (null for agents)
 }
 ```
+
+`role` is additive: peers that predate it are treated as `"full"`, and discovery never gates on it (it only checks `app`/`enabled`/`machine`).
+
+### System Agent (read-only observer runtime)
+
+A **System Agent** (`server/system-agent.ts`, `docs/plans/system-agent-mode.md`) is a lightweight Node HTTP runtime — not Next.js — that lets a machine such as Hestia appear in another machine's System views without running the full Hilt stack. It binds `127.0.0.1:${HILT_SYSTEM_AGENT_PORT:-3200}` and is exposed to peers via Tailscale Serve mapping the **origin root** to `127.0.0.1:3200` (so the standard `https://<peer-dns>/api/system/machine` probe reaches it). Its `/api/system/machine` reports `role: "agent"` and `app_server: null`.
+
+The agent serves a strict allowlist and answers only **local** snapshots (no peer fan-out); every other path returns a compact JSON `404` with no HTML:
+
+`GET /api/system/machine`, `GET /api/system/sync`, `GET /api/system/sync/conflicts`, `GET /api/local-apps`, `POST /api/local-apps/refresh`, `GET /api/local-apps/previews/:filename`, `GET /api/system/stack`, `GET /api/system/stack/file` (always `isEditable:false`), `GET /api/map/local/work-graph`, `GET /api/map/local/sessions`, `GET /api/map/local/session-detail`, `POST /api/map/local/refresh`.
+
+Each route mirrors full Hilt's local behavior (same `@/lib` function, same disabled shapes), so agent output is byte-identical to a full server's local output. Deploy with `npm run system-agent:install` (LaunchAgent `com.hilt.system-agent`); inspect with `npm run system-agent:status`.
 
 ### GET /api/system/app-server
 

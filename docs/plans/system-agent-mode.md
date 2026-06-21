@@ -1,238 +1,247 @@
-# Hilt System Agent Mode Plan
+# Hilt System Agent — Implementation Plan (v1)
 
-## Summary
+## Context
 
-Build a separate, read-only Hilt runtime for observer machines such as Hestia. The agent should let full Hilt servers discover machine-local System status without requiring the machine to run the full Next.js UI, WebSocket server, Library/Bridge surfaces, or product daemons.
+Observer machines such as **Hestia** should appear in another machine's (**Mercury**) Hilt
+System views — reporting Sync, Apps, Sessions, and Stack — **without** running the full Hilt
+stack (Next.js UI, `ws-server`, Bridge/Library write routes, Granola/calendar daemons, graph/
+semantic runners). Today the only way to be a discoverable Hilt System peer is to run the whole
+app. This plan adds a **lightweight, read-only Node HTTP runtime** (`server/system-agent.ts`)
+that exposes a tiny allowlist of local-snapshot routes, binds `127.0.0.1:3200`, and is reached
+over Tailscale Serve. Outcome: Hestia is a first-class System machine on Mercury at a fraction
+of the footprint.
 
-This is an implementation plan only. The next agent should implement it after first updating the checkout and verifying the local runtime.
+The technical design is settled (validated against the code). The investigation confirmed the
+integration surface is **smaller than first assumed** — see "Settled design facts."
 
-## Goals
+## Goal (Definition of Done)
 
-- Hestia can appear in Mercury-served System views as a Hilt machine.
-- Hestia reports System Sync, Apps, Sessions, and Stack data.
-- Hestia does not run the Hilt frontend, full app server, `ws-server`, Bridge/Library write routes, Granola daemon, calendar daemon, Library schedulers, GraphRunner, or SemanticRunner.
-- The agent is reachable through Tailscale Serve while binding only to localhost.
-- The implementation preserves the current Hilt-to-Hilt discovery model and does not expose Syncthing keys, arbitrary Syncthing API proxying, arbitrary file reads, or destructive controls.
+**The whole v1 scope is built AND every capability is 100% confirmed working end-to-end —
+including live cross-machine discovery (Hestia↔Mercury), which is a hard gate, not a handoff.**
 
-## V1 Capability Scope
+"Done" = every box in [§7 Definition of Done](#7-definition-of-done) is green: the full automated
+suite (`npm run test:system-agent:all` + `npm run test:system` + `tsc`), the explicit negative
+guarantees, **and** the live cross-machine validation run from Mercury against Hestia.
 
-The v1 agent should support the same observer use cases the full System tab expects:
+## 1. Scope
 
-- **Machine identity**: report a Hilt-compatible machine manifest with a new role field.
-- **Sync**: report local Syncthing health through Hilt's existing sanitized adapter.
-- **Apps**: report local app/service health and support full screenshot previews.
-- **Sessions**: report local Map/session graph data and allow local map refresh.
-- **Stack**: report local Claude/Codex stack inventory and support validated read-only file previews.
+**In (v1 capabilities):** machine identity + `role`, Sync, Sync conflicts, Apps, Apps refresh,
+preview serving, Stack, Stack file (read-only), Map work-graph / sessions / session-detail / refresh.
 
-The v1 agent should not support Docs, Bridge, Library, Briefings, Calendar UI/API surfaces, report serving, preference editing, source management, app-mode switching, navigation, raw vault file browsing, or any route not explicitly allowlisted below.
+**Out:** Docs, Bridge, Library, Briefings, Calendar, report serving, preference/source editing,
+app-mode switching, navigation, raw vault browsing, `/events`, any non-allowlisted route, and
+**all** peer fan-out (aggregate reads stay on full Hilt; the agent answers only local snapshots).
 
-## Required Update Step
+### Route → lib map (the entire handler surface; all lib fns are already Next-free)
 
-Before implementation, bring the target checkout up to date:
+| Route | Method | Lib call |
+|---|---|---|
+| `/api/system/machine` | GET | `localSystemMachineResponse({role:"agent", includeAppServer:false})` |
+| `/api/system/sync` | GET | `readLocalSystemSync({force})` |
+| `/api/system/sync/conflicts` | GET | `readLocalSystemSyncConflicts(folder,{force})` |
+| `/api/local-apps` | GET | `getLocalAppsResponse({includePeers:false})` |
+| `/api/local-apps/refresh` | POST | `refreshLocalApps({includePeers:false, forcePreviews, waitForPreviews})` |
+| `/api/local-apps/previews/:filename` | GET | `isSafePreviewFilename` + `fs.readFile(previewDir()/…)` → `image/png` |
+| `/api/system/stack` | GET | `readLocalSystemStack(project)` |
+| `/api/system/stack/file` | GET | `readLocalSystemStackFile(path,project,/*readOnly*/true)` → `isEditable:false` |
+| `/api/map/local/work-graph` | GET | `ensureMapIndexFresh` + `buildIndexedWorkGraph` |
+| `/api/map/local/sessions` | GET | `ensureMapIndexFresh` + `queryIndexedSessionPage` |
+| `/api/map/local/session-detail` | GET | `ensureMapIndexFresh` + `readLocalSessionDetail` |
+| `/api/map/local/refresh` | POST | `refreshMapIndex()` |
 
-1. Confirm the worktree is clean with `git status --short --branch`.
-2. Run `git fetch --prune`.
-3. Run `git pull --ff-only origin main`.
-4. Use Node 22 from `.nvmrc`.
-5. Install dependencies so repo scripts are available.
-6. If native dependency installation fails because `better-sqlite3` falls back to node-gyp, fix the local Python/prebuild issue before runtime testing. A docs-only install can use `npm ci --ignore-scripts`, but implementation/testing needs native modules working.
+All other paths → compact **JSON 404**, never HTML, never proxied. Each route mirrors the full
+app's feature gate (`isLocalMapEnabled()`, `isMapHistoryPreviewEnabled()`, `isLocalAppsEnabled()`,
+`isPreviewCaptureEnabled()`, sync settings) so a disabled capability returns the identical disabled
+shape — which is also what makes parity exact.
 
-## Runtime Design
+## 2. Settled design facts (do not re-litigate)
 
-Create a new runtime entrypoint, tentatively `server/system-agent.ts`.
+- **`tsx server/system-agent.ts` resolves the `@/` alias** with no `tsconfig-paths` install
+  (verified live), so the entrypoint imports `src/lib` functions directly.
+- **Discovery needs NO change to `src/lib/system/peers.ts` logic.** `fetchPeerSystemMachine`
+  (`peers.ts:104`) accepts any responder with `app==="hilt-system" && enabled===true && machine`
+  and never inspects `role`. The agent satisfies this as-is.
+- **The only additive contract change is `role: "full" | "agent"`** on `SystemMachineResponse`
+  (`src/lib/system/types.ts`), emitted `"agent"` by the agent's machine route. It belongs on the
+  response (app property), **not** on `MachineIdentity` (network identity). `localSystemMachineResponse`
+  defaults to `"full"` everywhere; only the agent's dedicated `/api/system/machine` route overrides
+  to `"agent"` — that route is the sole endpoint discovery reads, so embedded machines in
+  stack/sync snapshots stay `"full"` and parity stays exact. `fetchPeerSystemMachine` reads
+  `data.role` onto the discovered `SystemMachine` so Mercury can badge the agent.
+- **Do NOT add port 3200 to `candidateBaseUrls`.** The agent binds `127.0.0.1` only and is reached
+  via the existing `https://<dns>` root probe through Serve. A `:3200` tailnet probe always fails
+  and just burns a 1.5s `REMOTE_TIMEOUT_MS` per peer.
+- **Serve at root, not under `/hilt`.** Discovery probes the bare origin
+  (`https://<peer-dns>/api/system/machine`); Serve must map origin root → `127.0.0.1:3200`.
+- **"Read-only" is scoped to the vault/markdown and provider session stores** (never mutated).
+  The agent still maintains its own `DATA_DIR` caches: the Map SQLite index
+  (`ensureMapIndexFresh`/`refreshMapIndex`) and preview PNGs from `apps/refresh`. The two
+  `POST .../refresh` routes are non-destructive rescans and are intentionally allowlisted.
+- **Runtime hygiene:** `.env` via `loadEnvConfig(process.cwd())` from `@next/env`; `DATA_DIR` via
+  `defaultDataDir()` (`server/server-mode.ts`, → `~/.hilt/data`); dedicated lock
+  (`~/.hilt/system-agent.lock`) and a **dedicated heartbeat `DATA_DIR/system-agent.json`** — must
+  not touch `ws-server`'s `~/.hilt-server.lock` / `~/.hilt-ws-port` or the supervisor's
+  `app-supervisor.json`.
 
-- Implement it as a small Node HTTP server, not a Next.js app.
-- Default bind: `127.0.0.1:${HILT_SYSTEM_AGENT_PORT:-3200}`.
-- Load `.env` using the same environment convention as the existing server entrypoints.
-- Return JSON only, except safe PNG preview files.
-- Do not serve HTML, static Next assets, React bundles, or fallback routes.
-- Do not start `ws-server`, `EventServer`, file watchers, Bridge watchers, graph/semantic runners, or product daemons.
-- Use existing library functions for local System data where possible, but keep aggregate peer fan-out in the full Hilt server. Agent routes should answer only local snapshots.
+## 3. Required first step
 
-Expose Hestia by configuring Tailscale Serve from the machine's authenticated tailnet URL to `http://127.0.0.1:3200`. The agent itself should not listen directly on a tailnet interface in v1.
+Before implementing: `git status --short --branch` (clean) → `git fetch --prune` →
+`git pull --ff-only origin main` → Node 22 (`.nvmrc`) → install deps. If `better-sqlite3` falls
+back to node-gyp, fix the local Python/prebuild issue first (the Map index needs it natively).
 
-## API Contract Changes
+## 4. Milestones (each exit criterion is a runnable check)
 
-Extend the System machine identity response with:
+**M0 — Additive `role` contract.** Add `role: "full"|"agent"` to `SystemMachineResponse`
+(`src/lib/system/types.ts`) + optional `role` on `SystemMachine`; `localSystemMachineResponse`
+takes `{role?, includeAppServer?}` (default `"full"`/included); `fetchPeerSystemMachine` reads
+`data.role` onto the discovered machine. Extend `src/lib/system/system.test.ts`: response carries
+`role`; `fetchPeerSystemMachine` still resolves a responder that **omits** `role`.
+**Exit:** `npm run test:system && npx tsc --noEmit` green.
 
-```ts
-role: "full" | "agent";
-```
+**M1 — Allowlist router + JSON-404/no-HTML core.** Build `server/system-agent.ts` as a pure
+`http.createServer` with the 12-route match table + JSON-404 default; stub handlers first. New
+`server/system-agent.test.ts` (node:test + `node:assert/strict`, modeled on `system.test.ts:130`
+in-process server + `server-mode.test.ts` fixtures): all 12 paths match; disallowed paths (`/`,
+`/index.html`, `/api/system/machines`, `/api/system/graph`, random) → JSON 404 with no HTML;
+wrong-method → 404/405. New script `test:system-agent`.
+**Exit:** `npm run test:system-agent` green.
 
-- Full Hilt servers return `role: "full"`.
-- System agents return `role: "agent"`.
-- Peer discovery accepts both roles when `app === "hilt-system"` and `enabled === true`.
-- Existing clients that do not know `role` should continue working.
+**M2 — Wire real lib handlers + role emission.** Replace stubs with the §1 lib calls. `.env`/
+`DATA_DIR` hygiene per §2; bind `127.0.0.1:${HILT_SYSTEM_AGENT_PORT:-3200}`; `/api/system/machine`
+emits `role:"agent"`, `app_server:null`; previews stream PNG bytes with the Next route's headers;
+stack file forces `isEditable:false`; map routes replicate the zod gate + disabled shapes. Extend
+the unit test against a `mkdtempSync` DATA_DIR.
+**Exit:** `npm run test:system-agent` green (now exercising real libs).
 
-Agent `/api/system/machine?scope=local` should advertise:
+**M3 — Single-host live e2e.** New `scripts/system-agent-e2e.ts` (model: `scripts/graph-e2e.ts`):
+`findFreePort` → `spawn tsx server/system-agent.ts` → `waitForServer` polling `/api/system/machine`
+→ curl all 12 routes (2xx + JSON shape + `app`/`role`) → assert disallowed routes 404 + no HTML +
+preview PNG bytes + both refresh POSTs → snapshot DATA_DIR file list before/after (diff must be
+exactly the heartbeat + map-index cache, proving no stray daemon writes) → teardown in `finally`.
+**Exit:** `npm run test:system-agent:e2e` exits 0.
 
-```ts
-{
-  app: "hilt-system",
-  enabled: true,
-  role: "agent",
-  machine: MachineIdentity,
-  features: {
-    map: true,
-    apps: true,
-    stack: true,
-    sync: true
-  },
-  app_server: null
-}
-```
+**M4 — Agent-vs-full parity (strongest correctness proof).** Add `normalizeForParity` helpers for
+map + sync (mirroring `src/lib/local-apps/parity.ts` — strip `*_at`/`start_time`/`checked_at` →
+`<timestamp>`, `latency_ms` → 0, preview path → `<preview>/$1`). New `scripts/system-agent-parity.ts`
+(model: `scripts/local-apps-parity.ts`): boot the agent, fetch each route, and in the same process
+call the equivalent full-Hilt local lib fn against the same DATA_DIR; normalize; `assert.deepEqual`.
+local-apps reuses the existing `normalizeForParity`. The machine route is compared with `role`/
+`app_server` excluded (the one intentional agent-vs-full difference).
+**Exit:** `npm run test:system-agent:parity` exits 0 for every capability.
 
-If a capability is disabled by local env, report that feature as `false` and let the corresponding route return the same disabled shape the full app uses today.
+**M5 — LaunchAgent + Serve artifacts.** `scripts/system-agent-launchd.ts` (clone of
+`scripts/supervisor-launchd.ts`): label `com.hilt.system-agent`; `renderPlist/install/uninstall/
+status`; `RunAtLoad+KeepAlive+ThrottleInterval`; env sets `HOME`, `DATA_DIR`,
+`HILT_SYSTEM_AGENT_PORT`, and a PATH that **includes the `tailscale` binary dir**; **does NOT set
+`HILT_GRANOLA_SYNC_DAEMON`**; logs under `~/.hilt/logs/system-agent/`. Wrapper
+`scripts/hilt-system-agent.sh` cloned from `hilt-supervisor.sh` with `exec ./node_modules/.bin/tsx
+server/system-agent.ts` and **no Granola export**. `server/system-agent.ts` writes
+`DATA_DIR/system-agent.json` heartbeat (~30s) to a distinct path. `status` reports launchctl state +
+pid + port + whether `/api/system/machine?scope=local` responds. Add a heartbeat-round-trip +
+distinct-filename assert.
+**Exit:** `npm run system-agent:status` prints plan + heartbeat path; `tsc --noEmit` green.
 
-## Agent Route Allowlist
+**M6 — Cross-machine live (HARD GATE).** Install on Hestia, enable Serve, confirm Mercury
+discovers it. Run the [§8 checklist](#8-cross-machine-validation-m6-hard-gate) from both hosts.
+**Exit:** every §8 step passes — Hestia appears in Mercury's System view with `role:"agent"`, all
+capabilities serve through Serve, disallowed paths 404 over HTTPS, Syncthing key never leaks.
 
-Implement only these routes:
+## 5. Verification matrix
 
-- `GET /api/system/machine`
-- `GET /api/system/sync`
-- `GET /api/system/sync/conflicts`
-- `GET /api/local-apps`
-- `POST /api/local-apps/refresh`
-- `GET /api/local-apps/previews/:filename`
-- `GET /api/system/stack`
-- `GET /api/system/stack/file`
-- `GET /api/map/local/work-graph`
-- `GET /api/map/local/sessions`
-- `GET /api/map/local/session-detail`
-- `POST /api/map/local/refresh`
+| Capability | Proof mechanism | PASS |
+|---|---|---|
+| machine identity / `role` | unit (M0/M2) + parity (M4) + live (M6) | `app:"hilt-system"`, `enabled:true`, `role:"agent"`, `machine` present; discovered as peer |
+| sync | parity (M4) + smoke (M3) | `/api/system/sync` deepEqual `readLocalSystemSync` after normalize |
+| sync conflicts | parity (M4) | deepEqual `readLocalSystemSyncConflicts` |
+| apps | parity (M4, reuses existing `normalizeForParity`) | normalized agent JSON == `getLocalAppsResponse` |
+| apps refresh (POST) | e2e (M3) + parity (M4) | refreshed snapshot; deepEqual `refreshLocalApps` |
+| preview serving | e2e (M3) | `image/png` non-empty bytes; 400 unsafe name; 403 when disabled |
+| stack | parity (M4) | deepEqual `readLocalSystemStack` |
+| stack file (read-only) | unit (M2) + e2e (M3) + static (DoD) | returns `{file:{…, isEditable:false}}`; mutating verbs 404; no fs-write symbols |
+| map work-graph / sessions / session-detail | parity (M4) | deepEqual `buildIndexedWorkGraph` / `queryIndexedSessionPage` / `readLocalSessionDetail` |
+| map refresh (POST) | e2e (M3) | returns `{diagnostics}` from `refreshMapIndex()` |
+| negative routes 404 | unit (M1) + e2e (M3) + live (M6) | every non-allowlisted path → JSON 404 |
+| no-HTML | unit (M1) + e2e (M3) | 404 body JSON; `content-type` never `text/html`; no `<html>` anywhere |
+| no-daemons-started | DATA_DIR diff + log assert (M2/M3) | only `system-agent.json` + map cache written; no Granola/calendar/scheduler/graph/semantic boot lines |
+| discovery from peer | unit (M0) + live (M6) | `fetchPeerSystemMachine` accepts agent; Mercury `/api/system/machines` lists Hestia |
 
-All other paths should return `404` with a compact JSON error. Do not proxy unmatched paths to another local service.
+## 6. Layered test strategy (new files + npm scripts)
 
-Route behavior should match current full-Hilt local behavior with these constraints:
+- **(a) Unit / in-process (CI, no network):** new `server/system-agent.test.ts`; extend
+  `src/lib/system/system.test.ts`. Add `test:system-agent` to the `test:unit` chain (beside
+  `test:server-mode`).
+- **(b) Single-host e2e + parity (boots the real agent):** `scripts/system-agent-e2e.ts` →
+  `npm run test:system-agent:e2e`; `scripts/system-agent-parity.ts` (+ map/sync normalizers) →
+  `npm run test:system-agent:parity`; URL-parameterizable `scripts/system-agent-smoke.ts` (model:
+  `scripts/system-sync-smoke.ts`) → `npm run test:system-agent:smoke` (reused over the wire in M6).
+- **(c) Cross-machine live (M6):** the §8 checklist; `test:system-agent:smoke` re-pointed at
+  `https://hestia.<tailnet>` from Mercury.
+- **Aggregate:** `npm run test:system-agent:all` = `test:system-agent && test:system-agent:e2e &&
+  test:system-agent:parity` (live smoke stays out of the default — needs a running peer).
+- **Operate:** `system-agent:run` (`tsx server/system-agent.ts`), `:install` / `:uninstall` /
+  `:status` (`tsx scripts/system-agent-launchd.ts --…`).
 
-- Sync reads only the configured loopback Syncthing API and never returns the API key.
-- Apps refresh may capture screenshots when `HILT_LOCAL_APPS_PREVIEWS=true`; preview files are served only by safe filename.
-- Stack file reads must validate the requested path against the discovered stack before reading and must always return `isEditable: false`.
-- Sessions history preview should continue respecting `HILT_MAP_HISTORY_PREVIEW`.
-- Aggregate/network reads happen from full Hilt servers, not from the agent.
+## 7. Definition of Done
 
-## Scripts And LaunchAgent
+**Automated (all green):**
+- [ ] `npm run test:system-agent` — 12-route allowlist; JSON-404 default; no `text/html`;
+      `role:"agent"`; heartbeat round-trips to a distinct `system-agent.json`
+- [ ] `npm run test:system` — `role` additive + discovery back-compat
+- [ ] `npm run test:system-agent:e2e` — real agent on ephemeral port; all routes 2xx; 404 negatives;
+      preview PNG; both refresh POSTs; DATA_DIR write-diff clean
+- [ ] `npm run test:system-agent:parity` — every capability deepEqual to full-Hilt local lib output
+- [ ] `npx tsc --noEmit` and `npm run lint`
 
-Add package scripts:
+**Negative guarantees (each an explicit assertion, not an absence):**
+- [ ] Disallowed routes (`/`, `/index.html`, `/api/system/machines`, `/api/system/graph`,
+      `/api/bridge/*`, `/api/library/*`, `/api/calendar/*`, `/events`, `/navigate`, random) → JSON 404
+- [ ] No frontend: no HTML ever served; no static/asset routes registered
+- [ ] No background work: agent boot logs contain no Bridge/Library/Granola/calendar/scheduler/
+      graph/semantic init lines; wrapper does not export `HILT_GRANOLA_SYNC_DAEMON`; DATA_DIR
+      write-diff during e2e is exactly `{system-agent.json}` + the map-index cache
+- [ ] Syncthing key never leaked: `/api/system/sync` and `/conflicts` JSON contain no `apiKey`/
+      key-file contents (asserted by grep in e2e + parity)
+- [ ] Stack files non-editable: only GET stack routes; mutating verbs 404; `server/system-agent.ts`
+      contains no `writeFile/unlink/rm/mkdir`; lib stack layer is read-only
 
-```json
-"system-agent:run": "tsx server/system-agent.ts",
-"system-agent:install": "tsx scripts/system-agent-launchd.ts --install",
-"system-agent:uninstall": "tsx scripts/system-agent-launchd.ts --uninstall",
-"system-agent:status": "tsx scripts/system-agent-launchd.ts --status"
-```
+**Cross-machine live (M6 — hard gate, run from both hosts):**
+- [ ] LaunchAgent installs on Hestia; `system-agent:status` shows loaded + FRESH heartbeat
+- [ ] `tailscale serve status` shows `https://hestia.<tailnet>/ → 127.0.0.1:3200`
+- [ ] Mercury `/api/system/machines` lists Hestia with `role:"agent"`; Hestia renders in System →
+      Sync / Apps (+ screenshots) / Sessions / Stack (+ validated read-only previews)
+- [ ] Disallowed paths 404 over the public Serve origin; `/` serves no HTML; Syncthing key absent
 
-Add `scripts/system-agent-launchd.ts` modeled after `scripts/supervisor-launchd.ts`, but for a single `com.hilt.system-agent` process.
+**Final:** `npm run rebuild` after user-visible source changes. Update `docs/CHANGELOG.md`,
+`docs/ARCHITECTURE.md` (System full-vs-agent roles), `docs/API.md` (`role` + agent route surface +
+Serve deployment), `docs/DATA-MODELS.md` (`SystemMachineResponse.role`), `.env.example`
+(`HILT_SYSTEM_AGENT_PORT`), and `AGENTS.md` only if a durable ops rule is warranted.
 
-LaunchAgent requirements:
+## 8. Cross-machine validation (M6, hard gate)
 
-- Use the same Node 22 PATH discipline as the supervisor wrapper.
-- Set `HOME`, `DATA_DIR`, `PATH`, and `HILT_SYSTEM_AGENT_PORT`.
-- Do not set `HILT_GRANOLA_SYNC_DAEMON`.
-- Write logs under `${DATA_DIR}/logs/system-agent/` or `~/.hilt/logs/system-agent/`.
-- Status should report launchctl state, pid, configured port, and whether `GET /api/system/machine?scope=local` responds.
+Hestia deploy: pull + Node-22 install; ensure `.env` has `HILT_SYNC_ENABLED=true`,
+`HILT_SYNC_PROVIDER=syncthing`, `HILT_SYNC_FOLDER_ID=work-meta`,
+`HILT_SYNC_SYNCTHING_URL=http://127.0.0.1:8384`, `HILT_SYNC_SYNCTHING_API_KEY_FILE=…`,
+`HILT_LOCAL_APPS_ENABLED=true`, `HILT_LOCAL_APPS_PREVIEWS=true`, `HILT_MAP_LOCAL_ENABLED=true`;
+`npm run system-agent:install`; configure Serve (root → `127.0.0.1:3200`). Then:
 
-## Full Hilt Integration
+1. Hestia: `npm run system-agent:status` → `state = running` + heartbeat FRESH from `system-agent.json`.
+2. Hestia: `tailscale serve status` → `https://hestia.<tailnet>/ → 127.0.0.1:3200`.
+3. Mercury: `curl -s https://hestia.<tailnet>/api/system/machine | jq '{app,enabled,role}'` →
+   `{"app":"hilt-system","enabled":true,"role":"agent"}`.
+4. Mercury: force-refresh System machines; `curl -s https://mercury…/api/system/machines | jq` →
+   Hestia present + reachable. Confirm Sync / Apps (+screenshots) / Sessions / Stack (+previews) render.
+5. Mercury: `curl -s -o /dev/null -w '%{http_code} %{content_type}\n' https://hestia.<tailnet>/api/system/graph`
+   → `404 application/json`; `curl -s https://hestia.<tailnet>/` → JSON 404, no HTML.
+6. Mercury: `curl -s https://hestia.<tailnet>/api/system/sync | grep -i -E 'apikey|api-key'` → no output.
 
-Update discovery in `src/lib/system/peers.ts` so full Hilt recognizes both full servers and agents:
+## 9. Critical files
 
-- Keep probing `https://<peer-dns>` first, followed by common local dev ports.
-- Add the agent port to candidate probes: `HILT_SYSTEM_AGENT_PORT` default `3200`.
-- Accept `role: "agent"` as a valid Hilt peer.
-- Preserve the existing `machineId` and `machineLabel` behavior.
-- Do not assume feature flags are authoritative; continue probing capability endpoints and rendering disabled cards when a route reports disabled/unavailable.
-
-Update System types/docs so the role is visible to future implementers. UI changes should be minimal: existing cards can keep their current machine titles, with optional quiet `agent` labeling only where useful for diagnosis.
-
-## Hestia Deployment Steps
-
-On Hestia:
-
-1. Pull the latest Hilt checkout and install dependencies with Node 22.
-2. Ensure `.env` has the desired observer flags:
-   - `HILT_SYNC_ENABLED=true`
-   - `HILT_SYNC_PROVIDER=syncthing`
-   - `HILT_SYNC_FOLDER_ID=work-meta`
-   - `HILT_SYNC_SYNCTHING_URL=http://127.0.0.1:8384`
-   - `HILT_SYNC_SYNCTHING_API_KEY_FILE=/Users/jruck/.hilt/sync/syncthing-api-key`
-   - `HILT_LOCAL_APPS_ENABLED=true`
-   - `HILT_LOCAL_APPS_PREVIEWS=true`
-   - `HILT_MAP_LOCAL_ENABLED=true`
-3. Run `npm run system-agent:run`.
-4. Verify local responses:
-   - `curl http://127.0.0.1:3200/api/system/machine?scope=local`
-   - `curl http://127.0.0.1:3200/api/system/sync?scope=local`
-   - `curl http://127.0.0.1:3200/api/local-apps?scope=local`
-   - `curl http://127.0.0.1:3200/api/system/stack?scope=local`
-   - `curl http://127.0.0.1:3200/api/map/local/work-graph`
-5. Install the LaunchAgent with `npm run system-agent:install`.
-6. Configure Tailscale Serve to forward Hestia's tailnet HTTPS origin to `127.0.0.1:3200`.
-7. Confirm `https://hestia.../api/system/machine?scope=local` reports `role: "agent"`.
-
-## Mercury Validation Steps
-
-From the Mercury-served full Hilt instance:
-
-1. Force-refresh System machines.
-2. Confirm Hestia appears in `/api/system/machines`.
-3. Confirm System -> Sync shows Hestia's Syncthing status.
-4. Confirm System -> Apps shows Hestia services and screenshots.
-5. Confirm System -> Sessions includes Hestia map/session data.
-6. Confirm System -> Stack lists Hestia stack data and validated read-only previews work.
-7. Confirm Hestia does not expose:
-   - `/`
-   - `/_next/*`
-   - `/api/bridge/*`
-   - `/api/library/*`
-   - `/api/docs/*`
-   - `/api/calendar/*`
-   - `/api/granola-sync/*`
-   - `/api/system/app-mode`
-   - `/events`
-   - `/navigate`
-
-## Test Plan
-
-Add focused tests for the implementation:
-
-- System machine schema accepts `role: "full" | "agent"`.
-- Peer discovery accepts agent peers and still rejects non-Hilt peers.
-- Agent route allowlist returns `404` for disallowed routes.
-- Agent machine route returns no `app_server` mode-switch surface.
-- Agent Sync route returns the same enabled/disabled shapes as full Hilt local Sync.
-- Agent Apps route supports refresh and safe preview serving.
-- Agent Stack file route returns only files discovered in the stack and marks them non-editable.
-- Agent Sessions routes respect existing Map flags and history-preview controls.
-- LaunchAgent renderer includes the expected env and does not set Granola/calendar daemon flags.
-
-Run at minimum:
-
-```bash
-npm run test:system
-npm run test:local-apps
-npm run test:map
-npm run test:server-mode
-npx tsc --noEmit
-```
-
-For final app delivery, run `npm run rebuild` after user-visible source changes. This plan document itself is docs-only and does not require a rebuild.
-
-## Documentation Updates For Implementation
-
-When the feature is implemented, update:
-
-- `docs/CHANGELOG.md` with the shipped runtime.
-- `docs/ARCHITECTURE.md` System section with full-vs-agent roles and data flow.
-- `docs/API.md` for the `role` field, agent route surface, and Tailscale Serve deployment.
-- `docs/DATA-MODELS.md` for the `SystemMachineResponse` role field.
-- `.env.example` for `HILT_SYSTEM_AGENT_PORT` and any agent-specific flags.
-- `AGENTS.md` only if future agents need a durable operational rule for system-agent deployments.
-
-## Acceptance Criteria
-
-- Hestia can run `system-agent` without a Hilt UI or full Hilt supervisor.
-- Mercury discovers Hestia as a Hilt System machine through Tailscale Serve.
-- System Sync, Apps, Sessions, and Stack work for Hestia from Mercury.
-- Disallowed Hestia routes return JSON `404` and no frontend is served.
-- No Bridge/Library/Granola/calendar/scheduler/graph/semantic background work starts on Hestia.
-- Implementation tests and live Hestia/Mercury validation pass.
+- `server/system-agent.ts` — **new**, the build target (allowlist router + lib wrappers + heartbeat)
+- `src/lib/system/types.ts` — additive `role` field (M0)
+- `src/lib/system/peers.ts` — `localSystemMachineResponse` role option; `fetchPeerSystemMachine` reads `data.role`
+- `server/system-agent.test.ts` — **new** unit/in-process (model: `system.test.ts:130`, `server-mode.test.ts`)
+- `scripts/system-agent-e2e.ts` — **new** (model: `scripts/graph-e2e.ts`)
+- `scripts/system-agent-parity.ts` + map/sync `normalizeForParity` — **new** (model: `scripts/local-apps-parity.ts`, `src/lib/local-apps/parity.ts`)
+- `scripts/system-agent-smoke.ts` — **new** (model: `scripts/system-sync-smoke.ts`)
+- `scripts/system-agent-launchd.ts` + `scripts/hilt-system-agent.sh` — **new** (models: `scripts/supervisor-launchd.ts`, `scripts/hilt-supervisor.sh`)
+- `package.json` — new `system-agent:*` and `test:system-agent*` scripts; add `test:system-agent` to `test:unit`

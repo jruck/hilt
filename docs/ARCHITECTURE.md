@@ -305,6 +305,8 @@ SystemView
 
 System is the parent inspection area. It uses Hilt-to-Hilt peer discovery only: the serving machine asks Tailscale for online peers, probes those peers for `/api/system/machine?scope=local`, and only aggregates machines that identify as Hilt. `HILT_SYSTEM_NETWORK_ENABLED=false` disables peer aggregation while keeping local System inspection available.
 
+**Full server vs System Agent.** A discovered peer carries a `role: "full" | "agent"` (additive; absent peers are treated as `"full"`). Most machines run the full Hilt app and respond `role: "full"`. An observer machine such as Hestia can instead run a **System Agent** — a lightweight read-only Node HTTP runtime (`server/system-agent.ts`, NOT Next.js; `docs/plans/system-agent-mode.md`) that serves the same local Sync/Apps/Stack/Sessions snapshots from the same `@/lib` functions without the UI, `ws-server`, Bridge/Library write routes, Granola/calendar daemons, or graph/semantic runners. The agent binds `127.0.0.1:${HILT_SYSTEM_AGENT_PORT:-3200}` and is exposed via Tailscale Serve mapping the origin **root** to that loopback port, so the unchanged `https://<peer-dns>/api/system/machine` probe reaches it — discovery required no change to `src/lib/system/peers.ts` because the handshake only checks `app`/`enabled`/`machine`. The agent answers a strict route allowlist (every other path → JSON 404, no HTML, no peer fan-out) and reports `role: "agent"`, `app_server: null`. Aggregate fan-out always stays on full servers; the agent only ever returns local snapshots.
+
 Sessions mode keeps a local SQLite Map index on each machine. `/api/system/sessions/graph` queries each peer's local Map graph, namespaces machine/tree/session ids, and returns a normal Map graph with top-level machine nodes. `/api/system/sessions` and `/api/system/sessions/detail` route pagination/history reads back to the machine that owns the selected tree node or session id. This avoids central transcript storage while letting the UI show Xochipilli, Mercury, and future Hilt machines in one session map.
 
 Apps mode reuses the Local Apps monitor and its existing peer aggregation, screenshot cache, and machine grouping.
@@ -1059,6 +1061,7 @@ those in `.env*` requires a rebuild, not just an app relaunch.
 |------|-------|---------|
 | `ws-server.ts` | 239 | HTTP server, EventServer setup, watcher wiring |
 | `event-server.ts` | 213 | WebSocket pub/sub with channel subscriptions |
+| `system-agent.ts` | — | Read-only System Agent HTTP runtime (allowlist of local Sync/Apps/Stack/Sessions routes); observer machines only — `docs/plans/system-agent-mode.md` |
 | `watchers/scope-watcher.ts` | 237 | Directory tree + file change detection |
 | `watchers/inbox-watcher.ts` | 202 | Todo.md change detection |
 | `watchers/bridge-watcher.ts` | 108 | Bridge vault change detection |

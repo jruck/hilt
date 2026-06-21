@@ -5,7 +5,7 @@ import { isLocalMapEnabled } from "@/lib/map/local-config";
 import type { MachineIdentity } from "@/lib/local-apps/types";
 import { getAppServerInfo } from "./app-server-info";
 import { isSystemSyncEnabled } from "./sync-settings";
-import type { SystemMachine, SystemMachineResponse } from "./types";
+import type { SystemMachine, SystemMachineResponse, SystemMachineRole } from "./types";
 
 const REMOTE_TIMEOUT_MS = 1_500;
 const HILT_DEV_PORTS = [3000, 3001, 3002, 3003, 3004];
@@ -25,10 +25,13 @@ export function machineLabel(machine: MachineIdentity): string {
     .replace(/-v$/i, "");
 }
 
-export async function localSystemMachineResponse(): Promise<SystemMachineResponse> {
+export async function localSystemMachineResponse(
+  options: { role?: SystemMachineRole; includeAppServer?: boolean } = {},
+): Promise<SystemMachineResponse> {
   return {
     app: "hilt-system",
     enabled: true,
+    role: options.role ?? "full",
     machine: await machineIdentityAsync(),
     features: {
       map: isLocalMapEnabled(),
@@ -36,7 +39,7 @@ export async function localSystemMachineResponse(): Promise<SystemMachineRespons
       stack: true,
       sync: isSystemSyncEnabled(),
     },
-    app_server: getAppServerInfo(),
+    app_server: options.includeAppServer === false ? null : getAppServerInfo(),
   };
 }
 
@@ -51,6 +54,7 @@ export async function discoverSystemMachines(options: { includePeers?: boolean }
       ...localResponse.machine,
       origin: "local",
     },
+    role: localResponse.role,
     features: localResponse.features,
     app_server: localResponse.app_server ?? null,
     error: null,
@@ -95,27 +99,43 @@ export async function fetchPeerJson<T>(
   return data as T;
 }
 
+/**
+ * Accepts any responder identifying as a Hilt System endpoint and normalizes it
+ * into a discovered SystemMachine. `role` is read additively: peers that predate
+ * the field (full Hilt or System Agents) default to "full" — discovery never
+ * gates on role, only on app/enabled/machine. Returns null for non-Hilt payloads.
+ */
+export function systemMachineFromResponse(
+  data: Partial<SystemMachineResponse>,
+  baseUrl: string,
+): SystemMachine | null {
+  if (data.app !== "hilt-system" || data.enabled !== true || !data.machine) return null;
+  const machine: MachineIdentity = {
+    ...data.machine,
+    origin: "remote",
+  };
+  return {
+    id: machineId(machine),
+    self: false,
+    reachable: true,
+    source_url: baseUrl,
+    machine,
+    role: data.role ?? "full",
+    features: normalizeFeatures(data.features),
+    app_server: data.app_server ?? null,
+    error: null,
+  };
+}
+
 async function fetchPeerSystemMachine(peer: TailnetPeer): Promise<SystemMachine | null> {
   for (const baseUrl of candidateBaseUrls(peer)) {
     try {
       const response = await fetchWithTimeout(`${baseUrl}/api/system/machine?scope=local`, REMOTE_TIMEOUT_MS);
       if (!response.ok) continue;
       const data = (await response.json()) as Partial<SystemMachineResponse>;
-      if (data.app !== "hilt-system" || data.enabled !== true || !data.machine) continue;
-      const machine: MachineIdentity = {
-        ...data.machine,
-        origin: "remote",
-      };
-      return {
-        id: machineId(machine),
-        self: false,
-        reachable: true,
-        source_url: baseUrl,
-        machine,
-        features: normalizeFeatures(data.features),
-        app_server: data.app_server ?? null,
-        error: null,
-      };
+      const parsed = systemMachineFromResponse(data, baseUrl);
+      if (!parsed) continue;
+      return parsed;
     } catch {
       // Non-Hilt devices and temporarily unavailable dev servers are expected.
     }

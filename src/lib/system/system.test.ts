@@ -7,9 +7,9 @@ import http from "node:http";
 import { isSystemMode, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode } from "./navigation";
 import { decodeSystemNodeId, decodeSystemSessionId, systemMachineNodeId, systemNodeId, systemSessionId } from "./map";
 import { machineIdentity } from "../local-apps/tailnet";
-import { machineId, machineLabel } from "./peers";
+import { localSystemMachineResponse, machineId, machineLabel, systemMachineFromResponse } from "./peers";
 import { __resetSystemSyncCacheForTests, collectConflictFiles, readLocalSystemSync, readSystemSyncForMachines } from "./sync";
-import type { SystemMachine } from "./types";
+import type { SystemMachine, SystemMachineResponse } from "./types";
 
 describe("system machine ids", () => {
   it("prefers stable tailnet identity for machine ids and labels", () => {
@@ -343,5 +343,79 @@ describe("system sync snapshots", () => {
     assert.equal(response.summary.machine_count, 1);
     assert.equal(response.summary.healthy_count, 1);
     assert.equal(response.machines[0].enabled, true);
+  });
+});
+
+describe("system agent role contract", () => {
+  const reject = (data: unknown) =>
+    systemMachineFromResponse(data as Partial<SystemMachineResponse>, "https://peer.example");
+
+  it("accepts a peer response that omits role and defaults it to full (back-compat)", () => {
+    const machine = {
+      hostname: "xochipilli",
+      tailscale_dns: "xochipilli.tailc0acaa.ts.net",
+      tailscale_ip4: "100.104.52.2",
+      origin: "local" as const,
+    };
+    const parsed = systemMachineFromResponse(
+      { app: "hilt-system", enabled: true, machine, features: { map: true, apps: true, stack: true, sync: true } },
+      "https://xochipilli.tailc0acaa.ts.net",
+    );
+    assert.ok(parsed);
+    assert.equal(parsed?.role, "full");
+    assert.equal(parsed?.machine.origin, "remote");
+  });
+
+  it("surfaces an explicit agent role from the peer response", () => {
+    const machine = {
+      hostname: "hestia",
+      tailscale_dns: "hestia.tailc0acaa.ts.net",
+      tailscale_ip4: null,
+      origin: "local" as const,
+    };
+    const parsed = systemMachineFromResponse(
+      { app: "hilt-system", enabled: true, role: "agent", machine, features: { map: true, apps: true, stack: true, sync: true } },
+      "https://hestia.tailc0acaa.ts.net",
+    );
+    assert.equal(parsed?.role, "agent");
+    assert.equal(parsed?.source_url, "https://hestia.tailc0acaa.ts.net");
+  });
+
+  it("rejects non-Hilt, disabled, or machine-less responders", () => {
+    const machine = { hostname: "x", tailscale_dns: null, tailscale_ip4: null, origin: "local" as const };
+    assert.equal(reject({ app: "something-else", enabled: true, machine }), null);
+    assert.equal(reject({ app: "hilt-system", enabled: false, machine }), null);
+    assert.equal(reject({ app: "hilt-system", enabled: true }), null);
+  });
+
+  it("emits role on the local machine response: full by default, agent + null app_server on request", async () => {
+    const prev = {
+      hostname: process.env.HILT_SYSTEM_MACHINE_HOSTNAME,
+      dns: process.env.HILT_SYSTEM_MACHINE_DNS,
+      ip4: process.env.HILT_SYSTEM_MACHINE_IP4,
+    };
+    try {
+      process.env.HILT_SYSTEM_MACHINE_HOSTNAME = "agent-host";
+      process.env.HILT_SYSTEM_MACHINE_DNS = "agent-host.tailnet.example";
+      process.env.HILT_SYSTEM_MACHINE_IP4 = "100.64.0.20";
+
+      const full = await localSystemMachineResponse();
+      assert.equal(full.app, "hilt-system");
+      assert.equal(full.enabled, true);
+      assert.equal(full.role, "full");
+
+      const agent = await localSystemMachineResponse({ role: "agent", includeAppServer: false });
+      assert.equal(agent.role, "agent");
+      assert.equal(agent.app_server, null);
+      assert.equal(agent.machine.hostname, "agent-host");
+    } finally {
+      const restore = (key: string, value: string | undefined) => {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      };
+      restore("HILT_SYSTEM_MACHINE_HOSTNAME", prev.hostname);
+      restore("HILT_SYSTEM_MACHINE_DNS", prev.dns);
+      restore("HILT_SYSTEM_MACHINE_IP4", prev.ip4);
+    }
   });
 });

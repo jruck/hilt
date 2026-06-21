@@ -338,14 +338,28 @@ interface SystemMachine {
     tailscale_ip4?: string | null;
     origin: "local" | "remote";
   };
+  role?: "full" | "agent";       // full Hilt server vs read-only System Agent; absent peers treated as "full"
   features?: {
     map: boolean;
     apps: boolean;
     stack: boolean;
     sync: boolean;
   };
-  app_server?: AppServerInfo | null; // dev/prod mode + build age (src/lib/system/app-server-info.ts)
+  app_server?: AppServerInfo | null; // dev/prod mode + build age (src/lib/system/app-server-info.ts); null for agents
   error?: string | null;
+}
+
+// SystemMachineResponse (src/lib/system/types.ts) — what /api/system/machine returns.
+// Same identity/features, plus a required additive `role`. A read-only System Agent
+// (server/system-agent.ts, docs/plans/system-agent-mode.md) emits role:"agent" with
+// app_server:null; a full Hilt server emits role:"full".
+interface SystemMachineResponse {
+  app: "hilt-system";
+  enabled: true;
+  role: "full" | "agent";
+  machine: MachineIdentity;
+  features: { map: boolean; apps: boolean; stack: boolean; sync: boolean };
+  app_server?: AppServerInfo | null;
 }
 
 interface AppServerInfo {

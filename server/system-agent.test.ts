@@ -65,6 +65,22 @@ describe("system agent: allowlist + 404/no-HTML contract", () => {
     });
   });
 
+  it("GET /api/system/metrics returns this machine's read-only telemetry", async () => {
+    process.env.HILT_METRICS_FIXTURE = "1";
+    try {
+      await withServer(async (base) => {
+        const res = await fetch(`${base}/api/system/metrics`);
+        assert.equal(res.status, 200);
+        const data = (await res.json()) as { machine?: unknown; compute?: Record<string, unknown>; ambient?: unknown };
+        assert.ok(data.machine, "carries machine identity");
+        assert.ok(data.compute && "cpu_temp_c" in data.compute, "carries compute block");
+        assert.equal("ambient" in data, false, "no closet block unless this machine owns the sensor");
+      });
+    } finally {
+      delete process.env.HILT_METRICS_FIXTURE;
+    }
+  });
+
   it("returns 404 for the right path with the wrong method", async () => {
     await withServer(async (base) => {
       await expectJson404(base, "/api/system/machine", { method: "POST" });

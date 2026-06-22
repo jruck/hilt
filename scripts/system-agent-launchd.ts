@@ -23,11 +23,23 @@ const PLIST_PATH = path.join(os.homedir(), "Library", "LaunchAgents", `${LABEL}.
 const WRAPPER = path.join(PROJECT_DIR, "scripts", "hilt-system-agent.sh");
 const LOG_DIR = path.join(os.homedir(), ".hilt", "logs", "system-agent");
 const PORT = process.env.HILT_SYSTEM_AGENT_PORT || "3200";
-// Homebrew + standalone CLI + Tailscale.app bundle so machine identity can shell to `tailscale`.
-const AGENT_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/Applications/Tailscale.app/Contents/MacOS";
+// Homebrew + system bin/sbin (sysctl etc. for macmon) + standalone CLI + Tailscale.app
+// bundle so machine identity can shell to `tailscale`.
+const AGENT_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Applications/Tailscale.app/Contents/MacOS";
 
 function plistEscape(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Opt-in telemetry env baked into the plist at install time, so only the machine
+// holding the closet sensor (Hestia) advertises it:
+//   HILT_METRICS_CLOSET=1 npm run system-agent:install
+function metricsEnvLines(): string {
+  const lines: string[] = [];
+  if (process.env.HILT_METRICS_CLOSET === "1") {
+    lines.push("        <key>HILT_METRICS_CLOSET</key>\n        <string>1</string>");
+  }
+  return lines.length ? `\n${lines.join("\n")}` : "";
 }
 
 function renderPlist(): string {
@@ -52,7 +64,7 @@ function renderPlist(): string {
         <key>HILT_SYSTEM_AGENT_PORT</key>
         <string>${plistEscape(PORT)}</string>
         <key>PATH</key>
-        <string>${AGENT_PATH}</string>
+        <string>${AGENT_PATH}</string>${metricsEnvLines()}
     </dict>
     <key>RunAtLoad</key>
     <true/>

@@ -53,6 +53,10 @@ function renderPlist(): string {
         <string>${plistEscape(defaultDataDir())}</string>
         <key>HILT_GRANOLA_SYNC_DAEMON</key>
         <string>1</string>
+        <key>HILT_METRICS_COLLECTOR</key>
+        <string>1</string>
+        <key>HILT_METRICS_CLOSET_MACHINE</key>
+        <string>hestia</string>
         <key>HILT_GRANOLA_REMOTE_HOST</key>
         <string>apollo</string>
         <key>HILT_GRANOLA_REMOTE_NODE_PATH</key>

@@ -220,9 +220,9 @@ export function LocalAppsView({ searchQuery = "", modeSwitcher }: LocalAppsViewP
           }
         />
 
-        {diagnostics.errors.length > 0 ? (
+        {diagnostics.errors.filter((message) => !isPreviewCaptureError(message)).length > 0 ? (
           <div className="border-b border-amber-500/20 bg-amber-500/5 px-4 py-2 text-xs text-amber-300">
-            {diagnostics.errors.join(" · ")}
+            {diagnostics.errors.filter((message) => !isPreviewCaptureError(message)).join(" · ")}
           </div>
         ) : null}
 
@@ -257,8 +257,15 @@ export function LocalAppsView({ searchQuery = "", modeSwitcher }: LocalAppsViewP
                     {machine.diagnostics.is_scanning ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--text-tertiary)]" /> : null}
                   </div>
                   {machine.groups.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-[var(--border-default)] px-3 py-4 text-xs text-[var(--text-tertiary)]">
-                      No visible apps found
+                    <div className="flex items-center gap-2 rounded-lg border border-dashed border-[var(--border-default)] px-3 py-4 text-xs text-[var(--text-tertiary)]">
+                      {machine.diagnostics.is_scanning ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Scanning…
+                        </>
+                      ) : (
+                        "No visible apps found"
+                      )}
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 gap-3 pb-2 md:grid-cols-3 2xl:grid-cols-4">
@@ -394,9 +401,17 @@ function machineServiceCount(machine: LocalAppsMachineSnapshot): number {
   return machine.groups.reduce((sum, group) => sum + group.services.filter((service) => service.visible).length, 0);
 }
 
+// Screenshot/preview-capture failures (e.g. a missing Playwright browser binary)
+// are not machine-health problems — they surface per-card via previewFallback.
+// Keep them out of the red machine-level banner so a broken thumbnail never reads
+// as "this machine is down". Reachability/transport errors (machine.error) still show.
+function isPreviewCaptureError(message: string): boolean {
+  return /browsertype\.launch|chrome-headless|playwright|executable doesn't exist|page\.(goto|screenshot)|screenshot/i.test(message);
+}
+
 function machineStatusMessage(machine: LocalAppsMachineSnapshot): string | null {
   if (machine.error) return machine.error;
-  return machine.diagnostics.errors[0] || null;
+  return machine.diagnostics.errors.find((message) => !isPreviewCaptureError(message)) || null;
 }
 
 function machineTitle(machine: LocalAppsMachineSnapshot): string {

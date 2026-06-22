@@ -65,7 +65,21 @@ async function capturePreviews(services: Service[]): Promise<void> {
     return;
   }
 
-  const browser = await chromium.launch({ headless: true });
+  // A missing/mismatched browser binary (e.g. Playwright version drift leaving
+  // chrome-headless-shell uninstalled) makes launch() throw. Keep it non-fatal:
+  // record it as a per-service preview error so the scan still builds its app
+  // groups instead of aborting and wiping the whole inventory.
+  let browser: Awaited<ReturnType<PlaywrightChromium["launch"]>>;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (error) {
+    const message = previewErrorMessage(error);
+    for (const service of services) {
+      recordPreviewCaptureError(service, message);
+    }
+    return;
+  }
+
   try {
     for (const service of services) {
       const urls = previewCaptureUrls(service);

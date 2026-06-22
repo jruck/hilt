@@ -28,6 +28,8 @@ import { heatForWindow } from "@/lib/map/activity-heat";
 import { SECONDARY_CHROME_BODY_GUTTER_CLASS, SecondaryIconButton, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { withBasePath } from "@/lib/base-path";
+import { buildReference } from "@/lib/references/build";
+import { copyToClipboard } from "@/lib/references/clipboard";
 
 const WINDOWS: ActivityWindow[] = ["24h", "7d", "30d", "all"];
 
@@ -253,7 +255,7 @@ function SessionIdCopy({
           onCopy();
         }}
         className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-        title={copied ? "Copied session ID" : "Copy session ID"}
+        title={copied ? "Copied reference" : "Copy reference"}
       >
         {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
       </button>
@@ -655,12 +657,23 @@ export function MapView({
     }
   };
 
-  const copySessionId = async (sessionId: string) => {
+  // Copies a portable session reference (externalId — the CASS / transcript-store-findable id —
+  // plus provider/title/workspace). Routes through copyToClipboard so it works in contexts where
+  // navigator.clipboard is unavailable, which is why the old raw-writeText version failed silently.
+  const copySessionRef = async (
+    session: { id: string; externalId?: string | null; provider?: string | null; title?: string | null; workspaceLabel?: string | null },
+  ) => {
     try {
-      await navigator.clipboard.writeText(sessionId);
-      setCopiedSessionId(sessionId);
+      await copyToClipboard(buildReference({
+        kind: "session",
+        sessionId: session.externalId || session.id,
+        provider: session.provider,
+        title: session.title,
+        cwd: session.workspaceLabel,
+      }));
+      setCopiedSessionId(session.id);
       globalThis.setTimeout(() => {
-        setCopiedSessionId((current) => current === sessionId ? null : current);
+        setCopiedSessionId((current) => current === session.id ? null : current);
       }, 1600);
     } catch {
       setCopiedSessionId(null);
@@ -939,7 +952,7 @@ export function MapView({
                   selected={session.id === selectedSessionId}
                   onSelect={() => setSelectedSessionId((current) => current === session.id ? null : session.id)}
                   copied={copiedSessionId === session.id}
-                  onCopyId={() => void copySessionId(session.id)}
+                  onCopyId={() => void copySessionRef(session)}
                 />
               ))}
               {!isSessionsLoading && sessions.length === 0 && (
@@ -971,7 +984,7 @@ export function MapView({
                     <SessionIdCopy
                       sessionId={selectedSessionId}
                       copied={copiedSessionId === selectedSessionId}
-                      onCopy={() => void copySessionId(selectedSessionId)}
+                      onCopy={() => void copySessionRef(sessions.find((s) => s.id === selectedSessionId) ?? { id: selectedSessionId })}
                     />
                   </div>
                   <div className="flex shrink-0 items-center gap-2">

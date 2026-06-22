@@ -24,6 +24,8 @@ export interface BriefingSummary {
 
 export interface BriefingDetail extends BriefingSummary {
   content: string;
+  /** Absolute path to the briefing markdown file — for portable references. */
+  absPath: string;
 }
 
 interface ParsedBriefingId {
@@ -122,12 +124,14 @@ function buildBriefingPayload(
 function buildBriefingPayload(
   parsed: ParsedBriefingId,
   raw: string,
-  includeContent: true
+  includeContent: true,
+  absPath: string
 ): BriefingDetail;
 function buildBriefingPayload(
   parsed: ParsedBriefingId,
   raw: string,
-  includeContent: boolean
+  includeContent: boolean,
+  absPath?: string
 ): BriefingSummary | BriefingDetail {
   const { data, content } = matter(raw);
   const dateRange = parsed.kind === "weekend" ? getDateRange(data, parsed.date) : undefined;
@@ -150,6 +154,7 @@ function buildBriefingPayload(
   return {
     ...summary,
     content: content.trim(),
+    absPath: absPath ?? "",
   };
 }
 
@@ -199,5 +204,5 @@ export async function readBriefingById(vaultPath: string, id: string): Promise<B
 
   const filePath = path.join(vaultPath, parsed.relativePath);
   const raw = await fs.readFile(filePath, "utf-8");
-  return buildBriefingPayload(parsed, raw, true);
+  return buildBriefingPayload(parsed, raw, true, filePath);
 }

@@ -12,6 +12,7 @@ import { MermaidBlock } from "./MermaidBlock";
 import type { FileNode } from "@/lib/types";
 import { resolveWikilink, parseWikilinks, parseImageWikilinks } from "@/lib/docs/wikilink-resolver";
 import { withBasePath } from "@/lib/base-path";
+import { SHARED_PROSE_TUNING } from "@/lib/prose";
 import * as path from "path";
 
 /** Extract YAML frontmatter key-value pairs from markdown. Returns null if no frontmatter. */
@@ -424,15 +425,10 @@ export function DocsEditor({
   }, [readOnly, renderedBody]);
 
   const proseInvert = resolvedTheme === "dark" ? "prose-invert" : "";
-  const proseClass = `prose ${proseInvert} max-w-none leading-normal font-[family-name:var(--font-geist-sans)]
-    prose-headings:font-semibold
-    prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:bg-[var(--bg-tertiary)] prose-code:text-[var(--text-secondary)] prose-code:before:content-none prose-code:after:content-none
-    prose-pre:rounded-lg prose-pre:bg-[var(--bg-tertiary)]
-    prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
-    prose-table:border-collapse prose-table:bg-[var(--bg-primary)]
-    prose-thead:bg-[var(--bg-secondary)]
-    prose-th:border prose-th:border-[var(--border-default)] prose-th:px-3 prose-th:py-2
-    prose-td:border prose-td:border-[var(--border-default)] prose-td:px-3 prose-td:py-2 prose-td:bg-[var(--bg-primary)]`;
+  // Shared prose treatment is the single source of truth (see src/lib/prose.ts). Docs' deltas:
+  // `leading-normal` (its Lexical DOM wants the tighter line-height) and blue web-style links.
+  const proseClass = `prose ${proseInvert} leading-normal ${SHARED_PROSE_TUNING}
+    prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline`;
 
   const markdownComponents: import("react-markdown").Components = {
     code({ className, children, ...props }) {

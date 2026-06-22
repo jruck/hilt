@@ -64,3 +64,21 @@ export function unresolvedDeadLetters(vaultPath: string, state: SourceState): De
 export function unresolvedDeadLetterSources(vaultPath: string, state: SourceState): string[] {
   return Array.from(new Set(unresolvedDeadLetters(vaultPath, state).map((entry) => entry.source_id))).filter(Boolean);
 }
+
+/**
+ * Drop entries that have since RESOLVED (a later source success, or the artifact now exists in saved/
+ * archived/candidate storage). Keeps the health panel's by-source counts reflecting live problems, not
+ * historical outages (e.g. a 2-hour credential outage that self-recovered should not amber the panel
+ * for weeks). Returns the number of entries pruned. Wired into the nightly cleanup job.
+ */
+export function pruneResolvedDeadLetters(vaultPath: string, state: SourceState): number {
+  const entries = readDeadLetters(vaultPath);
+  if (!entries.length) return 0;
+  const artifactUrls = entries.some((entry) => entry.artifact_url) ? deadLetterArtifactUrls(vaultPath) : undefined;
+  const unresolved = entries.filter((entry) => !deadLetterResolved(entry, state, artifactUrls));
+  const pruned = entries.length - unresolved.length;
+  if (pruned > 0) {
+    atomicWriteFile(filePath(vaultPath), JSON.stringify(unresolved.slice(-500), null, 2));
+  }
+  return pruned;
+}

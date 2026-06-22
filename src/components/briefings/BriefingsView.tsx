@@ -119,7 +119,7 @@ export function BriefingsView({
                 retryMessage={retryMessage}
               />
             ) : briefing ? (
-              <BriefingContent content={briefing.content} date={briefing.date} />
+              <BriefingContent content={briefing.content} date={briefing.date} absPath={briefing.absPath} />
             ) : (
               <div className="text-sm text-[var(--text-tertiary)] text-center py-12">
                 Select a briefing to view

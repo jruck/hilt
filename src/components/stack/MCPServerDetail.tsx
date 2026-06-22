@@ -5,6 +5,8 @@ import { Server, Terminal, Globe, ExternalLink, User, Tag, Check, X, Pencil, Sav
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { MCPServerConfig } from "@/lib/claude-config/types";
 import { openExternal } from "@/lib/openExternal";
+import { buildReference } from "@/lib/references/build";
+import { copyToClipboard } from "@/lib/references/clipboard";
 import { withBasePath } from "@/lib/base-path";
 
 interface MCPServerDetailProps {
@@ -27,11 +29,11 @@ export function MCPServerDetail({ server, onToggleEnabled, onServerUpdated }: MC
 
   const handleCopyPath = useCallback(async () => {
     if (server.source) {
-      await navigator.clipboard.writeText(server.source);
+      await copyToClipboard(buildReference({ kind: "stack-mcp", absPath: server.source, title: server.name }));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  }, [server.source]);
+  }, [server.source, server.name]);
 
   const handleRevealInFinder = useCallback(async () => {
     if (server.source) {
@@ -108,7 +110,7 @@ export function MCPServerDetail({ server, onToggleEnabled, onServerUpdated }: MC
             {/* Copy path button */}
             <button
               onClick={handleCopyPath}
-              title="Copy path"
+              title="Copy reference"
               className={`rounded-md text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors ${isMobile ? "p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center" : "p-1.5"}`}
             >
               {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}

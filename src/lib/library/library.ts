@@ -90,6 +90,7 @@ function candidateToArtifact(vaultPath: string, candidate: ReferenceCandidate): 
   return {
     id: candidate.id,
     path: candidate.path,
+    abs_path: filePath,
     title: candidate.title,
     summary: candidate.summary || null,
     source_type: "reference-candidate",
@@ -107,7 +108,11 @@ function candidateToArtifact(vaultPath: string, candidate: ReferenceCandidate): 
     thumbnail: candidate.thumbnail,
     author: candidate.author,
     url: candidate.url,
-    created_at: candidate.published || candidate.digested,
+    // Feed position = when this entered the library ("first seen" = digested), not the content's publish
+    // date — same intake-ordering principle as saved refs (see referenceCreatedDate). This also aligns
+    // the merged feed with candidate-cache's own digested-desc sort, which previously disagreed.
+    // `digested` is always stamped (candidate-cache defaults it to today), so it is the reliable key.
+    created_at: candidate.digested,
     updated_at: updatedAt,
     relevance_score: candidate.score.total,
     lifecycle_status: candidate.status,

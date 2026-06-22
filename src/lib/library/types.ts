@@ -149,6 +149,9 @@ export interface ProcessedArtifact {
   youtube_clip?: YouTubeClipReviewAttrs;
   /** A study item that got only the L1 digest (reweave couldn't run) — flagged for re-upgrade. */
   reweave_pending?: boolean;
+  /** The capture is a login/auth wall with no real article under it — held for authenticated
+   *  (signed-in browser) recovery rather than reweave. See capture-health `loginWallVerdict`. */
+  needs_auth_recovery?: boolean;
   assessment: {
     save_recommendation: SaveRecommendation;
     why: string;
@@ -225,7 +228,10 @@ export interface ReferenceCandidate {
 
 export interface LibraryArtifact {
   id: string;
+  /** Vault-relative path to the markdown file. */
   path: string;
+  /** Absolute filesystem path — for portable references a local agent can open directly. */
+  abs_path: string;
   title: string;
   summary: string | null;
   source_type: string;

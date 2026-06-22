@@ -185,6 +185,9 @@ function mergeFrontmatter(existing: Record<string, unknown>, processed: Processe
     redigested_at: new Date().toISOString(),
     source_recovered_from: typeof processed.raw.metadata.source_recovered_from === "string" ? processed.raw.metadata.source_recovered_from : existing.source_recovered_from,
     reweave_pending: processed.reweave_pending ? true : existing.reweave_pending,
+    // Clear on a successful redigest: if the (re-acquired) content is no longer login-wall-only, the
+    // item is recovered and should drop the flag; only re-stamp when it's still chrome-only.
+    needs_auth_recovery: processed.needs_auth_recovery ? true : undefined,
   };
   if (existing.type === "reference-candidate") {
     merged.score = processed.score;

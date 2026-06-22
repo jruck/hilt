@@ -103,6 +103,29 @@ function extractSectionWithHeading(body: string, sectionName: string): string {
   return lines.slice(start, end).join("\n").trim();
 }
 
+/**
+ * Extract ONLY the leading media block from the "## Media" section (heading + images/embeds), stopping
+ * at the first prose line. Guards a known pollution: when a prior digest was a heading-less wall of text
+ * (a failed summarize that dumped raw cache directly under Media with no `## ` of its own),
+ * `extractSectionWithHeading` would swallow that whole wall as "media" — and the reweave would faithfully
+ * preserve it, leaving the wall stuck above the clean digest. Media is images/embeds, so stop at the
+ * first non-media (prose) line.
+ */
+function extractMediaSection(body: string): string {
+  const lines = body.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim().toLowerCase() === "## media");
+  if (start === -1) return "";
+  const kept: string[] = [lines[start]];
+  for (let i = start + 1; i < lines.length; i += 1) {
+    if (/^##\s+/.test(lines[i])) break;
+    const t = lines[i].trim();
+    const isMedia = t === "" || /^!\[/.test(t) || /^\[!\[/.test(t) || /^<\/?[a-z]/i.test(t);
+    if (!isMedia) break;
+    kept.push(lines[i]);
+  }
+  return kept.join("\n").trim();
+}
+
 function connectionBody(reweave: ReweaveResult): string {
   const ordered: ReweaveConnection[] = [...reweave.connections_first_party, ...reweave.connections_library];
   if (!ordered.length) return "";
@@ -243,7 +266,7 @@ async function main(): Promise<void> {
 
     // Preserve the existing Media section verbatim; if there isn't one (or we just repaired the hero),
     // build it from frontmatter so the post/image shows at top.
-    let media = thumbChanged ? "" : extractSectionWithHeading(body, "Media");
+    let media = thumbChanged ? "" : extractMediaSection(body);
     if (!media.trim()) {
       const built = buildMediaMarkdown({
         url: String(data.url || ""),

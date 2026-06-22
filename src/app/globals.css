@@ -1,5 +1,8 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+/* Shared prose class strings live in a .ts module (src/lib/prose.ts); pin it as a scan source so
+   Tailwind generates those utilities even though they aren't written inline in a component. */
+@source "../lib/prose.ts";
 
 button, [role="button"] {
   cursor: pointer;
@@ -1425,6 +1428,65 @@ body [data-radix-popper-content-wrapper]::after {
   font-size: 0.925em;
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+
+/* ===== Shared prose vertical rhythm — one uniform "smidge tighter" knob =====
+   Docs read-mode + Library share Tailwind prose's calibrated rhythm (via SHARED_PROSE_TUNING, which
+   stamps the `hilt-prose` marker). Prose's default block spacing reads a touch loose; rather than tweak
+   elements one by one, scale EVERY block's vertical margin by a single factor so the proportions stay
+   intact, just more compact (DESIGN-PHILOSOPHY §19). Values mirror prose's base em margins; dial the
+   whole rhythm with --prose-rhythm. The .hilt-prose.prose double-class beats prose's own :where() rules. */
+.hilt-prose.prose {
+  --prose-rhythm: 0.85;
+}
+.hilt-prose.prose :where(p, ul, ol):not(:where([class~="not-prose"] *)) {
+  margin-top: calc(1.25em * var(--prose-rhythm));
+  margin-bottom: calc(1.25em * var(--prose-rhythm));
+}
+.hilt-prose.prose :where(li):not(:where([class~="not-prose"] *)) {
+  margin-top: calc(0.5em * var(--prose-rhythm));
+  margin-bottom: calc(0.5em * var(--prose-rhythm));
+}
+.hilt-prose.prose :where(blockquote):not(:where([class~="not-prose"] *)) {
+  margin-top: calc(1.6em * var(--prose-rhythm));
+  margin-bottom: calc(1.6em * var(--prose-rhythm));
+}
+.hilt-prose.prose :where(pre):not(:where([class~="not-prose"] *)) {
+  margin-top: calc(1.7142857em * var(--prose-rhythm));
+  margin-bottom: calc(1.7142857em * var(--prose-rhythm));
+}
+.hilt-prose.prose :where(figure, img, video):not(:where([class~="not-prose"] *)) {
+  margin-top: calc(2em * var(--prose-rhythm));
+  margin-bottom: calc(2em * var(--prose-rhythm));
+}
+.hilt-prose.prose :where(hr):not(:where([class~="not-prose"] *)) {
+  margin-top: calc(3em * var(--prose-rhythm));
+  margin-bottom: calc(3em * var(--prose-rhythm));
+}
+.hilt-prose.prose :where(h1):not(:where([class~="not-prose"] *)) {
+  margin-bottom: calc(0.8888889em * var(--prose-rhythm));
+}
+.hilt-prose.prose :where(h2):not(:where([class~="not-prose"] *)) {
+  margin-top: calc(2em * var(--prose-rhythm));
+  margin-bottom: calc(1em * var(--prose-rhythm));
+}
+.hilt-prose.prose :where(h3):not(:where([class~="not-prose"] *)) {
+  margin-top: calc(1.6em * var(--prose-rhythm));
+  margin-bottom: calc(0.6em * var(--prose-rhythm));
+}
+.hilt-prose.prose :where(h4, h5, h6):not(:where([class~="not-prose"] *)) {
+  margin-top: calc(1.5em * var(--prose-rhythm));
+  margin-bottom: calc(0.5em * var(--prose-rhythm));
+}
+/* Preserve prose's edge + post-heading resets — scaling must never reintroduce a leading/trailing gap. */
+.hilt-prose.prose :where(h2 + *, h3 + *, h4 + *, hr + *):not(:where([class~="not-prose"] *)) {
+  margin-top: 0;
+}
+.hilt-prose.prose > :where(:first-child):not(:where([class~="not-prose"] *)) {
+  margin-top: 0;
+}
+.hilt-prose.prose > :where(:last-child):not(:where([class~="not-prose"] *)) {
+  margin-bottom: 0;
 }
 
 /* Override MDXEditor's default padding for document-style layout */

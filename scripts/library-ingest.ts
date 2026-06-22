@@ -1,6 +1,6 @@
 import { loadEnvConfig } from "@next/env";
 import { expireCandidates } from "../src/lib/library/candidate-cache";
-import { unresolvedDeadLetterSources } from "../src/lib/library/dead-letter";
+import { pruneResolvedDeadLetters, unresolvedDeadLetterSources } from "../src/lib/library/dead-letter";
 import { getRecommendations } from "../src/lib/library/recommendations";
 import { runIngestion } from "../src/lib/library/runner";
 import { loadSources, readSourceState } from "../src/lib/library/source-config";
@@ -52,7 +52,12 @@ async function main() {
 
   if (selectedMode === "cleanup") {
     const expired = expireCandidates(vaultPath);
-    console.log(JSON.stringify({ expired: expired.length, candidates: expired.map((candidate) => candidate.path) }, null, 2));
+    const prunedDeadLetters = pruneResolvedDeadLetters(vaultPath, readSourceState(vaultPath));
+    console.log(JSON.stringify({
+      expired: expired.length,
+      candidates: expired.map((candidate) => candidate.path),
+      pruned_dead_letters: prunedDeadLetters,
+    }, null, 2));
     return;
   }
 

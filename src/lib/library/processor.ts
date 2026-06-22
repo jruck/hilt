@@ -2,6 +2,7 @@ import path from "path";
 import type { LibrarySourceConfig, PromotionReason, RawArtifact, YouTubeClipReviewAttrs } from "./types";
 import { findCandidateByUrl, updateCandidate, writeCandidate } from "./candidate-cache";
 import { findArchivedReferenceByUrl, findSavedReferenceByUrl, writeDurableReference } from "./references";
+import { promoteCandidate } from "./promotion";
 import { digestArtifact } from "./digestion";
 
 export interface ProcessArtifactResult {
@@ -27,6 +28,18 @@ export async function processArtifact(
   }
   const existingCandidate = findCandidateByUrl(vaultPath, raw.url);
   if (existingCandidate && existingCandidate.status === "candidate") {
+    // An explicit user save (a bookmark) of something we'd only DISCOVERED as a candidate must promote
+    // it to a durable reference — the explicit intent outranks discovery routing. Without this, the
+    // candidate-dedup short-circuits before the explicit_save branch below, so the bookmark is silently
+    // dropped and the item stays a TTL-expiring candidate (root cause of "my bookmarks never get pulled
+    // in" when the same URL was already surfaced by a discovery source, e.g. a channel feed).
+    if (source.intent === "explicit_save") {
+      if (options.dryRun) {
+        return { status: "promoted", path: path.join(vaultPath, existingCandidate.path), reason: "dry_run_explicit_promote" };
+      }
+      const promotedPath = await promoteCandidate(vaultPath, existingCandidate, "explicit_signal");
+      return { status: "promoted", path: promotedPath, reason: "explicit_save_promoted_candidate" };
+    }
     return { status: "duplicate", path: path.join(vaultPath, existingCandidate.path), reason: "candidate_exists" };
   }
 

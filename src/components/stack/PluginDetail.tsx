@@ -7,6 +7,8 @@ import type { PluginConfig } from "@/lib/claude-config/types";
 import { openExternal } from "@/lib/openExternal";
 import { withBasePath } from "@/lib/base-path";
 import { formatHiltMonthDay } from "@/lib/display-date";
+import { buildReference } from "@/lib/references/build";
+import { copyToClipboard } from "@/lib/references/clipboard";
 
 interface PluginDetailProps {
   plugin: PluginConfig;
@@ -20,11 +22,11 @@ export function PluginDetail({ plugin, onToggleEnabled, onMCPServerClick }: Plug
 
   const handleCopyPath = useCallback(async () => {
     if (plugin.installPath) {
-      await navigator.clipboard.writeText(plugin.installPath);
+      await copyToClipboard(buildReference({ kind: "stack-plugin", absPath: plugin.installPath, title: plugin.name }));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  }, [plugin.installPath]);
+  }, [plugin.installPath, plugin.name]);
 
   const handleRevealInFinder = useCallback(async () => {
     if (plugin.installPath) {
@@ -59,7 +61,7 @@ export function PluginDetail({ plugin, onToggleEnabled, onMCPServerClick }: Plug
             {/* Copy path button */}
             <button
               onClick={handleCopyPath}
-              title="Copy path"
+              title="Copy reference"
               className={`rounded-md text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors ${isMobile ? "p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center" : "p-1.5"}`}
             >
               {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}

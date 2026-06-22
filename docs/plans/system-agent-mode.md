@@ -39,6 +39,7 @@ app-mode switching, navigation, raw vault browsing, `/events`, any non-allowlist
 | `/api/system/machine` | GET | `localSystemMachineResponse({role:"agent", includeAppServer:false})` |
 | `/api/system/sync` | GET | `readLocalSystemSync({force})` |
 | `/api/system/sync/conflicts` | GET | `readLocalSystemSyncConflicts(folder,{force})` |
+| `/api/system/metrics` | GET | `readLocalMetrics()` — own compute (macmon + host) + closet block on the token holder (read-only; token never serialized) |
 | `/api/local-apps` | GET | `getLocalAppsResponse({includePeers:false})` |
 | `/api/local-apps/refresh` | POST | `refreshLocalApps({includePeers:false, forcePreviews, waitForPreviews})` |
 | `/api/local-apps/previews/:filename` | GET | `isSafePreviewFilename` + `fs.readFile(previewDir()/…)` → `image/png` |

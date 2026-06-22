@@ -25,6 +25,7 @@ import { getLocalAppsResponse, refreshLocalApps } from "@/lib/local-apps/scanner
 import { isSafePreviewFilename } from "@/lib/local-apps/preview";
 import { isLocalAppsEnabled, isPreviewCaptureEnabled, previewDir } from "@/lib/local-apps/settings";
 import { readLocalSystemStack, readLocalSystemStackFile } from "@/lib/system/stack";
+import { readLocalMetrics } from "@/lib/system/telemetry/local";
 import { isLocalMapEnabled, isMapHistoryPreviewEnabled } from "@/lib/map/local-config";
 import { ensureMapIndexFresh, refreshMapIndex } from "@/lib/map/local-indexer";
 import { buildIndexedWorkGraph, queryIndexedSessionPage } from "@/lib/map/local-query";
@@ -168,6 +169,11 @@ async function route(req: http.IncomingMessage, res: ServerResponse): Promise<vo
     if (p === "/api/system/sync/conflicts") {
       const folder = url.searchParams.get("folder") || "work-meta";
       sendJson(res, 200, await readLocalSystemSyncConflicts(folder, { force: url.searchParams.get("force") === "true" }));
+      return;
+    }
+    if (p === "/api/system/metrics") {
+      // Read-only local telemetry (own compute + closet block on the token holder).
+      sendJson(res, 200, await readLocalMetrics());
       return;
     }
     if (p === "/api/local-apps") {

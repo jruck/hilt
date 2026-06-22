@@ -9,66 +9,66 @@ import {
   SecondaryToolbar,
 } from "@/components/layout/SecondaryToolbar";
 import { LoadingState } from "@/components/ui/LoadingState";
-import { useMercuryLatest, useMercurySeries, type MercurySample } from "@/hooks/useMercury";
-import type { MercuryRange } from "@/lib/system/mercury";
-import { PerfChart, cToF, COLOR, type LayerState } from "./PerfChart";
+import {
+  TELEMETRY_RANGES,
+  usePerformanceLatest,
+  usePerformanceSeries,
+  type MachineMeta,
+  type TelemetryRange,
+  type TelemetrySample,
+} from "@/hooks/usePerformance";
+import { PerfChart, COLOR, closetColor, machineComputeF } from "./PerfChart";
 
-const RANGES: MercuryRange[] = ["6h", "24h", "7d", "all"];
-const RANGE_LABEL: Record<MercuryRange, string> = { "6h": "6h", "24h": "24h", "7d": "7d", all: "All" };
+const RANGE_LABEL: Record<TelemetryRange, string> = { "6h": "6h", "24h": "24h", "7d": "7d", all: "All" };
 const STALE_SECONDS = 600; // > 2 sample intervals (5 min) = stale
-
-const maxOrNull = (a: number | null, b: number | null) =>
-  a == null && b == null ? null : Math.max(a ?? -Infinity, b ?? -Infinity);
 
 interface StripItem {
   id: string;
   label: string;
-  color?: string; // present => clickable swatch that toggles the matching line
-  toggle?: "channel" | "draw";
-  channelId?: string;
-  unit: string;
-  digits?: number;
-  value: (s: MercurySample) => number | null;
+  fixedColor: string | null; // null => dynamic (closet zone fade)
+  value: (s: TelemetrySample) => number | null;
 }
 
-const STRIP: StripItem[] = [
-  { id: "closet", label: "Closet", color: COLOR.closet, toggle: "channel", channelId: "closet", unit: "°F", value: (s) => s.closet_temp_f },
-  { id: "outdoor", label: "Outdoor", color: COLOR.outdoor, toggle: "channel", channelId: "outdoor", unit: "°F", value: (s) => s.outdoor_temp_f },
-  { id: "compute", label: "Compute", color: COLOR.compute, toggle: "channel", channelId: "compute", unit: "°F", value: (s) => maxOrNull(s.cpu_temp_c == null ? null : cToF(s.cpu_temp_c), s.gpu_temp_c == null ? null : cToF(s.gpu_temp_c)) },
-  { id: "draw", label: "Draw", color: "#10b981", toggle: "draw", unit: "W", digits: 1, value: (s) => (s.cpu_power_w == null && s.gpu_power_w == null ? null : (s.cpu_power_w ?? 0) + (s.gpu_power_w ?? 0)) },
-  { id: "gpu_pct", label: "GPU", color: COLOR.gpu_pct, toggle: "channel", channelId: "gpu_pct", unit: "%", value: (s) => s.gpu_pct },
-  { id: "mem", label: "Mem", color: COLOR.mem, toggle: "channel", channelId: "mem", unit: "%", value: (s) => s.mem_used_pct },
-  { id: "load", label: "Load", unit: "", digits: 2, value: (s) => s.load_1m },
-  { id: "humidity", label: "Humidity", unit: "%", value: (s) => s.closet_humidity },
-];
-
-// Number only — the unit is rendered as a separate muted span so value+unit don't
-// read as one token (e.g. "14.9" "W" rather than "14.9W").
-function fmtVal(v: number | null, digits = 0): string {
+// Number only — the unit is a separate muted span so value+unit don't read as one
+// token (e.g. "86" "°F" rather than "86°F").
+function fmtVal(v: number | null): string {
   if (v == null || !isFinite(v)) return "—";
-  return (Math.round(v * 10 ** digits) / 10 ** digits).toFixed(digits);
+  return Math.round(v).toFixed(0);
 }
 
 export function PerformanceView({ modeSwitcher }: { modeSwitcher?: ReactNode }) {
-  const [range, setRange] = useState<MercuryRange>("24h");
-  const [layers, setLayers] = useState<LayerState>({ detail: false, util: false });
+  const [range, setRange] = useState<TelemetryRange>("24h");
   const [muted, setMuted] = useState<Set<string>>(() => new Set());
-  const [drawMuted, setDrawMuted] = useState(false);
-  const [hovered, setHovered] = useState<MercurySample | null>(null);
+  const [hovered, setHovered] = useState<TelemetrySample | null>(null);
 
-  const series = useMercurySeries(range);
-  const latest = useMercuryLatest();
+  const series = usePerformanceSeries(range);
+  const latest = usePerformanceLatest();
 
   const rows = series.data?.rows ?? [];
+  const machines: MachineMeta[] = series.data?.machines ?? latest.data?.machines ?? [];
   const latestSample = latest.data?.sample ?? null;
   const ageSeconds = latest.data?.ageSeconds ?? null;
   const display = hovered ?? latestSample;
   const stale = ageSeconds != null && ageSeconds > STALE_SECONDS;
 
-  const toggleMuted = useCallback((channelId: string) => {
+  // Ambient (left axis) + one chip item per machine (right axis). Ids match the
+  // chart's series ids so the strip toggles the matching line.
+  const stripItems = useMemo<StripItem[]>(() => {
+    const items: StripItem[] = [
+      { id: "closet", label: "Closet", fixedColor: null, value: (s) => s.closet_temp_f },
+      { id: "outdoor", label: "Outdoor", fixedColor: COLOR.outdoor, value: (s) => s.outdoor_temp_f },
+    ];
+    for (const m of machines) {
+      items.push({ id: `compute:${m.id}`, label: m.label, fixedColor: m.color, value: (s) => machineComputeF(s, m.id) });
+    }
+    return items;
+  }, [machines]);
+
+  const toggleMuted = useCallback((id: string) => {
     setMuted((prev) => {
       const next = new Set(prev);
-      if (next.has(channelId)) next.delete(channelId); else next.add(channelId);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }, []);
@@ -77,14 +77,6 @@ export function PerformanceView({ modeSwitcher }: { modeSwitcher?: ReactNode }) 
     void series.mutate();
     void latest.mutate();
   }, [series, latest]);
-
-  const isItemMuted = (item: StripItem) =>
-    item.toggle === "draw" ? drawMuted : item.channelId ? muted.has(item.channelId) : false;
-
-  const onItemClick = (item: StripItem) => {
-    if (item.toggle === "draw") setDrawMuted((v) => !v);
-    else if (item.channelId) toggleMuted(item.channelId);
-  };
 
   const hoverLabel = useMemo(() => {
     if (!hovered) return null;
@@ -97,14 +89,12 @@ export function PerformanceView({ modeSwitcher }: { modeSwitcher?: ReactNode }) 
       right={
         <div className="flex items-center gap-2">
           <SecondarySegmentedControl>
-            {RANGES.map((r) => (
+            {TELEMETRY_RANGES.map((r) => (
               <SecondarySegmentedButton key={r} active={range === r} onClick={() => setRange(r)} collapseLabel={false}>
                 {RANGE_LABEL[r]}
               </SecondarySegmentedButton>
             ))}
           </SecondarySegmentedControl>
-          <LayerToggle label="Detail" active={layers.detail} onClick={() => setLayers((l) => ({ ...l, detail: !l.detail }))} />
-          <LayerToggle label="Util" active={layers.util} onClick={() => setLayers((l) => ({ ...l, util: !l.util }))} />
           <span className={`shrink-0 text-xs ${stale ? "text-red-500" : "text-[var(--text-tertiary)]"}`}>
             {ageSeconds == null ? "—" : stale ? `stale ${Math.round(ageSeconds / 60)}m` : `updated ${Math.max(0, Math.round(ageSeconds / 60))}m ago`}
           </span>
@@ -125,7 +115,7 @@ export function PerformanceView({ modeSwitcher }: { modeSwitcher?: ReactNode }) 
     return (
       <div className="flex h-full min-h-0 flex-col">
         {toolbar}
-        <LoadingState label="Loading Mercury telemetry" />
+        <LoadingState label="Loading performance telemetry" />
       </div>
     );
   }
@@ -136,7 +126,8 @@ export function PerformanceView({ modeSwitcher }: { modeSwitcher?: ReactNode }) 
         {toolbar}
         <div className="flex flex-1 items-center justify-center p-6">
           <div className="max-w-sm rounded-md border border-red-500/20 bg-red-500/5 px-4 py-3 text-center text-sm text-red-500">
-            Mercury dashboard unreachable. The collector + server run on Mercury (port 8787); check that it’s on and on the tailnet.
+            Performance telemetry unavailable. On the collector machine the metrics daemon writes locally; on a viewer it reads
+            from the aggregator over the tailnet — check that the collector is running and reachable.
           </div>
         </div>
       </div>
@@ -148,64 +139,41 @@ export function PerformanceView({ modeSwitcher }: { modeSwitcher?: ReactNode }) 
       {toolbar}
       <div className={`flex min-h-0 flex-1 flex-col ${SECONDARY_CHROME_BODY_GUTTER_CLASS}`}>
         {/* Stat strip: legend + visibility toggle + hover readout (retargets to the hovered sample).
-            Colored items toggle their line (dimmed when muted); plain items are readout-only stats. */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-[var(--border-default)] px-4 py-2">
-          <span className="mr-1 w-28 shrink-0 text-xs font-medium text-[var(--text-tertiary)]">
-            {hoverLabel ?? "Now"}
-          </span>
-          {STRIP.map((item) => {
-            const v = display ? item.value(display) : null;
-            const numStr = fmtVal(v, item.digits ?? 0);
-            const valueEl = (
-              <>
-                <span className="font-mono text-[var(--text-primary)]">{numStr}</span>
-                {numStr !== "—" && item.unit ? <span className="ml-0.5 text-[var(--text-tertiary)]">{item.unit}</span> : null}
-              </>
-            );
-            if (!item.color) {
-              // readout-only stat (Load, Humidity) — not a toggle, so don't render as disabled
+            Each item toggles its line (dimmed when muted); closet's swatch tracks its live zone color. */}
+        <div className="flex flex-col gap-1 border-b border-[var(--border-default)] px-4 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-1">
+          <span className="shrink-0 text-xs font-medium text-[var(--text-tertiary)] sm:mr-1 sm:w-28">{hoverLabel ?? "Now"}</span>
+          {/* Mobile: tidy 2-col grid of aligned chips. Desktop: `contents` collapses
+              this wrapper so the chips rejoin the single inline flex-wrap row. */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:contents">
+            {stripItems.map((item) => {
+              const v = display ? item.value(display) : null;
+              const numStr = fmtVal(v);
+              const mutedItem = muted.has(item.id);
+              const swatch = item.fixedColor ?? closetColor(v);
               return (
-                <span key={item.id} className="flex items-center gap-1.5 text-xs" title={item.label}>
-                  <span className="text-[var(--text-tertiary)]">{item.label}</span>
-                  {valueEl}
-                </span>
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => toggleMuted(item.id)}
+                  className={`flex cursor-pointer items-center gap-1.5 text-xs ${mutedItem ? "opacity-40" : ""}`}
+                  title={mutedItem ? `Show ${item.label}` : `Hide ${item.label}`}
+                >
+                  <span className="inline-block h-2 w-2 shrink-0 rounded-sm" style={{ background: swatch }} />
+                  <span className="min-w-[3.5rem] text-[var(--text-tertiary)] sm:min-w-0">{item.label}</span>
+                  <span className="font-mono text-[var(--text-primary)]">{numStr}</span>
+                  {numStr !== "—" ? <span className="ml-0.5 text-[var(--text-tertiary)]">°F</span> : null}
+                </button>
               );
-            }
-            const mutedItem = isItemMuted(item);
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onItemClick(item)}
-                className={`flex cursor-pointer items-center gap-1.5 text-xs ${mutedItem ? "opacity-40" : ""}`}
-                title={mutedItem ? `Show ${item.label}` : `Hide ${item.label}`}
-              >
-                <span className="inline-block h-2 w-2 shrink-0 rounded-sm" style={{ background: item.color }} />
-                <span className="text-[var(--text-tertiary)]">{item.label}</span>
-                {valueEl}
-              </button>
-            );
-          })}
+            })}
+          </div>
         </div>
 
-        <div className="min-h-0 flex-1 px-4 pb-3 pt-3">
-          <PerfChart rows={rows} layers={layers} muted={muted} drawMuted={drawMuted} onHover={setHovered} />
+        {/* hilt-mobile-fixed-clearance reserves the floating bottom-nav height on mobile
+            so the SVG (x-axis labels included) shrinks to sit above it, not under it. */}
+        <div className="hilt-mobile-fixed-clearance min-h-0 flex-1 px-4 pb-3 pt-3">
+          <PerfChart rows={rows} machines={machines} muted={muted} onHover={setHovered} />
         </div>
       </div>
     </div>
-  );
-}
-
-function LayerToggle({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`h-8 shrink-0 rounded-md px-2.5 text-xs font-medium transition-colors ${
-        active ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-      }`}
-    >
-      {label}
-    </button>
   );
 }

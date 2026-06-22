@@ -6,6 +6,7 @@ import { EventServer } from "./event-server";
 import { getScopeWatcher, getInboxWatcher, getBridgeWatcher } from "./watchers";
 import { startCalendarSyncDaemon } from "../src/lib/calendar/daemon";
 import { startGranolaSyncDaemon } from "../src/lib/granola/daemon";
+import { startMetricsCollectorDaemon } from "../src/lib/system/telemetry/daemon";
 import { isGraphEnabled, getGraphMarkerPath } from "../src/lib/graph/config";
 import { isSemanticEnabled } from "../src/lib/semantic/config";
 import type {
@@ -258,6 +259,7 @@ async function startServer() {
 
   bridgeWatcher.start();
   startGranolaSyncDaemon();
+  startMetricsCollectorDaemon(); // no-op unless HILT_METRICS_COLLECTOR=1 (Mercury only)
   const stopCalendarSyncDaemon = startCalendarSyncDaemon();
 
   fs.watchFile(CALENDAR_MARKER_FILE, { interval: 1000 }, (curr, prev) => {

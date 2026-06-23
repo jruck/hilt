@@ -6,6 +6,7 @@ import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import { useTheme } from "@/hooks/useTheme";
+import { SHARED_PROSE_TUNING } from "@/lib/prose";
 import { getXEmbedPostId, getYouTubeVideoId, isXEmbedUrl } from "@/lib/library/media";
 import { YouTubeEmbed, type YouTubeSeekRequest } from "./YouTubeEmbed";
 import { XPostEmbed } from "./XPostEmbed";
@@ -41,18 +42,16 @@ function LibraryMarkdownComponent({
   const { resolvedTheme } = useTheme();
   const rewrittenMarkdown = useMemo(() => rewriteWikilinks(markdown), [markdown]);
   const proseInvert = resolvedTheme === "dark" ? "prose-invert" : "";
-  const proseClass = `prose ${proseInvert} max-w-none leading-normal font-[family-name:var(--font-geist-sans)]
-    prose-headings:font-semibold prose-headings:text-[var(--text-primary)]
+  // Shared prose treatment is the single source of truth (see src/lib/prose.ts). Library's deltas:
+  //  - NO `leading-normal`: inherit prose's calibrated rhythm so body line-height and heading gaps stay
+  //    proportional, matching Docs read-mode (the gold master, DESIGN-PHILOSOPHY §314).
+  //  - app-token body colors; document-style links live in the `.library-markdown a` CSS (§523).
+  const proseClass = `prose ${proseInvert} ${SHARED_PROSE_TUNING}
+    prose-headings:text-[var(--text-primary)]
     prose-p:text-[var(--text-secondary)] prose-li:text-[var(--text-secondary)]
     prose-strong:text-[var(--text-primary)]
-    prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:bg-[var(--bg-tertiary)] prose-code:text-[var(--text-secondary)] prose-code:before:content-none prose-code:after:content-none
-    prose-pre:rounded-lg prose-pre:bg-[var(--bg-tertiary)]
     prose-img:rounded-lg prose-img:border prose-img:border-[var(--border-default)]
-    prose-hr:border-[var(--border-default)]
-    prose-table:border-collapse prose-table:bg-[var(--bg-primary)]
-    prose-thead:bg-[var(--bg-secondary)]
-    prose-th:border prose-th:border-[var(--border-default)] prose-th:px-3 prose-th:py-2
-    prose-td:border prose-td:border-[var(--border-default)] prose-td:px-3 prose-td:py-2 prose-td:bg-[var(--bg-primary)]`;
+    prose-hr:border-[var(--border-default)]`;
 
   const components = useMemo<Components>(() => ({
     a({ href, children, ...props }) {

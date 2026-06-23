@@ -7,6 +7,8 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useScope } from "@/contexts/ScopeContext";
 import { isGraphEnabled } from "@/lib/graph/config";
 import { buildGraphScope } from "@/components/graph/graph-deeplink";
+import { buildReference } from "@/lib/references/build";
+import { copyToClipboard } from "@/lib/references/clipboard";
 import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import { DocsBreadcrumbs } from "./DocsBreadcrumbs";
 import { DocsEditToggle } from "./DocsEditToggle";
@@ -160,7 +162,7 @@ export function DocsContentPane({
   // Copy file path to clipboard
   const handleCopyPath = useCallback(async () => {
     if (!filePath) return;
-    await navigator.clipboard.writeText(filePath);
+    await copyToClipboard(buildReference({ kind: "doc", absPath: filePath }));
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }, [filePath]);
@@ -234,7 +236,7 @@ export function DocsContentPane({
                 className="flex items-center gap-3 w-full px-4 py-3 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
               >
                 {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4 text-[var(--text-tertiary)]" />}
-                Copy path
+                Copy reference
               </button>
               <button
                 onClick={() => { handleRevealInFinder(); setShowOverflow(false); }}
@@ -273,7 +275,7 @@ export function DocsContentPane({
         <button
           onClick={handleCopyPath}
           className="p-1.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
-          title="Copy path"
+          title="Copy reference"
         >
           {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
         </button>

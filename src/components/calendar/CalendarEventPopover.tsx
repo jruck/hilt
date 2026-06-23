@@ -23,6 +23,7 @@ import { displayCalendarEventTitle } from "@/lib/calendar/title";
 import type { CalendarEvent, CalendarEventNoteTarget } from "@/lib/calendar/types";
 import { withBasePath } from "@/lib/base-path";
 import { formatHiltWeekdayDate } from "@/lib/display-date";
+import { CopyReferenceButton } from "@/components/ui/CopyReferenceButton";
 
 const TIME_ZONE = "America/New_York";
 const JOIN_LABELS: Record<CalendarEvent["joinLinks"][number]["kind"], string> = {
@@ -101,6 +102,19 @@ export function CalendarEventPopoverContent({
         <div className="flex min-w-0 flex-1 items-center self-stretch">
           <PopoverTitle event={event} availabilityWarning={availabilityWarning} onTitleClick={onTitleClick} />
         </div>
+        <CopyReferenceButton
+          variant="icon"
+          className="calendar-icon-button h-8 w-8 flex items-center justify-center"
+          reference={{
+            kind: "calendar-event",
+            id: event.id,
+            uid: event.uid,
+            title: displayCalendarEventTitle(event.title),
+            start: event.start,
+            end: event.end,
+            sourceName: sourceLabel ?? event.sourceId,
+          }}
+        />
         <button type="button" aria-label="Close event details" className="calendar-icon-button h-8 w-8" onClick={onClose}>
           <X className="h-4 w-4" />
         </button>

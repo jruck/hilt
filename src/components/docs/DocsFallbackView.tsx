@@ -4,6 +4,8 @@ import { File, FileText, FileCode, FileJson, Image, FolderOpen, Copy, Check } fr
 import { useState } from "react";
 import * as path from "path";
 import { withBasePath } from "@/lib/base-path";
+import { buildReference } from "@/lib/references/build";
+import { copyToClipboard } from "@/lib/references/clipboard";
 
 // File icons by extension
 const FILE_ICONS: Record<string, typeof File> = {
@@ -84,7 +86,7 @@ export function DocsFallbackView({ filePath, size, mimeType, isLargeFile }: Docs
 
   const handleCopyPath = async () => {
     try {
-      await navigator.clipboard.writeText(filePath);
+      await copyToClipboard(buildReference({ kind: "doc", absPath: filePath }));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -129,7 +131,7 @@ export function DocsFallbackView({ filePath, size, mimeType, isLargeFile }: Docs
           ) : (
             <>
               <Copy className="w-4 h-4" />
-              Copy Path
+              Copy reference
             </>
           )}
         </button>

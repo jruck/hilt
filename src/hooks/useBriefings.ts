@@ -23,6 +23,8 @@ export interface BriefingSummary {
 
 interface BriefingDetail extends BriefingSummary {
   content: string;
+  /** Absolute path to the briefing file (from the API) — for per-item Copy reference. */
+  absPath?: string;
 }
 
 interface LegacyBriefingDetail {

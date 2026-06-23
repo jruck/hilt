@@ -69,13 +69,16 @@ async function main(): Promise<void> {
       console.log(JSON.stringify({ skipped: "rate_limited" }));
       return;
     }
-    // A transient API failure (e.g. a 401 from an OAuth refresh race — seen 2026-06-10 07:25) is
-    // BENIGN here: serving falls back to yesterday's cache (≤30h) then the deterministic funnel.
-    // Exit clean with a compact note instead of dumping the whole prompt to stderr and ambering
-    // the health panel for a designed-for miss.
-    const envelope = (e?.stdout || "").match(/"is_error":true.*?"api_error_status":(\d+)/);
-    if (envelope) {
-      console.log(JSON.stringify({ skipped: "api_error", status: Number(envelope[1]) }));
+    // A transient API failure (e.g. a 401 from an OAuth refresh race — seen 2026-06-10 07:25, and the
+    // launchd Keychain-access 401 on 2026-06-20) is BENIGN here: serving falls back to yesterday's
+    // cache (≤30h) then the deterministic funnel. Exit clean with a compact note instead of dumping
+    // the whole prompt to stderr and ambering the health panel for a designed-for miss. The 401
+    // envelope arrives is_error:true with the code in the result string ("API Error: 401 …"), often
+    // WITHOUT an api_error_status field — match both shapes so this path can't fall through to throw.
+    const out = e?.stdout || "";
+    const statusMatch = out.match(/"api_error_status":(\d+)/) || out.match(/API Error:\s*(\d+)/);
+    if (statusMatch || /"is_error":\s*true/.test(out)) {
+      console.log(JSON.stringify({ skipped: "api_error", status: statusMatch ? Number(statusMatch[1]) : null }));
       return;
     }
     throw error;

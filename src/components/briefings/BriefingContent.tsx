@@ -7,9 +7,12 @@ import rehypeRaw from "rehype-raw";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useScope } from "@/contexts/ScopeContext";
 import { withBasePath } from "@/lib/base-path";
+import { CopyReferenceButton } from "@/components/ui/CopyReferenceButton";
 interface BriefingContentProps {
   content: string;
   date?: string;
+  /** Absolute path to the briefing file — enables a Copy reference button per item. */
+  absPath?: string;
 }
 
 interface BriefingItem {
@@ -192,7 +195,7 @@ function BriefingLink({
   );
 }
 
-function CollapsibleItem({ item, date }: { item: BriefingItem; date?: string }) {
+function CollapsibleItem({ item, date, absPath }: { item: BriefingItem; date?: string; absPath?: string }) {
   const haptics = useHaptics();
   const [expanded, setExpanded] = useState(false);
   const hasDetails = item.details.trim().length > 0;
@@ -210,7 +213,7 @@ function CollapsibleItem({ item, date }: { item: BriefingItem; date?: string }) 
           else haptics.soft();
           setExpanded(!expanded);
         }}
-        className={`py-0.5 ${hasDetails ? "cursor-pointer" : ""}`}
+        className={`group flex items-start justify-between gap-2 py-0.5 ${hasDetails ? "cursor-pointer" : ""}`}
       >
         <span className="text-[var(--text-secondary)] leading-relaxed briefing-inline-md">
           <ReactMarkdown
@@ -226,6 +229,11 @@ function CollapsibleItem({ item, date }: { item: BriefingItem; date?: string }) 
             {renderCitations(item.headline)}
           </ReactMarkdown>
         </span>
+        {absPath && (
+          <span onClick={(e) => e.stopPropagation()} className="shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+            <CopyReferenceButton variant="icon" reference={{ kind: "briefing-item", absPath, headline: item.headline }} />
+          </span>
+        )}
       </div>
       {expanded && hasDetails && (
         <div className="pb-1 text-[var(--text-secondary)] leading-relaxed">
@@ -247,7 +255,7 @@ function CollapsibleItem({ item, date }: { item: BriefingItem; date?: string }) 
   );
 }
 
-export function BriefingContent({ content, date }: BriefingContentProps) {
+export function BriefingContent({ content, date, absPath }: BriefingContentProps) {
   const { sections } = useMemo(() => parseBriefing(content), [content]);
 
   // Fall back to plain markdown if no sections found
@@ -311,7 +319,7 @@ export function BriefingContent({ content, date }: BriefingContentProps) {
             ) : (
               <ul className="briefing-list pl-9 pr-4 py-2 space-y-0 !m-0">
                 {section.items.map((item, ii) => (
-                  <CollapsibleItem key={ii} item={item} date={date} />
+                  <CollapsibleItem key={ii} item={item} date={date} absPath={absPath} />
                 ))}
               </ul>
             )}

@@ -59,10 +59,66 @@ function isXVideoFrontmatter(fm: Record<string, unknown>): boolean {
   return /^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/[^/\s]+\/status\/\d+\/video(?:\/\d+)?(?:[?#].*)?$/i.test(videoUrl);
 }
 
+/** Login/auth-wall chrome markers — text that means "you must sign in," not article prose. Exported so
+ *  the authenticated-recovery scripts detect the same walls (one source of truth, no drift). */
+export const LOGIN_WALL_PATTERNS: RegExp[] = [
+  /\bsign in to (?:view|see|read|access|continue)\b/i,
+  /\bcontinue to join or sign in\b/i,
+  /\bcreate (?:your free account|an account or sign in)\b/i,
+  /\b(?:join now|join to view|join linkedin|new to linkedin\??)\b/i,
+  /\bagree & join\b/i,
+  /\bto view or add a comment,? sign in\b/i,
+  /\blog ?in to (?:view|see|read|continue)\b/i,
+];
+
+/** Min ALPHABETIC prose words (after stripping wall lines) for a login-walled capture to still count
+ *  as carrying the real article underneath — the common Raindrop case (a logged-in full-DOM snapshot
+ *  whose article sits below the sign-in chrome). Below this, the capture is just the wall and needs an
+ *  authenticated re-fetch. Env-tunable. */
+const REAL_CONTENT_MIN_PROSE_WORDS = Number(process.env.LIBRARY_LOGIN_WALL_MIN_PROSE_WORDS) || 50;
+
+export interface LoginWallVerdict {
+  /** Wall markers lead the text (page opens with the gate) or repeat — the capture is auth-gated. */
+  isWall: boolean;
+  /** Enough prose survives after stripping the wall lines that a real article is present underneath. */
+  hasRealContent: boolean;
+}
+
+/**
+ * Decide whether captured text is gated by a login/auth wall, and whether a real article sits under it.
+ * The common Raindrop LinkedIn capture is `{ isWall: true, hasRealContent: true }` (chrome leads, full
+ * article below) → clean + summarize + weave normally; a bare wall is `{ isWall: true, hasRealContent:
+ * false }` → route to authenticated recovery. PURE; client-safe.
+ */
+export function loginWallVerdict(text: string): LoginWallVerdict {
+  const input = (text || "").trim();
+  if (!input) return { isWall: false, hasRealContent: false };
+  const head = input.slice(0, 800);
+  const headMatch = LOGIN_WALL_PATTERNS.some((re) => re.test(head));
+  const totalMatches = LOGIN_WALL_PATTERNS.filter((re) => re.test(input)).length;
+  const isWall = headMatch || totalMatches >= 2;
+  if (!isWall) return { isWall: false, hasRealContent: proseWordCount(input) >= REAL_CONTENT_MIN_PROSE_WORDS };
+  // Strip the wall phrases inline (line-independent — a cache may collapse to one block) and measure the
+  // prose that remains. A real article leaves hundreds of words; a bare sign-in gate leaves almost none.
+  const stripped = LOGIN_WALL_PATTERNS.reduce((acc, re) => acc.replace(new RegExp(re.source, "gi"), " "), input);
+  return { isWall, hasRealContent: proseWordCount(stripped) >= REAL_CONTENT_MIN_PROSE_WORDS };
+}
+
 export function captureFailed(input: CaptureHealthInput): boolean {
   const body = input.body || "";
   if (body.includes(NO_SOURCE_MARKER)) return true;
   const fm = input.frontmatter || {};
+  // A capture digestion flagged as login/auth-walled (no real article under the chrome) must be
+  // re-fetched with an authenticated browser, not rewoven — same routing as the t.co stub below.
+  if (fm.needs_auth_recovery === true) return true;
+  // Belt-and-suspenders for legacy items stamped before that flag existed: a Raw Content section that
+  // is dominated by sign-in chrome with no real prose under it is a failed capture. Items that lead
+  // with chrome BUT carry the real article (the common Raindrop case) clear this and stay gradable.
+  const rawContent = rawContentText(body);
+  if (rawContent) {
+    const verdict = loginWallVerdict(rawContent);
+    if (verdict.isWall && !verdict.hasRealContent) return true;
+  }
   if (isXVideoFrontmatter(fm)) {
     const extractor = typeof fm.cached_source_extractor === "string" ? fm.cached_source_extractor : "";
     const transcriptStatus = typeof fm.x_video_transcript_status === "string" ? fm.x_video_transcript_status : "";

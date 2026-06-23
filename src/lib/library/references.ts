@@ -27,12 +27,18 @@ function frontmatterDate(value: unknown): string | null {
 }
 
 function referenceCreatedDate(data: Record<string, unknown>, stat: fs.Stats): string {
-  return frontmatterDate(data.published)
+  // Feed position reflects when an item entered Justin's library — "the first time he saw it" — NOT when
+  // the source was originally published. A months-old tweet or a week-old candidate bookmarked today
+  // surfaces at the TOP, because that bookmark is the moment it became his. So prefer the intake stamps
+  // (saved_at / captured) over the content publish date, falling back to published for legacy items
+  // written before intake stamping. For normal ingestion captured≈published (75/79 within 3 days), so
+  // only deliberately-saved older content actually moves — which is exactly the desired behavior.
+  return frontmatterDate(data.saved_at)
+    || frontmatterDate(data.captured_at)
+    || frontmatterDate(data.captured)
+    || frontmatterDate(data.published)
     || frontmatterDate(data.created)
     || frontmatterDate(data.created_at)
-    || frontmatterDate(data.captured)
-    || frontmatterDate(data.captured_at)
-    || frontmatterDate(data.saved_at)
     || frontmatterDate(data.digested_at)
     || frontmatterDate(data.fetched_at)
     || dateOnly(stat.birthtime);
@@ -118,6 +124,7 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
   const detail: LibraryArtifactDetail = {
     id: hashId(relPath),
     path: relPath,
+    abs_path: filePath,
     title,
     summary,
     source_type: "reference",
@@ -275,6 +282,7 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
     reweave_candidates: processed.reweave_candidates?.length ? processed.reweave_candidates : undefined,
     attention_judgment: processed.attention_judgment || undefined,
     reweave_pending: processed.reweave_pending ? true : undefined,
+    needs_auth_recovery: processed.needs_auth_recovery ? true : undefined,
     relevance_signals: source.intent === "explicit_save" ? [{
       type: source.signal || "explicit_save",
       channel: source.channel,

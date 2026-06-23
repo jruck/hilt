@@ -15,6 +15,7 @@ import { artifactTaxonomy } from "./taxonomy";
 import { getVideoDurationSeconds, isLikelyVideoUrl } from "./video-duration";
 import { extractXVideoTranscript } from "./x-video-transcript";
 import { detectYouTubeContentForm } from "./youtube-clip-detector";
+import { loginWallVerdict } from "./capture-health";
 
 const execFileAsync = promisify(execFile);
 
@@ -718,15 +719,17 @@ export async function digestArtifact(
   let summarized = shouldSummarizeUrl && !preferCachedSource && /^https?:\/\//.test(summarizeTarget)
     ? await summarizeUrl(summarizeTarget)
     : null;
-  if (!summarized && requestedSummarize && cleanedRawContent.length >= 400) {
-    summarized = await summarizeText(raw.title, cleanedRawContent);
-    if (summarized) {
-      extractionNotes.push(preferCachedSource
-        ? "Preferred cached source text; summarized it with summarize CLI (no network re-extraction)."
-        : "Summarized source-provided text with summarize CLI.");
-    }
-  }
+  // Acquire the full source content FIRST (live extract → Raindrop permanent copy → source-metadata),
+  // so the text-summarize fallback below runs on the REAL article, not the short Raindrop excerpt.
+  // (Previously the cache was fetched AFTER the summarize attempts, so a login-walled live fetch left
+  // the item un-summarized — a "wall of text" — even when Raindrop held the full article underneath.)
   let sourceCache = xVideoTranscript?.cache || (shouldSummarizeUrl && !preferCachedSource ? await extractSourceContent({ ...raw, url: summarizeTarget }, source) : null);
+  // A live extract that returned only login-wall chrome is not usable content — drop it so the Raindrop
+  // cache (a logged-in full-DOM snapshot that usually carries the real article) takes over below.
+  if (sourceCache && sourceCache.extractor !== "source-metadata") {
+    const liveVerdict = loginWallVerdict(sourceCache.content);
+    if (liveVerdict.isWall && !liveVerdict.hasRealContent) sourceCache = null;
+  }
   if (!sourceCache && source.channel === "raindrop" && !xSource) {
     sourceCache = await fetchRaindropCache(raw);
     if (sourceCache) {
@@ -753,6 +756,24 @@ export async function digestArtifact(
   } else if (!sourceCache && cleanedRawContentLooksLikeChrome) {
     extractionNotes.push("Source text looked like site navigation; used title/excerpt instead.");
   }
+  // Text-summarize fallback when the live URL summarize produced nothing: run it on the FULL acquired
+  // source (the cache content), not the short excerpt — unless that content is login-wall-only chrome.
+  // On a cache-preferring redigest, `cleanedRawContent` is already the full reconstructed body, so keep
+  // using it (no fresh Raindrop fetch needed for the summarize input).
+  if (!summarized && requestedSummarize) {
+    const summarizeInput = (!preferCachedSource && sourceCache && sourceCache.extractor !== "source-metadata")
+      ? sourceCache.content
+      : cleanedRawContent;
+    const inputVerdict = loginWallVerdict(summarizeInput);
+    if (summarizeInput.length >= 400 && !(inputVerdict.isWall && !inputVerdict.hasRealContent)) {
+      summarized = await summarizeText(raw.title, summarizeInput);
+      if (summarized) {
+        extractionNotes.push(preferCachedSource
+          ? "Preferred cached source text; summarized it with summarize CLI (no network re-extraction)."
+          : "Summarized acquired source content with summarize CLI.");
+      }
+    }
+  }
   if (shouldSummarizeUrl && !summarized && /^https?:\/\//.test(summarizeTarget)) {
     extractionNotes.push("summarize CLI was unavailable or failed; used source metadata/content fallback.");
   }
@@ -771,6 +792,12 @@ export async function digestArtifact(
   const sourceText = cleanSourceForDigest(stripMarkdown(digestSource));
   const sourceSentences = sentences(sourceText);
   const fallbackSummary = sourceSentences.slice(0, 4).join(" ") || raw.title;
+  // Login-wall verdict on the FINAL digest source: chrome-only means the capture is just a sign-in gate
+  // with no real article under it — it must never grade "hot," and routes to authenticated recovery
+  // (needs_auth_recovery). A capture that leads with chrome but carries the real article (the common
+  // Raindrop case) is NOT chrome-only and proceeds normally.
+  const sourceWallVerdict = loginWallVerdict(sourceText);
+  const chromeOnly = sourceWallVerdict.isWall && !sourceWallVerdict.hasRealContent;
   // Prefer genuine markdown bullets from the source (distinct standalone insights); otherwise
   // take the NEXT sentences after the summary so key points are never a copy of slice(0,5).
   const sourceBullets = Array.from(new Set(
@@ -792,7 +819,7 @@ export async function digestArtifact(
   }
   const sourceLimitedComplete = Boolean(summarized && format !== "video" && sourceText.length > 0 && sourceText.length < 700);
   const substantialSummary = Boolean(summarized && summary.length >= 500 && sourceText.length >= 1000);
-  const sourceCacheComplete = Boolean(sourceCache && sourceText.length >= 1000 && summary.length >= 160 && sourceSentences.length >= 3);
+  const sourceCacheComplete = Boolean(sourceCache && sourceText.length >= 1000 && summary.length >= 160 && sourceSentences.length >= 3 && !chromeOnly);
   const xLooksPartial = Boolean(
     xSource &&
     ((raw.metadata.partial_thread || linkedX?.partialThread) ||
@@ -810,7 +837,7 @@ export async function digestArtifact(
     extractionNotes.push("Source content is short; digest marked complete as source-limited.");
   }
   const hotDigestion = Boolean(
-    (summarized && ((summary.length >= 160 && keyPoints.length >= 3) || substantialSummary || sourceLimitedComplete)) ||
+    (summarized && !chromeOnly && ((summary.length >= 160 && keyPoints.length >= 3) || substantialSummary || sourceLimitedComplete)) ||
     sourceCacheComplete ||
     xSourceComplete
   );
@@ -936,6 +963,7 @@ export async function digestArtifact(
     digest_markdown: digestMarkdown,
     description,
     reweave_pending: reweavePending || undefined,
+    needs_auth_recovery: chromeOnly || undefined,
     assessment: {
       save_recommendation: saveRecommendation,
       why: source.intent === "explicit_save"

@@ -25,6 +25,20 @@ if [ -d "$HOME/.nvm/versions/node" ]; then
     fi
 fi
 
+# Headless Claude auth for scheduled jobs. Interactive Claude Code stores its OAuth in the macOS
+# Keychain, which a launchd job's process cannot reliably reach/refresh — so headless `claude -p`
+# (reweave, editor-pass/recommendations) 401s overnight (observed on Mercury 2026-06-20; Hestia was
+# immune because it used file-based creds). Export the long-lived CLAUDE_CODE_OAUTH_TOKEN minted by
+# `claude setup-token` (stored in .env.local) so every scheduled job and its child `claude` inherit it.
+if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ -f "$PROJECT_DIR/.env.local" ]; then
+    token_line="$(grep -E '^CLAUDE_CODE_OAUTH_TOKEN=' "$PROJECT_DIR/.env.local" | tail -1 || true)"
+    if [ -n "$token_line" ]; then
+        CLAUDE_CODE_OAUTH_TOKEN="${token_line#CLAUDE_CODE_OAUTH_TOKEN=}"
+        CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN%\"}"; CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN#\"}"
+        export CLAUDE_CODE_OAUTH_TOKEN
+    fi
+fi
+
 SCRIPT="$1"
 shift
 

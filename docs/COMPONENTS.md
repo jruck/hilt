@@ -618,6 +618,28 @@ Hook for theme state management (light/dark mode).
 
 ---
 
+## Object references ("Copy reference")
+
+Any object the user might pull into an agent chat should offer a **Copy reference** affordance that
+copies a portable pointer (location + a one-line how-to + title). This is centralized so content is
+tuned in one place and new surfaces are cheap to add.
+
+- **`src/lib/references/build.ts`** — `buildReference(ref: HiltRef)` is the single formatter. Tune
+  what any reference contains here. File-backed kinds lead with an **absolute** path so a local agent
+  can open it immediately.
+- **`src/lib/references/types.ts`** — `HiltRef` discriminated union; add a variant per object kind.
+- **`src/lib/references/clipboard.ts`** — `copyToClipboard(text)` (the only clipboard writer; has the
+  legacy textarea fallback). Use it instead of `navigator.clipboard.writeText`.
+- **`src/hooks/useCopyReference.ts`** — `{ copy, copied }` (clipboard + 1.5s "Copied!" feedback).
+- **`src/components/ui/CopyReferenceButton.tsx`** — drop-in button (`variant="menu-item" | "icon"`).
+
+**To add Copy reference to a new surface:** (1) add a `HiltRef` variant in `types.ts`; (2) add its
+`case` in `build.ts` (+ a `build.test.ts` assertion); (3) drop a `<CopyReferenceButton reference={…}>`
+into the component. If the surface only has a vault-relative path on the client, surface an absolute
+path from the API first (see `LibraryArtifact.abs_path`, `BriefingDetail.absPath`). Covered today:
+Bridge task, Library, Docs, Meetings, People, Stack plugin/MCP, Sessions, briefing items, calendar
+events. Not yet: Projects, Thoughts, Areas, Weekly lists, Granola meetings.
+
 ## Styling Conventions
 
 ### Color Palette

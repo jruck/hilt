@@ -6,6 +6,8 @@ import { ArrowLeft, CalendarDays, Check, Copy, ExternalLink, EyeOff, FileText, F
 import { useScope } from "@/contexts/ScopeContext";
 import { isGraphEnabled } from "@/lib/graph/config";
 import { buildGraphScope } from "@/components/graph/graph-deeplink";
+import { buildReference } from "@/lib/references/build";
+import { copyToClipboard } from "@/lib/references/clipboard";
 import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import MeetingRow from "./MeetingRow";
 import type { PersonActiveMeeting, PersonCalendarCandidate, PersonDetail, PersonMeeting, PersonResourceLink, SuggestedMeeting } from "@/lib/types";
@@ -187,9 +189,9 @@ export function PersonMeetingList({
 
   const handleCopyPersonPath = useCallback(() => {
     if (!person?.personFilePath) return;
-    void navigator.clipboard.writeText(person.personFilePath);
+    void copyToClipboard(buildReference({ kind: "person", absPath: person.personFilePath, name: person.name }));
     setShowActionsMenu(false);
-  }, [person?.personFilePath]);
+  }, [person?.personFilePath, person?.name]);
 
   const handleRevealPerson = useCallback(() => {
     if (!person?.personFilePath) return;
@@ -400,7 +402,7 @@ export function PersonMeetingList({
                             className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)]"
                           >
                             <Copy className="h-4 w-4 text-[var(--text-tertiary)]" />
-                            Copy path
+                            Copy reference
                           </button>
                           <button
                             type="button"

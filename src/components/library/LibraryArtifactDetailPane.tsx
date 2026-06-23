@@ -12,6 +12,8 @@ import { stripLegacyReferenceBodyCruft } from "@/lib/library/legacy-cleanup";
 import { getYouTubeVideoId } from "@/lib/library/media";
 import { parseTimedTranscript } from "@/lib/library/transcript";
 import { buildLibraryItemUrl } from "@/lib/library/url";
+import { buildReference } from "@/lib/references/build";
+import { copyToClipboard } from "@/lib/references/clipboard";
 import { TO_ARCHIVE_WORTH } from "@/lib/library/library-eval";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { withBasePath } from "@/lib/base-path";
@@ -146,22 +148,7 @@ function artifactVideoId(artifact: NonNullable<ReturnType<typeof useLibraryArtif
     || null;
 }
 
-async function copyText(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "true");
-  textarea.style.position = "fixed";
-  textarea.style.left = "-9999px";
-  document.body.appendChild(textarea);
-  textarea.select();
-  document.execCommand("copy");
-  document.body.removeChild(textarea);
-}
+const copyText = copyToClipboard;
 
 function MediaPreview({
   artifact,
@@ -483,6 +470,10 @@ export function LibraryArtifactDetailPane({
           const evalNeedsRefetch = evalLifecycle === "needs_refetch";
           const evalLifecycleLabel = evalNeedsRefetch ? "needs refetch" : evalLifecycle === "to_archive" ? "archive?" : evalLifecycle;
           const evalLifecycleWarn = evalNeedsRefetch || evalLifecycle === "to_archive";
+          // Substance is model-graded only at reweave; until then `ev.substance` is a STRUCTURAL
+          // estimate (format + length). Surface that so "substance graded: no" next to a substance
+          // number doesn't read as a contradiction.
+          const substanceGraded = typeof meta.substance === "number";
           const fields: Array<[string, string, boolean?]> = [
             ["disposition", artifact.library_mode || "study"],
             ["connections", `${connCount} · ${connState}`, connState === "never"],
@@ -491,7 +482,7 @@ export function LibraryArtifactDetailPane({
             ["digest", typeof meta.digested_with === "string" ? meta.digested_with : "—"],
             ["version", artifact.pipeline_version || "—"],
             ["reconnected", reconnectedAt ? formatTimestamp(reconnectedAt) : attentionJudgment ? "judge only" : "—", Boolean(attentionJudgment && !reconnectedAt)],
-            ["substance graded", typeof meta.substance === "number" ? "yes" : "no"],
+            ["substance graded", substanceGraded ? "yes" : "no"],
             ["reweave pending", meta.reweave_pending === true ? "yes" : "no", meta.reweave_pending === true],
           ];
           return metaOpen ? (
@@ -500,7 +491,7 @@ export function LibraryArtifactDetailPane({
                 <div className="mb-2 grid grid-cols-2 gap-x-6 gap-y-1.5 border-b border-[var(--border-default)] pb-2 sm:grid-cols-3">
                   <EvalMetadataField icon={Zap} label="worth" value={formatEvalScore(ev.worth)} title={evalMetricTitle("worth")} />
                   <EvalMetadataField icon={Network} label="relevance" value={formatEvalScore(ev.relevance)} title={evalMetricTitle("relevance")} />
-                  <EvalMetadataField icon={Layers} label="substance" value={formatEvalScore(ev.substance)} title={evalMetricTitle("substance")} />
+                  <EvalMetadataField icon={Layers} label="substance" value={substanceGraded ? formatEvalScore(ev.substance) : `${formatEvalScore(ev.substance)} · est.`} title={substanceGraded ? evalMetricTitle("substance") : "Structural estimate from format + length — not yet model-graded. A reweave assigns the model grade."} />
                   <EvalMetadataField icon={Clock} label="freshness" value={formatEvalScore(ev.freshness)} title={evalMetricTitle("freshness")} />
                   <EvalMetadataField icon={evalNeedsRefetch ? AlertTriangle : Archive} label="lifecycle" value={evalLifecycleLabel} warn={evalLifecycleWarn} />
                   <EvalMetadataField icon={Archive} label="archive threshold" value={`< ${formatEvalScore(TO_ARCHIVE_WORTH)}`} title="Worth below this threshold, after analysis, enters archive review." />
@@ -700,12 +691,17 @@ export function LibraryArtifactDetailPane({
             <button
               type="button"
               onClick={async () => {
-                await copyText(artifact.path);
+                await copyText(buildReference({
+                  kind: "library-artifact",
+                  absPath: artifact.abs_path,
+                  title: artifact.title,
+                  url: artifact.url,
+                }));
                 setCopied("path");
               }}
               className="inline-flex h-9 w-9 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-              aria-label="Copy markdown path"
-              title={copied === "path" ? "Copied markdown path" : "Copy markdown path"}
+              aria-label="Copy reference"
+              title={copied === "path" ? "Copied reference" : "Copy reference"}
             >
               {copied === "path" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
             </button>

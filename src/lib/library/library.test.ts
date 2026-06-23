@@ -731,6 +731,83 @@ test("uses Raindrop permanent copy as source-cache fallback", async () => {
   }
 });
 
+test("login-walled Raindrop cache with no article grades warm and flags needs_auth_recovery", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.RAINDROP_TOKEN;
+  const originalDisabled = process.env.LIBRARY_SUMMARIZE_DISABLED;
+  process.env.RAINDROP_TOKEN = "test-token";
+  process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  const source: LibrarySourceConfig = {
+    id: "raindrop-bookmarks", name: "Raindrop bookmarks", channel: "raindrop", url: "raindrop://collection/0",
+    enabled: true, cadence: "hourly", intent: "explicit_save", signal: "raindrop_bookmark",
+    retention: { mode: "durable", candidate_ttl_days: 30, auto_promote_threshold: 0.85 },
+    backfill: { enabled: true, mode: "checkpointed" }, tags: [], filters: { include_topics: [], exclude_topics: [] }, metadata: {}, path: "",
+  };
+  // A bare LinkedIn sign-in gate — no article underneath.
+  const wall = [
+    "Sign in to view more content",
+    "Create your free account or sign in to continue your search",
+    "By clicking Continue to join or sign in, you agree to LinkedIn's User Agreement",
+    "New to LinkedIn? Join now",
+    "Agree & Join LinkedIn",
+  ];
+  globalThis.fetch = (async () => new Response(`<html><body>${wall.map((w) => `<p>${w}</p>`).join("")}</body></html>`, {
+    status: 200, headers: { "content-type": "text/html" },
+  })) as typeof fetch;
+  try {
+    const processed = await digestArtifact({
+      url: "https://www.linkedin.com/pulse/walled-article-xyz/",
+      title: "Walled Article | LinkedIn",
+      date: "2026-06-22T00:00:00Z",
+      content: "Short metadata fallback.",
+      metadata: { raindrop_id: 123, cache_status: "ready" },
+    }, source);
+    assert.equal(processed.source_cache?.extractor, "raindrop-cache");
+    assert.equal(processed.needs_auth_recovery, true);
+    assert.equal(processed.digestion?.status, "warm");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) delete process.env.RAINDROP_TOKEN; else process.env.RAINDROP_TOKEN = originalToken;
+    if (originalDisabled === undefined) delete process.env.LIBRARY_SUMMARIZE_DISABLED; else process.env.LIBRARY_SUMMARIZE_DISABLED = originalDisabled;
+  }
+});
+
+test("Raindrop cache that leads with sign-in chrome but carries the article is not flagged for recovery", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.RAINDROP_TOKEN;
+  const originalDisabled = process.env.LIBRARY_SUMMARIZE_DISABLED;
+  process.env.RAINDROP_TOKEN = "test-token";
+  process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  const source: LibrarySourceConfig = {
+    id: "raindrop-bookmarks", name: "Raindrop bookmarks", channel: "raindrop", url: "raindrop://collection/0",
+    enabled: true, cadence: "hourly", intent: "explicit_save", signal: "raindrop_bookmark",
+    retention: { mode: "durable", candidate_ttl_days: 30, auto_promote_threshold: 0.85 },
+    backfill: { enabled: true, mode: "checkpointed" }, tags: [], filters: { include_topics: [], exclude_topics: [] }, metadata: {}, path: "",
+  };
+  // The common Raindrop case: sign-in chrome leads, the real article (logged-in DOM snapshot) follows.
+  const article = "This is a substantive analysis of the recapitalization and what it means for enterprise software buyers. ".repeat(20);
+  globalThis.fetch = (async () => new Response(
+    `<html><body><p>Sign in to view more content</p><p>Continue to join or sign in</p><article><h1>Real Article</h1><p>${article}</p></article></body></html>`,
+    { status: 200, headers: { "content-type": "text/html" } },
+  )) as typeof fetch;
+  try {
+    const processed = await digestArtifact({
+      url: "https://www.linkedin.com/pulse/real-article-xyz/",
+      title: "Real Article | LinkedIn",
+      date: "2026-06-22T00:00:00Z",
+      content: "Short metadata fallback.",
+      metadata: { raindrop_id: 124, cache_status: "ready" },
+    }, source);
+    assert.equal(processed.source_cache?.extractor, "raindrop-cache");
+    assert.equal(processed.needs_auth_recovery, undefined);
+    assert.equal(processed.digestion?.status, "hot");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) delete process.env.RAINDROP_TOKEN; else process.env.RAINDROP_TOKEN = originalToken;
+    if (originalDisabled === undefined) delete process.env.LIBRARY_SUMMARIZE_DISABLED; else process.env.LIBRARY_SUMMARIZE_DISABLED = originalDisabled;
+  }
+});
+
 test("keeps Raindrop-saved X links on source metadata instead of permanent-copy fallback", async () => {
   const originalFetch = globalThis.fetch;
   const originalToken = process.env.RAINDROP_TOKEN;
@@ -1472,9 +1549,12 @@ captured: 2026-05-28
   fs.writeFileSync(path.join(cacheDir, "candidate.md"), buildCandidateMarkdown(processed), "utf-8");
 
   const listed = listLibraryArtifactDetails(vault, { includeCandidates: true });
+  // Intake-ordering (feed position = "first seen"): the candidate's `digested` stamp is today, so it
+  // leads; the saved ref resolves to its `captured` intake date 2026-05-28 — NOT the earlier
+  // `published` 2026-05-27 — proving intake beats publish across mixed frontmatter date formats.
   assert.equal(listed.artifacts[0].lifecycle_status, "candidate");
-  assert.equal(listed.artifacts[0].created_at, "2026-05-28");
-  assert.equal(listed.artifacts[1].created_at, "2026-05-27");
+  assert.equal(listed.artifacts[1].lifecycle_status, "saved");
+  assert.equal(listed.artifacts[1].created_at, "2026-05-28");
 });
 
 test("recent library list uses precise ingestion time to order same-day references", () => {
@@ -1948,7 +2028,9 @@ fixtures:
   const listed = listLibraryArtifactDetails(vault, { includeCandidates: true });
   assert.equal(listed.artifacts.length, 1);
   assert.equal(listed.artifacts[0].lifecycle_status, "saved");
-  assert.equal(listed.artifacts[0].created_at, "2026-05-26");
+  // Explicit saves date to INTAKE (when Justin saved it), not the source's publish date (2026-05-26),
+  // so a fresh bookmark surfaces at the top of the feed rather than buried at the content's age.
+  assert.equal(listed.artifacts[0].created_at, new Date().toISOString().slice(0, 10));
 });
 
 test("source taxonomy is preserved separately from display tags", async () => {

@@ -27,6 +27,8 @@ import { useScope } from "@/contexts/ScopeContext";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
 import { withBasePath } from "@/lib/base-path";
 import { formatHiltMonthDay } from "@/lib/display-date";
+import { buildReference } from "@/lib/references/build";
+import { copyToClipboard } from "@/lib/references/clipboard";
 
 const BridgeTaskEditor = dynamic(
   () => import("../bridge/BridgeTaskEditor").then((mod) => mod.BridgeTaskEditor),
@@ -547,9 +549,9 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
 
   const handleCopyPath = useCallback(() => {
     if (!primaryFilePath) return;
-    void navigator.clipboard.writeText(primaryFilePath);
+    void copyToClipboard(buildReference({ kind: "meeting", absPath: primaryFilePath, title: noteTitle || undefined }));
     setShowMenu(false);
-  }, [primaryFilePath]);
+  }, [primaryFilePath, noteTitle]);
 
   const handleRevealInFinder = useCallback(() => {
     if (!primaryFilePath) return;
@@ -706,7 +708,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
               className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
             >
               <Copy className="w-4 h-4 text-[var(--text-tertiary)]" />
-              Copy path
+              Copy reference
             </button>
           )}
           {canRevealInFinder && (

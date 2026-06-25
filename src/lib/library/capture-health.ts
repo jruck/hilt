@@ -104,6 +104,23 @@ export function loginWallVerdict(text: string): LoginWallVerdict {
   return { isWall, hasRealContent: proseWordCount(stripped) >= REAL_CONTENT_MIN_PROSE_WORDS };
 }
 
+/**
+ * Is this "text" actually undecodable binary (a PDF/image/font read as text)? A backstop so binary
+ * bytes can never land as — or survive as — a cached source, regardless of source or content-type.
+ * Measures the share of U+FFFD replacement chars + control bytes (excluding tab/newline/CR) in a head
+ * sample. PURE; client-safe. (The Loop-Engineering-IEEE.pdf failure: a PDF dumped as text, ~43% lost.)
+ */
+export function looksLikeBinaryGarbage(text: string): boolean {
+  if (!text) return false;
+  const sample = text.slice(0, 4000);
+  let bad = 0;
+  for (let i = 0; i < sample.length; i += 1) {
+    const c = sample.charCodeAt(i);
+    if (c === 0xfffd || c < 0x09 || (c > 0x0d && c < 0x20)) bad += 1;
+  }
+  return sample.length >= 200 && bad / sample.length > 0.1;
+}
+
 export function captureFailed(input: CaptureHealthInput): boolean {
   const body = input.body || "";
   if (body.includes(NO_SOURCE_MARKER)) return true;
@@ -116,6 +133,8 @@ export function captureFailed(input: CaptureHealthInput): boolean {
   // with chrome BUT carry the real article (the common Raindrop case) clear this and stay gradable.
   const rawContent = rawContentText(body);
   if (rawContent) {
+    // A binary dump (PDF/image read as text) is a failed capture — re-extract, never grade as content.
+    if (looksLikeBinaryGarbage(rawContent)) return true;
     const verdict = loginWallVerdict(rawContent);
     if (verdict.isWall && !verdict.hasRealContent) return true;
   }

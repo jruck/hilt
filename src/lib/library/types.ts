@@ -74,8 +74,8 @@ export interface RawArtifact {
 }
 
 export interface SourceCache {
-  kind: "article" | "transcript" | "source";
-  extractor: "summarize-cli" | "source-metadata" | "raindrop-cache" | "x-video-subtitles" | "x-video-audio";
+  kind: "article" | "transcript" | "source" | "document";
+  extractor: "summarize-cli" | "source-metadata" | "raindrop-cache" | "raindrop-pdf" | "pdftotext" | "x-video-subtitles" | "x-video-audio";
   captured_at: string;
   content: string;
   chars: number;

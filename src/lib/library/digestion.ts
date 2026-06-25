@@ -15,7 +15,8 @@ import { artifactTaxonomy } from "./taxonomy";
 import { getVideoDurationSeconds, isLikelyVideoUrl } from "./video-duration";
 import { extractXVideoTranscript } from "./x-video-transcript";
 import { detectYouTubeContentForm } from "./youtube-clip-detector";
-import { loginWallVerdict } from "./capture-health";
+import { loginWallVerdict, looksLikeBinaryGarbage } from "./capture-health";
+import { extractPdfText, isPdfUrl, looksLikePdf } from "./pdf";
 
 const execFileAsync = promisify(execFile);
 
@@ -380,11 +381,33 @@ async function summarizeText(title: string, content: string): Promise<string | n
   }
 }
 
+/** Download a PDF URL and extract its text with pdftotext. The `summarize` CLI can't reliably read
+ *  binary PDFs, so any bookmarked `.pdf` (from any source) goes through this instead. */
+async function fetchPdfUrlText(url: string, maxCharacters: number): Promise<string | null> {
+  try {
+    const res = await fetch(url, { redirect: "follow" });
+    if (!res.ok) return null;
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (!looksLikePdf(res.headers.get("content-type"), buffer)) return null;
+    return await extractPdfText(buffer, maxCharacters);
+  } catch {
+    return null;
+  }
+}
+
 async function extractSourceContent(raw: RawArtifact, source: LibrarySourceConfig): Promise<ProcessedArtifact["source_cache"] | null> {
   if (process.env.LIBRARY_SUMMARIZE_DISABLED === "1" || process.env.LIBRARY_FULL_CONTENT_DISABLED === "1") return null;
   if (!/^https?:\/\//.test(raw.url)) return null;
 
   const maxCharacters = process.env.LIBRARY_MAX_EXTRACT_CHARACTERS || "200000";
+  // Direct PDF URLs (any source): extract text from the file rather than scraping a viewer page.
+  if (isPdfUrl(raw.url)) {
+    const pdfText = await fetchPdfUrlText(raw.url, Number(maxCharacters) || 200000);
+    if (pdfText) {
+      return { kind: "document", extractor: "pdftotext", captured_at: isoNow(), content: pdfText, chars: pdfText.length };
+    }
+    // fall through to summarize if the PDF couldn't be fetched/extracted
+  }
   const timeoutValue = process.env.LIBRARY_EXTRACT_TIMEOUT || process.env.LIBRARY_SUMMARIZE_TIMEOUT || "3m";
   const args = [
     raw.url,
@@ -465,12 +488,21 @@ async function fetchRaindropCache(raw: RawArtifact): Promise<ProcessedArtifact["
     });
     if (!response.ok) return null;
     const contentType = response.headers.get("content-type") || "";
-    const text = await response.text();
     const maxCharacters = numericEnv(process.env.LIBRARY_RAINDROP_CACHE_MAX_CHARS, 200000);
+    // Read BYTES, not text: a PDF (or any binary) read as text is unreadable AND UTF-8-corrupted. When
+    // Raindrop's permanent copy is the uploaded file itself (PDFs), extract real prose with pdftotext.
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (looksLikePdf(contentType, buffer)) {
+      const pdfText = await extractPdfText(buffer, maxCharacters);
+      if (!pdfText) return null;
+      return { kind: "document", extractor: "raindrop-pdf", captured_at: isoNow(), content: pdfText, chars: pdfText.length };
+    }
+    const text = buffer.toString("utf-8");
     const content = contentType.includes("html")
       ? readableHtmlText(text, maxCharacters)
       : text.trim().slice(0, maxCharacters);
-    if (content.length < 80) return null;
+    // Backstop: never let undecodable binary (image/font/unknown) land as a "cache".
+    if (content.length < 80 || looksLikeBinaryGarbage(content)) return null;
     return {
       kind: "article",
       extractor: "raindrop-cache",

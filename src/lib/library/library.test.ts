@@ -808,6 +808,44 @@ test("Raindrop cache that leads with sign-in chrome but carries the article is n
   }
 });
 
+test("Raindrop PDF cache is extracted with pdftotext, not dumped as binary", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.RAINDROP_TOKEN;
+  const originalDisabled = process.env.LIBRARY_SUMMARIZE_DISABLED;
+  process.env.RAINDROP_TOKEN = "test-token";
+  process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  const source: LibrarySourceConfig = {
+    id: "raindrop-bookmarks", name: "Raindrop bookmarks", channel: "raindrop", url: "raindrop://collection/0",
+    enabled: true, cadence: "hourly", intent: "explicit_save", signal: "raindrop_bookmark",
+    retention: { mode: "durable", candidate_ttl_days: 30, auto_promote_threshold: 0.85 },
+    backfill: { enabled: true, mode: "checkpointed" }, tags: [], filters: { include_topics: [], exclude_topics: [] }, metadata: {}, path: "",
+  };
+  // A minimal valid single-page PDF whose text is "Hilt PDF extraction smoke test - …" (>80 chars).
+  const MINI_PDF_B64 = "JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvQ29udGVudHMgNCAwIFIgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNSAwIFIgPj4gPj4gPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCAxNTQgPj4Kc3RyZWFtCkJUIC9GMSAxNCBUZiA3MiA3MDAgVGQgKEhpbHQgUERGIGV4dHJhY3Rpb24gc21va2UgdGVzdCAtIHRoaXMgc2VudGVuY2UgaXMgZGVsaWJlcmF0ZWx5IGxvbmcgZW5vdWdoIHRvIGNsZWFyIHRoZSBlaWdodHkgY2hhcmFjdGVyIG1pbmltdW0gdGhyZXNob2xkLikgVGogRVQKZW5kc3RyZWFtCmVuZG9iago1IDAgb2JqCjw8IC9UeXBlIC9Gb250IC9TdWJ0eXBlIC9UeXBlMSAvQmFzZUZvbnQgL0hlbHZldGljYSA+PgplbmRvYmoKeHJlZgowIDYKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDA5IDAwMDAwIG4gCjAwMDAwMDAwNTggMDAwMDAgbiAKMDAwMDAwMDExNSAwMDAwMCBuIAowMDAwMDAwMjQxIDAwMDAwIG4gCjAwMDAwMDA0NDYgMDAwMDAgbiAKdHJhaWxlcgo8PCAvU2l6ZSA2IC9Sb290IDEgMCBSID4+CnN0YXJ0eHJlZgo1MTYKJSVFT0Y=";
+  const pdfBytes = Buffer.from(MINI_PDF_B64, "base64");
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    assert.match(String(input), /\/raindrop\/777\/cache$/);
+    return new Response(pdfBytes, { status: 200, headers: { "content-type": "application/pdf" } });
+  }) as typeof fetch;
+  try {
+    const processed = await digestArtifact({
+      url: "https://api.raindrop.io/v2/raindrop/777/file?type=application/pdf",
+      title: "Loop-Engineering-IEEE.pdf",
+      date: "2026-06-25T00:00:00Z",
+      content: "Raindrop.io",
+      metadata: { raindrop_id: 777, cache_status: "ready" },
+    }, source);
+    assert.equal(processed.source_cache?.extractor, "raindrop-pdf");
+    assert.equal(processed.source_cache?.kind, "document");
+    assert.match(processed.source_cache?.content || "", /smoke test/);
+    assert.equal(processed.needs_auth_recovery, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) delete process.env.RAINDROP_TOKEN; else process.env.RAINDROP_TOKEN = originalToken;
+    if (originalDisabled === undefined) delete process.env.LIBRARY_SUMMARIZE_DISABLED; else process.env.LIBRARY_SUMMARIZE_DISABLED = originalDisabled;
+  }
+});
+
 test("keeps Raindrop-saved X links on source metadata instead of permanent-copy fallback", async () => {
   const originalFetch = globalThis.fetch;
   const originalToken = process.env.RAINDROP_TOKEN;

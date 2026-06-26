@@ -1,0 +1,45 @@
+import type { BriefingMode } from "./target-file";
+
+/**
+ * Assembles the briefing prompt for the `claude -p` runtime: the vault SKILL.md verbatim (the
+ * portable judgment logic — never edited here), plus a small CALIBRATION block that enforces the
+ * concision/structure discipline the parity-verification workflow found Claude under-honors vs the
+ * gpt-5.5 gold, plus the mode-specific job instruction and the gathered-data block.
+ *
+ * The model's reply IS the briefing markdown (the script writes it), so the instruction forbids any
+ * preamble/fences/commentary. Tune reference content in SKILL.md (judgment) or here (harness
+ * discipline) — see MAINTAINING.md.
+ */
+const CALIBRATION = `# OUTPUT DISCIPLINE (harness calibration — enforce SKILL.md's concision intent)
+The skill above is authoritative for WHAT to surface and the voice. These are hard output constraints a prior draft missed:
+- LENGTH: match the real gold dailies (~4.0–4.6KB) / gold weekend (~7KB). Tighten prose to hit it; do not pad and do not dump.
+- DENSITY: one idea per bullet. Headlines are a short clause, not a sentence. Sub-bullets are terse — the supporting fact + its citation, not a paragraph. No multi-thread bullets.
+- LIBRARY section: a pointer + the single most material signal, then the report link on its own line — NOT a mini-report.
+- DAY-THESIS: lead with one governing through-line and weight the whole briefing to it, rather than parallel equal threads.
+- MEMO LINK (non-negotiable): if you open a fresh editor's-memo headline, it MUST carry \`[Read the memo](/api/reports/memo)\`. If there's no fresh memo, omit the headline.
+- LIBRARY LINK (non-negotiable): the Library & knowledge section MUST end with \`[Full library report](/api/reports/morning)\` on its own line.
+- SECTIONS: keep the canonical section spine and order; omit a section only when it is genuinely empty (don't silently fold one into another).
+- LINKS: standalone link lines, never inline mid-bullet. Real ET times. Keep the exact footer.`;
+
+const JOB: Record<BriefingMode, string> = {
+  daily:
+    "Generate Justin's weekday DAILY briefing. The gather output below under '# GATHERED DATA' includes mode=daily plus target_file. Follow the briefing skill's daily mode: synthesize the sections and framing rules, use goals as a relevance prior rather than a checklist, and dedupe against the prior briefings included in the gathered data.",
+  weekend:
+    "Generate Justin's WEEKEND briefing. The gather output below under '# GATHERED DATA' includes mode=weekend, date_range, and target_file. Follow the briefing skill's weekend mode (the wider direction-of-travel view). If an existing Saturday weekend file is included, REFRESH it only when meaningful new information warrants it — otherwise keep its content materially intact; preserve created_at and bump updated_at. Include the weekend YAML frontmatter (briefing_kind, date_range.start/end, created_at, updated_at, title).",
+};
+
+export function buildBriefingPrompt(mode: BriefingMode, skillText: string, gatheredData: string): string {
+  return [
+    '[IMPORTANT: The user has invoked the "briefing" skill. Follow its instructions exactly.]',
+    "",
+    skillText.trim(),
+    "",
+    CALIBRATION,
+    "",
+    `# THIS RUN`,
+    JOB[mode],
+    "Output ONLY the finished briefing markdown as your reply — no preamble, no explanation, no code fences. Do not write any file yourself; do not post anywhere.",
+    "",
+    gatheredData.trim(),
+  ].join("\n");
+}

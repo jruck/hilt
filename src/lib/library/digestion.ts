@@ -135,6 +135,26 @@ function cleanSourceForDigest(text: string): string {
     .trim();
 }
 
+/**
+ * Detect when an L1 "digest" is actually a raw transcript / source dump rather than a summary. The
+ * summarize CLI can pass verbatim source text straight through — notably YouTube
+ * `--video-mode transcript`, whose output is the full transcript (usually led by a "Transcript:"
+ * label). Using that as the digest body bloats the file, poisons the derived description, and — because
+ * a 100k+ body makes the connection pass time out — leaves the item unable to self-heal. We treat such
+ * output as a FAILED digest: drop it, fall back to a structural summary, and flag the item for reweave.
+ */
+export function looksLikeRawTranscriptDump(text: string | null | undefined): boolean {
+  const t = (text || "").trim();
+  if (!t) return false;
+  // Strongest signal: summarize's video passthrough labels the verbatim transcript.
+  if (/^transcript:\s/i.test(t)) return true;
+  // Backstop: a genuine digest is bounded and structured (headings or several bullets); a raw
+  // transcript is a very long wall of spoken text with essentially no markdown structure.
+  const veryLong = t.length > 12000;
+  const hasStructure = /(^|\n)#{1,4}\s/.test(t) || (t.match(/(^|\n)\s*[-*]\s/g) || []).length >= 3;
+  return veryLong && !hasStructure;
+}
+
 function parseDigestOutput(raw: string): { summary: string; keyPoints: string[] } {
   const lines = raw.split(/\r?\n/);
   const markerIndex = lines.findIndex((line) => /^\s*(?:key\s+)?takeaways:?\s*$/i.test(line));
@@ -814,6 +834,16 @@ export async function digestArtifact(
   }
 
   const format = inferFormat(raw, source);
+  // GUARD: the summarize CLI sometimes returns a raw transcript/source dump instead of a real digest
+  // (notably YouTube --video-mode transcript). Treat that as a FAILED L1 digest so it never becomes the
+  // body: drop it here so summary/key-points fall back to the structural source text, and (below) flag
+  // the item for reweave to write a proper digest. Without this, the verbatim transcript lands as the
+  // body — bloating the file, poisoning the description, and starving the reweave that would fix it.
+  const summarizedWasRawDump = looksLikeRawTranscriptDump(summarized);
+  if (summarizedWasRawDump) {
+    summarized = null;
+    extractionNotes.push("L1 digest looked like a raw transcript dump, not a summary; dropped it and flagged for reweave.");
+  }
   const metadataExcerpt = typeof raw.metadata.excerpt === "string" ? raw.metadata.excerpt : "";
   // The source text used to derive fallback sentences. When the cleaned content looked like
   // chrome, never let it become the summary; fall back to the excerpt or title instead.
@@ -956,6 +986,10 @@ export async function digestArtifact(
     // Study item, but connections are disabled or there's no vault path — same technical degradation.
     reweavePending = true;
   }
+  // A raw-transcript dump that produced no real digest (a keep item with no reweave, or a reweave that
+  // couldn't run) must still be queued so a later pass writes a proper digest — otherwise it lingers as
+  // a thin structural stub with the transcript discarded.
+  if (summarizedWasRawDump && !digestMarkdown) reweavePending = true;
   const connectionWhy = connectionReasoning ? ` ${connectionReasoning}` : "";
 
   // For video sources, capture total duration (via yt-dlp) so the feed/list can badge it.

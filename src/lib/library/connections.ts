@@ -104,6 +104,27 @@ export function detectRateLimitInEnvelope(stdout: string): { limited: boolean; r
 }
 
 /**
+ * The environment for the headless `claude` subprocess. When a long-lived `CLAUDE_CODE_OAUTH_TOKEN`
+ * is configured (the scheduled/launchd reweave + editor-pass jobs), strip the env down to essentials so
+ * Claude is FORCED to authenticate with the token. On macOS, Claude Code otherwise PREFERS the login
+ * Keychain over the token (verified: a bogus token + valid Keychain still authenticates), and the
+ * Keychain's short-lived access token cannot refresh in a headless launchd context at 03:35 — so every
+ * scheduled call 401s ("Reweave did not update the file"). A minimal env removes whatever lets Claude
+ * reach the Keychain (an `env -i` run uses the token and reweaves cleanly). Interactive runs (no token
+ * set) return undefined → execFile inherits the full env + Keychain, unchanged.
+ */
+export function forcedTokenEnv(): NodeJS.ProcessEnv | undefined {
+  if (!process.env.CLAUDE_CODE_OAUTH_TOKEN) return undefined;
+  const keep = ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "USER", "LOGNAME", "SHELL", "TERM", "NODE_ENV", "CLAUDE_CODE_OAUTH_TOKEN"];
+  const env: Record<string, string> = {};
+  for (const key of keep) {
+    const value = process.env[key];
+    if (value !== undefined) env[key] = value;
+  }
+  return env as NodeJS.ProcessEnv;
+}
+
+/**
  * Run the Claude CLI headlessly and capture stdout. Mirrors the execFile/timeout/maxBuffer
  * plumbing used elsewhere in the library. We close stdin immediately (the whole task is passed
  * via -p) so the CLI does not wait on stdin. `cwd` points the run at the vault so the judge's
@@ -114,7 +135,7 @@ export function runClaude(bin: string, args: string[], timeoutMs: number, cwd?: 
     const child = execFile(
       bin,
       args,
-      { timeout: timeoutMs, maxBuffer: 1024 * 1024 * 8, cwd: cwd || undefined },
+      { timeout: timeoutMs, maxBuffer: 1024 * 1024 * 8, cwd: cwd || undefined, env: forcedTokenEnv() },
       (error, stdout, stderr) => {
         if (error) {
           // Attach the captured streams: callback-style execFile errors don't carry them, and the

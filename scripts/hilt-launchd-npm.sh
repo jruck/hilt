@@ -39,6 +39,22 @@ if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ -f "$PROJECT_DIR/.env.local" ]; th
     fi
 fi
 
+# Provider API keys for the `summarize` CLI (the L1 digest). summarize reads keys from the ENVIRONMENT,
+# not from its own ~/.summarize/config.json "env" block — so without this the scheduled ingest can't
+# summarize and items land as raw dumps. Export every key from that config's env block (values live in
+# the machine-local config, not in this script); don't override anything already set.
+if [ -f "$HOME/.summarize/config.json" ] && command -v python3 >/dev/null 2>&1; then
+    while IFS='=' read -r _sk _sv; do
+        if [ -n "$_sk" ] && [ -z "${!_sk:-}" ]; then export "$_sk=$_sv"; fi
+    done < <(python3 -c 'import json, sys
+try:
+    for k, v in json.load(open(sys.argv[1])).get("env", {}).items():
+        if isinstance(v, str) and v:
+            print(f"{k}={v}")
+except Exception:
+    pass' "$HOME/.summarize/config.json")
+fi
+
 SCRIPT="$1"
 shift
 

@@ -3435,3 +3435,30 @@ Managed AI employees, de-SaaS replacement tools, and AI-native operating systems
   assert.match(index, /AI Consultancy \(libraries\/priceless-misc\/projects\/ai-consultancy\)/);
   assert.match(index, /Managed AI employees/);
 });
+
+// Guard against the YouTube/video failure mode: the summarize CLI sometimes returns the verbatim
+// transcript instead of a digest, which (unguarded) became the body — bloating the file, poisoning the
+// description, and starving the reweave that would fix it. looksLikeRawTranscriptDump flags such output.
+test("looksLikeRawTranscriptDump flags a 'Transcript:'-led verbatim dump", () => {
+  const dump = "Transcript:\n" + "Anthropic engineers ship eight times as much code per quarter. ".repeat(40);
+  assert.equal(digestion.looksLikeRawTranscriptDump(dump), true);
+});
+
+test("looksLikeRawTranscriptDump flags a very long, structureless wall of spoken text", () => {
+  const wall = "so the thing about this is that you really have to think about it carefully and then ".repeat(200);
+  assert.ok(wall.length > 12000);
+  assert.equal(digestion.looksLikeRawTranscriptDump(wall), true);
+});
+
+test("looksLikeRawTranscriptDump leaves a real structured digest alone", () => {
+  const digest = `Claire Vo argues code output is now abundant but demand isn't.
+
+## The three things that matter
+
+- Commercial value: will they pay?
+- Behavior change: can you get adoption?
+- Novel ideas from first principles.`;
+  assert.equal(digestion.looksLikeRawTranscriptDump(digest), false);
+  assert.equal(digestion.looksLikeRawTranscriptDump(""), false);
+  assert.equal(digestion.looksLikeRawTranscriptDump(null), false);
+});

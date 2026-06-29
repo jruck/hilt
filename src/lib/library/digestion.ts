@@ -25,6 +25,7 @@ const execFileAsync = promisify(execFile);
 // non-PATH installs and remote machines can point at an explicit path, and degrade gracefully with
 // install guidance when it is missing instead of failing opaquely.
 let warnedMissingSummarize = false;
+let warnedUnknownOption = false;
 
 async function runSummarize(args: string[], options: { timeout: number; maxBuffer: number }): Promise<string | null> {
   const bin = process.env.SUMMARIZE_BIN || "summarize";
@@ -38,6 +39,18 @@ async function runSummarize(args: string[], options: { timeout: number; maxBuffe
         `[library] summarize CLI not found (tried "${bin}"). Install it with ` +
         `\`npm i -g @steipete/summarize\` (https://summarize.sh), set SUMMARIZE_BIN to its path, ` +
         `or set LIBRARY_SUMMARIZE_DISABLED=1 to skip digestion summaries.`,
+      );
+    }
+    // A removed/renamed CLI flag (version drift) otherwise nulls EVERY digest silently — degrading the
+    // whole library to structural fallbacks with no signal. Surface it loudly so it can't hide again.
+    const stderr = (error as { stderr?: string })?.stderr || "";
+    if (/unknown option|unknown argument|unrecognized option/i.test(stderr) && !warnedUnknownOption) {
+      warnedUnknownOption = true;
+      const flag = stderr.match(/unknown option '?(--[a-z-]+)'?/i)?.[1] || "(see stderr)";
+      console.warn(
+        `[library] summarize CLI rejected ${flag} — the installed summarize version (run \`summarize --version\`) ` +
+        `does not support a flag Hilt passes. Digests are falling back to structural extracts until the flags ` +
+        `in digestion.ts are reconciled with the CLI. stderr: ${stderr.trim().slice(0, 200)}`,
       );
     }
     return null;
@@ -380,7 +393,6 @@ async function summarizeText(title: string, content: string): Promise<string | n
     filePath,
     "--plain",
     "--no-color",
-    "--force-summary",
     "--length",
     process.env.LIBRARY_SUMMARIZE_LENGTH || "medium",
     "--timeout",
@@ -429,6 +441,9 @@ async function extractSourceContent(raw: RawArtifact, source: LibrarySourceConfi
     // fall through to summarize if the PDF couldn't be fetched/extracted
   }
   const timeoutValue = process.env.LIBRARY_EXTRACT_TIMEOUT || process.env.LIBRARY_SUMMARIZE_TIMEOUT || "3m";
+  // NB: summarize >=0.9 dropped --max-extract-characters / --timestamps / --slides (they now error as
+  // "unknown option", which silently nulled the whole extract). Pass only flags the current CLI knows
+  // and apply the character cap in code below.
   const args = [
     raw.url,
     "--extract",
@@ -436,8 +451,6 @@ async function extractSourceContent(raw: RawArtifact, source: LibrarySourceConfi
     "md",
     "--plain",
     "--no-color",
-    "--max-extract-characters",
-    maxCharacters,
     "--timeout",
     timeoutValue,
   ];
@@ -445,15 +458,11 @@ async function extractSourceContent(raw: RawArtifact, source: LibrarySourceConfi
   if (source.channel === "youtube" || isYouTubeUrl(raw.url) || raw.metadata.format === "video") {
     args.push("--youtube", process.env.LIBRARY_YOUTUBE_TRANSCRIPT_SOURCE || "auto");
     args.push("--video-mode", "transcript");
-    args.push("--timestamps");
-    if (process.env.LIBRARY_EXTRACT_SLIDES === "1") {
-      args.push("--slides");
-      args.push("--slides-max", process.env.LIBRARY_EXTRACT_SLIDES_MAX || "4");
-    }
   }
 
-  const content = await runSummarize(args, { timeout: durationToMs(timeoutValue, 240000) + 5000, maxBuffer: 1024 * 1024 * 12 });
-  if (!content || content.length < 40) return null;
+  const raw_content = await runSummarize(args, { timeout: durationToMs(timeoutValue, 240000) + 5000, maxBuffer: 1024 * 1024 * 12 });
+  if (!raw_content || raw_content.length < 40) return null;
+  const content = raw_content.slice(0, Number(maxCharacters) || 200000);
   return {
     kind: source.channel === "youtube" || isYouTubeUrl(raw.url) ? "transcript" : source.channel === "raindrop" || source.channel === "rss" ? "article" : "source",
     extractor: "summarize-cli",

@@ -1,6 +1,6 @@
 "use client";
 
-import { Maximize2, Move, X } from "lucide-react";
+import { Check, Gauge, Maximize2, Move, X } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 
 declare global {
@@ -10,6 +10,7 @@ declare global {
         events?: {
           onReady?: (event: { target: YouTubePlayer }) => void;
           onStateChange?: (event: { target: YouTubePlayer; data: number }) => void;
+          onPlaybackRateChange?: (event: { target: YouTubePlayer; data: number }) => void;
         };
       }) => YouTubePlayer;
       PlayerState?: { ENDED: number; PAUSED: number; PLAYING: number };
@@ -127,6 +128,64 @@ function clampFloatingPosition(position: FloatingPosition, width: number): Float
   };
 }
 
+/** Per-video playback-speed control — sits just below the player. YouTube's IFrame API only honors
+ *  its own supported rates (0.25–2 in steps), so we offer exactly what the player reports. */
+function VideoSpeedControl({
+  currentRate,
+  availableRates,
+  onChange,
+}: {
+  currentRate: number;
+  availableRates: number[];
+  onChange: (rate: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDocMouseDown = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [open]);
+
+  const rates = (availableRates.length ? availableRates : [0.25, 0.5, 1, 1.5, 2]).slice().sort((a, b) => a - b);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-label="Playback speed"
+        title="Playback speed"
+        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+      >
+        <Gauge className="h-3.5 w-3.5" />
+        {currentRate}×
+      </button>
+      {open && (
+        <div className="absolute bottom-full right-0 z-20 mb-1.5 min-w-[96px] overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] py-1 shadow-lg">
+          {rates.map((rate) => (
+            <button
+              key={rate}
+              type="button"
+              onClick={() => {
+                onChange(rate);
+                setOpen(false);
+              }}
+              className={`flex w-full items-center justify-between gap-4 px-3 py-1.5 text-xs transition-colors hover:bg-[var(--bg-secondary)] ${rate === currentRate ? "font-semibold text-[var(--text-primary)]" : "text-[var(--text-secondary)]"}`}
+            >
+              <span>{rate}×</span>
+              {rate === currentRate && <Check className="h-3 w-3 text-[var(--interactive-default)]" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function YouTubeEmbedComponent({
   videoId,
   title,
@@ -157,28 +216,58 @@ function YouTubeEmbedComponent({
   const floatingGestureRef = useRef<FloatingGesture | null>(null);
   const src = useMemo(() => youtubeEmbedSrc(videoId), [videoId]);
 
+  // The user-chosen rate for THIS video, this session. Seeded to the default (2×); once the user
+  // changes it — via the control below OR YouTube's own menu — that choice sticks across pause,
+  // replay, and transcript seeks (the bug was re-applying the default on every play/seek). Resets to
+  // the default only when the video itself changes (new src).
+  const [currentRate, setCurrentRate] = useState(defaultPlaybackRate);
+  const [availableRates, setAvailableRates] = useState<number[]>([]);
+  const rateRef = useRef(defaultPlaybackRate);
+  useEffect(() => {
+    rateRef.current = currentRate;
+  }, [currentRate]);
+
+  const changeRate = (rate: number) => {
+    rateRef.current = rate;
+    setCurrentRate(rate);
+    setPreferredRate(playerRef.current, iframeRef.current, rate);
+  };
+
   useEffect(() => {
     let cancelled = false;
     setReady(false);
     setPlaying(false);
     setFloating(false);
     setFloatingSuppressed(false);
+    // New video → back to the default speed for a fresh start.
+    rateRef.current = defaultPlaybackRate;
+    setCurrentRate(defaultPlaybackRate);
+    setAvailableRates([]);
     void loadYouTubeApi().then(() => {
       if (cancelled || !iframeRef.current || !window.YT?.Player) return;
       playerRef.current?.destroy();
       playerRef.current = new window.YT.Player(iframeRef.current, {
         events: {
           onReady: (event) => {
-            setPreferredRate(event.target, iframeRef.current, defaultPlaybackRate);
+            setPreferredRate(event.target, iframeRef.current, rateRef.current);
+            setAvailableRates(event.target.getAvailablePlaybackRates?.() || []);
             setReady(true);
           },
           onStateChange: (event) => {
             const isPlaying = Boolean(window.YT?.PlayerState && event.data === window.YT.PlayerState.PLAYING);
             setPlaying(isPlaying);
             if (isPlaying) {
-              setPreferredRate(event.target, iframeRef.current, defaultPlaybackRate);
+              // Re-assert the user's CURRENT rate (not the default) so play never clobbers their choice.
+              setPreferredRate(event.target, iframeRef.current, rateRef.current);
             } else {
               setFloating(false);
+            }
+          },
+          // Track changes made via YouTube's own speed menu so our control + memory stay in sync.
+          onPlaybackRateChange: (event) => {
+            if (typeof event.data === "number" && Number.isFinite(event.data)) {
+              rateRef.current = event.data;
+              setCurrentRate(event.data);
             }
           },
         },
@@ -198,7 +287,8 @@ function YouTubeEmbedComponent({
     try {
       playerRef.current?.seekTo?.(seekRequest.seconds, true);
       sendYouTubeCommand(iframeRef.current, "seekTo", [seekRequest.seconds, true]);
-      setPreferredRate(playerRef.current, iframeRef.current, defaultPlaybackRate);
+      // A transcript click is a seek, not a reset — keep the user's current speed.
+      setPreferredRate(playerRef.current, iframeRef.current, rateRef.current);
       playerRef.current?.playVideo?.();
       sendYouTubeCommand(iframeRef.current, "playVideo");
     } catch {
@@ -357,8 +447,9 @@ function YouTubeEmbedComponent({
     : undefined;
 
   return (
-    <div ref={containerRef} className={`relative mx-auto aspect-video w-full overflow-visible rounded-lg border border-[var(--border-default)] bg-black ${className}`}>
-      <div className={frameClass} style={frameStyle}>
+    <div className={className}>
+      <div ref={containerRef} className="relative mx-auto aspect-video w-full overflow-visible rounded-lg border border-[var(--border-default)] bg-black">
+        <div className={frameClass} style={frameStyle}>
         {floating && (
           <>
             <div className="absolute left-2 right-2 top-2 z-10 flex items-center justify-between gap-2 opacity-0 transition-opacity group-hover/library-floating:opacity-100 group-focus-within/library-floating:opacity-100">
@@ -400,11 +491,15 @@ function YouTubeEmbedComponent({
           loading="lazy"
           onLoad={() => {
             setReady(true);
-            window.setTimeout(() => setPreferredRate(playerRef.current, iframeRef.current, defaultPlaybackRate), 250);
+            window.setTimeout(() => setPreferredRate(playerRef.current, iframeRef.current, rateRef.current), 250);
           }}
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowFullScreen
         />
+        </div>
+      </div>
+      <div className="mt-1.5 flex items-center justify-end">
+        <VideoSpeedControl currentRate={currentRate} availableRates={availableRates} onChange={changeRate} />
       </div>
     </div>
   );

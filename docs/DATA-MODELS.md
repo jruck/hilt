@@ -856,8 +856,9 @@ interface LibraryArtifact {
   source_type: "reference" | "reference-candidate";
   lifecycle_status: "saved" | "candidate" | "promoted" | "skipped" | "expired" | "dead_letter";
   channel: LibrarySourceConfig["channel"] | null;
-  source_id: string | null;
+  source_id: string | null;     // Primary (canonical) source.
   source_name: string | null;
+  cited_from?: Citation[];      // Other sources that cited the SAME content (cross-source merge). See below.
   created_at: string;       // Visible Library date: source published date when available, otherwise capture/file date.
   updated_at: string;       // File mtime used for read-state freshness and as a last-resort ordering fallback.
   pipeline_version?: string; // Which pipeline version produced this note (provenance). See PIPELINE-VERSIONS.md.
@@ -905,6 +906,23 @@ The UI uses `worth` as the compact priority signal in normal reading surfaces. A
 Library read state is stored outside the bridge vault in `${DATA_DIR}/library-read-state/<vault-hash>.json`. The first Library API read creates a baseline timestamp so historical stock is treated as already seen; newly ingested artifacts become unread until marked read by the UI. Unread status is based on source-aware arrival metadata (`captured_at`/`saved_at` for saved references, `digested_at` for candidates) with stable source dates as fallback, not file modification time, so redigestion, metadata repair, and formatting cleanup do not light up old stock as "New." `/api/library?unread=true` applies the same local read state before filtering, which powers the Library `New` ranking without adding unread flags to reference markdown. `/api/library/unread` returns a boolean shell hint for the top-level Library nav dot.
 
 `pipeline_version` is the **provenance stamp**: the digest/connection/reweave logic is a single versioned skill (`PIPELINE_VERSION` in `src/lib/library/pipeline.ts`), and every durable reference and candidate records the version that produced it in frontmatter, surfaced on `LibraryArtifact`. See [`docs/PIPELINE-VERSIONS.md`](./PIPELINE-VERSIONS.md) for the (non-executable) version registry.
+
+### Citation (entry vs. sources)
+
+A library **entry** is the *content*; the **sources** are the places it was cited from. The same article/video/episode can arrive from more than one source with different URLs (e.g. a podcast episode via its YouTube channel feed *and* the newsletter announcing it). Rather than store these as duplicate entries, one canonical entry records the others as `cited_from` citations:
+
+```typescript
+interface Citation {
+  source_id: string;
+  source_name: string;
+  url: string;
+  channel?: string;
+  at?: string;      // ISO/date this source surfaced the content
+  title?: string;   // title as it appeared in that source
+}
+```
+
+Cross-source merging (content match by YouTube video-id or normalized title) is implemented in `src/lib/library/citations.ts` and wired into ingestion (`processArtifact` folds duplicates into the canonical entry), the `library:dedupe` backfill, and the reader ("· also via …"). Canonical preference: primary content (a YouTube video / direct article) outranks a newsletter announcement (`sourceRank`); connections are **unioned** across merges. This is distinct from `relevance_signals` (why an item is relevant) — `cited_from` is specifically *which other sources referenced the same content*.
 
 `video_duration_seconds` is captured for video sources via the locally-installed `yt-dlp` (server-only `src/lib/library/video-duration.ts`; no API key). It is written during ingestion (`digestArtifact`, gated to `format: video` / video-host URLs / `video_url`) and backfilled onto existing notes by `scripts/library-video-durations.ts`. Cards render it as a duration pill via the pure `formatVideoDuration` helper in `media.ts`.
 

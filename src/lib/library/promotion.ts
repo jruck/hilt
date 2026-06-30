@@ -58,6 +58,7 @@ export async function promoteCandidate(vaultPath: string, candidate: ReferenceCa
   processed.source_folder = candidate.source_folder;
   processed.source_folder_id = candidate.source_folder_id;
   processed.library_mode = candidate.library_mode;
+  processed.cited_from = candidate.cited_from;  // carry merged citations across promotion
   const durablePath = writeDurableReference(vaultPath, processed, reason);
   updateCandidate(vaultPath, candidate, {
     status: "promoted",

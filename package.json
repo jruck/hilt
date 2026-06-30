@@ -77,6 +77,7 @@
     "library:backfill": "tsx scripts/library-ingest.ts backfill",
     "library:audit-quality": "tsx scripts/library-quality-audit.ts",
     "library:redigest": "tsx scripts/library-redigest.ts",
+    "library:dedupe": "tsx scripts/library-dedupe.ts",
     "library:repair-legacy": "tsx scripts/library-repair-legacy-references.ts",
     "library:repair-body-cruft": "tsx scripts/library-repair-body-cruft.ts",
     "library:repair-media": "tsx scripts/library-repair-media.ts",

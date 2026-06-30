@@ -152,6 +152,9 @@ export interface ProcessedArtifact {
   /** The capture is a login/auth wall with no real article under it — held for authenticated
    *  (signed-in browser) recovery rather than reweave. See capture-health `loginWallVerdict`. */
   needs_auth_recovery?: boolean;
+  /** Other sources that cited the same content — carried through promote/redigest so a merged
+   *  entry's citations survive. Populated by the dedupe backfill / ingest guard, not by digestion. */
+  cited_from?: Citation[];
   assessment: {
     save_recommendation: SaveRecommendation;
     why: string;
@@ -199,6 +202,8 @@ export interface ReferenceCandidate {
   channel: LibraryChannel;
   source_id: string;
   source_name: string;
+  /** Other sources that cited the same content (this entry is the canonical merge of them). */
+  cited_from?: Citation[];
   thumbnail: string | null;
   intent: SourceIntent;
   status: CandidateStatus;
@@ -226,6 +231,22 @@ export interface ReferenceCandidate {
   raw_frontmatter: Record<string, unknown>;
 }
 
+/**
+ * A source that cited the same content as a library entry. An entry keeps its primary `source_id`
+ * (canonical) plus zero or more `cited_from` citations — the OTHER places the same article/video/episode
+ * was referenced from. See `src/lib/library/citations.ts`.
+ */
+export interface Citation {
+  source_id: string;
+  source_name: string;
+  url: string;
+  channel?: string;
+  /** ISO/date this source surfaced the content. */
+  at?: string;
+  /** Title as it appeared in that source (may differ slightly from the canonical entry's). */
+  title?: string;
+}
+
 export interface LibraryArtifact {
   id: string;
   /** Vault-relative path to the markdown file. */
@@ -238,6 +259,8 @@ export interface LibraryArtifact {
   channel: LibraryChannel | null;
   source_id: string | null;
   source_name: string | null;
+  /** Other sources that cited the same content (this entry is the canonical merge of them). */
+  cited_from?: Citation[];
   tags: string[];
   source_tags: string[];
   source_collection: string | null;

@@ -97,6 +97,7 @@ function candidateToArtifact(vaultPath: string, candidate: ReferenceCandidate): 
     channel: candidate.channel,
     source_id: candidate.source_id,
     source_name: candidate.source_name,
+    cited_from: candidate.cited_from,
     tags: candidate.tags,
     source_tags: candidate.source_tags,
     source_collection: candidate.source_collection,

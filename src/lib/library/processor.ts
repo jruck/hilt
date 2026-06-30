@@ -1,15 +1,30 @@
+import fs from "fs";
 import path from "path";
 import type { LibrarySourceConfig, PromotionReason, RawArtifact, YouTubeClipReviewAttrs } from "./types";
 import { findCandidateByUrl, updateCandidate, writeCandidate } from "./candidate-cache";
 import { findArchivedReferenceByUrl, findSavedReferenceByUrl, writeDurableReference } from "./references";
 import { promoteCandidate } from "./promotion";
 import { digestArtifact } from "./digestion";
+import { appendCitationToFile, citationFrom, findContentDuplicate, sourceRank, type ContentDuplicate } from "./citations";
+import { dateOnly } from "./utils";
 
 export interface ProcessArtifactResult {
   status: "candidate" | "saved" | "promoted" | "duplicate" | "skipped";
   path?: string;
   reason?: string;
   youtube_clip?: YouTubeClipReviewAttrs;
+}
+
+/** Build a Citation from an incoming raw item + its source config. */
+function citationForIncoming(raw: RawArtifact, source: LibrarySourceConfig) {
+  return citationFrom({
+    source_id: source.id,
+    source_name: source.name,
+    url: raw.url,
+    channel: source.channel,
+    at: dateOnly(raw.date || new Date()),
+    title: raw.title,
+  });
 }
 
 export async function processArtifact(
@@ -43,6 +58,23 @@ export async function processArtifact(
     return { status: "duplicate", path: path.join(vaultPath, existingCandidate.path), reason: "candidate_exists" };
   }
 
+  // Content-level dedup: the same article/video/episode can arrive from DIFFERENT urls (a podcast
+  // episode via its YouTube feed AND the newsletter announcing it). There should be ONE entry — the
+  // content — that records the others as `cited_from` citations, not duplicate entries. URL dedup above
+  // can't catch these (the urls differ); match on video-id / title. Skip explicit saves of the SAME url
+  // (handled above) — this only fires across sources.
+  const contentDup: ContentDuplicate | null =
+    source.intent === "explicit_save" ? null : findContentDuplicate(vaultPath, { url: raw.url, title: raw.title, sourceId: source.id, date: raw.date || undefined });
+  if (contentDup && sourceRank(source.id, source.channel) <= sourceRank(contentDup.source_id, contentDup.channel)) {
+    // The existing entry is at least as canonical (e.g. the YouTube video already exists and this is the
+    // newsletter mention) — fold this source in as a citation instead of writing a duplicate.
+    if (options.dryRun) {
+      return { status: "duplicate", path: contentDup.path, reason: "dry_run_content_cited" };
+    }
+    appendCitationToFile(contentDup.path, citationForIncoming(raw, source));
+    return { status: "duplicate", path: contentDup.path, reason: "content_cited_into_existing" };
+  }
+
   const processed = await digestArtifact(raw, source, { ...options, vaultPath });
   if (options.dryRun) {
     if (processed.assessment.save_recommendation === "skip" && source.intent !== "explicit_save") {
@@ -60,6 +92,7 @@ export async function processArtifact(
     return { status: "candidate", reason: "dry_run_discovery", youtube_clip: processed.youtube_clip };
   }
 
+  let result: ProcessArtifactResult;
   if (processed.assessment.save_recommendation === "skip" && source.intent !== "explicit_save") {
     const candidatePath = writeCandidate(vaultPath, processed);
     const candidate = findCandidateByUrl(vaultPath, raw.url);
@@ -70,23 +103,41 @@ export async function processArtifact(
         reviewed_by: "system",
       });
     }
-    return { status: "skipped", path: candidatePath, reason: "low_score_candidate_written", youtube_clip: processed.youtube_clip };
-  }
-
-  if (source.intent === "explicit_save") {
+    result = { status: "skipped", path: candidatePath, reason: "low_score_candidate_written", youtube_clip: processed.youtube_clip };
+  } else if (source.intent === "explicit_save") {
     const filePath = writeDurableReference(vaultPath, processed, "explicit_signal");
-    return { status: "saved", path: filePath, reason: "explicit_save", youtube_clip: processed.youtube_clip };
-  }
-
-  if (
+    result = { status: "saved", path: filePath, reason: "explicit_save", youtube_clip: processed.youtube_clip };
+  } else if (
     processed.assessment.save_recommendation === "file" &&
     processed.score.total >= source.retention.auto_promote_threshold
   ) {
     const reason: PromotionReason = "auto_threshold";
     const filePath = writeDurableReference(vaultPath, processed, reason);
-    return { status: "promoted", path: filePath, reason, youtube_clip: processed.youtube_clip };
+    result = { status: "promoted", path: filePath, reason, youtube_clip: processed.youtube_clip };
+  } else {
+    const candidatePath = writeCandidate(vaultPath, processed);
+    result = { status: "candidate", path: candidatePath, reason: "discovery", youtube_clip: processed.youtube_clip };
   }
 
-  const candidatePath = writeCandidate(vaultPath, processed);
-  return { status: "candidate", path: candidatePath, reason: "discovery", youtube_clip: processed.youtube_clip };
+  // Reaching here with a `contentDup` means the incoming source is MORE canonical than an entry we'd
+  // already captured from a thinner source (e.g. the YouTube video arriving after the newsletter
+  // mention). The new entry above is now canonical; fold the superseded entry in as a citation (+ its
+  // connections) and remove it — candidate-cache only; never delete a saved reference.
+  if (contentDup && result.path) {
+    appendCitationToFile(
+      result.path,
+      citationFrom({
+        source_id: contentDup.source_id,
+        source_name: contentDup.source_name,
+        url: contentDup.url,
+        channel: contentDup.channel || undefined,
+        at: contentDup.at,
+        title: contentDup.title,
+      }),
+      contentDup.connections,
+    );
+    if (!contentDup.saved) { try { fs.rmSync(contentDup.path); } catch { /* already gone */ } }
+    result.reason = `${result.reason}_superseded_${contentDup.source_id}`;
+  }
+  return result;
 }

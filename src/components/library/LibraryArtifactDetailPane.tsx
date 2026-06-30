@@ -135,6 +135,20 @@ function formatTimestamp(value: unknown): string {
   return value.slice(0, 16).replace("T", " ");
 }
 
+/** Distinct source names this entry was also cited from (`cited_from`) — the other places the same
+ *  content showed up. Read from frontmatter so it works regardless of API field serialization. */
+function citedFromLabels(data: Record<string, unknown>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of frontmatterRecords(data.cited_from)) {
+    const name = typeof item.source_name === "string" && item.source_name.trim()
+      ? item.source_name.trim()
+      : typeof item.source_id === "string" ? item.source_id : "";
+    if (name && !seen.has(name)) { seen.add(name); out.push(name); }
+  }
+  return out;
+}
+
 function tierClass(tier: string): string {
   if (tier === "high") return "text-emerald-500";
   if (tier === "medium") return "text-sky-500";
@@ -401,7 +415,15 @@ export function LibraryArtifactDetailPane({
         )}
 
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-tertiary)]">
-          <span>{artifact.source_name || artifact.channel} · {artifact.created_at?.slice(0, 10)}</span>
+          <span>
+            {artifact.source_name || artifact.channel} · {artifact.created_at?.slice(0, 10)}
+            {(() => {
+              const also = citedFromLabels(artifact.raw_frontmatter || {});
+              return also.length ? (
+                <span title="The same content was also cited from these sources"> · also via {also.join(", ")}</span>
+              ) : null;
+            })()}
+          </span>
           <div className="flex items-center gap-2">
             <button
               type="button"

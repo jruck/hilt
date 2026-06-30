@@ -3,6 +3,7 @@ import path from "path";
 import type { LibraryArtifact, LibraryArtifactDetail, ProcessedArtifact, PromotionReason } from "./types";
 import { atomicWriteFile, canonicalUrl, compareDatesDesc, dateOnly, ensureDir, hashId, isoNow, slugify, toArray, walkMarkdown } from "./utils";
 import { extractBullets, extractConnections, extractHeading, extractSection, frontmatterTags, parseMarkdownFile, relativeVaultPath, stringifyMarkdown } from "./markdown";
+import { readCitations } from "./citations";
 import { buildMediaMarkdown, cachedSourceContent, stripDetailsWrapper } from "./media";
 import { PIPELINE_VERSION } from "./pipeline";
 import { friendlyNewsletterSender, semanticTags, uniqueTags, validLibraryMode } from "./taxonomy";
@@ -131,6 +132,7 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
     channel: (channel || MANUAL_SOURCE_ID) as LibraryArtifactDetail["channel"],
     source_id: sourceId,
     source_name: sourceName,
+    cited_from: readCitations(data),
     tags,
     source_tags: sourceTags,
     source_collection: sourceCollection,
@@ -256,6 +258,7 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
     channel: source.channel,
     source_id: source.id,
     source_name: source.name,
+    cited_from: processed.cited_from?.length ? processed.cited_from : undefined,
     digestion_status: processed.digestion?.status,
     digested_with: processed.digestion?.extractor,
     digested_at: processed.digestion?.digested_at,

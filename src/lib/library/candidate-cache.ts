@@ -4,6 +4,7 @@ import type { CandidateStatus, ReferenceCandidate, ProcessedArtifact, PromotionR
 import { addDays, atomicWriteFile, canonicalUrl, dateOnly, ensureDir, hashId, isoNow, slugify, walkMarkdown } from "./utils";
 import { extractBullets, extractSection, parseMarkdownFile, relativeVaultPath, stringifyMarkdown } from "./markdown";
 import { buildMediaMarkdown, cachedSourceContent, stripDetailsWrapper } from "./media";
+import { readCitations } from "./citations";
 import { PIPELINE_VERSION } from "./pipeline";
 import { friendlyNewsletterSender, semanticTags, uniqueTags, validLibraryMode } from "./taxonomy";
 import { youtubeFrontmatter } from "./youtube-frontmatter";
@@ -79,6 +80,7 @@ export function parseCandidateFile(vaultPath: string, filePath: string): Referen
     channel,
     source_id: sourceId,
     source_name: sourceName,
+    cited_from: readCitations(data),
     thumbnail: typeof data.thumbnail === "string" ? data.thumbnail : null,
     intent: String(data.intent || "discovery") as ReferenceCandidate["intent"],
     status: String(data.status || "candidate") as CandidateStatus,
@@ -177,6 +179,7 @@ export function buildCandidateMarkdown(processed: ProcessedArtifact): string {
     channel: processed.source.channel,
     source_id: processed.source.id,
     source_name: processed.source.name,
+    cited_from: processed.cited_from?.length ? processed.cited_from : undefined,
     intent: processed.source.intent,
     digestion_status: processed.digestion?.status,
     digested_with: processed.digestion?.extractor,

@@ -4,6 +4,7 @@ import { useBriefings } from "@/hooks/useBriefings";
 import { BriefingHeader } from "./BriefingHeader";
 import { BriefingContent } from "./BriefingContent";
 import { BriefingFailureCard } from "./BriefingFailureCard";
+import { EscalationsPanel } from "./EscalationsPanel";
 import { Newspaper } from "lucide-react";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { BridgeModeToggle, type BridgeMode } from "@/components/bridge/BridgeModeToggle";
@@ -119,7 +120,10 @@ export function BriefingsView({
                 retryMessage={retryMessage}
               />
             ) : briefing ? (
-              <BriefingContent content={briefing.content} date={briefing.date} absPath={briefing.absPath} />
+              <>
+                <EscalationsPanel />
+                <BriefingContent content={briefing.content} date={briefing.date} absPath={briefing.absPath} />
+              </>
             ) : (
               <div className="text-sm text-[var(--text-tertiary)] text-center py-12">
                 Select a briefing to view

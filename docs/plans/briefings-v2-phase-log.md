@@ -12,11 +12,11 @@
 | 1 · Contract, registry, schemas | **GATE MET 2026-07-02** — 19/19 spec green, registry seeded + validated |
 | 2 · Library conformance | **GATE MET 2026-07-02** — loop live, artifact in vault, history migrated w/ parity |
 | 3 · Runtime loop | **GATE MET 2026-07-02** — built, 25/25 induced-failure tests, scheduled 05:45, first run caught 2 real findings |
-| 4 · Launchpad harness | **STARTED** — as-of gather proven (parity + boundedness); retro runner smoke in flight |
-| 5 · Meeting-action ledger v1 | pending |
-| 6 · Goals/areas loop | pending |
-| 7 · Reader thinning + feedback surface | pending |
-| 8 · Shadow period → launch report → cutover | pending |
+| 4 · Launchpad harness | 🟢 sweep DONE (9 dates, 8/9 first-pass valid vs 33% pre-fix live rate); gold set FROZEN (36 mtgs, 293 commitments, 226 core); rubric written; grading workflow queued |
+| 5 · Meeting-action ledger v1 | 🟢 BUILT+SMOKED (4 commitments conf .9-.97 from smoke) — GATE EVAL RUNNING (36 extractions + judge) |
+| 6 · Goals/areas loop | 🟢 BUILT+FIRST LIGHT (real contradiction + drift found, evidence-cited); retro spot-verify pending |
+| 7 · Reader thinning + feedback surface | 🟡 v2 reader gated (BRIEFING_LOOPS=1 gather section + self-gating SKILL rule); escalations/verdict/feedback UI + APIs LANDED (Codex, verified); side-by-side UI building |
+| 8 · Shadow period → launch report → cutover | 🟢 SHADOW PERIOD SCHEDULED — com.hilt.loops.shadow-v2 nightly 06:20 starts tomorrow |
 
 ## Decisions & deviations
 
@@ -196,3 +196,17 @@
 
 - Workflow args quirk: `args.today` interpolated as `undefined` in agent prompts despite being
   passed — verify args plumbing next workflow (agents anchored dates themselves; no harm done).
+
+## Phases 5–8 build sprint (2026-07-02 evening)
+
+- **Schedules installed**: com.hilt.loops.{goals@05:40, runtime@05:45, meetings@19:30,
+  shadow-v2@06:20}. Overnight chain is now 7 acts; shadow period begins 2026-07-03 06:20.
+- **Phase 7 v1 surface** (Codex `baq2a29ma`, Fable-verified + adversarial review launched):
+  GET /api/loops/escalations (registry-driven union of escalated items w/ existing-verdict
+  awareness), POST /api/loops/verdicts (enum+revise-note validation, registry-resolved homes —
+  no path traversal), POST /api/loops/feedback, EscalationsPanel at the top of the Briefings view.
+  Prod rebuilt. Side-by-side UI delegated (`bw3ca3lt9`).
+- **In flight**: extractor gate eval (36 meetings, sequential — ledger written at end),
+  reweave backlog drain, Codex side-by-side, Codex working-tree review.
+- **Known telemetry**: retro sweep first-pass validity 8/9 (89%) vs 33% live pre-fix; the one
+  invalid = the 06-10 memo-line case (real fresh-memo day).

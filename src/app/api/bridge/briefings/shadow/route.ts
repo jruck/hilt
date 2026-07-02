@@ -27,7 +27,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Invalid briefing id" }, { status: 400 });
     }
 
-    const filePath = path.join(getDataDir(), "briefing-shadow", parsed.relativePath);
+    // The shadow tree mirrors the vault layout MINUS the `briefings/` prefix (dailies flat,
+    // weekends under weekend/ — see scripts/briefing-generate.ts --shadow).
+    const relPath = parsed.relativePath.replace(/^briefings[/\\]/, "");
+    const filePath = path.join(getDataDir(), "briefing-shadow", relPath);
     try {
       const [raw, stat] = await Promise.all([
         fs.readFile(filePath, "utf-8"),

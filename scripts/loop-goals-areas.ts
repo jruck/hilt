@@ -80,13 +80,16 @@ function observedMeetings(since: string, until: string): string {
   return lines.slice(0, 60).join("\n") || "(no meetings in window)";
 }
 
-function observedLedger(): string {
+function observedLedger(until: string): string {
   const registry = loadRegistry(vaultPath);
   const ma = registry.loops.find((l) => l.id === "meeting-actions");
   if (!ma) return "(no meeting-actions loop)";
   const home = ma.phase === "live" ? loopHome(vaultPath, ma) : loopHome(defaultSandboxDir(), ma);
   const ledger = readLedger(home);
-  const open = openEntries(ledger);
+  // As-of discipline (retro runs): exclude entries opened after the window — future ledger state
+  // leaking into historical reads was exactly the confound that poisoned briefing grading round 1.
+  // (Entries resolved after `until` still show open; replaying status_history isn't worth it.)
+  const open = openEntries(ledger).filter((e) => e.opened_at.slice(0, 10) <= until);
   return open.length
     ? open.slice(0, 40).map((e) => `- [${e.owner}] ${e.action.slice(0, 100)} (opened ${e.opened_at.slice(0, 10)})`).join("\n")
     : "(action ledger empty)";
@@ -135,7 +138,7 @@ async function main(): Promise<void> {
   const since = daysAgo(until, windowDays);
   const [stated, git] = await Promise.all([statedPriorities(), observedGit(since, until)]);
   const meetings = observedMeetings(since, until);
-  const ledger = observedLedger();
+  const ledger = observedLedger(until);
   const library = observedLibrary(since, until);
 
   const task = [
@@ -146,6 +149,14 @@ async function main(): Promise<void> {
     "", "=== OBSERVED: open action ledger ===", ledger,
     "", "=== OBSERVED: library saves ===", library,
   ].join("\n");
+
+  // Retro/refuter support: persist the exact evidence bundle the model saw, so a grading pass can
+  // judge claims against precisely these inputs (the launchpad gather.txt pattern).
+  const evidenceDump = argValue("--evidence-dump");
+  if (evidenceDump) {
+    fs.mkdirSync(path.dirname(evidenceDump), { recursive: true });
+    fs.writeFileSync(evidenceDump, `${task}\n`, "utf-8");
+  }
 
   const dir = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "hilt-goals-"));
   const promptPath = path.join(dir, "system.txt");

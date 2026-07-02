@@ -27,12 +27,16 @@ trace). Also fixed from evidence: fabrication + count-discipline rules added to 
 
 | Metric | Bar | Result | Evidence |
 |---|---|---|---|
-| Precision (core∪gray) | ≥ 0.85 | ⏳ eval running | `$DATA_DIR/launchpad/extractor-eval/report.json` |
-| Recall (core) | ≥ 0.75 | ⏳ | same |
-| Identity: duplicate suspects | ~0 | ⏳ | same |
+| Precision (core∪gray) | ≥ 0.85 | **0.993 ✓** (152 TP / 1 FP) — round 1 | `$DATA_DIR/launchpad/extractor-eval/report.json` |
+| Recall (core) | ≥ 0.75 | **0.628 ✗** round 1 → segmented: next-steps 0.789 / note-body 0.467 / **transcript-only 0.377**; justin-owned 0.721 | same |
+| Identity: duplicate suspects | ~0 | 3 pairs, all one 06-30 triplet; 10 sightings recorded | same |
 | Catch-phrase recall | ≥ 0.95 | ⏳ needs phrase-positive subset analysis | gold set spans |
 
-If bars miss → prompt iteration (documented here per attempt) → re-eval on the held-out half.
+If bars miss → prompt iteration (documented here per attempt) → re-eval.
+**Iteration 1 (2026-07-02):** diagnosis = note-anchoring + conservatism suppressing uncertain-but-real
+extractions. Prompt v2: mandatory two-pass (note, then full-transcript sweep), conservatism reframed
+(uncertainty → lower confidence, not omission), other-attendee commitments explicit. Re-eval queued
+(fresh eval home; judge is resumable; crash-safe extraction now persists per meeting).
 
 ## 3 · Flywheel round-trip evidence (§6)
 

@@ -30,6 +30,35 @@ function jobs(): LibrarySchedulerJobDefinition[] {
       stdout: path.join(dir, "runtime.out.log"),
       stderr: path.join(dir, "runtime.err.log"),
     },
+    {
+      // Meeting-actions extractor: after the day's meetings have landed + before the evening.
+      // Runs again implicitly next morning for late transcripts (processed-set is idempotent).
+      id: "meetings",
+      label: "com.hilt.loops.meetings",
+      script: "loops:meetings",
+      schedule: { hour: 19, minute: 30 },
+      stdout: path.join(dir, "meetings.out.log"),
+      stderr: path.join(dir, "meetings.err.log"),
+    },
+    {
+      // Goals/areas alignment: derived loop; runs after meetings loop, before the morning chain.
+      id: "goals",
+      label: "com.hilt.loops.goals",
+      script: "loops:goals",
+      schedule: { hour: 5, minute: 40 },
+      stdout: path.join(dir, "goals.out.log"),
+      stderr: path.join(dir, "goals.err.log"),
+    },
+    {
+      // Shadow-v2 briefing (Phase 8 shadow period): the v2 reader over loop artifacts, sandboxed.
+      // 06:20 — after the live 06:00 run, so the side-by-side compares same-morning outputs.
+      id: "shadow-v2",
+      label: "com.hilt.loops.shadow-v2",
+      script: "briefing:shadow:v2",
+      schedule: { hour: 6, minute: 20 },
+      stdout: path.join(dir, "shadow-v2.out.log"),
+      stderr: path.join(dir, "shadow-v2.err.log"),
+    },
   ];
 }
 

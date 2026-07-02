@@ -25,6 +25,9 @@ export interface GenerateOptions {
   /** Launchpad/backtest: sets BRIEFING_AS_OF=1 so the gatherer suppresses live-only sources
    *  (reminders, session/area mtimes, source-state) and bounds everything to `date`. */
   asOf?: boolean;
+  /** Briefings v2 reader: sets BRIEFING_LOOPS=1 so the gatherer includes loop artifacts (the
+   *  shadow-v2 variant during the Phase 8 shadow period; flips live at cutover). */
+  loops?: boolean;
   /** When set, the raw gathered data is also written here (the grading trace). */
   gatherDumpPath?: string;
 }
@@ -90,6 +93,7 @@ async function runGather(opts: GenerateOptions, baseDate: string): Promise<strin
       ...process.env, PATH,
       BRIEFING_MODE: opts.mode, BRIEFING_DATE: baseDate, BRIEFING_HILT_REPO_PATH: opts.hiltRepoPath,
       ...(opts.asOf ? { BRIEFING_AS_OF: "1" } : {}),
+      ...(opts.loops ? { BRIEFING_LOOPS: "1" } : {}),
     },
     timeout: 120_000,
     maxBuffer: 1024 * 1024 * 32,

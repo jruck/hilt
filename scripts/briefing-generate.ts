@@ -61,6 +61,10 @@ async function main(): Promise<void> {
     outputOverride,
     commit: !args.includes("--no-commit"),
     model: argVal("--model") || undefined,
+    // --loops: the Briefings v2 reader variant (gather includes loop artifacts; SKILL's per-loop
+    // rule activates on their presence). Shadow-v2 nightly uses this; live flips at Phase 8 cutover.
+    loops: args.includes("--loops"),
+    asOf: args.includes("--as-of-mode"),
   });
 
   console.log(JSON.stringify(result, (k, v) => (k === "validation" && v ? { pass: v.pass, bytes: v.bytes, failures: v.failures, warnings: v.warnings } : v), 2));

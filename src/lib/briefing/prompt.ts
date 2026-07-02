@@ -12,11 +12,11 @@ import type { BriefingMode } from "./target-file";
  */
 const CALIBRATION = `# OUTPUT DISCIPLINE (harness calibration — enforce SKILL.md's concision intent)
 The skill above is authoritative for WHAT to surface and the voice. These are hard output constraints a prior draft missed:
-- LENGTH: match the real gold dailies (~4.0–4.6KB) / gold weekend (~7KB). Tighten prose to hit it; do not pad and do not dump.
+- LENGTH: typical gold dailies run ~4.0–4.6KB / gold weekend ~7KB. Tighten prose toward that; do not pad and do not dump. A thin news day (holiday week, light calendar) is legitimately a SHORT briefing — never pad to hit the band; omit empty sections instead.
 - DENSITY: one idea per bullet. Headlines are a short clause, not a sentence. Sub-bullets are terse — the supporting fact + its citation, not a paragraph. No multi-thread bullets.
 - LIBRARY section: a pointer + the single most material signal, then the report link on its own line — NOT a mini-report.
 - DAY-THESIS: lead with one governing through-line and weight the whole briefing to it, rather than parallel equal threads.
-- MEMO LINK (non-negotiable): if you open a fresh editor's-memo headline, it MUST carry \`[Read the memo](/api/reports/memo)\`. If there's no fresh memo, omit the headline.
+- MEMO LINK (non-negotiable, mechanical rule): any line that FEATURES the editor's memo — i.e. **bolds** a phrase containing "editor's memo" or puts it in a heading — MUST end with \`[Read the memo](/api/reports/memo)\`. Passing references (an italic citation like "*…; Editor's memo, 6/28.*", or plain prose) need no link. If there's no fresh memo, don't feature it in bold — reference it plainly or not at all.
 - LIBRARY LINK (non-negotiable): the Library & knowledge section MUST end with \`[Full library report](/api/reports/morning)\` on its own line.
 - SECTIONS: keep the canonical section spine and order; omit a section only when it is genuinely empty (don't silently fold one into another).
 - LINKS: standalone link lines, never inline mid-bullet. Real ET times. Keep the exact footer.`;

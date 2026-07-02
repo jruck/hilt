@@ -102,6 +102,9 @@ export async function generateBriefing(opts: GenerateOptions): Promise<GenerateR
 
   fs.mkdirSync(path.dirname(target.absPath), { recursive: true });
   fs.writeFileSync(target.absPath, markdown.endsWith("\n") ? markdown : `${markdown}\n`, "utf-8");
+  // A successful write supersedes any earlier failed attempt from the same morning — clean up the
+  // stale .invalid-draft sibling so rejected drafts don't accumulate in the synced vault.
+  fs.rmSync(`${target.absPath}.invalid-draft`, { force: true });
 
   const shouldCommit = (opts.commit ?? true) && !opts.outputOverride;
   if (!shouldCommit) return { status: "ok", target, validation, committed: false, pushed: false };

@@ -54,6 +54,52 @@ test("editor's-memo headline WITH the memo link passes that rule", () => {
   assert.ok(!r.failures.some((f) => f.includes("Read the memo")), r.failures.join(" | "));
 });
 
+// Featuring vs. referencing (2026-07-02 fix): the 06-30 live run failed validation on a mere
+// CITATION mention of the memo — the rule must only fire on featured (bold/heading) usage.
+test("a citation-only memo mention (italic sub-bullet) does NOT require the memo link", () => {
+  const md = validDaily().replace(
+    "  - Floating commitment from the 1:1. *meeting, 6/24*",
+    "  - *lists/now/2026-06-29.md; Editor's memo, 6/28.*",
+  );
+  const r = validateBriefing(md, "daily");
+  assert.ok(!r.failures.some((f) => f.includes("Read the memo")), r.failures.join(" | "));
+});
+
+test("passing-prose memo mention does NOT require the memo link", () => {
+  const md = validDaily().replace(
+    "- EverPro reforecast is sales-coupled.",
+    "- The framing is locked from the editor's memo and yesterday's briefing.",
+  );
+  const r = validateBriefing(md, "daily");
+  assert.ok(!r.failures.some((f) => f.includes("Read the memo")), r.failures.join(" | "));
+});
+
+test("a bold stale-memo reference still requires the link (featured usage)", () => {
+  const md = validDaily().replace(
+    "- One proposal awaiting your verdict.",
+    "- **Editor's memo from 6/28 is still the through-line** — verification gap as Seb pitch.\n- One proposal awaiting your verdict.",
+  );
+  const r = validateBriefing(md, "daily");
+  assert.equal(r.pass, false);
+  assert.ok(r.failures.some((f) => f.includes("Read the memo")), r.failures.join(" | "));
+});
+
+test("a heading naming the memo requires the link", () => {
+  const md = validDaily() + "\n### Editor's memo highlights\n- thing\n";
+  const r = validateBriefing(md, "daily");
+  assert.ok(r.failures.some((f) => f.includes("Read the memo")), r.failures.join(" | "));
+});
+
+test("per-line rule: a second unlinked featured memo line fails even when another line has the link", () => {
+  const md = validDaily().replace(
+    "- One proposal awaiting your verdict.",
+    "- **Editor's memo:** thesis here. [Read the memo](/api/reports/memo)\n- **Editor's memo follow-up is unlinked** — sneaky.\n- One proposal awaiting your verdict.",
+  );
+  const r = validateBriefing(md, "daily");
+  assert.equal(r.pass, false);
+  assert.ok(r.failures.some((f) => f.includes("sneaky") || f.includes("follow-up")), r.failures.join(" | "));
+});
+
 test("missing Full library report link fails", () => {
   const r = validateBriefing(validDaily().replace(REPORT, ""), "daily");
   assert.ok(r.failures.some((f) => f.includes("Full library report")));

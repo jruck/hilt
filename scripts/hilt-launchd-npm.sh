@@ -17,12 +17,23 @@ cd "$PROJECT_DIR"
 
 export HOME="${HOME:-/Users/$(whoami)}"
 export DATA_DIR="${DATA_DIR:-$HOME/.hilt/data}"
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
+# $HOME/.local/bin MUST lead: it holds the official Claude Code installer's `claude` symlink
+# (always the current version). Without it, launchd jobs resolve /usr/local/bin/claude — a fossil
+# npm-era v1.0.38 that silently ran the briefing for days and instantly rejects modern flags
+# (`--append-system-prompt-file`), which broke every nightly reweave item in ~2s with a swallowed
+# "unknown option" (diagnosed 2026-07-02; the 03:35 attempts-file mtime was the tell).
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 if [ -d "$HOME/.nvm/versions/node" ]; then
     NODE_DIR=$(ls -1 "$HOME/.nvm/versions/node" | tail -1)
     if [ -n "$NODE_DIR" ]; then
         export PATH="$HOME/.nvm/versions/node/$NODE_DIR/bin:$PATH"
     fi
+fi
+# Belt-and-suspenders (Codex review 2026-07-02): the nvm prepend above can reintroduce a stale npm
+# `claude` ahead of ~/.local/bin on machines that have one. resolveClaudeBin() honors CLAUDE_PATH
+# first — pin it to the installer symlink explicitly so PATH ordering can never select the wrong CLI.
+if [ -z "${CLAUDE_PATH:-}" ] && [ -x "$HOME/.local/bin/claude" ]; then
+    export CLAUDE_PATH="$HOME/.local/bin/claude"
 fi
 
 # Headless Claude auth for scheduled jobs. Interactive Claude Code stores its OAuth in the macOS

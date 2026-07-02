@@ -210,6 +210,10 @@ async function main(): Promise<void> {
       closed.push(c.ledger_id);
     }
     processedState.processed[rel] = now;
+    // Crash-safety: persist after EVERY meeting — a killed run keeps its completed extractions
+    // (learned 2026-07-02 when a 36-meeting eval run was stopped mid-queue).
+    writeLedger(home, ledger);
+    writeProcessed(home, processedState);
   }
 
   writeLedger(home, ledger);

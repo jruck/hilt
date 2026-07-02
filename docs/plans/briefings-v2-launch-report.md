@@ -9,11 +9,19 @@
 | Metric | Bar | Result | Evidence |
 |---|---|---|---|
 | First-pass validity | tracked | **8/9 (89%)** vs 33% pre-fix live | `$DATA_DIR/launchpad/*/result.json` |
-| Citation integrity (mean) | ~1.0 | ⏳ grading workflow `wf_66fa5470-6e4` | grades |
-| Fabrication count | **0 (blocker)** | ⏳ | grades |
-| Selection score (mean) | judged | ⏳ | grades |
-| Escalation sanity (mean) | ≥ 0.8 | ⏳ | grades |
-| Win/loss vs shipped | favor v2 | ⏳ | grades |
+| Citation integrity (mean) | ~1.0 | **0.783 (round 1 — CONFOUNDED, see below)** | `$DATA_DIR/launchpad/grades.json` |
+| Fabrication count | **0 (blocker)** | **1** ("Emory parking eats 20 minutes", 06-23 — real; prompt rule added, re-sweep pending) | grades |
+| Selection score (mean) | judged | 0.769 (round 1, confounded) | grades |
+| Escalation sanity (mean) | ≥ 0.8 | **0.939 ✓** | grades |
+| Win/loss vs shipped | favor v2 | **7W–1L–1T ✓** | grades |
+
+**Round-1 confounds (the launchpad grading caught its own harness bugs):** (a) same-day meeting
+transcripts leaked into "6AM" retro traces (model cited afternoon meetings as done — counted
+against citation integrity on most days); (b) the weekly-list file leaks FUTURE checkbox state
+into retro traces (05-12's "critical selection miss" was actually this). Both FIXED in gather
+(d=0 exclusion + git-reconstructed task list in as-of mode; verified on the regenerated 06-23
+trace). Also fixed from evidence: fabrication + count-discipline rules added to CALIBRATION.
+**Re-sweep + regrade queued behind the extractor eval** — round-2 numbers are the launch numbers.
 
 ## 2 · Extractor evidence (Phase 5 gate)
 

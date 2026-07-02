@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { makeDailyBriefingId, parseBriefingId, readBriefingById } from "@/lib/bridge/briefing-files";
 import { getVaultPath } from "@/lib/bridge/vault";
-import { getHermesBriefingFailureForDate } from "@/lib/bridge/briefing-status";
+import { getBriefingFailureForDate } from "@/lib/bridge/briefing-status";
 
 export async function GET(
   _req: NextRequest,
@@ -23,7 +23,7 @@ export async function GET(
       if (parsed.kind !== "daily") {
         return NextResponse.json({ error: "Briefing not found" }, { status: 404 });
       }
-      const failure = await getHermesBriefingFailureForDate(parsed.date);
+      const failure = await getBriefingFailureForDate(parsed.date, { vaultPath });
       if (failure) {
         return NextResponse.json({
           id: makeDailyBriefingId(parsed.date),

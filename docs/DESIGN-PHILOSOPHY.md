@@ -177,6 +177,28 @@ Every action should have visible feedback:
 
 This section tracks design decisions and refinements over time. Each entry should note what was tried, what was rejected, and why.
 
+### 2026-07-02: Briefing Shadow Review — Compare Without New Chrome
+
+**Principle**: Shadow briefing review belongs inside the normal Briefing reading surface. The user should be able to switch between live, v2 shadow, and comparison modes without leaving the date context or opening a separate review dashboard.
+
+**UI rule**:
+- Use the existing secondary segmented-control treatment for `Live | v2 shadow | Compare`; keep the selection session-only.
+- Render v2 shadow markdown through the same `BriefingContent` cards as the live briefing so differences are about content, not presentation.
+- Compare mode uses plain column headers and a subtle divider on wide screens, then stacks naturally on narrow screens. Put v2 feedback inline with the shadow pane rather than in a modal.
+
+**Rationale**: Briefing v2 is under review, not a separate product surface. The comparison UI should make editorial differences easy to inspect while preserving the established daily briefing idioms.
+
+### 2026-07-02: Briefing Loop Verdicts — Decide In Place
+
+**Principle**: Briefing loop escalations should be actionable without leaving the reading flow. The verdict surface belongs at the top of the briefing content as a compact content card, not as a separate dashboard or modal.
+
+**UI rule**:
+- Keep escalated loop items dense and evidence-first: kind badge, title, muted citation, confidence, collapsed detail, then inline controls.
+- Verdict buttons appear only for ask items without an existing verdict; once chosen, replace controls with a filled verdict badge.
+- Insights never ask for a verdict. They can still accept one-line feedback through the same quiet comment affordance as asks.
+
+**Rationale**: Briefing is the daily decision surface. Escalations need immediate, low-friction capture, but they should not dominate the briefing or invent a new review visual language.
+
 ### 2026-06-02: Briefing Reliability — Failure Is Today's Briefing State
 
 **Principle**: The Briefing tab represents the expected daily briefing loop, not merely the newest successful markdown file. If today's briefing generation failed, the UI should show today's failed state directly instead of silently falling back to yesterday and making the user infer that something is missing.

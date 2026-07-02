@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appendFeedback } from "@/lib/loops/stores";
-import type { FeedbackRecord, FeedbackTarget } from "@/lib/loops/types";
+import type { FeedbackRecord, FeedbackTarget, LoopsRegistry, RegistryLoop } from "@/lib/loops/types";
 import {
   errorMessage,
   findEnabledLoop,
@@ -28,6 +28,23 @@ function parseAnchor(value: unknown): FeedbackTarget["anchor"] | undefined {
     ? value.citation.trim()
     : undefined;
   return { ...(section ? { section } : {}), ...(citation ? { citation } : {}), text };
+}
+
+function findFeedbackLoop(
+  registry: LoopsRegistry,
+  loopId: string,
+  level: FeedbackTarget["level"],
+): RegistryLoop | null {
+  const enabledLoop = findEnabledLoop(registry, loopId);
+  if (enabledLoop) return enabledLoop;
+
+  // During the Briefings v2 shadow period, the briefing loop may be present in the registry but
+  // disabled while its review surface still needs to collect whole-briefing feedback.
+  if (loopId === "briefing" && level === "briefing") {
+    return registry.loops.find((loop) => loop.id === loopId && !loop.enabled) ?? null;
+  }
+
+  return null;
 }
 
 export async function POST(request: NextRequest) {
@@ -68,7 +85,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Loop registry unavailable", detail: error }, { status: 404 });
     }
 
-    const loop = findEnabledLoop(registry, loopId);
+    const loop = findFeedbackLoop(registry, loopId, level);
     if (!loop) {
       return NextResponse.json({ error: "Enabled loop not found" }, { status: 404 });
     }

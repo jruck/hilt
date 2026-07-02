@@ -3,7 +3,7 @@ import { listBriefingSummaries, makeDailyBriefingId } from "@/lib/bridge/briefin
 import { getVaultPath } from "@/lib/bridge/vault";
 import {
   getEasternDate,
-  getHermesBriefingFailureForDate,
+  getBriefingFailureForDate,
 } from "@/lib/bridge/briefing-status";
 
 export async function GET() {
@@ -14,7 +14,7 @@ export async function GET() {
     const today = getEasternDate();
     const hasTodayBriefing = briefings.some((briefing) => briefing.kind === "daily" && briefing.date === today);
     if (!hasTodayBriefing) {
-      const failure = await getHermesBriefingFailureForDate(today);
+      const failure = await getBriefingFailureForDate(today, { vaultPath });
       if (failure) {
         briefings.unshift({
           id: makeDailyBriefingId(today),

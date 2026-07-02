@@ -6,7 +6,7 @@ import { detectRateLimitInEnvelope, extractModelText, resolveClaudeBin, runClaud
 import { atomicWriteFile, isoNow } from "../src/lib/library/utils";
 import { loadRegistry, loopHome } from "../src/lib/loops/registry";
 import { emitLoopArtifact, defaultSandboxDir } from "../src/lib/loops/emit";
-import { readUnactedVerdicts, markVerdictsActed } from "../src/lib/loops/stores";
+import { readUnactedVerdicts, markVerdictsActed, readUnprocessedFeedback, markFeedbackProcessed } from "../src/lib/loops/stores";
 import {
   catchPhraseSpans, entryAgeDays, mintEntryId, nextSeq, openEntries, openLedgerDigest,
   readLedger, transition, writeLedger, type Ledger, type LedgerEntry,
@@ -75,6 +75,8 @@ function findUnprocessedMeetings(home: string): string[] {
   return out;
 }
 
+const feedbackGuidanceRef = { value: "" };
+
 interface ExtractionResult {
   new_commitments: Array<{ action: string; owner: string; due?: string; quote: string; source: string; confidence: number }>;
   sightings: Array<{ ledger_id: string; quote: string }>;
@@ -94,7 +96,7 @@ async function extractMeeting(rel: string, ledger: Ledger): Promise<ExtractionRe
     transcriptContent: transcript.slice(0, 120_000),
     openLedgerDigest: openLedgerDigest(ledger, isoNow()),
     catchPhraseSpans: spans,
-  });
+  }) + feedbackGuidanceRef.value;
 
   const dir = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "hilt-ma-"));
   const promptPath = path.join(dir, "system.txt");
@@ -144,6 +146,17 @@ async function main(): Promise<void> {
     if (v.verdict === "revise" && v.note) entry.action = `${entry.action} [revised: ${v.note}]`;
   }
   if (verdicts.length) markVerdictsActed(home, verdicts.map((v) => v.id), { at: now, run_at: now });
+
+  // 0b · Consume feedback (scope §6 flywheel, v1: read → adjust → stamp). Justin's unprocessed
+  // feedback rides into every extraction call this run as calibration guidance, then gets stamped.
+  // The clustering-into-proposals upgrade (library-steering pattern) lands when volume warrants.
+  const feedback = readUnprocessedFeedback(home);
+  const feedbackGuidance = feedback.length
+    ? "\n\n=== JUSTIN'S FEEDBACK ON YOUR PRIOR OUTPUTS (calibrate to this) ===\n"
+      + feedback.map((f) => `- [${f.created_at.slice(0, 10)}${f.target.item_id ? ` on ${f.target.item_id}` : ""}] ${f.text}`).join("\n")
+    : "";
+  feedbackGuidanceRef.value = feedbackGuidance;
+  if (feedback.length) markFeedbackProcessed(home, feedback.map((f) => f.id), { at: now, run_at: now });
 
   // 1 · Unprocessed meetings (explicit set wins — the eval harness path). NB: meeting
   // filenames contain commas/emoji — the explicit list is a JSON file, never comma-split argv.
@@ -261,6 +274,7 @@ async function main(): Promise<void> {
         rateLimited ? "rate-limited mid-queue" : "",
         failures ? `${failures} extraction failure(s)` : "",
         `${verdicts.length} verdict(s) applied`,
+        feedback.length ? `${feedback.length} feedback item(s) consumed` : "",
       ].filter(Boolean).join(" · ") || "clean run",
     },
     contentBody,

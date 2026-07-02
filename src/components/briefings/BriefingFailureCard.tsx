@@ -51,7 +51,7 @@ export function BriefingFailureCard({
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-[var(--text-primary)]">Briefing failed</h2>
             <p className="text-xs text-[var(--text-tertiary)]">
-              {runAt ? `Hermes ran ${runAt}` : "Hermes reported a failed run"}
+              {runAt ? `Native generator ran ${runAt}` : "Native generator reported a failed run"}
             </p>
           </div>
         </div>

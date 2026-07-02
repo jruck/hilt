@@ -3,6 +3,7 @@ import { promisify } from "util";
 import fs from "fs";
 import path from "path";
 import { resolveClaudeBin, runClaude, extractModelText, detectRateLimitInEnvelope } from "@/lib/library/connections";
+import { atomicWriteFile } from "@/lib/library/utils";
 import { resolveBriefingTarget, type BriefingMode, type BriefingTarget } from "./target-file";
 import { buildBriefingPrompt } from "./prompt";
 import { validateBriefing, type ValidationResult } from "./validator";
@@ -21,6 +22,11 @@ export interface GenerateOptions {
   /** Commit+push the result (ignored when outputOverride is set). Default true. */
   commit?: boolean;
   model?: string;
+  /** Launchpad/backtest: sets BRIEFING_AS_OF=1 so the gatherer suppresses live-only sources
+   *  (reminders, session/area mtimes, source-state) and bounds everything to `date`. */
+  asOf?: boolean;
+  /** When set, the raw gathered data is also written here (the grading trace). */
+  gatherDumpPath?: string;
 }
 
 export type GenerateResult =
@@ -43,6 +49,34 @@ export type GenerateResult =
 const GATHER_REL = "meta/skills/briefing/scripts/gather.sh";
 const SKILL_REL = "meta/skills/briefing/SKILL.md";
 
+type BriefingRunRecordStatus = "ok" | "invalid" | "rate_limited";
+
+interface BriefingRunRecord {
+  date: string;
+  mode: BriefingMode;
+  run_at: string;
+  status: BriefingRunRecordStatus;
+  failures: string[];
+  draft_path?: string;
+  committed?: boolean;
+  pushed?: boolean;
+}
+
+function writeRunRecord(
+  opts: GenerateOptions,
+  target: BriefingTarget,
+  record: Omit<BriefingRunRecord, "date" | "mode" | "run_at">,
+): void {
+  if (opts.outputOverride) return;
+  const filePath = path.join(process.env.DATA_DIR || "data", "briefing-runs", `${target.targetDate}.json`);
+  atomicWriteFile(filePath, `${JSON.stringify({
+    date: target.targetDate,
+    mode: target.mode,
+    run_at: new Date().toISOString(),
+    ...record,
+  }, null, 2)}\n`);
+}
+
 /** Run the vault gatherer for the mode/date, returning its `# GATHERED DATA …` stdout. */
 async function runGather(opts: GenerateOptions, baseDate: string): Promise<string> {
   const gatherScript = path.join(opts.vaultPath, GATHER_REL);
@@ -52,10 +86,18 @@ async function runGather(opts: GenerateOptions, baseDate: string): Promise<strin
   const PATH = `${path.join(opts.hiltRepoPath, "node_modules", ".bin")}:${process.env.PATH || ""}`;
   const { stdout } = await execFileAsync("bash", [gatherScript], {
     cwd: opts.vaultPath,
-    env: { ...process.env, PATH, BRIEFING_MODE: opts.mode, BRIEFING_DATE: baseDate, BRIEFING_HILT_REPO_PATH: opts.hiltRepoPath },
+    env: {
+      ...process.env, PATH,
+      BRIEFING_MODE: opts.mode, BRIEFING_DATE: baseDate, BRIEFING_HILT_REPO_PATH: opts.hiltRepoPath,
+      ...(opts.asOf ? { BRIEFING_AS_OF: "1" } : {}),
+    },
     timeout: 120_000,
     maxBuffer: 1024 * 1024 * 32,
   });
+  if (opts.gatherDumpPath) {
+    fs.mkdirSync(path.dirname(opts.gatherDumpPath), { recursive: true });
+    fs.writeFileSync(opts.gatherDumpPath, stdout, "utf-8");
+  }
   return stdout;
 }
 
@@ -83,11 +125,21 @@ export async function generateBriefing(opts: GenerateOptions): Promise<GenerateR
   } catch (error) {
     const e = error as { stdout?: string; stderr?: string; message?: string };
     if (detectRateLimitInEnvelope(e?.stdout || "").limited || /usage limit|rate.?limit/i.test(e?.stderr || "")) {
+      writeRunRecord(opts, target, {
+        status: "rate_limited",
+        failures: ["Claude rate limit while generating briefing"],
+      });
       return { status: "rate_limited" };
     }
     throw new Error(`claude briefing call failed: ${(e?.message || String(error)).slice(0, 300)}`);
   }
-  if (detectRateLimitInEnvelope(stdout).limited) return { status: "rate_limited" };
+  if (detectRateLimitInEnvelope(stdout).limited) {
+    writeRunRecord(opts, target, {
+      status: "rate_limited",
+      failures: ["Claude rate limit while generating briefing"],
+    });
+    return { status: "rate_limited" };
+  }
 
   const markdown = stripFences(extractModelText(stdout));
   const validation = validateBriefing(markdown, opts.mode);
@@ -97,6 +149,11 @@ export async function generateBriefing(opts: GenerateOptions): Promise<GenerateR
     const draftPath = `${target.absPath}.invalid-draft`;
     fs.mkdirSync(path.dirname(draftPath), { recursive: true });
     fs.writeFileSync(draftPath, markdown, "utf-8");
+    writeRunRecord(opts, target, {
+      status: "invalid",
+      failures: validation.failures,
+      draft_path: draftPath,
+    });
     return { status: "invalid", target, validation, draftPath };
   }
 
@@ -107,8 +164,22 @@ export async function generateBriefing(opts: GenerateOptions): Promise<GenerateR
   fs.rmSync(`${target.absPath}.invalid-draft`, { force: true });
 
   const shouldCommit = (opts.commit ?? true) && !opts.outputOverride;
-  if (!shouldCommit) return { status: "ok", target, validation, committed: false, pushed: false };
+  if (!shouldCommit) {
+    writeRunRecord(opts, target, {
+      status: "ok",
+      failures: [],
+      committed: false,
+      pushed: false,
+    });
+    return { status: "ok", target, validation, committed: false, pushed: false };
+  }
 
   const c = await commitBriefing(opts.vaultPath, target.relPath, `Briefing — ${target.targetDate} (${opts.mode})`);
+  writeRunRecord(opts, target, {
+    status: "ok",
+    failures: [],
+    committed: c.committed,
+    pushed: c.pushed,
+  });
   return { status: "ok", target, validation, committed: c.committed, pushed: c.pushed, note: c.note };
 }

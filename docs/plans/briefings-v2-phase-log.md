@@ -10,9 +10,9 @@
 |---|---|
 | 0 · Native briefing cutover | **ACTIVE — reframed to STABILIZATION** (cutover already happened 2026-06-29; see below) |
 | 1 · Contract, registry, schemas | **GATE MET 2026-07-02** — 19/19 spec green, registry seeded + validated |
-| 2 · Library conformance | pending (recon done — see R-lib below) |
-| 3 · Runtime loop | pending |
-| 4 · Launchpad harness | pending (recon done — see R-meet below) |
+| 2 · Library conformance | **GATE MET 2026-07-02** — loop live, artifact in vault, history migrated w/ parity |
+| 3 · Runtime loop | **GATE MET 2026-07-02** — built, 25/25 induced-failure tests, scheduled 05:45, first run caught 2 real findings |
+| 4 · Launchpad harness | **STARTED** — as-of gather proven (parity + boundedness); retro runner smoke in flight |
 | 5 · Meeting-action ledger v1 | pending |
 | 6 · Goals/areas loop | pending |
 | 7 · Reader thinning + feedback surface | pending |
@@ -84,8 +84,11 @@
   properly in the Phase 4 retro sweep.
 - [x] **P0-c — vault hygiene** DONE: stale `.invalid-draft`s removed; `generate.ts` now removes the
   `.invalid-draft` sibling on any successful write.
-- [ ] **P0-d — migrate failure/retry surface off Hermes** — DESIGN READY (Fable), queued for Codex
-  after the loops-IO job frees the thread:
+- [x] **P0-d — DONE 2026-07-02** (Codex `b81qp7l35`, Fable-verified: tsc clean, bridge tests
+  20/20 + vitest 21/21, prod rebuilt after Codex's sandbox couldn't): run records at
+  `$DATA_DIR/briefing-runs/<date>.json`, briefing-status.ts native (vault file + run record →
+  same BriefingRunFailure shape), retry route spawns the native generator, Hermes fixtures removed
+  from tests, UI copy updated. Original design (for reference):
   1. `generate.ts` writes a run record `$DATA_DIR/briefing-runs/<date>.json` on EVERY run (incl.
      retries): `{ date, mode, run_at, status: ok|invalid|rate_limited, failures: string[],
      draft_path?: string, committed?: boolean, pushed?: boolean }` — latest run wins the file.
@@ -122,6 +125,48 @@
 - **2026-07-02 · Session start (ultracode).** Bootstrap per plan §7. Recon workflow (6 agents,
   ~6 min, 363k tokens) established all of the above. Phase 1 types drafted in parallel
   (`src/lib/loops/types.ts`). Codex plugin surface verified (/codex:* v1.0.5, CLI 0.136.0, logged in).
+
+## Phase 2 — Library conformance — GATE MET 2026-07-02
+
+- **Emission**: `src/lib/loops/emit.ts` (the canonical loop-emission path, reused by all loops) +
+  steering now emits the contract artifact (proposals as `proposal` items w/ minted ids `lib-prop-*`,
+  disagreements as insights, the previously-DISCARDED scorecard persisted into health). First shadow
+  emission validated against the parser (5 items, correct sections, guard→sandbox).
+- **Migration** (Codex `bh3eqx7pg`): 28 files (24 reports + 4 memos) copied to
+  `meta/loops/references/reports/`, 28/28 shasum parity (independently spot-checked), MIGRATED.md
+  pointer left in the old dir, ORIGINALS PRESERVED. Registry flipped `library: live`; steering re-run
+  wrote the contract artifact INTO THE VAULT.
+- **Gate adjustment (deliberate)**: "old paths gone" deferred to Phase 7 — additive-first migration:
+  legacy report + API + gather keep working off the old path until the reader re-points; the loop
+  artifact is the new source of truth accruing daily. Caveat noted: pre-migration files in the new
+  reports dir are legacy-format (only dated-forward artifacts parse as contract; consumers read latest).
+
+## Phase 3 — Runtime loop — GATE MET 2026-07-02
+
+- `src/lib/loops/runtime.ts` (pure check logic: absence w/ cadence+grace, cross-loop health digest,
+  substrate checks incl. a PERMANENT fossil-CLI check) + `scripts/loop-runtime.ts` (env-gathering
+  shell) + `runtime.test.ts` (6 induced-failure tests; found + fixed a REAL serializer bug: js-yaml
+  rejects explicit-undefined fields — hardened serializeLoopArtifact). 25/25 loops tests.
+- Registry semantics: `enabled` = "has a runner" (absence detection covers enabled loops only);
+  unbuilt loops flipped enabled:false.
+- **Scheduled**: `com.hilt.loops.runtime` daily 05:45 (after steering 05:10, before gather ~06:00)
+  via new `scripts/loops-scheduler.ts` + npm scripts. **First real run found 2 genuine escalations**:
+  reweave-pending stale exit-1 (expected to clear tonight) and **disk free 8.4%** (⚠ surfaced to
+  Justin). Gate note: "renders as a briefing section in shadow" deferred to Phase 7 reader work
+  (gather does not read loop artifacts yet, by design — live-briefing safety).
+
+## Phase 4 — Launchpad harness — STARTED 2026-07-02
+
+- **As-of gathering is real**: fixed 9 today-relative leaks in vault `gather.sh` (meetings window,
+  git bounds, YEST, memo freshness-by-filename, task-list by filename≤date, prior-briefings
+  future-leak (filename<target, mtime-agnostic), + `BRIEFING_AS_OF=1` gates for the honestly
+  unreconstructable live-only sources: reminders, session/area mtimes, source-state). PROOFS:
+  today-parity diff = only an improvement (calendar-day git bounds catch commits wall-clock missed);
+  retro run for 2026-06-10 shows zero future leaks beyond the honest generation stamp, prior
+  briefings correctly 06-08/06-06.
+- `generateBriefing` gained additive `asOf` + `gatherDumpPath` (grading trace); new
+  `scripts/launchpad-retro.ts` (per-date sandbox dirs: gather.txt + briefing.md + result.json;
+  weekly-back date picker; rate-limit-aware). Smoke on 2026-06-10 in flight.
 
 ## Phase 1 — Contract, registry, schemas
 

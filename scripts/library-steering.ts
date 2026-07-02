@@ -9,6 +9,9 @@ import { evalAttrsForArtifact } from "../src/lib/library/recommendations";
 import { buildKbIndex } from "../src/lib/library/kb-index";
 import { detectRateLimitInEnvelope, extractModelText, resolveClaudeBin, runClaude } from "../src/lib/library/connections";
 import { hashId, isoNow } from "../src/lib/library/utils";
+import { emitLoopArtifact } from "../src/lib/loops/emit";
+import { loadRegistry } from "../src/lib/loops/registry";
+import type { LoopItem } from "../src/lib/loops/types";
 
 loadEnvConfig(process.cwd());
 const execFileAsync = promisify(execFile);
@@ -238,8 +241,74 @@ async function main(): Promise<void> {
     console.error("[steering] report render failed:", error instanceof Error ? error.message.slice(0, 200) : error);
   }
 
+  // ── Briefings v2 conformance: emit the contract-shaped loop artifact (scope §3.2) ────────────
+  // The library is loop #1. Its content dimension = the report sections above; escalations =
+  // proposal items awaiting Justin's verdict (steering's clusters, now with STABLE minted ids —
+  // fixing R-lib "proposals have no structured store"); health = the scorecard the run previously
+  // discarded. Writes through the WRITE GUARD: while the registry says phase:shadow this lands in
+  // the sandbox ($DATA_DIR/loops-shadow); flipping to live at the Phase 2 gate moves it to
+  // meta/loops/references/reports/. Best-effort: conformance failure must never fail steering.
+  let loopArtifactPath: string | null = null;
+  try {
+    const registry = loadRegistry(vaultPath);
+    const loop = registry.loops.find((l) => l.id === "library");
+    if (loop && loop.enabled) {
+      const items: LoopItem[] = [];
+      if (clusters && clusters !== "rate_limited") {
+        clusters.forEach((cluster, i) => {
+          items.push({
+            id: `lib-prop-${today}-${i + 1}`,
+            loop: loop.id,
+            kind: "proposal",
+            title: cluster.root_cause,
+            detail: `Proposed fix (${cluster.proposal.type}): ${cluster.proposal.description}\nBlast radius: ${cluster.proposal.blast_radius}`,
+            citations: cluster.items.map((id) => {
+              const artifact = getLibraryArtifact(vaultPath, id);
+              return { source: artifact?.path || `library:${id}` };
+            }),
+            escalated: { reason: "steering proposal awaiting your verdict" },
+            confidence: 0.7,
+            allowed_verdicts: ["approve", "dismiss", "revise"],
+          });
+        });
+      }
+      disagreements.forEach((line, i) => {
+        items.push({
+          id: `lib-disagree-${today}-${i + 1}`,
+          loop: loop.id,
+          kind: "insight",
+          title: line.replace(/^- /, "").slice(0, 140),
+          citations: [{ source: "meta/library-reports (judge↔formula calibration backlog)" }],
+        });
+      });
+      const sc = (scorecard?.json || {}) as Record<string, any>;
+      loopArtifactPath = emitLoopArtifact({
+        vaultPath,
+        loop,
+        date: today,
+        runAt: isoNow(),
+        items,
+        health: {
+          ok: Boolean(scorecard),
+          coverage: scorecard ? 1 : 0,
+          quality_notes: scorecard
+            ? `scorecard: ${JSON.stringify(sc).slice(0, 400)}`
+            : "scorecard computation failed this run",
+          notes: clusters === "rate_limited"
+            ? `${unprocessed.length} comment(s) pending clustering — Claude window closed`
+            : `${unprocessed.length} newly clustered, ${alreadyProposed} previously proposed awaiting verdict`,
+          proposal_ids: items.filter((i) => i.kind === "proposal").map((i) => i.id),
+        },
+        contentBody: lines.join("\n"),
+      });
+    }
+  } catch (error) {
+    console.error("[steering] loop-artifact emission failed:", error instanceof Error ? error.message.slice(0, 300) : error);
+  }
+
   console.log(JSON.stringify({
     report: reportPath,
+    loop_artifact: loopArtifactPath,
     scorecard: scorecard?.json || null,
     unprocessed_feedback: unprocessed.length,
     clusters: clusters === "rate_limited" ? "rate_limited" : clusters?.length ?? 0,

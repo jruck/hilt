@@ -217,9 +217,12 @@ export function validateLoopArtifactFrontmatter(fm: unknown): string[] {
   return problems;
 }
 
-/** Serialize frontmatter + body to the on-disk markdown form (gray-matter). */
+/** Serialize frontmatter + body to the on-disk markdown form (gray-matter). Explicitly-undefined
+ *  optional fields are stripped first — js-yaml refuses to dump `undefined`, and loops naturally
+ *  build objects with optional fields left undefined (found by the runtime loop's gate tests). */
 export function serializeLoopArtifact(fm: LoopArtifactFrontmatter, body: string): string {
-  return matter.stringify(body.trimEnd() + "\n", fm).trimEnd() + "\n";
+  const clean = JSON.parse(JSON.stringify(fm)) as LoopArtifactFrontmatter;
+  return matter.stringify(body.trimEnd() + "\n", clean).trimEnd() + "\n";
 }
 
 /** Parse + validate an artifact file's content. Throws LoopContractError when invalid. */

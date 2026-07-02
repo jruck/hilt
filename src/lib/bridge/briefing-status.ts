@@ -1,5 +1,4 @@
 import fs from "fs/promises";
-import fsSync from "fs";
 import os from "os";
 import path from "path";
 
@@ -19,28 +18,31 @@ export interface BriefingRunFailure {
   outputPath: string | null;
 }
 
-interface HermesCronJob {
-  id?: unknown;
-  name?: unknown;
-  skill?: unknown;
-  skills?: unknown;
-  script?: unknown;
-  last_status?: unknown;
-  last_error?: unknown;
-  last_run_at?: unknown;
-  next_run_at?: unknown;
-}
-
-interface HermesJobsFile {
-  jobs?: HermesCronJob[];
-}
-
-interface HermesStatusOptions {
-  homeDir?: string;
+interface BriefingStatusOptions {
+  dataDir?: string;
+  vaultPath?: string;
   now?: Date;
+  /** Kept only so older callers/tests passing the Hermes-era option shape still type-check. */
+  homeDir?: string;
+}
+
+type NativeRunStatus = "ok" | "invalid" | "rate_limited";
+
+interface NativeBriefingRunRecord {
+  date: string;
+  mode: "daily" | "weekend";
+  run_at: string;
+  status: NativeRunStatus;
+  failures: string[];
+  draft_path?: string;
+  committed?: boolean;
+  pushed?: boolean;
 }
 
 const ET_TIME_ZONE = "America/New_York";
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const DAILY_JOB_ID = "native-daily";
+const DAILY_JOB_NAME = "Morning Briefing (native)";
 
 export function getEasternDate(date = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -59,11 +61,7 @@ export function getEasternDate(date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
-function getHomeDir(options?: HermesStatusOptions): string {
-  return options?.homeDir ?? os.homedir();
-}
-
-function getEasternDateTime(date = new Date()): { date: string; minutes: number } {
+function getEasternDateTime(date = new Date()): { date: string; minutes: number; seconds: number } {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: ET_TIME_ZONE,
     year: "numeric",
@@ -71,6 +69,7 @@ function getEasternDateTime(date = new Date()): { date: string; minutes: number 
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
     hourCycle: "h23",
   }).formatToParts(date);
 
@@ -79,150 +78,194 @@ function getEasternDateTime(date = new Date()): { date: string; minutes: number 
   const day = parts.find((part) => part.type === "day")?.value;
   const hour = parts.find((part) => part.type === "hour")?.value;
   const minute = parts.find((part) => part.type === "minute")?.value;
-  if (!year || !month || !day || !hour || !minute) {
-    return { date: date.toISOString().slice(0, 10), minutes: date.getHours() * 60 + date.getMinutes() };
+  const second = parts.find((part) => part.type === "second")?.value;
+  if (!year || !month || !day || !hour || !minute || !second) {
+    return {
+      date: date.toISOString().slice(0, 10),
+      minutes: date.getHours() * 60 + date.getMinutes(),
+      seconds: date.getSeconds(),
+    };
   }
   return {
     date: `${year}-${month}-${day}`,
     minutes: Number(hour) * 60 + Number(minute),
+    seconds: Number(second),
   };
+}
+
+function parseIsoDate(date: string): Date {
+  return new Date(`${date}T12:00:00.000Z`);
+}
+
+function addDays(date: string, days: number): string {
+  const d = parseIsoDate(date);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function weekdayForIsoDate(date: string): number {
+  return parseIsoDate(date).getUTCDay();
+}
+
+function localMinuteIndex(date: string, minutes: number): number {
+  const [year, month, day] = date.split("-").map(Number);
+  return Date.UTC(year, month - 1, day) / 60_000 + minutes;
+}
+
+function dateAtEasternTime(date: string, minutes: number): Date {
+  const [year, month, day] = date.split("-").map(Number);
+  let ms = Date.UTC(year, month - 1, day, Math.floor(minutes / 60), minutes % 60);
+  const desired = localMinuteIndex(date, minutes);
+  for (let i = 0; i < 3; i++) {
+    const actual = getEasternDateTime(new Date(ms));
+    const diff = desired - localMinuteIndex(actual.date, actual.minutes);
+    if (diff === 0) break;
+    ms += diff * 60_000;
+  }
+  return new Date(ms);
+}
+
+function nextDailyRunAt(now = new Date()): string {
+  const eastern = getEasternDateTime(now);
+  let runDate = eastern.date;
+  let runAt = dateAtEasternTime(runDate, 6 * 60);
+  if (runAt.getTime() <= now.getTime()) {
+    runDate = addDays(runDate, 1);
+    runAt = dateAtEasternTime(runDate, 6 * 60);
+  }
+  return runAt.toISOString();
+}
+
+function nextAutoRetryRunAt(date: string, now = new Date()): string | null {
+  const eastern = getEasternDateTime(now);
+  if (eastern.date !== date) return null;
+  const weekday = weekdayForIsoDate(eastern.date);
+  if (weekday === 0 || weekday === 6) return null;
+
+  const startMinutes = 6 * 60 + 30;
+  const stopMinutes = 17 * 60;
+  const secondsInDay = eastern.minutes * 60 + eastern.seconds;
+  if (secondsInDay > stopMinutes * 60) return null;
+
+  const boundaryMinutes = secondsInDay <= startMinutes * 60
+    ? startMinutes
+    : Math.ceil(secondsInDay / (30 * 60)) * 30;
+  if (boundaryMinutes > stopMinutes) return null;
+  return dateAtEasternTime(eastern.date, boundaryMinutes).toISOString();
 }
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-function classifyError(error: string): BriefingFailureKind {
-  const lower = error.toLowerCase();
-  if (lower.includes("out of extra usage") || lower.includes("quota")) {
-    return "quota";
-  }
-  if (lower.includes("rate limit") || lower.includes("rate_limit")) {
+function asFailures(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map((item) => asString(item)).filter((item): item is string => Boolean(item))
+    : [];
+}
+
+function classifyFailure(record: NativeBriefingRunRecord): BriefingFailureKind {
+  const text = record.failures.join(" ").toLowerCase();
+  if (text.includes("rate limit") || text.includes("rate_limit") || text.includes("rate-limited")) {
     return "rate_limit";
   }
-  if (lower.includes("model") || lower.includes("provider") || lower.includes("anthropic")) {
-    return "model";
-  }
+  if (record.status === "invalid") return "model";
   return "unknown";
 }
 
-function isBriefingRetryWatchJob(job: HermesCronJob): boolean {
-  const name = asString(job.name)?.toLowerCase() ?? "";
-  const script = asString(job.script)?.toLowerCase() ?? "";
-  return name.includes("briefing retry watch") || script.includes("briefing-retry-watch");
+function resolveVaultPath(options?: BriefingStatusOptions): string {
+  return options?.vaultPath
+    || process.env.BRIDGE_VAULT_PATH
+    || process.env.HILT_WORKING_FOLDER
+    || path.join(os.homedir(), "work", "bridge");
 }
 
-function isMorningBriefingJob(job: HermesCronJob): boolean {
-  const name = asString(job.name)?.toLowerCase() ?? "";
-  const skill = asString(job.skill)?.toLowerCase() ?? "";
-  const script = asString(job.script)?.toLowerCase() ?? "";
-  const skills = Array.isArray(job.skills)
-    ? job.skills.map((item) => asString(item)?.toLowerCase()).filter(Boolean)
-    : [];
+function resolveDataDir(options?: BriefingStatusOptions): string {
+  return options?.dataDir || process.env.DATA_DIR || "data";
+}
 
-  if (isBriefingRetryWatchJob(job) || name.includes("weekend briefing") || script.includes("weekend")) {
+async function dailyBriefingExists(date: string, options?: BriefingStatusOptions): Promise<boolean> {
+  const filePath = path.join(resolveVaultPath(options), "briefings", `${date}.md`);
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
     return false;
   }
-
-  return (
-    name.includes("morning briefing") ||
-    skill === "briefing" ||
-    script.includes("briefing") ||
-    skills.includes("briefing")
-  );
 }
 
-function findAutoRetryNextRunAt(jobs: HermesCronJob[], date: string): string | null {
-  const retryJob = jobs.find(isBriefingRetryWatchJob);
-  const nextRunAt = retryJob ? asString(retryJob.next_run_at) : null;
-  if (!nextRunAt) return null;
-
-  const nextRunDate = new Date(nextRunAt);
-  if (Number.isNaN(nextRunDate.getTime())) return nextRunAt;
-
-  const nextRunEastern = getEasternDateTime(nextRunDate);
-  const startMinutes = 6 * 60 + 30;
-  const stopMinutes = 17 * 60;
-  if (nextRunEastern.date !== date) return null;
-  if (nextRunEastern.minutes < startMinutes || nextRunEastern.minutes >= stopMinutes) return null;
-  return nextRunAt;
-}
-
-async function findCronOutputPath(homeDir: string, jobId: string, date: string): Promise<string | null> {
-  const outputDir = path.join(homeDir, ".hermes", "cron", "output", jobId);
+async function readRunRecord(date: string, options?: BriefingStatusOptions): Promise<NativeBriefingRunRecord | null> {
+  const filePath = path.join(resolveDataDir(options), "briefing-runs", `${date}.json`);
   try {
-    const files = await fs.readdir(outputDir);
-    const matches = files
-      .filter((file) => file.startsWith(`${date}_`) && file.endsWith(".md"))
-      .sort()
-      .reverse();
-    return matches[0] ? path.join(outputDir, matches[0]) : null;
+    const raw = await fs.readFile(filePath, "utf-8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const status = asString(parsed.status);
+    const mode = asString(parsed.mode);
+    const runAt = asString(parsed.run_at);
+    const recordDate = asString(parsed.date);
+    if (
+      recordDate !== date
+      || (mode !== "daily" && mode !== "weekend")
+      || (status !== "ok" && status !== "invalid" && status !== "rate_limited")
+      || !runAt
+    ) {
+      return null;
+    }
+    return {
+      date: recordDate,
+      mode,
+      run_at: runAt,
+      status,
+      failures: asFailures(parsed.failures),
+      ...(asString(parsed.draft_path) ? { draft_path: asString(parsed.draft_path) ?? undefined } : {}),
+      ...(typeof parsed.committed === "boolean" ? { committed: parsed.committed } : {}),
+      ...(typeof parsed.pushed === "boolean" ? { pushed: parsed.pushed } : {}),
+    };
   } catch {
     return null;
   }
+}
+
+export async function getBriefingFailureForDate(
+  date: string,
+  options?: BriefingStatusOptions,
+): Promise<BriefingRunFailure | null> {
+  if (!ISO_DATE_RE.test(date)) return null;
+  if (await dailyBriefingExists(date, options)) return null;
+
+  const record = await readRunRecord(date, options);
+  if (!record || record.mode !== "daily" || record.status === "ok") return null;
+
+  const failures = record.failures.length
+    ? record.failures
+    : record.status === "rate_limited"
+      ? ["Claude rate limit while generating briefing"]
+      : ["Briefing validation failed"];
+
+  return {
+    status: "failed",
+    kind: classifyFailure({ ...record, failures }),
+    date,
+    jobId: DAILY_JOB_ID,
+    jobName: DAILY_JOB_NAME,
+    runAt: record.run_at,
+    nextRunAt: nextDailyRunAt(options?.now),
+    autoRetryNextRunAt: nextAutoRetryRunAt(date, options?.now),
+    error: failures.join("; "),
+    outputPath: record.draft_path ?? null,
+  };
+}
+
+export async function getNativeBriefingFailureForDate(
+  date: string,
+  options?: BriefingStatusOptions,
+): Promise<BriefingRunFailure | null> {
+  return getBriefingFailureForDate(date, options);
 }
 
 export async function getHermesBriefingFailureForDate(
   date: string,
-  options?: HermesStatusOptions
+  options?: BriefingStatusOptions,
 ): Promise<BriefingRunFailure | null> {
-  const homeDir = getHomeDir(options);
-  const jobsPath = path.join(homeDir, ".hermes", "cron", "jobs.json");
-
-  let parsed: HermesJobsFile;
-  try {
-    const raw = await fs.readFile(jobsPath, "utf-8");
-    parsed = JSON.parse(raw) as HermesJobsFile;
-  } catch {
-    return null;
-  }
-
-  const jobs = parsed.jobs ?? [];
-  const failedJobs = jobs
-    .filter(isMorningBriefingJob)
-    .filter((job) => asString(job.last_status) === "error")
-    .filter((job) => {
-      const runAt = asString(job.last_run_at);
-      return runAt ? getEasternDate(new Date(runAt)) === date : false;
-    })
-    .sort((a, b) => {
-      const aRun = asString(a.last_run_at) ?? "";
-      const bRun = asString(b.last_run_at) ?? "";
-      return bRun.localeCompare(aRun);
-    });
-
-  const job = failedJobs[0];
-  if (!job) return null;
-
-  const jobId = asString(job.id);
-  const runAt = asString(job.last_run_at);
-  const error = asString(job.last_error);
-  if (!jobId || !runAt || !error) return null;
-
-  return {
-    status: "failed",
-    kind: classifyError(error),
-    date,
-    jobId,
-    jobName: asString(job.name) ?? "Morning Briefing",
-    runAt,
-    nextRunAt: asString(job.next_run_at),
-    autoRetryNextRunAt: findAutoRetryNextRunAt(jobs, date),
-    error,
-    outputPath: await findCronOutputPath(homeDir, jobId, date),
-  };
-}
-
-export function resolveHermesBinary(): string | null {
-  const configured = process.env.HERMES_BIN;
-  if (configured && fsSync.existsSync(configured)) {
-    return configured;
-  }
-
-  const defaultPath = path.join(os.homedir(), ".local", "bin", "hermes");
-  if (fsSync.existsSync(defaultPath)) {
-    return defaultPath;
-  }
-
-  return null;
+  return getBriefingFailureForDate(date, options);
 }

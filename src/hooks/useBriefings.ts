@@ -97,8 +97,8 @@ export function useBriefings() {
     const id = briefing?.id ?? selectedId;
     if (!id) return;
 
-    setRetryStatus("idle");
-    setRetryMessage(null);
+    setRetryStatus("queued");
+    setRetryMessage("Retry running.");
     try {
       const res = await fetch(withBasePath("/api/bridge/briefings/retry"), {
         method: "POST",
@@ -107,14 +107,25 @@ export function useBriefings() {
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        throw new Error(data?.error || "Failed to queue retry");
+        throw new Error(data?.error || "Failed to run retry");
       }
-      setRetryStatus("queued");
-      setRetryMessage(data?.message || "Retry queued for Hermes.");
+      if (data?.status === "ok") {
+        setRetryStatus("idle");
+        setRetryMessage("Retry completed.");
+      } else if (data?.status === "rate_limited") {
+        setRetryStatus("error");
+        setRetryMessage("Retry hit the generator rate limit.");
+      } else if (data?.status === "invalid") {
+        setRetryStatus("error");
+        setRetryMessage("Retry ran, but validation still failed.");
+      } else {
+        setRetryStatus("idle");
+        setRetryMessage("Retry completed.");
+      }
       fetchList();
     } catch (err) {
       setRetryStatus("error");
-      setRetryMessage(err instanceof Error ? err.message : "Failed to queue retry");
+      setRetryMessage(err instanceof Error ? err.message : "Failed to run retry");
     }
   }, [briefing?.id, fetchList, selectedId]);
 

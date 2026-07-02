@@ -37,6 +37,9 @@ const today = argValue("--date") || new Date().toLocaleDateString("en-CA");
 const asOf = argValue("--as-of");
 const maxMeetings = Number(argValue("--max-meetings") || 25);
 const timeoutMs = Number(process.env.LOOP_MEETING_TIMEOUT_MS || 300_000);
+/** "Recent" = still verdict-worthy: escalation + queue-priority both key off this. */
+const RECENT_DAYS = 3;
+const isRecentDate = (d: string): boolean => (Date.parse(today) - Date.parse(d)) / 86_400_000 <= RECENT_DAYS;
 
 interface ProcessedState { processed: Record<string, string>; }
 
@@ -61,7 +64,8 @@ function resolveTranscript(fmData: Record<string, unknown>): string | null {
 function findUnprocessedMeetings(home: string): string[] {
   const processed = readProcessed(home).processed;
   const root = path.join(vaultPath, "meetings");
-  const out: string[] = [];
+  const recent: string[] = []; // ≤RECENT_DAYS old — jump the queue (their asks are verdict-worthy TODAY)
+  const backlog: string[] = []; // everything else drains oldest-first behind them
   for (const dir of fs.readdirSync(root).sort()) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dir)) continue;
     if (asOf && dir > asOf) continue;
@@ -69,10 +73,13 @@ function findUnprocessedMeetings(home: string): string[] {
     for (const f of fs.readdirSync(dayDir).sort()) {
       if (!f.endsWith(".md")) continue;
       const rel = `meetings/${dir}/${f}`;
-      if (!processed[rel]) out.push(rel);
+      if (!processed[rel]) (isRecentDate(dir) ? recent : backlog).push(rel);
     }
   }
-  return out;
+  // Recent-first, newest recent day first: without this, a 1400-meeting backlog at 25/run means
+  // today's meetings wouldn't be read for two months — the loop must be useful tomorrow morning.
+  recent.reverse();
+  return [...recent, ...backlog];
 }
 
 const feedbackGuidanceRef = { value: "" };
@@ -221,14 +228,13 @@ async function main(): Promise<void> {
 
   // 4 · Emit the artifact: new asks escalated (v1 = all verdict-gated), aging items surfaced.
   const items: LoopItem[] = [];
-  // Escalation policy: only commitments from RECENT meetings (≤3 days) demand a verdict today —
-  // a historical backfill must not flood the morning panel with weeks of old asks (caught
-  // 2026-07-02: the first production run escalated 150+ items). Older entries live in the ledger
-  // and surface gradually via the aging path below.
-  const RECENT_DAYS = 3;
+  // Escalation policy: only commitments from RECENT meetings (≤RECENT_DAYS) demand a verdict
+  // today — a historical backfill must not flood the morning panel with weeks of old asks
+  // (caught 2026-07-02: the first production run escalated 150+ items). Older entries live in
+  // the ledger and surface gradually via the aging path below.
   for (const e of opened) {
     const meetingDate = e.opened_from.match(/meetings\/(\d{4}-\d{2}-\d{2})\//)?.[1] || today;
-    const isRecent = (Date.parse(today) - Date.parse(meetingDate)) / 86_400_000 <= RECENT_DAYS;
+    const isRecent = isRecentDate(meetingDate);
     items.push({
       id: e.id, loop: loop.id, kind: "action",
       title: `${e.owner === "justin" ? "" : `[${e.owner}] `}${e.action.slice(0, 140)}`,

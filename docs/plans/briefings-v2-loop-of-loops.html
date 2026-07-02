@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Briefings v2 — Loop of Loops</title>
+<style>
+  :root {
+    --bg: #faf9f7; --fg: #1a1a1a; --muted: #6b6b6b; --faint: #8a8a8a;
+    --accent: #b45309; --rule: #e5e2dc; --card: #f1efe9; --code-bg: #edeae3;
+    --escalate: #b45309; --ok: #15803d; --dim-content: #2563eb; --dim-esc: #b45309; --dim-health: #15803d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181d; --fg: #e8e6e1; --muted: #9d9a93; --faint: #7a776f;
+      --accent: #e8a04c; --rule: #2c2f36; --card: #1e2128; --code-bg: #23262e;
+      --escalate: #e8a04c; --ok: #4ade80; --dim-content: #60a5fa; --dim-esc: #e8a04c; --dim-health: #4ade80;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 17px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 0 clamp(1.25rem, 4vw, 4rem) 6rem;
+  }
+  main { max-width: none; margin: 0 auto; }
+  header { margin: 3.5rem 0 2.5rem; }
+  .kicker {
+    font-size: .78rem; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); font-weight: 600; margin-bottom: .6rem;
+  }
+  h1 { font-size: 2.1rem; line-height: 1.15; margin: 0 0 1rem; letter-spacing: -.02em; }
+  .meta { font-size: .88rem; color: var(--muted); line-height: 1.7; }
+  .meta code { font-size: .8rem; }
+  h2 {
+    font-size: 1.35rem; letter-spacing: -.01em; margin: 3rem 0 .9rem;
+    padding-top: 1.5rem; border-top: 1px solid var(--rule);
+  }
+  h3 { font-size: 1.05rem; margin: 1.8rem 0 .6rem; }
+  h4 { font-size: .92rem; margin: 1.4rem 0 .4rem; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; font-weight: 650; }
+  p, li { color: var(--fg); }
+  ul, ol { padding-left: 1.35rem; }
+  li { margin: .35rem 0; }
+  li > ul { margin-top: .3rem; }
+  strong { font-weight: 650; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font: .85em ui-monospace, "SF Mono", Menlo, monospace;
+    background: var(--code-bg); padding: .12em .38em; border-radius: 4px;
+  }
+  pre {
+    background: var(--code-bg); border-radius: 10px; padding: 1rem 1.15rem;
+    overflow-x: auto; font-size: .82rem; line-height: 1.55;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  pre .dim-c { color: var(--dim-content); font-weight: 600; }
+  pre .dim-e { color: var(--dim-esc); font-weight: 600; }
+  pre .dim-h { color: var(--dim-health); font-weight: 600; }
+  pre .cmt { color: var(--faint); }
+  table {
+    width: 100%; border-collapse: collapse; margin: 1.2rem 0; font-size: .86rem;
+  }
+  th {
+    text-align: left; font-size: .72rem; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--faint); font-weight: 600; padding: .5rem .6rem .4rem;
+    border-bottom: 2px solid var(--rule);
+  }
+  td { padding: .55rem .6rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  td:first-child { font-weight: 600; white-space: nowrap; }
+  .pill {
+    display: inline-block; font-size: .72rem; font-weight: 650; padding: .1em .55em;
+    border-radius: 99px; letter-spacing: .02em; white-space: nowrap;
+  }
+  .pill.hi  { color: var(--escalate); background: color-mix(in srgb, var(--escalate) 14%, transparent); }
+  .pill.ok  { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+  .pill.med { color: var(--muted); background: var(--code-bg); }
+  .callout {
+    background: var(--card); border: 1px solid var(--rule); border-radius: 12px;
+    padding: 1rem 1.2rem; margin: 1.4rem 0; font-size: .93rem;
+  }
+  .callout .label {
+    font-size: .72rem; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--accent); font-weight: 650; margin-bottom: .35rem;
+  }
+  .northstar {
+    background: color-mix(in srgb, var(--accent) 7%, var(--card));
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--rule));
+    border-radius: 12px; padding: 1.1rem 1.3rem; margin: 1.6rem 0; font-size: .97rem;
+  }
+  nav.toc {
+    background: var(--card); border: 1px solid var(--rule); border-radius: 12px;
+    padding: 1rem 1.3rem; font-size: .9rem; margin: 0 0 1rem;
+  }
+  nav.toc ol { margin: .3rem 0 0; padding-left: 1.2rem; }
+  nav.toc li { margin: .22rem 0; }
+  .settled { font-size: .9rem; }
+  .settled td:first-child { white-space: normal; }
+  pre.mermaid {
+    background: var(--card); border: 1px solid var(--rule);
+    font-size: .72rem; line-height: 1.45; padding: 1rem;
+  }
+  pre.mermaid svg { max-width: 100%; height: auto; }
+  footer {
+    margin-top: 4rem; padding-top: 1.2rem; border-top: 1px solid var(--rule);
+    font-size: .8rem; color: var(--faint);
+  }
+  @media (max-width: 480px) {
+    body { font-size: 16px; padding: 0 1rem 4rem; }
+    h1 { font-size: 1.7rem; }
+    header { margin-top: 2.2rem; }
+    table { display: block; overflow-x: auto; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <div class="kicker">Hilt · Scope · v3</div>
+  <h1>Briefings v2 — Loop&nbsp;of&nbsp;Loops</h1>
+  <div class="meta">
+    Canonical scope document — revised 2026-07-02 after two review rounds; seeds the fresh-context build session.<br>
+    Source task: <code>bridge/lists/now/2026-06-29.md</code> (🗞️ Briefings v2 + 🎧 Meeting Agent — the latter's scope is folded in here).<br>
+    Prereqs: <code>bridge/meta/skills/briefing/SKILL.md</code> + <code>MAINTAINING.md</code>, <code>scripts/briefing-generate.ts</code> / <code>briefing-scheduler.ts</code> (native migration, currently in shadow).
+  </div>
+</header>
+
+<div class="northstar">
+  <strong>North star.</strong> Independent domain <strong>loops</strong> — each producing content, escalations, and a self-evaluation — with one daily <strong>briefing</strong> that reads them. The eval dimension exists so each loop's stability and quality improve as it runs. In this ecosystem <strong>an agent is a loop plus action-taking consumers</strong> — same organism, two growth stages. This pattern is intended to become a fundamental backbone of Hilt and the wider personal agentic ecosystem: adding a new function = adding a loop that satisfies the contract; everything downstream (briefing surface, health watch, verdict system) picks it up automatically.
+</div>
+
+<nav class="toc">
+  <strong>Contents</strong>
+  <ol>
+    <li><a href="#intent">Intent</a></li>
+    <li><a href="#proof">The pattern is already proven</a></li>
+    <li><a href="#contract">The ontology &amp; the loop contract</a> · <a href="#dataflow">data architecture map</a></li>
+    <li><a href="#rendering">Source vs. rendering: the briefing is a UI</a></li>
+    <li><a href="#registry">Registry, artifact homes, and retention</a></li>
+    <li><a href="#verdicts">The verdict &amp; feedback system</a></li>
+    <li><a href="#runtime">The runtime loop (system health)</a></li>
+    <li><a href="#inventory">Loop inventory</a></li>
+    <li><a href="#loops">Loop details</a></li>
+    <li><a href="#launchpad">Launch evaluation — the launchpad</a></li>
+    <li><a href="#sequencing">Sequencing</a></li>
+    <li><a href="#decisions">Settled decisions &amp; open questions</a></li>
+  </ol>
+</nav>
+
+<h2 id="intent">1 · Intent</h2>
+<p>Redesign the briefing from a single daily synthesis into a loop-of-loops report. Named gaps in the current system:</p>
+<ul>
+  <li><strong>"Don't drop this" has no memory</strong> — it's model judgment re-derived each morning over a sliding window (meetings last 4 days, newest task list, last 2 briefings as its only dedupe memory), not a durable action ledger. A commitment from 5+ days ago that never became a task is invisible.</li>
+  <li>Meeting notes are excerpted but <strong>never reconciled</strong> against projects, code, roadmap docs, or completed work.</li>
+  <li>"Work &amp; product" promises project/roadmap status, but the gatherer supplies <strong>no project or roadmap documents at all</strong> — only git logs (2 days, 5 repos) and session filenames. The model derives "roadmap status" from commit messages and meeting excerpts.</li>
+  <li>Design principle (keep it): avoid hard-coding permanent briefing rules; loops produce evidence, the synthesis layer keeps all judgment — the <code>MAINTAINING.md</code> philosophy, extended from two layers to three: <strong>loops → gather → synthesis</strong>.</li>
+</ul>
+<p><strong>Cadence:</strong> there is <strong>no separate weekly analysis</strong>. The daily briefing is the only reader; it reads whatever loop artifacts are fresh. The existing weekend edition stays what it is — a daily briefing spanning Sat–Sun because those are low-activity days. Cadence is a property of the <em>loop</em>, not the briefing: if analysis feels redundant day after day, slow that loop's cadence; don't fork the briefing into editions.</p>
+<p>The morning briefing is the right shape for two reasons: it's the right <em>analysis interval</em> (loops get the night to run), and it matches the <em>human bandwidth</em> — Justin can critique, evaluate, and improve this system at most once a day. Both the content and the pending verdicts therefore batch into the morning.</p>
+
+<h2 id="proof">2 · The pattern is already proven</h2>
+<p>The <strong>library is the existence proof — and it proves the full pattern</strong>. It already has every dimension of a proper loop:</p>
+<ul>
+  <li><strong>Content</strong>: the 05:10 morning report (<code>bridge/meta/library-reports/YYYY-MM-DD.md</code>) — substance, scorecard, deltas — plus the weekly editor's memo.</li>
+  <li><strong>Self-eval</strong>: the steering loop — quality scorecard, judge-vs-formula disagreement, and <strong>proposals for tuning its own pipeline, escalated for Justin's verdict</strong>.</li>
+  <li><strong>Granularity below the loop</strong>: every library <em>item</em> runs its own mini-loop (capture → digest → reweave → connections), and carries its own per-item feedback (comments, eval critiques, review lanes for pipeline versions). The library is <em>fractal</em> — a loop of item-loops. This depth is the special sauce to preserve, and the reference for how other loops may deepen later (§6).</li>
+</ul>
+<p>That proposals-under-supervision flywheel is the thing to generalize. <strong>v2 = replicate this shape for the other domains, then thin the briefing to a reader.</strong></p>
+<div class="callout">
+  <div class="label">Smell worth fixing — briefing SKILL.md §4</div>
+  The briefing skill (<code>bridge/meta/skills/briefing/SKILL.md</code> — the prose the synthesis model reads every morning) has drifted into hard-coded per-loop rendering policy in its Library section: "ALWAYS end with <code>[Full library report](/api/reports/morning)</code>", memo-thesis handling, exact link formats. Not bad judgment — bad placement: library rendering rules living in the global skill, because the library is the only loop and its rules had nowhere else to go. With the contract, §4 collapses to one generic rule ("per loop artifact: lead with its escalations, headline notable deltas, link the full artifact"); loop-specific rendering moves into the loop's own artifact.
+</div>
+
+<h2 id="contract">3 · The ontology &amp; the loop contract</h2>
+<p>Highest-leverage decision; define <strong>first</strong>. The data model everything else hangs off:</p>
+
+<h3 id="ontology">3.1 · The ontology</h3>
+<p>Every loop reads its sources and emits <strong>items</strong> — the insight is the atom. Three kinds:</p>
+<table>
+  <thead><tr><th>Item</th><th>What it is</th><th>Wants from Justin</th></tr></thead>
+  <tbody>
+    <tr><td>Insight</td><td>An observation. "Task X is 4 days overdue." "Tomorrow's agenda is missing pricing." Inert — it informs.</td><td>Nothing (feedback always possible)</td></tr>
+    <tr><td>Action</td><td>Proposed <em>work</em>, executable by human or agent, with enough context to be picked up by either. Lifecycle: <code>proposed → approved → in-progress → done</code>.</td><td>A <strong>verdict</strong></td></tr>
+    <tr><td>Proposal</td><td>Proposed <em>change to the system itself</em> ("stop surfacing calendar items younger than 2 days"). The meta-twin of an action.</td><td>A <strong>verdict</strong></td></tr>
+  </tbody>
+</table>
+<p><strong>Properties</strong> any item carries: provenance/citation (always); <code>escalated: true + reason</code> (set by the loop at emit time — meaning "top fold today"); <code>confidence</code> (actions/proposals).</p>
+<p><strong>Escalation is urgency, not a type and not a separate pass.</strong> Any item kind can be escalated, and escalated-ness is orthogonal to needing a verdict: "big presentation tomorrow, get some sleep" is an escalated <em>insight</em> — top-fold worthy, nothing to approve. A low-confidence ledger action sitting quietly in a review queue is the reverse — not escalated, still wants a verdict eventually.</p>
+<p><strong>Responses</strong> — how Justin's judgment comes back — are two, and they attach at every level (item, section, the briefing itself — including <em>absence</em> feedback: "I expected an insight about the Seb meeting here" lands at section level):</p>
+<ul>
+  <li><strong>Feedback</strong> — free-form, attaches to anything, never blocks, accumulates until a health pass consumes it.</li>
+  <li><strong>Verdict</strong> — an enumerated choice on an item that <em>asked</em> (actions &amp; proposals only): approve / dismiss / assign-to-me / assign-to-agent / revise-with-note. Executes mechanically — no interpretation needed. Counted (hit rates). <code>revise-with-note</code> is deliberately hybrid: the revise is a verdict, the note is feedback embedded in it.</li>
+</ul>
+<p><strong>Layers</strong> — work vs. meta is what an item is <em>about</em>; feedback vs. verdict is how you <em>respond</em>. All four cells are real:</p>
+<table>
+  <thead><tr><th></th><th>Work layer (the domain)</th><th>Meta layer (the system)</th></tr></thead>
+  <tbody>
+    <tr><td>Verdict</td><td>"Yes, do this task" / "assign to me"</td><td>"Bless this tuning proposal"</td></tr>
+    <tr><td>Feedback</td><td>"This action is scoped badly" / "you missed the real commitment"</td><td>"This shouldn't surface here" / "too verbose"</td></tr>
+  </tbody>
+</table>
+<p>The layers are structurally symmetric: the meta layer's insights are health findings; its actions are tuning proposals. The health pass is just <em>a loop whose sources are feedback + run data</em>, emitting meta-items the way domain loops emit work-items. Two nested cycles fall out:</p>
+<pre><code><span class="dim-c">WORK CYCLE (daily)</span>      loop reads sources → emits items → briefing renders
+                        → verdicts on actions → work happens → state closes
+
+<span class="dim-h">IMPROVEMENT CYCLE</span>       feedback accumulates → health pass interprets
+<span class="cmt">(slower, per loop)</span>      → meta insights + tuning proposals → verdicts → loop changes
+                        → the change is measured</code></pre>
+
+<h3 id="artifact">3.2 · The artifact contract</h3>
+<p>Every loop runs on its own cadence and writes a durable, dated artifact. The contract requires <strong>two structured sections + frontmatter; the content dimension is loop-defined</strong>:</p>
+<pre><code>---
+loop: meeting-actions
+run_at: 2026-07-06T05:10:00Z
+cadence: daily
+---
+<span class="dim-c">## &lt;content sections — loop-defined&gt;</span>   <span class="cmt">── CONTENT: the loop's items (insights + actions),</span>
+                  <span class="cmt">   shaped per domain. Scorecard/Deltas is the recommended convention</span>
+                  <span class="cmt">   where it fits (library, meetings, runtime); loops with different</span>
+                  <span class="cmt">   shapes (calendar, people projections) define their own sections.</span>
+
+<span class="dim-e">## Escalations</span>    <span class="cmt">── REQUIRED, but a VIEW not a type: the loop's items marked</span>
+                  <span class="cmt">   escalated, collected for the reader. Each item is STRUCTURED —</span>
+                  <span class="cmt">   stable id (minted by the loop), kind, provenance, and for asks the</span>
+                  <span class="cmt">   allowed verdicts — so the UI can render and act on it. Most days empty.</span>
+
+<span class="dim-h">## Loop health</span>    <span class="cmt">── REQUIRED: the loop's self-eval, run alongside every execution:</span>
+                  <span class="cmt">   run metrics (attempted/succeeded/coverage),</span>
+                  <span class="cmt">   quality eval (is the output good; drift vs. recent runs),</span>
+                  <span class="cmt">   proposals (tuning changes awaiting verdict — steering, generalized)</span></code></pre>
+<p>Consequences:</p>
+<ul>
+  <li>Uniformity lives exactly where the machinery needs it — escalated items feed the top fold; asks feed the verdict system; health feeds the runtime loop — and freedom lives where domains genuinely differ.</li>
+  <li><strong>Do not build a separate escalation-queue system.</strong> The queue is the union of <code>## Escalations</code> views; the briefing is its reader.</li>
+  <li>Retrofit the <strong>library</strong> (morning report + steering, as one loop artifact) to the contract as loop #1 — cheap, validates the shape against the loop that already works.</li>
+</ul>
+
+<h3 id="dataflow">3.3 · Data architecture map</h3>
+<p>The whole system on one page. The <strong>Mermaid source below is normative</strong> — it is embedded in this document as plain text, so it is deterministically machine-readable (a future agent reads the source, not the picture); the browser renders it as a diagram for humans. If the diagram doesn't render (no network for the Mermaid library), the source text is the fallback and is equally authoritative.</p>
+<pre class="mermaid">
+flowchart TD
+  subgraph SRC["DOMAIN SOURCES — read-only"]
+    S1["meetings/ transcripts<br/>(Granola, calendar-matched)"]
+    S2["calendar · reminders · lists/now"]
+    S3["references/ · feeds"]
+    S4["git repos · agent sessions"]
+    S5["supervisor · launchd · sync · credentials"]
+    S6["areas/ North Stars + goals"]
+  end
+
+  subgraph LOOP["EACH LOOP — scheduled, registered in meta/loops/registry.yml"]
+    EX["EXECUTE<br/>read sources + own state"]
+    HP["HEALTH PASS<br/>read feedback + run history + hit rates"]
+    IT{{"work items<br/>insight · action · proposal<br/>id · escalated? · confidence · citation"}}
+    MI{{"meta items<br/>health findings · tuning proposals"}}
+    EX --> IT
+    HP --> MI
+  end
+
+  STATE[("loop state — ledgers<br/>e.g. meta/loops/meetings/state/ledger")]
+  EX <--> STATE
+  SRC --> EX
+
+  ART["DATED ARTIFACT — meta/loops/&lt;domain&gt;/reports/<br/>content sections (loop-defined)<br/>+ Escalations (view of escalated items)<br/>+ Loop health"]
+  IT --> ART
+  MI --> ART
+
+  REG[("registry<br/>meta/loops/registry.yml")]
+  RT["RUNTIME LOOP<br/>absence detection + substrate health"]
+  REG --> RT
+  ART -. "freshness watched" .-> RT
+  RT --> RART["runtime artifact"]
+
+  G["GATHER<br/>print latest artifact per registered loop"]
+  ART --> G
+  RART --> G
+  REG --> G
+
+  SYN["BRIEFING GENERATOR — itself a loop<br/>synthesis = judgment + phrasing only"]
+  G --> SYN
+  SURF[("surfacing state<br/>item id → first_surfaced · count · verdict")]
+  SYN <--> SURF
+
+  BR["BRIEFING — briefings/YYYY-MM-DD.md<br/>top fold = union of escalated items<br/>per-loop sections + health glyphs"]
+  SYN --> BR
+
+  UI["HILT UI<br/>feedback affordance on everything<br/>verdict buttons on asks"]
+  BR --> UI
+  J(("Justin"))
+  UI --> J
+
+  FB[("feedback store<br/>routed to owning loop")]
+  VL[("verdict log — per loop<br/>approve · dismiss · assign · revise+note")]
+  J -->|"feedback on any item, section, or the briefing"| FB
+  J -->|"verdicts on asks only"| VL
+
+  WORK["WORK HAPPENS<br/>human does it, or agent drafts (v1.5)"]
+  VL -->|"approved actions"| WORK
+  WORK -->|"close entries · outcomes"| STATE
+  VL -->|"hit rates counted"| HP
+  FB -->|"consumed on next run"| HP
+  VL -->|"blessed tuning proposals reconfigure the loop"| EX
+</pre>
+<p><strong>How to read it — the two cycles (§3.1) traced through the graph:</strong></p>
+<ul>
+  <li><strong>Work cycle (daily):</strong> sources → EXECUTE → work items → artifact → gather → briefing → Justin → <em>verdict on asks</em> → work happens → loop state closes → next run reads the updated state.</li>
+  <li><strong>Improvement cycle (slower):</strong> Justin → <em>feedback on anything</em> → feedback store → HEALTH PASS → meta items (tuning proposals, escalated) → artifact → briefing → <em>verdict</em> → the loop reconfigures → the change is measured by the next health pass.</li>
+  <li><strong>Watchdog:</strong> the runtime loop sits outside both cycles — it reads the registry and artifact freshness, so a loop that silently stops running still surfaces.</li>
+  <li>The <strong>briefing generator is itself a loop</strong>: feedback about rendering routes to it like any other loop, and its surfacing state is what computes escalation aging/dedupe.</li>
+</ul>
+
+<h2 id="rendering">4 · Source vs. rendering: the briefing is a UI</h2>
+<p>There are <strong>two kinds of artifact</strong>, and keeping them distinct is load-bearing:</p>
+<ul>
+  <li><strong>Loop artifacts</strong> — the durable source of truth, written by loops on their own cadence.</li>
+  <li><strong>The briefing</strong> — a <em>rendering</em> of the fresh artifacts, sized to the morning read. It holds no data of its own.</li>
+</ul>
+<p>The briefing render: <strong>top fold = the union of every loop's escalated items</strong> (this is where "Don't drop this" survives — as a UI mechanism, not a section with its own sourcing), then one section per loop = its insights and actions as headlines + a health glyph (health surfaces only on failure, drift, or a pending proposal). All judgment stays in synthesis prose; what to <em>remember</em> is no longer judgment (§6, dedupe).</p>
+<p>Because items are structured (ids, kinds, allowed verdicts on asks), Hilt's briefing view can render asks as <em>actionable</em> — approve / dismiss / assign / revise — not paragraphs. And every rendered bullet, ask or not, carries a <strong>feedback affordance</strong> (§6): critique attaches to any item, any section, or the briefing itself, and routes to the owning loop. The markdown briefing file stays the portable rendering; the Hilt UI on top of it evolves freely (the top fold, per-loop sections, and feedback/verdict affordances are UI concerns, deliberately kept out of the loop inventory).</p>
+<p><strong>gather.sh</strong> (the deterministic pre-synthesis data collector — pure bash, no judgment, prints raw material into the model's context) stops collecting raw domain data as loops come online: it reads the registry (§5) and prints each registered loop's latest artifact. Adding a loop requires <strong>zero gather changes</strong>.</p>
+<p><strong>Missing-artifact semantics:</strong> if a registered loop's artifact is missing or stale, the briefing renders that section as "loop did not run" (sourced from the runtime loop's report) — it <strong>never fabricates the section from raw data</strong>. <strong>Scheduling &amp; budget:</strong> loops are <code>claude -p</code> runs; they stagger overnight and must finish before gather (~06:00). Rate limits are a proven failure mode (the reweave outage) — the degradation policy is: a loop that can't run skips cleanly, the runtime loop reports the absence, and the briefing says so.</p>
+
+<h2 id="registry">5 · Registry, artifact homes, and retention</h2>
+<p><strong>The filesystem encodes the source/rendering split (§4).</strong> Root-level folders (<code>/meetings</code>, <code>/references</code>, <code>/briefings</code>, <code>/people</code>, <code>/areas</code>, <code>/lists</code>) are <em>content for consumption</em>; <code>/meta</code> is <em>machinery</em>. An agent perusing the vault should instinctively know which is which — so loop artifacts, ledgers, feedback, and verdicts never live in content space. (This supersedes an earlier "domain-co-located" decision, which would have put machine reports inside content folders; it also avoids the previously-rejected central <code>bridge/reports/</code> dump in content space.)</p>
+<p><strong>Convention: <code>meta/loops/&lt;domain&gt;/</code>, mirroring root domain names, with a uniform inner shape</strong> — the contract made visible in the directory listing:</p>
+<pre><code>meta/loops/
+  registry.yml              <span class="cmt"># loop → cadence, artifact globs, state files — the single lookup</span>
+  references/               <span class="cmt"># mirrors /references (the library loop)</span>
+    reports/YYYY-MM-DD.md   <span class="cmt">#   dated artifacts — morning report + memo migrate here at conformance</span>
+    state/                  <span class="cmt">#   scoring, muted senders, review queues (today flat at meta/ root)</span>
+    feedback/  verdicts/
+  meetings/                 <span class="cmt"># mirrors /meetings</span>
+    reports/YYYY-MM-DD.md
+    state/ledger.md         <span class="cmt">#   THE action ledger</span>
+  people/                   <span class="cmt"># mirrors /people — home follows DOMAIN, not generator</span>
+    &lt;slug&gt;.md               <span class="cmt">#   person/group projections, written by the meeting loop</span>
+                            <span class="cmt">#   (initially — registry records the writer; if people ever</span>
+                            <span class="cmt">#   graduates to its own loop, nothing moves)</span>
+  briefings/                <span class="cmt"># the renderer-loop's own machinery</span>
+    state/surfacing.json    <span class="cmt">#   escalation dedupe memory</span>
+  system/                   <span class="cmt"># runtime loop (no root mirror — its domain IS the machine)</span>
+  areas/                    <span class="cmt"># goals loop</span></code></pre>
+<p>Mirror <em>domain</em> names, not loop names — the registry maps loop → home, and discoverability comes free. Registry consumers: gather (print latest artifacts), the runtime loop (absence detection), and Hilt (rendering). Existing migrations at conformance time: <code>meta/library-reports/</code> → <code>meta/loops/references/reports/</code> (the <code>/api/reports/*</code> routes re-point); <code>references/process/memos/</code> → same reports home (the memo is a loop artifact; it reaches Justin through the briefing + Library rendering).</p>
+<p><strong>Published surfaces stay in content space</strong>: <code>/briefings</code> (the daily rendering), the People view (composes the human-authored <code>people/&lt;name&gt;.md</code> note + the live projection from <code>meta/loops/people/</code> at render time — person notes are never machine-churned, and no dated person snapshots: history reconstructs from the ledger + dated reports). If a person page ever earns durable synthesized prose, that <em>graduates</em> to content space — published = content tree, machinery = meta, always.</p>
+<p><strong>Retention: dated files, forever.</strong> Text is cheap; history is how the health dimension measures drift and how future derived loops read backwards. <code>.archive/</code> sweeps if a directory ever gets unwieldy. The registry always knows how to find "latest." Ledgers are <strong>state, not reports</strong> — they live outside the dated artifacts and persist independently.</p>
+
+<h2 id="verdicts">6 · The verdict &amp; feedback system</h2>
+<p>A first-class element of this scope: the mechanism by which Justin's judgment flows back into loops — and the loops' hit rates earn autonomy. The two response types from the ontology (§3.1), operationalized:</p>
+<div class="callout">
+  <div class="label">The rule</div>
+  <strong>Every rendered item is feedback-able; asks (actions &amp; proposals) additionally take a verdict.</strong> Escalation is urgency, not ask-ness — an escalated insight needs no verdict; an un-escalated action still wants one.
+</div>
+<ul>
+  <li><strong>Feedback</strong> — free-form editorial critique attachable to <em>any</em> item, section, or the briefing as a whole: "redundant," "wrong emphasis," "cited the wrong meeting," "more like this," "I expected an insight here." Nothing asked a question; nothing is blocked. Always available — exactly as every library item can receive comments regardless of whether it asked for anything.</li>
+  <li><strong>Verdicts</strong> — <em>a selection from outcomes the loop enumerated in advance, recorded as a state transition the loop executes mechanically, and countable as a measure of the loop's judgment.</em> Attaches only to asks. Work-cycle verdicts decide work ("do this task"); improvement-cycle verdicts decide system changes ("bless this proposal") — same response type, both counted.</li>
+</ul>
+<h4>The flywheel (why feedback must be universal)</h4>
+<p>The library already runs the full circuit, and it is the thing being generalized:</p>
+<ol>
+  <li><strong>Feedback</strong> on any item → stored, routed to the owning loop</li>
+  <li>The loop's <strong>health pass</strong> processes unprocessed feedback — diagnose, cluster into patterns, propose fixes (this is the existing <code>process-library-feedback</code> flow, generalized)</li>
+  <li>Proposals surface as <strong>escalations</strong> (<code>tuning_proposal</code>)</li>
+  <li>A <strong>verdict</strong> gates the change → the loop changes → the change is measured</li>
+</ol>
+<p>Feedback is the <em>input</em> to the improvement loop; verdicts are the <em>gate</em> on it. Without universal feedback, the health dimension has no human signal and the flywheel spins only on self-assessment.</p>
+<h4>What we build</h4>
+<ul>
+  <li><strong>Feedback capture on every rendered item</strong> — a comment affordance on any briefing bullet (the library's per-item comment pattern, promoted to universal). <em>Anchoring:</em> escalations anchor by loop-minted id; content bullets anchor by (briefing date, section/loop, bullet text + citation) — every bullet already carries a citation per the existing SKILL.md rule, and the owning loop is derivable from the section.</li>
+  <li><strong>Feedback routing</strong> — each item's feedback lands with its owning loop, consumed by that loop's health pass on its next run. Feedback about the <em>rendering itself</em> ("top fold ordering," "too verbose") has an owner too: <strong>the briefing generator registers as a loop under the same contract</strong> — its domain is rendering the other loops, its health dimension is render quality, and critique of the briefing is its feedback stream (MAINTAINING.md's "weekly review" is the manual version of this today).</li>
+  <li><strong>Item schema</strong> — <code>id</code> (stable, minted by the emitting loop), <code>loop</code>, <code>kind</code> (<code>insight</code> | <code>action</code> | <code>proposal</code>), <code>escalated</code> + reason, <code>confidence</code>, payload, and — for asks — allowed verdicts (approve / dismiss / assign-to-me / assign-to-agent / revise-with-note).</li>
+  <li><strong>Two UI affordances</strong> — feedback (comment) on every bullet; verdict buttons <em>additionally</em> on escalations — wherever items render: briefing view, People view, Library.</li>
+  <li><strong>Verdict log</strong> — on-disk record each loop reads on its next run: act on approvals, drop dismissals, incorporate revision notes; and the substrate for <strong>hit-rate measurement</strong>, which is what graduates a loop toward auto-accept (each loop's health dimension tracks its own approve/dismiss outcomes).</li>
+  <li><strong><code>author</code> on every feedback/verdict record</strong> — <code>justin</code> | <code>claude-sim</code>: the launchpad (§10) exercises the real capture paths with simulated engagement, and that signal must never pollute real feedback or hit-rate stats.</li>
+  <li><strong>Surfacing state</strong> (escalation dedupe) — the briefing keeps a small read-state (id → first_surfaced, times_surfaced, verdict), analogous to the library's read-state. Aging becomes computed: first appearance = full headline; unresolved repeat = one terse line with age ("day 4"); verdict recorded = suppressed. This replaces the "compare against last 2 briefings" judgment window entirely — the model keeps phrasing, loses remembering.</li>
+</ul>
+<h4>The library's role: first instance, not exception</h4>
+<p>Under the corrected model, the library's per-item feedback machinery isn't domain-specific depth we carve an exception for — it's the <strong>first instance of the universal rule</strong> (every surfaced item is feedback-able), plus the reference implementation of the flywheel (<code>library-feedback</code> → process-library-feedback → proposals → review lanes). The unification rule stands, reframed:</p>
+<ul>
+  <li><strong>Migrate the loop-level layer</strong>: steering proposals adopt the shared schema + verdict log (the prototype for <code>tuning_proposal</code>; the existing review-lane flow becomes the first consumer of the unified surface rather than a parallel system).</li>
+  <li><strong>Keep the item-level machinery library-native for now</strong>: per-item comments, eval feedback, and pipeline-version review lanes keep working exactly as they do — they already implement the universal rule for their domain. Converge storage/schema opportunistically, never at the cost of the granularity.</li>
+  <li><strong>Reuse the library's shape as other loops deepen</strong>: ledger entries are the obvious analog (per-entry feedback + verdicts is already item-level); the meeting loop's feedback processing should reuse the process-library-feedback pattern rather than invent one.</li>
+</ul>
+<p><em>Unify the interface; preserve the depth.</em></p>
+
+<h2 id="runtime">7 · The runtime loop (system health)</h2>
+<p>Per-loop self-eval cannot cover two things — exactly what a general system-health report is for:</p>
+<ol>
+  <li><strong>Absence detection.</strong> A dead loop writes no artifact — self-reporting can't report a run that never happened. The runtime loop reads the registry and flags stale/missing artifacts.</li>
+  <li><strong>The substrate.</strong> Things that aren't loops: machines/disk/sync, the app supervisor, the schedulers themselves, credentials and API budgets (the Claude OAuth token, the Gemini key, the <code>remindctl</code> TCC permission — all real failures from recent weeks), backups.</li>
+</ol>
+<p>It also <strong>highlights notable items from the per-loop health dimensions</strong> — the cross-loop health digest — without owning them. Kernel-to-processes analogy: loops self-report their <em>quality</em>; the runtime loop reports their <em>existence</em> and the ground they run on.</p>
+<div class="callout">
+  <div class="label">Case study — why absence detection is load-bearing</div>
+  2026-06-29 session: the nightly library reweave <strong>failed silently for weeks</strong> — Claude preferred a stale Keychain token over the OAuth token under launchd, every scheduled call 401'd, and 47 items backlogged before a user complaint surfaced it. The loop that silently doesn't run is the one failure mode in-band health can't catch.
+</div>
+
+<h2 id="inventory">8 · Loop inventory</h2>
+<p>Loops only — the top fold, per-loop sections, and verdict affordances are UI (§4), and the escalation queue is the union of escalations, not a system.</p>
+<table>
+  <thead><tr><th>Loop</th><th>Cadence</th><th>Build</th><th>Meta home (machinery)</th><th>Published surface (human)</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>Meeting-action ledger</td><td>daily</td><td><span class="pill hi">initial · the big one</span></td><td><code>meta/loops/meetings/</code><br>reports · state/ledger (also writes <code>meta/loops/people/</code>)</td><td><code>/briefings</code> (top fold + Meetings section) · People view</td><td>Keystone shared with the Meeting Agent; person/group rollups are its projections (§9.1)</td></tr>
+    <tr><td>Library</td><td>daily</td><td><span class="pill ok">initial · ~done</span></td><td><code>meta/loops/references/</code><br>(migrates from <code>meta/library-reports/</code> + <code>references/process/memos/</code>)</td><td><code>/briefings</code> (Library section) · Library UI · <code>/api/reports/*</code></td><td>Conform to contract as loop #1; item-level depth preserved (§6)</td></tr>
+    <tr><td>Runtime / system health</td><td>daily</td><td><span class="pill ok">initial · low cost</span></td><td><code>meta/loops/system/</code></td><td><code>/briefings</code> (System section) · Hilt System views</td><td>Registry + absence detection + substrate + cross-loop health digest</td></tr>
+    <tr><td>Goals/areas alignment</td><td>daily→slow</td><td><span class="pill hi">initial · derived</span></td><td><code>meta/loops/areas/</code></td><td><code>/briefings</code> (Goals section) · Bridge Areas board</td><td>Accountability: stated North Stars vs. observed attention (commits, meetings, ledger, library, calendar). Reads other loops' artifacts, barely touches raw vault. Absorbs "drift" v1 (§9.4)</td></tr>
+    <tr><td>Calendar/tasks</td><td>daily</td><td><span class="pill med">initial · ~zero</span></td><td><code>meta/loops/calendar/</code> (once conformed)</td><td><code>/briefings</code> (Today section)</td><td>Already deterministic; conform for uniformity, lowest priority</td></tr>
+    <tr><td>Briefing (the renderer)</td><td>daily</td><td><span class="pill med">initial · registers only</span></td><td><code>meta/loops/briefings/</code><br>state/surfacing</td><td><code>/briefings</code> (existing, the rendering itself)</td><td>The reader itself, registered under the same contract: its domain is rendering the other loops, its health is render quality, and critique of the briefing is its feedback stream (§6)</td></tr>
+    <tr><td>Project/roadmap drift</td><td>—</td><td><span class="pill med">absorbed / future</span></td><td>—</td><td>—</td><td>Not a loop yet: unkept promises → ledger aging; priority drift → goals loop. Revisit as its own loop when Memory &amp; Search embeddings exist and its state can be defined</td></tr>
+    <tr><td>People/relationships</td><td>—</td><td><span class="pill med">projection, not a loop</span></td><td><code>meta/loops/people/</code> (written by the meeting loop)</td><td>People view (composed with the human-authored note at render time)</td><td>Generated by the meeting loop; escalates through the meeting loop. Splits into its own loop only if cadence/scope diverges</td></tr>
+  </tbody>
+</table>
+<div class="callout">
+  <div class="label">Litmus test for any proposed loop</div>
+  Does it hold <strong>state</strong> the model would otherwise re-derive (commitments, relationship state, alignment evidence, reconciliation baselines)? If it holds no state, it's a gather line, not a loop.
+</div>
+
+<h2 id="loops">9 · Loop details</h2>
+
+<h3 id="loop-meetings">9.1 · Meeting-action ledger (the Meeting Agent)</h3>
+<p><strong>Scope note:</strong> this section absorbs the full 🎧 Meeting Agent scope from the now-list — there is negligible difference between a loop and an agent here: the meeting <em>loop</em> is the scheduled analysis; the meeting <em>agent</em> is that loop plus its consumers (verdict UI, person/group views, drafted work, eventual auto-accept).</p>
+<p><strong>Mission:</strong> read every meeting; surface things Justin hasn't acted on or captured as a task; itemize the work so it's actionable by a human <em>or an agent</em>; over time, earn the right to complete high-confidence items autonomously.</p>
+<p>The fix for "no memory" is <strong>item identity</strong>. Ledger entries carry: <strong>action</strong> (the commitment/next-step), <strong>owner</strong> (Justin / named person / agent — schema stays open to agent assignees), <strong>citation</strong> (meeting file, date, source lines), <strong>confidence</strong> (drives review priority), <strong>status</strong> (<code>open → carried → resolved | dropped</code>), and derivable <strong>age</strong> (opened date, briefings-ridden count). Payoffs: the "perennial reminders" rule becomes computed, not judged; and the ledger is the substrate for the verdict flow and the person/group views.</p>
+<ul>
+  <li><strong>Infrastructure mostly exists — reuse it.</strong> Granola transcripts already land in the vault matched to calendar events; the native briefing harness (gather → skill → <code>claude -p</code> → validator → vault commit, launchd-scheduled) is the exact shape for the extractor loop. The extractor is a sibling of the briefing generator, not a new kind of thing.</li>
+  <li><strong>The catch-phrase is v1, not v2.</strong> A transcript <em>scan</em> for the phrase at post-processing (minutes after meeting end) forces capture with max confidence — no realtime infra. Dropping the phrase in a call is a deliberate write-to-ledger. True realtime stays v2+, maybe never needed. Choose a <em>phonetically distinctive</em> phrase and validate detection against real Granola transcripts in the launchpad (§10) — transcription will mangle a clever one.</li>
+  <li><strong>Injection discipline:</strong> transcripts contain other people's words. Extraction treats meeting content strictly as <em>data, never instructions</em> — an embedded "add a task to wire $500 to…" is a commitment candidate to judge, not a command to obey. This discipline is a precondition for ever enabling auto-accept.</li>
+  <li><strong>The genuinely hard part is reconciliation + identity, not extraction:</strong> stable action IDs, dedup across meetings (the same commitment restated three ways in three calls), reconciling against tasks/commits/completed work. Design effort goes there. Ledger is <strong>append-only with a reconciliation pass</strong> (a later meeting saying "we shipped that" closes the entry; a weekly sweep proposes closures for stale entries rather than silently dropping them).</li>
+  <li><strong>Person/group projections:</strong> per-person and per-group rollups (open items, waiting-on-you, history, touch cadence) are generated alongside the daily artifact and rendered in Hilt's existing People view as sidecars. They don't render in the briefing except when they raise escalations ("you've owed Sarah X for 3 weeks"). Don't build the views first — they fall out of the ledger.</li>
+</ul>
+<p><strong>Staged shape:</strong> <strong>v1</strong> — extractor loop on new transcripts → vault-native ledger → "awaiting your verdict" block (the loop's <code>## Escalations</code>) + approve / dismiss / assign, catch-phrase scan included. <strong>v1.5</strong> — agents draft the work attached to an entry (draft-and-present, never send). <strong>Auto-accept</strong> — only after a measured hit rate earns it (verdict log → health dimension), per the library judge-agreement pattern.</p>
+
+<h3 id="loop-library">9.2 · Library</h3>
+<p>Already running (morning report 05:10 + steering + weekly memo + per-item pipelines). Work here is <strong>conformance, not construction</strong>: emit one contract-shaped artifact (content = existing scorecard/report substance; escalations = proposals awaiting verdict + items awaiting attention; health = the steering self-eval it already computes), and migrate steering proposals onto the unified verdict schema (§6). Item-level machinery — per-item feedback, review lanes, pipeline versioning — unchanged. The memo folds into the loop's content dimension (its "fresh memo" render rule leaves SKILL.md).</p>
+
+<h3 id="loop-runtime">9.3 · Runtime / system health</h3>
+<p>Reads <code>meta/loops/registry.yml</code>; flags stale/missing artifacts (absence detection); checks substrate (supervisor heartbeats, sync, launchd job outcomes, disk, credentials/API budgets/TCC); digests notable per-loop health items. First loop to build after the contract — cheap, exercises the whole pipeline, and would have caught the reweave outage.</p>
+
+<h3 id="loop-goals">9.4 · Goals/areas alignment</h3>
+<p>Accountability loop: <em>what we said matters</em> (North Stars + area goals in <code>areas/</code>) vs. <em>where attention actually went</em> (ledger actions, commits, meetings, library saves, calendar time). A <strong>derived</strong> loop — reads other loops' artifacts plus git/calendar, barely touches raw vault — so it's cheap and it naturally absorbs the "drift" concern's v1: stale priorities and unkept directional promises surface here, with evidence. Escalates contradictions ("Product Factory is a top North Star; zero attention in 12 days") rather than enumerating every goal — the SKILL.md rule that goals are a relevance prior, not a checklist, carries over.</p>
+
+<h3 id="loop-calendar">9.5 · Calendar/tasks</h3>
+<p>Already deterministic in gather (calendar today+tomorrow, reminders, newest weekly list with due dates). Conform to the contract last, for uniformity — its escalations (overdue, deadline-today) join the top fold; its health dimension finally gives the <code>remindctl</code>-hangs-under-launchd failure a place to surface.</p>
+
+
+<h2 id="launchpad">10 · Launch evaluation — the launchpad</h2>
+<p><strong>The ship gate is not "I built it."</strong> The plumbing will work on first launch; the <em>judgment</em> — extraction quality, escalation thresholds, phrasing — will be wrong in specific ways, which is exactly what the improvement flywheel exists for. So the bar is: the system has been run through its paces against history, graded against reality, iterated, and the builder can say <em>"I've watched it be wrong, fixed it, and here's the evidence it converged."</em></p>
+<p>The vault is a <strong>complete backtest environment</strong>: meetings back to Oct 2024, weekly lists per week, git history — and the <em>actual briefings that shipped</em> on those mornings. We can generate retro briefings and grade them against both the real briefing and what subsequently happened.</p>
+<h4>The harness</h4>
+<ul>
+  <li><strong><code>--as-of</code> mode on every loop</strong> (a contract requirement): read only data ≤ the given date; write artifacts to a sandbox, never the live vault (generalize the briefing generator's existing <code>--shadow</code> infra).</li>
+  <li><strong>Retro sweep:</strong> one representative day per week, ~8 weeks back — full stack per day (loops → artifacts → briefing).</li>
+  <li><strong>Three-way grading per day:</strong> (1) vs. <em>source data</em> — every item cited and true, no fabrication; (2) vs. the <em>actual briefing</em> that shipped that morning — what did each catch or miss; (3) vs. <em>subsequent reality</em> — did escalations correspond to things that actually needed attention; did the ledger's open items match what later got done, dropped, or slipped.</li>
+  <li><strong>Gold-labeled extraction set:</strong> ~30 historical meetings, commitments hand-labeled (careful pass), extractor measured on precision/recall. The <em>identity</em> test: the same commitment restated across meetings must yield ONE ledger entry. The <em>reconciliation</em> test: commitments provably completed later (commit/list evidence) must get closed when the pass runs across the historical sequence.</li>
+  <li><strong>Simulated engagement</strong> — the flywheel's integration test: the builder reviews generated briefings as first-pass critic, submits feedback through the <em>real</em> capture path (as <code>author: claude-sim</code>, §6), verifies the health pass consumes it and produces sane proposals, and issues verdicts to prove the round-trip end to end — before Justin ever touches it.</li>
+  <li><strong>Shadow week:</strong> v2 generates alongside the live v1 briefing for ~a week, graded daily; cutover only after.</li>
+</ul>
+<h4>The launch report (ship gate)</h4>
+<p>A written artifact, reviewed by Justin before cutover:</p>
+<ul>
+  <li>Retro coverage + per-day grades; extraction precision/recall vs. the gold set; identity/reconciliation results</li>
+  <li>Flywheel round-trip evidence (feedback → health pass → proposal → verdict → change)</li>
+  <li>An honest <strong>couldn't-fetch / couldn't-parse inventory</strong> — every data source the loops were supposed to read but couldn't, with cause</li>
+  <li>Interface walkthrough — is the briefing + verdict/feedback surface usable and legible as built</li>
+  <li>The builder's verdict: <em>"here's why I believe in it"</em> — or "here's why I don't yet," with the list of what's blocking</li>
+</ul>
+
+<h2 id="sequencing">11 · Sequencing</h2>
+<ol>
+  <li><strong>Land the native-briefing cutover</strong> (shadow → live via <code>briefing:scheduler:install --&nbsp;--variant&nbsp;live</code>). Don't fork the skill across Hermes + Hilt mid-redesign.</li>
+  <li><strong>Contract + registry + verdict schema</strong> — the three shared primitives, defined together (short spec + a reader/validator in <code>src/lib/briefing/</code>). Retrofit the library as loop #1 to validate.</li>
+  <li><strong>Runtime loop</strong> — registry-driven absence detection + substrate. Exercises everything end-to-end.</li>
+  <li><strong>Launchpad harness</strong> — <code>--as-of</code> + sandbox writes + retro generation + grading scripts (§10). Built BEFORE the meeting loop, so the ledger is developed against the gold set from day one.</li>
+  <li><strong>Meeting-action ledger v1</strong> — extractor → ledger → verdict block, catch-phrase scan included. Before any Meeting Agent views/execution.</li>
+  <li><strong>Goals/areas loop</strong> — derived; lands once ledger data exists to read.</li>
+  <li><strong>Thin SKILL.md</strong> to the generic per-loop rendering rule; top fold replaces "Don't drop this" sourcing; calendar/tasks conforms. v1.5 (drafted work) and person/group projections follow on the ledger.</li>
+  <li><strong>Shadow week → launch report → cutover</strong> (§10). No step ships to the live briefing without passing through the shadow.</li>
+</ol>
+<p>Each step ships alone; the briefing improves monotonically.</p>
+
+<h2 id="decisions">12 · Settled decisions &amp; open questions</h2>
+<h4>Settled (this revision)</h4>
+<table class="settled">
+  <tbody>
+    <tr><td>Contract = 3 dimensions</td><td>Escalations + Loop health required and structured; content loop-defined (Scorecard/Deltas a convention, not a requirement)</td></tr>
+    <tr><td>One daily briefing</td><td>No weekly edition; weekend = 2-day daily; cadence is per-loop</td></tr>
+    <tr><td>Briefing = rendering</td><td>Top fold, sections, verdict buttons are UI, not loops; loop artifacts are the source of truth</td></tr>
+    <tr><td>Artifact homes</td><td>Machinery under <code>meta/loops/&lt;domain&gt;/</code> (mirrors root domain names; uniform inner shape: reports/ state/ feedback/ verdicts/ + registry.yml); published surfaces stay in content space. Root folders = content to consume, /meta = machinery — an agent perusing the vault knows instantly. Supersedes the earlier domain-co-located decision</td></tr>
+    <tr><td>Retention</td><td>Dated files forever; archive sweeps if needed; ledgers are separate persistent state</td></tr>
+    <tr><td>Escalation dedupe</td><td>Loop-minted stable ids + briefing surfacing-state (read-state pattern); aging computed, not judged</td></tr>
+    <tr><td>Ontology</td><td>Items = insight | action | proposal; escalation is an urgency PROPERTY set at emit time (orthogonal to needing a verdict); work vs. meta layers are symmetric, and verdicts + feedback exist in both (§3.1)</td></tr>
+    <tr><td>Feedback vs. verdicts</td><td>Feedback on EVERY rendered item/section/briefing (routed to the owning loop's health pass — the library's per-item pattern promoted to universal); verdicts only on asks (actions &amp; proposals): enumerated, mechanical, counted. Library migrates loop-level proposals only, keeps item-level machinery (§6)</td></tr>
+    <tr><td>Briefing is itself a loop</td><td>The renderer registers under the contract; render-quality feedback has an owner</td></tr>
+    <tr><td>Drift</td><td>Not a loop; absorbed into ledger aging + goals loop; revisit with embeddings</td></tr>
+    <tr><td>People</td><td>Projection of the meeting loop rendered in the People view; not a separate loop initially</td></tr>
+    <tr><td>Launch bar</td><td>Ship gate = the launch report (§10): retro sweep graded three ways, gold-set extraction metrics, flywheel round-trip proven, couldn't-fetch inventory, builder's explicit verdict — not a checked-off build task</td></tr>
+    <tr><td>Loop ≈ agent</td><td>An agent is a loop plus action-taking consumers; Meeting Agent scope lives here</td></tr>
+  </tbody>
+</table>
+<h4>Still open</h4>
+<ul>
+  <li><strong>Escalation schema details</strong> — exact fields, and how much dedupe phrasing stays with the synthesis model vs. the surfacing state.</li>
+  <li><strong>Content-bullet anchoring</strong> — the citation-based anchor (§6) is the plan; validate it survives rewording across days (an item rephrased tomorrow should keep its feedback thread), or decide loops must mint ids for content items too.</li>
+  <li><strong>Verdict log shape</strong> — central log vs. per-loop logs (leaning per-loop, registry-discoverable).</li>
+  <li><strong>Render hints</strong> — how a loop expresses loop-specific rendering (like the memo rule) inside its artifact without re-hard-coding SKILL.md.</li>
+  <li><strong>Write/commit discipline</strong> — loops write to the git-tracked vault; who commits? Leaning: each loop commits its own artifacts (as the briefing generator does today), but decide once, in the contract.</li>
+  <li><strong>Cost/runtime budget</strong> — N loops × daily <code>claude -p</code> runs + health passes: set an expected token/wall-time envelope during the launchpad and record it in the registry per loop.</li>
+  <li><strong>Agent identity for auto-acceptance</strong> — deliberately deferred; the ledger's <code>owner</code> field stays open to agent values, decide the rest when v1.5 exists.</li>
+</ul>
+
+<footer>
+  This HTML file <strong>is the canonical scope document</strong>: <code>~/work/engineering/me/hilt/docs/plans/briefings-v2-loop-of-loops.html</code>. Served tailnet-only at <code>https://mercury-v.tailc0acaa.ts.net/plans/briefings-v2.html</code> (Hilt <code>public/</code> behind <code>tailscale serve</code> 443; the served file is a deploy copy).
+</footer>
+
+</main>
+<script type="module">
+  try {
+    const mermaid = (await import("https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs")).default;
+    const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "neutral", flowchart: { curve: "basis" } });
+    await mermaid.run({ querySelector: "pre.mermaid" });
+  } catch (e) { /* no network: the normative Mermaid source stays visible as text */ }
+</script>
+</body>
+</html>

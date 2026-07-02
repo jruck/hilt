@@ -74,3 +74,6 @@ docs/.claude/settings.local.json
 
 # Isolated dist dir for the prod-mode daily-driver app (npm run rebuild / app:prod)
 .next-prod/
+
+# Ad-hoc tailnet-shared plan renderings (served via Next public/, not source)
+/public/plans/

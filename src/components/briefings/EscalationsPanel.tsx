@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import useSWR from "swr";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { AlertTriangle, Check, ChevronDown, ChevronRight, MessageSquare, PencilLine, Send, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronRight, MessageSquare, Send, X } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import type { Citation, LoopItem, RegistryLoop, Verdict, VerdictRecord, FeedbackRecord } from "@/lib/loops/types";
 
@@ -20,8 +20,9 @@ interface EscalationsResponse {
   errors: Array<{ loop?: string; phase?: RegistryLoop["phase"]; message: string }>;
 }
 
-/** Which briefing section owns each loop's escalations (Justin, 2026-07-02: escalations nest in
- * their sections — the top fold survives only as a fallback for loops with no matching section). */
+/** Which briefing section owns each loop's escalations — FALLBACK ONLY. The primary join is the
+ * briefing's own `loop:<id>` citations (see BriefingContent); this map covers briefings that
+ * don't cite an escalating loop. */
 const LOOP_SECTION_PATTERNS: Array<{ loop: string; pattern: RegExp }> = [
   { loop: "meeting-actions", pattern: /don.?t\s+drop/i },
   { loop: "runtime", pattern: /system/i },
@@ -68,6 +69,8 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   return payload as T;
 }
 
+/** Verdicts attach to ASKS (actions & proposals) — a property of the item's kind, NOT of
+ * escalation. Any surface rendering an ask shows verdict controls, escalated or not. */
 function isAsk(item: LoopItem): boolean {
   return item.kind === "action" || item.kind === "proposal";
 }
@@ -82,12 +85,6 @@ function verdictBadgeClass(verdict: Verdict): string {
   if (verdict === "dismiss") return "border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]";
   if (verdict === "revise") return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300";
   return "border-blue-500/25 bg-blue-500/10 text-blue-600 dark:text-blue-300";
-}
-
-function kindBadgeClass(kind: LoopItem["kind"]): string {
-  if (kind === "action") return "border-blue-500/20 bg-blue-500/10 text-blue-600 dark:text-blue-300";
-  if (kind === "proposal") return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300";
-  return "border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]";
 }
 
 function formatCitation(citations: Citation[]): string | null {
@@ -121,7 +118,31 @@ function DetailMarkdown({ markdown }: { markdown: string }) {
   );
 }
 
-function EscalationItemCard({ item, onChanged }: { item: EscalatedLoopItem; onChanged: () => void }) {
+/** Parse the source meeting out of an item's first citation ("meetings/<date>/<name>.md ..."). */
+function meetingKey(item: EscalatedLoopItem): { key: string; date: string; title: string } | null {
+  const source = item.citations?.[0]?.source || "";
+  const match = source.match(/meetings\/(\d{4}-\d{2}-\d{2})\/([^/]+?)(?:-\d{4}-\d{2}-\d{2}[^/]*)?\.md/);
+  if (!match) return null;
+  return { key: `${match[1]}/${match[2]}`, date: match[1], title: match[2] };
+}
+
+export function escalationsSummary(items: EscalatedLoopItem[]): string {
+  const askCount = items.filter((item) => item.loop === "meeting-actions" && meetingKey(item)).length;
+  const meetingCount = new Set(items.map((item) => item.loop === "meeting-actions" ? meetingKey(item)?.key : null).filter(Boolean)).size;
+  const signalCount = items.length - askCount;
+  return [
+    askCount > 0 ? `${askCount} ${askCount === 1 ? "ask" : "asks"} from ${meetingCount} ${meetingCount === 1 ? "meeting" : "meetings"}` : null,
+    signalCount > 0 ? `${signalCount} ${signalCount === 1 ? "signal" : "signals"}` : null,
+  ].filter(Boolean).join(" · ");
+}
+
+/**
+ * ONE item model, one rendering (Justin, 2026-07-02): a loop item is a bullet like any other
+ * briefing bullet. Urgency (escalated) adds only an amber flag; verdict buttons follow ASK-ness
+ * (kind), not escalation. Everything else (citation, confidence, loop, reason) lives behind the
+ * same click-to-expand pattern as editorial bullets.
+ */
+function LoopItemRow({ item, onChanged }: { item: EscalatedLoopItem; onChanged: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const [localVerdict, setLocalVerdict] = useState<Verdict | undefined>(item.verdict);
   const [busyVerdict, setBusyVerdict] = useState<Verdict | null>(null);
@@ -133,7 +154,6 @@ function EscalationItemCard({ item, onChanged }: { item: EscalatedLoopItem; onCh
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [feedbackSaved, setFeedbackSaved] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
-  const hasDetail = Boolean(item.detail?.trim());
   const citation = formatCitation(item.citations);
   const ask = isAsk(item);
   const confidence = typeof item.confidence === "number"
@@ -184,7 +204,7 @@ function EscalationItemCard({ item, onChanged }: { item: EscalatedLoopItem; onCh
           item_id: item.id,
           artifact_date: item.artifact_date,
         },
-        text,
+        text: feedbackText.trim(),
       });
       setFeedbackText("");
       setFeedbackOpen(false);
@@ -197,183 +217,144 @@ function EscalationItemCard({ item, onChanged }: { item: EscalatedLoopItem; onCh
   }
 
   return (
-    <article className="border-t border-[var(--border-default)] first:border-t-0">
-      <div className="px-4 py-3">
-        <div className="flex items-start gap-3">
-          <span className={`mt-0.5 inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-none ${kindBadgeClass(item.kind)}`}>
-            {item.kind}
-          </span>
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <div className="flex min-w-0 items-start justify-between gap-3">
-              <h3 className="min-w-0 text-sm font-semibold leading-5 text-[var(--text-primary)]">
-                {item.title}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setFeedbackOpen((value) => !value)}
-                className={`inline-flex min-h-7 min-w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-secondary)] ${
-                  feedbackSaved ? "text-emerald-500" : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-                }`}
-                title={feedbackSaved ? "Feedback saved" : "Leave feedback"}
-                aria-label={feedbackSaved ? "Feedback saved" : "Leave feedback"}
-              >
-                {feedbackSaved ? <Check className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
-              </button>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-tertiary)]">
-              <span>{item.loop}</span>
-              <span>{item.loop_phase}</span>
-              <span>{item.artifact_date}</span>
-              {confidence && <span>confidence {confidence}</span>}
-            </div>
-
-            {citation && (
-              <p className="truncate text-xs italic text-[var(--text-tertiary)]" title={citation}>
-                {citation}
-              </p>
-            )}
-
-            {item.escalated?.reason && (
-              <p className="text-xs leading-5 text-[var(--text-secondary)]">
-                {item.escalated.reason}
-              </p>
-            )}
-
-            {hasDetail && (
-              <button
-                type="button"
-                onClick={() => setExpanded((value) => !value)}
-                aria-expanded={expanded}
-                className="inline-flex min-h-6 items-center gap-1 rounded-md text-xs font-medium text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-primary)]"
-              >
-                {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                Detail
-              </button>
-            )}
-
-            {expanded && item.detail && (
-              <div className="rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 py-2">
-                <DetailMarkdown markdown={item.detail} />
-              </div>
-            )}
-
-            {ask && localVerdict && (
-              <span className={`inline-flex items-center rounded-md border px-2 py-1 text-xs font-semibold ${verdictBadgeClass(localVerdict)}`}>
-                {verdictLabel(localVerdict)}
-              </span>
-            )}
-
-            {ask && !localVerdict && verdictButtons.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                {verdictButtons.map((entry) => (
-                  entry.verdict === "revise" ? (
-                    <button
-                      key={entry.verdict}
-                      type="button"
-                      onClick={() => setReviseOpen((value) => !value)}
-                      disabled={Boolean(busyVerdict)}
-                      className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2 py-1 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-60"
-                    >
-                      <PencilLine className="h-3.5 w-3.5" />
-                      {entry.label}
-                    </button>
-                  ) : (
-                    <button
-                      key={entry.verdict}
-                      type="button"
-                      onClick={() => void submitVerdict(entry.verdict)}
-                      disabled={Boolean(busyVerdict)}
-                      className="inline-flex min-h-7 items-center rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2 py-1 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-60"
-                    >
-                      {entry.label}
-                    </button>
-                  )
-                ))}
-              </div>
-            )}
-
-            {reviseOpen && !localVerdict && (
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const note = reviseNote.trim();
-                  if (!note) return;
-                  void submitVerdict("revise", note);
-                }}
-                className="flex items-center gap-2 pt-1"
-              >
-                <input
-                  value={reviseNote}
-                  onChange={(event) => setReviseNote(event.target.value)}
-                  className="min-h-8 min-w-0 flex-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
-                  placeholder="Revision note"
-                  aria-label="Revision note"
-                />
-                <button
-                  type="submit"
-                  disabled={!reviseNote.trim() || Boolean(busyVerdict)}
-                  className="inline-flex min-h-8 items-center rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/15 disabled:cursor-default disabled:opacity-50 dark:text-amber-300"
-                >
-                  Revise
-                </button>
-              </form>
-            )}
-
-            {verdictError && (
-              <p className="text-xs text-red-500">{verdictError}</p>
-            )}
-
-            {feedbackOpen && (
-              <form onSubmit={submitFeedback} className="flex items-center gap-2 border-t border-[var(--border-default)] pt-3">
-                <input
-                  value={feedbackText}
-                  onChange={(event) => setFeedbackText(event.target.value)}
-                  className="min-h-8 min-w-0 flex-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
-                  placeholder="Feedback"
-                  aria-label="Feedback"
-                />
-                <button
-                  type="submit"
-                  disabled={!feedbackText.trim() || feedbackBusy}
-                  className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-50"
-                  title="Save feedback"
-                  aria-label="Save feedback"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFeedbackOpen(false)}
-                  className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-md text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                  title="Close feedback"
-                  aria-label="Close feedback"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </form>
-            )}
-
-            {feedbackError && (
-              <p className="text-xs text-red-500">{feedbackError}</p>
-            )}
-          </div>
-        </div>
+    <li className={`text-[var(--text-secondary)] briefing-expandable${expanded ? " briefing-expanded" : ""}`}>
+      <div
+        onClick={() => setExpanded((value) => !value)}
+        className="group flex flex-wrap items-start justify-between gap-2 py-0.5 cursor-pointer"
+      >
+        <span className="min-w-0 flex-1 leading-relaxed">
+          {item.escalated && (
+            <span
+              className="mb-0.5 mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle"
+              title={`Escalated: ${item.escalated.reason || "urgent"}`}
+            />
+          )}
+          {item.title}
+        </span>
+        <span onClick={(e) => e.stopPropagation()} className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+          <button
+            type="button"
+            onClick={() => setFeedbackOpen((value) => !value)}
+            className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-secondary)] ${
+              feedbackSaved ? "text-emerald-500" : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+            }`}
+            title={feedbackSaved ? "Feedback saved" : "Leave feedback"}
+            aria-label={feedbackSaved ? "Feedback saved" : "Leave feedback"}
+          >
+            {feedbackSaved ? <Check className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
+          </button>
+        </span>
       </div>
-    </article>
+
+      {/* Asks carry their verdict controls inline — kind decides this, not escalation. */}
+      {ask && !localVerdict && verdictButtons.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 pb-1">
+          {verdictButtons.map((entry) => (
+            <button
+              key={entry.verdict}
+              type="button"
+              onClick={() => entry.verdict === "revise" ? setReviseOpen((value) => !value) : void submitVerdict(entry.verdict)}
+              disabled={Boolean(busyVerdict)}
+              className="inline-flex min-h-6 items-center rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2 py-0.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-60"
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {ask && localVerdict && (
+        <div className="pb-1">
+          <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${verdictBadgeClass(localVerdict)}`}>
+            {verdictLabel(localVerdict)}
+          </span>
+        </div>
+      )}
+
+      {reviseOpen && !localVerdict && (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            const note = reviseNote.trim();
+            if (!note) return;
+            void submitVerdict("revise", note);
+          }}
+          className="flex items-center gap-2 pb-1"
+        >
+          <input
+            value={reviseNote}
+            onChange={(event) => setReviseNote(event.target.value)}
+            autoFocus
+            className="min-h-8 min-w-0 flex-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
+            placeholder="Revision note"
+            aria-label="Revision note"
+          />
+          <button
+            type="submit"
+            disabled={!reviseNote.trim() || Boolean(busyVerdict)}
+            className="inline-flex min-h-8 items-center rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/15 disabled:cursor-default disabled:opacity-50 dark:text-amber-300"
+          >
+            Revise
+          </button>
+        </form>
+      )}
+
+      {verdictError && <p className="pb-1 text-xs text-red-500">{verdictError}</p>}
+
+      {feedbackOpen && (
+        <form onSubmit={submitFeedback} className="flex items-center gap-2 pb-1">
+          <input
+            value={feedbackText}
+            onChange={(event) => setFeedbackText(event.target.value)}
+            autoFocus
+            className="min-h-8 min-w-0 flex-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
+            placeholder="Feedback"
+            aria-label="Feedback"
+          />
+          <button
+            type="submit"
+            disabled={!feedbackText.trim() || feedbackBusy}
+            className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-50"
+            title="Save feedback"
+            aria-label="Save feedback"
+          >
+            <Send className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setFeedbackOpen(false)}
+            className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-md text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+            title="Close feedback"
+            aria-label="Close feedback"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </form>
+      )}
+
+      {feedbackError && <p className="pb-1 text-xs text-red-500">{feedbackError}</p>}
+
+      {expanded && (
+        <div className="mb-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 py-2 space-y-1">
+          {item.detail && <DetailMarkdown markdown={item.detail} />}
+          {item.escalated?.reason && (
+            <p className="text-xs leading-5 text-[var(--text-secondary)]">Escalated: {item.escalated.reason}</p>
+          )}
+          {citation && (
+            <p className="text-xs italic text-[var(--text-tertiary)]" title={citation}>{citation}</p>
+          )}
+          <p className="text-xs text-[var(--text-tertiary)]">
+            {item.kind} · {item.loop} ({item.loop_phase}) · {item.artifact_date}{confidence ? ` · confidence ${confidence}` : ""}
+          </p>
+        </div>
+      )}
+    </li>
   );
 }
 
-/** Parse the source meeting out of an item's first citation ("meetings/<date>/<name>.md ..."). */
-function meetingKey(item: EscalatedLoopItem): { key: string; date: string; title: string } | null {
-  const source = item.citations?.[0]?.source || "";
-  const match = source.match(/meetings\/(\d{4}-\d{2}-\d{2})\/([^/]+?)(?:-\d{4}-\d{2}-\d{2}[^/]*)?\.md/);
-  if (!match) return null;
-  return { key: `${match[1]}/${match[2]}`, date: match[1], title: match[2] };
-}
-
-/** One source meeting's asks, collapsed behind a count until opened. */
-function MeetingGroup({ date, title, items, defaultOpen, onChanged }: {
+/** One source meeting's asks: a collapsed bullet row that expands into nested ask bullets —
+ * progressive disclosure inside the section's own list. */
+function MeetingGroupRow({ date, title, items, defaultOpen, onChanged }: {
   date: string;
   title: string;
   items: EscalatedLoopItem[];
@@ -382,55 +363,42 @@ function MeetingGroup({ date, title, items, defaultOpen, onChanged }: {
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const decided = items.filter((item) => item.verdict).length;
+  const status = decided > 0 ? `${decided}/${items.length} decided` : `${items.length} ${items.length === 1 ? "ask" : "asks"}`;
   return (
-    <div className="border-t border-[var(--border-default)] first:border-t-0">
-      <button
-        type="button"
+    <li className={`text-[var(--text-secondary)] briefing-expandable${open ? " briefing-expanded" : ""}`}>
+      <div
         onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[var(--bg-secondary)]"
+        className="group flex items-start justify-between gap-2 py-0.5 cursor-pointer"
       >
-        <span className="flex min-w-0 items-center gap-2">
-          {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--text-tertiary)]" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--text-tertiary)]" />}
-          <span className="truncate text-sm font-medium text-[var(--text-primary)]">{title}</span>
-          <span className="shrink-0 text-xs text-[var(--text-tertiary)]">{date}</span>
+        <span className="min-w-0 flex-1 leading-relaxed">
+          <span className="mb-0.5 mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle" title="Awaiting your verdicts" />
+          <strong className="font-semibold text-[var(--text-primary)]">{title}</strong>
+          {" — "}{status} <span className="text-xs text-[var(--text-tertiary)]">· {date}</span>
         </span>
-        <span className="shrink-0 text-xs text-[var(--text-tertiary)]">
-          {decided > 0 ? `${decided}/${items.length} decided` : `${items.length} ${items.length === 1 ? "ask" : "asks"}`}
+        <span className="mt-1 shrink-0 text-[var(--text-tertiary)]">
+          {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
         </span>
-      </button>
+      </div>
       {open && (
-        <div className="border-t border-[var(--border-default)] bg-[var(--bg-primary)]/40">
+        <ul className="briefing-list pl-5 space-y-0.5 pb-1">
           {items.map((item) => (
-            <EscalationItemCard
+            <LoopItemRow
               key={`${item.loop}:${item.id}:${item.artifact_date}`}
               item={item}
               onChanged={onChanged}
             />
           ))}
-        </div>
+        </ul>
       )}
-    </div>
+    </li>
   );
 }
 
-export function escalationsSummary(items: EscalatedLoopItem[]): string {
-  const askCount = items.filter((item) => item.loop === "meeting-actions" && meetingKey(item)).length;
-  const meetingCount = new Set(items.map((item) => item.loop === "meeting-actions" ? meetingKey(item)?.key : null).filter(Boolean)).size;
-  const signalCount = items.length - askCount;
-  return [
-    askCount > 0 ? `${askCount} ${askCount === 1 ? "ask" : "asks"} from ${meetingCount} ${meetingCount === 1 ? "meeting" : "meetings"}` : null,
-    signalCount > 0 ? `${signalCount} ${signalCount === 1 ? "signal" : "signals"}` : null,
-  ].filter(Boolean).join(" · ");
-}
-
-/** The presentational escalations body: standalone signals flat, meeting asks grouped by SOURCE
- * MEETING with progressive disclosure. Renders nested inside a briefing section card (`embedded`)
- * or inside the fallback fold. */
-export function EscalationsBlock({ items, onChanged, embedded }: {
+/** Loop items for one section, rendered as <li> rows INSIDE the section's existing list —
+ * standalone items flat, meeting asks grouped by source meeting. */
+export function EscalationsBlock({ items, onChanged }: {
   items: EscalatedLoopItem[];
   onChanged: () => void;
-  embedded?: boolean;
 }) {
   const { standalone, meetingGroups } = useMemo(() => {
     const standaloneItems: EscalatedLoopItem[] = [];
@@ -453,22 +421,16 @@ export function EscalationsBlock({ items, onChanged, embedded }: {
   if (items.length === 0) return null;
 
   return (
-    <div className={embedded ? "border-t border-[var(--border-default)]" : ""}>
-      {embedded && (
-        <div className="flex items-center gap-2 bg-[var(--bg-secondary)]/60 px-4 py-2 text-xs font-medium text-[var(--text-tertiary)]">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-          <span>Needs you · {escalationsSummary(items)}</span>
-        </div>
-      )}
+    <>
       {standalone.map((item) => (
-        <EscalationItemCard
+        <LoopItemRow
           key={`${item.loop}:${item.id}:${item.artifact_date}`}
           item={item}
           onChanged={onChanged}
         />
       ))}
       {meetingGroups.map((group, index) => (
-        <MeetingGroup
+        <MeetingGroupRow
           key={group.date + group.title}
           date={group.date}
           title={group.title}
@@ -477,7 +439,7 @@ export function EscalationsBlock({ items, onChanged, embedded }: {
           onChanged={onChanged}
         />
       ))}
-    </div>
+    </>
   );
 }
 
@@ -501,7 +463,9 @@ export function EscalationsFallbackFold({ items, onChanged }: {
           <span className="shrink-0 text-xs text-[var(--text-tertiary)]">{escalationsSummary(items)}</span>
         </div>
       </div>
-      <EscalationsBlock items={items} onChanged={onChanged} />
+      <ul className="briefing-list pl-9 pr-4 py-2 space-y-0 !m-0">
+        <EscalationsBlock items={items} onChanged={onChanged} />
+      </ul>
     </section>
   );
 }

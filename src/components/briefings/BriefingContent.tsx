@@ -373,7 +373,9 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
   // the fallback fold above (nothing silently disappears).
   const { bySection, unmatched } = useMemo(() => {
     const sectionTexts = sections.map((section) =>
-      section.items.map((item) => `${item.headline}\n${item.details}`).join("\n"));
+      /sources/i.test(section.heading)
+        ? "" // a Sources/footnotes section may quote loop ids without owning the domain
+        : section.items.map((item) => `${item.headline}\n${item.details}`).join("\n"));
     const perSection = new Map<number, EscalatedLoopItem[]>();
     const leftovers: EscalatedLoopItem[] = [];
     for (const item of escalations) {
@@ -471,9 +473,11 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
                 {section.items.map((item, ii) => (
                   <CollapsibleItem key={ii} item={item} section={section.heading} date={date} absPath={absPath} feedbackable={feedbackable} />
                 ))}
+                {/* Loop items are bullets in the SAME list — urgency is a flag, verdicts follow
+                    ask-ness; only the amber dot and buttons distinguish them (one item model). */}
+                <EscalationsBlock items={sectionEscalations} onChanged={onEscalationsChanged} />
               </ul>
             )}
-            <EscalationsBlock items={sectionEscalations} onChanged={onEscalationsChanged} embedded />
           </div>
         );
       })}

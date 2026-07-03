@@ -119,6 +119,10 @@ Rules (non-negotiable):
   decision-relevant; a long-term goal idling is not).
 - Every claim cites evidence from the observed data (commit subjects, meeting titles, ledger
   entries, saves). No evidence, no claim.
+- Cite at EXACTLY the granularity provided — quote the commit subject / meeting title / save slug
+  as given. NEVER invent details beyond the observed line: no file paths, counts, durations, or
+  specifics the evidence doesn't literally contain (refuter-caught failure: a commit message
+  embellished with invented touched-file paths).
 - CONTRADICTIONS are the payload: a stated top priority with no observed attention across the
   window, or heavy attention on something absent from any stated priority (drift). State them
   plainly with the evidence.

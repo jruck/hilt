@@ -5,7 +5,7 @@ import { useBriefings } from "@/hooks/useBriefings";
 import { BriefingHeader } from "./BriefingHeader";
 import { BriefingContent } from "./BriefingContent";
 import { BriefingFailureCard } from "./BriefingFailureCard";
-import { EscalationsPanel } from "./EscalationsPanel";
+import { useEscalations } from "./EscalationsPanel";
 import { Check, MessageSquare, Newspaper, Send, X } from "lucide-react";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { BridgeModeToggle, type BridgeMode } from "@/components/bridge/BridgeModeToggle";
@@ -162,17 +162,22 @@ function ShadowFeedbackButton({ date }: { date: string }) {
 }
 
 function ShadowBriefingPane({ content, date }: { content: string; date: string }) {
+  // Escalations nest inside their owning briefing sections (Justin, 2026-07-02); loops with no
+  // matching section fall back to a fold above the content.
+  const { items, mutate } = useEscalations();
   return (
     <div className="space-y-3">
       <div className="flex min-w-0 justify-end">
         <ShadowFeedbackButton date={date} />
       </div>
-      {/* Scope §4: the top fold — the union of every loop's escalated items — belongs to the v2
-          briefing, not to a standalone panel floating above v1. */}
-      <EscalationsPanel />
-      <BriefingContent content={content} date={date} />
+      <BriefingContent content={content} date={date} escalations={items} onEscalationsChanged={mutate} />
     </div>
   );
+}
+
+function CompareShadowContent({ content, date }: { content: string; date: string }) {
+  const { items, mutate } = useEscalations();
+  return <BriefingContent content={content} date={date} escalations={items} onEscalationsChanged={mutate} />;
 }
 
 function CompareBriefings({
@@ -203,8 +208,7 @@ function CompareBriefings({
           </h2>
           <ShadowFeedbackButton date={date} />
         </div>
-        <EscalationsPanel />
-        <BriefingContent content={shadowContent} date={date} />
+        <CompareShadowContent content={shadowContent} date={date} />
       </section>
     </div>
   );

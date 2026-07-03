@@ -8,7 +8,7 @@ import { AlertTriangle, Check, ChevronDown, ChevronRight, MessageSquare, PencilL
 import { withBasePath } from "@/lib/base-path";
 import type { Citation, LoopItem, RegistryLoop, Verdict, VerdictRecord, FeedbackRecord } from "@/lib/loops/types";
 
-type EscalatedLoopItem = LoopItem & {
+export type EscalatedLoopItem = LoopItem & {
   loop_phase: RegistryLoop["phase"];
   artifact_date: string;
   verdict?: Verdict;
@@ -18,6 +18,28 @@ interface EscalationsResponse {
   loops: Array<{ id: string; phase: RegistryLoop["phase"]; artifact_date: string }>;
   items: EscalatedLoopItem[];
   errors: Array<{ loop?: string; phase?: RegistryLoop["phase"]; message: string }>;
+}
+
+/** Which briefing section owns each loop's escalations (Justin, 2026-07-02: escalations nest in
+ * their sections — the top fold survives only as a fallback for loops with no matching section). */
+const LOOP_SECTION_PATTERNS: Array<{ loop: string; pattern: RegExp }> = [
+  { loop: "meeting-actions", pattern: /don.?t\s+drop/i },
+  { loop: "runtime", pattern: /system/i },
+  { loop: "goals-areas", pattern: /work|goal/i },
+  { loop: "library", pattern: /library/i },
+];
+
+export function loopMatchesSection(loopId: string, heading: string): boolean {
+  const entry = LOOP_SECTION_PATTERNS.find((candidate) => candidate.loop === loopId);
+  return entry ? entry.pattern.test(heading) : false;
+}
+
+export function useEscalations(): { items: EscalatedLoopItem[]; mutate: () => void } {
+  const { data, error, mutate } = useSWR<EscalationsResponse>("/api/loops/escalations", fetcher, {
+    refreshInterval: 60_000,
+    revalidateOnFocus: true,
+  });
+  return { items: error ? [] : (data?.items || []), mutate: () => void mutate() };
 }
 
 const visibleVerdicts: Array<{ verdict: Verdict; label: string }> = [
@@ -392,16 +414,24 @@ function MeetingGroup({ date, title, items, defaultOpen, onChanged }: {
   );
 }
 
-export function EscalationsPanel() {
-  const { data, error, mutate } = useSWR<EscalationsResponse>("/api/loops/escalations", fetcher, {
-    refreshInterval: 60_000,
-    revalidateOnFocus: true,
-  });
-  const items = data?.items || [];
+export function escalationsSummary(items: EscalatedLoopItem[]): string {
+  const askCount = items.filter((item) => item.loop === "meeting-actions" && meetingKey(item)).length;
+  const meetingCount = new Set(items.map((item) => item.loop === "meeting-actions" ? meetingKey(item)?.key : null).filter(Boolean)).size;
+  const signalCount = items.length - askCount;
+  return [
+    askCount > 0 ? `${askCount} ${askCount === 1 ? "ask" : "asks"} from ${meetingCount} ${meetingCount === 1 ? "meeting" : "meetings"}` : null,
+    signalCount > 0 ? `${signalCount} ${signalCount === 1 ? "signal" : "signals"}` : null,
+  ].filter(Boolean).join(" · ");
+}
 
-  // The top fold's shape (scope §4): standalone signals (runtime, goals, library — always few)
-  // render flat; meeting asks group by SOURCE MEETING with progressive disclosure, so a busy
-  // extraction day reads as "3 meetings to review", never as a wall of items.
+/** The presentational escalations body: standalone signals flat, meeting asks grouped by SOURCE
+ * MEETING with progressive disclosure. Renders nested inside a briefing section card (`embedded`)
+ * or inside the fallback fold. */
+export function EscalationsBlock({ items, onChanged, embedded }: {
+  items: EscalatedLoopItem[];
+  onChanged: () => void;
+  embedded?: boolean;
+}) {
   const { standalone, meetingGroups } = useMemo(() => {
     const standaloneItems: EscalatedLoopItem[] = [];
     const groups = new Map<string, { date: string; title: string; items: EscalatedLoopItem[] }>();
@@ -420,14 +450,44 @@ export function EscalationsPanel() {
     return { standalone: standaloneItems, meetingGroups: sorted };
   }, [items]);
 
-  if (error || items.length === 0) return null;
+  if (items.length === 0) return null;
 
-  const askCount = meetingGroups.reduce((total, group) => total + group.items.length, 0);
-  const summary = [
-    askCount > 0 ? `${askCount} ${askCount === 1 ? "ask" : "asks"} from ${meetingGroups.length} ${meetingGroups.length === 1 ? "meeting" : "meetings"}` : null,
-    standalone.length > 0 ? `${standalone.length} ${standalone.length === 1 ? "signal" : "signals"}` : null,
-  ].filter(Boolean).join(" · ");
+  return (
+    <div className={embedded ? "border-t border-[var(--border-default)]" : ""}>
+      {embedded && (
+        <div className="flex items-center gap-2 bg-[var(--bg-secondary)]/60 px-4 py-2 text-xs font-medium text-[var(--text-tertiary)]">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+          <span>Needs you · {escalationsSummary(items)}</span>
+        </div>
+      )}
+      {standalone.map((item) => (
+        <EscalationItemCard
+          key={`${item.loop}:${item.id}:${item.artifact_date}`}
+          item={item}
+          onChanged={onChanged}
+        />
+      ))}
+      {meetingGroups.map((group, index) => (
+        <MeetingGroup
+          key={group.date + group.title}
+          date={group.date}
+          title={group.title}
+          items={group.items}
+          defaultOpen={meetingGroups.length === 1 && index === 0 && group.items.length <= 5}
+          onChanged={onChanged}
+        />
+      ))}
+    </div>
+  );
+}
 
+/** Fallback fold: ONLY for escalations whose loop has no matching briefing section — nothing may
+ * silently disappear. With every loop mapped, this usually renders nothing. */
+export function EscalationsFallbackFold({ items, onChanged }: {
+  items: EscalatedLoopItem[];
+  onChanged: () => void;
+}) {
+  if (items.length === 0) return null;
   return (
     <section className="mb-5 hilt-card hilt-card-static overflow-hidden">
       <div className="border-b border-[var(--border-default)] bg-[var(--bg-secondary)] px-4 py-3">
@@ -438,35 +498,10 @@ export function EscalationsPanel() {
               Needs you
             </h2>
           </div>
-          <div className="flex shrink-0 items-center gap-2 text-xs text-[var(--text-tertiary)]">
-            <span>{summary}</span>
-            {data?.errors?.length ? (
-              <span title={data.errors.map((entry) => entry.loop ? `${entry.loop}: ${entry.message}` : entry.message).join("\n")}>
-                {data.errors.length} loop notes
-              </span>
-            ) : null}
-          </div>
+          <span className="shrink-0 text-xs text-[var(--text-tertiary)]">{escalationsSummary(items)}</span>
         </div>
       </div>
-      <div>
-        {standalone.map((item) => (
-          <EscalationItemCard
-            key={`${item.loop}:${item.id}:${item.artifact_date}`}
-            item={item}
-            onChanged={() => void mutate()}
-          />
-        ))}
-        {meetingGroups.map((group, index) => (
-          <MeetingGroup
-            key={group.date + group.title}
-            date={group.date}
-            title={group.title}
-            items={group.items}
-            defaultOpen={meetingGroups.length === 1 && index === 0 && group.items.length <= 5}
-            onChanged={() => void mutate()}
-          />
-        ))}
-      </div>
+      <EscalationsBlock items={items} onChanged={onChanged} />
     </section>
   );
 }

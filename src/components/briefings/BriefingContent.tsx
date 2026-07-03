@@ -9,6 +9,12 @@ import { useHaptics } from "@/hooks/useHaptics";
 import { useScope } from "@/contexts/ScopeContext";
 import { withBasePath } from "@/lib/base-path";
 import { CopyReferenceButton } from "@/components/ui/CopyReferenceButton";
+import {
+  EscalationsBlock,
+  EscalationsFallbackFold,
+  loopMatchesSection,
+  type EscalatedLoopItem,
+} from "./EscalationsPanel";
 interface BriefingContentProps {
   content: string;
   date?: string;
@@ -16,6 +22,10 @@ interface BriefingContentProps {
   absPath?: string;
   /** Render a feedback (comment) affordance on every item — scope §6: universal feedback capture. */
   feedbackable?: boolean;
+  /** Escalated loop items to NEST inside their owning sections (meeting asks → Don't drop this,
+   * runtime → System, …). Loops with no matching section render in a fallback fold above. */
+  escalations?: EscalatedLoopItem[];
+  onEscalationsChanged?: () => void;
 }
 
 interface BriefingItem {
@@ -353,8 +363,26 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable }: { item:
   );
 }
 
-export function BriefingContent({ content, date, absPath, feedbackable = true }: BriefingContentProps) {
+export function BriefingContent({ content, date, absPath, feedbackable = true, escalations = [], onEscalationsChanged = () => {} }: BriefingContentProps) {
   const { lede, sections } = useMemo(() => parseBriefing(content), [content]);
+
+  // Nest each loop's escalations inside its owning section; anything unmatched goes to the
+  // fallback fold above the briefing (nothing silently disappears).
+  const { bySection, unmatched } = useMemo(() => {
+    const perSection = new Map<number, EscalatedLoopItem[]>();
+    const leftovers: EscalatedLoopItem[] = [];
+    for (const item of escalations) {
+      const sectionIndex = sections.findIndex((section) => loopMatchesSection(item.loop, section.heading));
+      if (sectionIndex === -1) {
+        leftovers.push(item);
+        continue;
+      }
+      const bucket = perSection.get(sectionIndex);
+      if (bucket) bucket.push(item);
+      else perSection.set(sectionIndex, [item]);
+    }
+    return { bySection: perSection, unmatched: leftovers };
+  }, [escalations, sections]);
 
   // Fall back to plain markdown if no sections found
   if (sections.length === 0) {
@@ -399,8 +427,10 @@ export function BriefingContent({ content, date, absPath, feedbackable = true }:
           </ReactMarkdown>
         </div>
       )}
+      <EscalationsFallbackFold items={unmatched} onChanged={onEscalationsChanged} />
       {sections.map((section, si) => {
         const isSourcesSection = /sources/i.test(section.heading);
+        const sectionEscalations = bySection.get(si) || [];
         return (
           <div key={si} className="hilt-card hilt-card-static overflow-hidden">
             <div className="px-4 py-3 border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">
@@ -435,6 +465,7 @@ export function BriefingContent({ content, date, absPath, feedbackable = true }:
                 ))}
               </ul>
             )}
+            <EscalationsBlock items={sectionEscalations} onChanged={onEscalationsChanged} embedded />
           </div>
         );
       })}

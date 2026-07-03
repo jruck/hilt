@@ -40,6 +40,11 @@ const timeoutMs = Number(process.env.LOOP_MEETING_TIMEOUT_MS || 300_000);
 /** "Recent" = still verdict-worthy: escalation + queue-priority both key off this. */
 const RECENT_DAYS = 3;
 const isRecentDate = (d: string): boolean => (Date.parse(today) - Date.parse(d)) / 86_400_000 <= RECENT_DAYS;
+/** Backfill window (Justin, 2026-07-02): parse only meetings ≤30 days old. Older meetings'
+ * commitments are mostly resolved or dead — parsing them mints open "zombie" entries that never
+ * see closure evidence and bloat the identity digest riding in every extraction prompt. The
+ * archive stays in the vault; widen the window here if history is ever wanted. */
+const BACKFILL_DAYS = Number(process.env.LOOP_MEETING_BACKFILL_DAYS || 30);
 
 interface ProcessedState { processed: Record<string, string>; }
 
@@ -66,9 +71,11 @@ function findUnprocessedMeetings(home: string): string[] {
   const root = path.join(vaultPath, "meetings");
   const recent: string[] = []; // ≤RECENT_DAYS old — jump the queue (their asks are verdict-worthy TODAY)
   const backlog: string[] = []; // everything else drains oldest-first behind them
+  const horizon = asOf || today;
   for (const dir of fs.readdirSync(root).sort()) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dir)) continue;
     if (asOf && dir > asOf) continue;
+    if ((Date.parse(horizon) - Date.parse(dir)) / 86_400_000 > BACKFILL_DAYS) continue;
     const dayDir = path.join(root, dir);
     for (const f of fs.readdirSync(dayDir).sort()) {
       if (!f.endsWith(".md")) continue;

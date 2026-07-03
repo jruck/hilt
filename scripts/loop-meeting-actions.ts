@@ -8,7 +8,7 @@ import { loadRegistry, loopHome } from "../src/lib/loops/registry";
 import { emitLoopArtifact, defaultSandboxDir } from "../src/lib/loops/emit";
 import { readUnactedVerdicts, markVerdictsActed, readUnprocessedFeedback, markFeedbackProcessed } from "../src/lib/loops/stores";
 import {
-  catchPhraseSpans, entryAgeDays, mintEntryId, nextSeq, openEntries, openLedgerDigest,
+  catchPhraseSpans, mintEntryId, nextSeq, openEntries, openLedgerDigest,
   readLedger, transition, writeLedger, type Ledger, type LedgerEntry,
 } from "../src/lib/loops/meeting-ledger";
 import { EXTRACTOR_SYSTEM, buildExtractorTask } from "../src/lib/loops/meeting-extractor-prompt";
@@ -246,16 +246,24 @@ async function main(): Promise<void> {
       allowed_verdicts: ["approve", "dismiss", "assign_to_me", "assign_to_agent", "revise"],
     });
   }
-  for (const e of openEntries(ledger)) {
-    const age = entryAgeDays(e, now);
-    if (age >= 7 && !opened.includes(e)) {
-      items.push({
-        id: `${e.id}-aging`, loop: loop.id, kind: "insight",
-        title: `Aging ${age}d: ${e.action.slice(0, 120)} (${e.owner})`,
-        citations: e.citations,
-        escalated: { reason: `open commitment is ${age} days old with no closure evidence` },
-      });
-    }
+  // Aging = ACCEPTED commitments that are slipping. Only entries Justin approved can age-escalate
+  // (an un-verdicted backfill entry is not "slipping" — it was never accepted; the first aging
+  // design escalated every ≥7d open entry, which re-flooded the panel with ~600-day-old backfill
+  // the moment the flood-gate above stopped the first flood). Aged from acceptance, capped hard.
+  const AGING_CAP = 5;
+  const aging = openEntries(ledger)
+    .filter((e) => e.verdict?.verdict === "approve" && !opened.includes(e))
+    .map((e) => ({ e, age: Math.floor((Date.parse(now) - Date.parse(e.verdict!.at)) / 86_400_000) }))
+    .filter(({ age }) => age >= 7)
+    .sort((a, b) => b.age - a.age)
+    .slice(0, AGING_CAP);
+  for (const { e, age } of aging) {
+    items.push({
+      id: `${e.id}-aging`, loop: loop.id, kind: "insight",
+      title: `Aging ${age}d since you accepted it: ${e.action.slice(0, 110)} (${e.owner})`,
+      citations: e.citations,
+      escalated: { reason: `accepted commitment open ${age} days with no closure evidence` },
+    });
   }
 
   const open = openEntries(ledger);

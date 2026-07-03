@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useMemo, useCallback, type MouseEvent, type ReactNode } from "react";
+import { useState, useMemo, useCallback, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
+import { Check, MessageSquare, Send } from "lucide-react";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useScope } from "@/contexts/ScopeContext";
 import { withBasePath } from "@/lib/base-path";
@@ -13,11 +14,15 @@ interface BriefingContentProps {
   date?: string;
   /** Absolute path to the briefing file — enables a Copy reference button per item. */
   absPath?: string;
+  /** Render a feedback (comment) affordance on every item — scope §6: universal feedback capture. */
+  feedbackable?: boolean;
 }
 
 interface BriefingItem {
   headline: string; // top-level bullet text (markdown)
   details: string; // sub-bullets as markdown
+  /** True when this "item" is a paragraph/standalone-link line, not a bullet (renders unmarked). */
+  prose?: boolean;
 }
 
 interface BriefingSection {
@@ -26,31 +31,43 @@ interface BriefingSection {
 }
 
 /**
- * Parse briefing markdown into sections with collapsible items.
- * Expects format:
+ * Parse briefing markdown into a lede + sections with collapsible items.
+ * Handles the briefing shape:
+ *   **Day-thesis lede paragraph.**
  *   ## Section Heading
  *   - Top-level headline
  *     - Detail sub-bullet
- *     - Another detail
+ *   Prose paragraph (sections may be prose-styled — e.g. Library)
+ *   [Full library report](/api/reports/morning)
+ * Paragraph lines and standalone link lines are PRESERVED as unmarked items — the first
+ * renderer dropped every non-bullet line, which silently emptied prose-styled sections and
+ * hid the lede entirely. Parsing stops at a `---` horizontal rule (the generation footer).
  */
-function parseBriefing(content: string): { sections: BriefingSection[] } {
+function parseBriefing(content: string): { lede: string; sections: BriefingSection[] } {
   // Strip leading h1
   const body = content.replace(/^\s*#\s+.+\n*/, "");
   const lines = body.split("\n");
 
   const sections: BriefingSection[] = [];
+  const ledeLines: string[] = [];
   let currentSection: BriefingSection | null = null;
   let currentItem: BriefingItem | null = null;
+
+  const flushItem = () => {
+    if (currentItem && currentSection) currentSection.items.push(currentItem);
+    currentItem = null;
+  };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
+    // Horizontal rule — everything after it is the generation footer; stop.
+    if (line.match(/^\s*(-{3,}|\*{3,})\s*$/)) break;
+
     // Footnote definition lines — treat as top-level items in current section
     const footnoteMatch = line.match(/^\[\^(\d+)\]:\s*(.*)/);
     if (footnoteMatch) {
-      if (currentItem && currentSection) {
-        currentSection.items.push(currentItem);
-      }
+      flushItem();
       currentItem = {
         headline: `[${footnoteMatch[1]}] ${footnoteMatch[2]}`,
         details: "",
@@ -60,15 +77,8 @@ function parseBriefing(content: string): { sections: BriefingSection[] } {
 
     // ## Section heading
     if (line.match(/^##\s+/)) {
-      // Save previous item
-      if (currentItem && currentSection) {
-        currentSection.items.push(currentItem);
-        currentItem = null;
-      }
-      // Save previous section
-      if (currentSection) {
-        sections.push(currentSection);
-      }
+      flushItem();
+      if (currentSection) sections.push(currentSection);
       currentSection = {
         heading: line.replace(/^##\s+/, "").trim(),
         items: [],
@@ -78,10 +88,7 @@ function parseBriefing(content: string): { sections: BriefingSection[] } {
 
     // Top-level bullet: "- " at start (no indent)
     if (line.match(/^- /)) {
-      // Save previous item
-      if (currentItem && currentSection) {
-        currentSection.items.push(currentItem);
-      }
+      flushItem();
       currentItem = {
         headline: line.replace(/^- /, "").trim(),
         details: "",
@@ -90,29 +97,43 @@ function parseBriefing(content: string): { sections: BriefingSection[] } {
     }
 
     // Indented line (sub-bullet or continuation) — belongs to current item
-    if (currentItem && line.match(/^\s{2,}/)) {
+    if (currentItem && !currentItem.prose && line.match(/^\s{2,}/)) {
       currentItem.details += (currentItem.details ? "\n" : "") + line;
       continue;
     }
 
-    // Empty line — preserve for spacing
-    if (line.trim() === "" && currentItem) {
-      if (currentItem.details) {
-        currentItem.details += "\n";
+    // Paragraph / standalone-link line (unindented, non-bullet, non-heading)
+    if (line.trim() !== "") {
+      if (!currentSection) {
+        // Before the first section heading = the day-thesis lede.
+        ledeLines.push(line.trim());
+        continue;
+      }
+      // Merge consecutive paragraph lines into one prose item.
+      if (currentItem?.prose) {
+        currentItem.headline += ` ${line.trim()}`;
+      } else {
+        flushItem();
+        currentItem = { headline: line.trim(), details: "", prose: true };
       }
       continue;
+    }
+
+    // Empty line — paragraph boundary for prose; spacing for bullet details.
+    if (currentItem?.prose) {
+      flushItem();
+    } else if (currentItem && currentItem.details) {
+      currentItem.details += "\n";
     }
   }
 
   // Save final item and section
-  if (currentItem && currentSection) {
-    currentSection.items.push(currentItem);
-  }
+  flushItem();
   if (currentSection) {
     sections.push(currentSection);
   }
 
-  return { sections };
+  return { lede: ledeLines.join(" "), sections };
 }
 
 /** Replace [^N] citation markers with superscript HTML */
@@ -195,7 +216,83 @@ function BriefingLink({
   );
 }
 
-function CollapsibleItem({ item, date, absPath }: { item: BriefingItem; date?: string; absPath?: string }) {
+/** Universal per-item feedback (scope §6: "a comment affordance on any briefing bullet"). Anchors
+ * by (briefing date, section, bullet text) and routes to the briefing loop. */
+function ItemFeedbackButton({ section, headline }: { section: string; headline: string }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(withBasePath("/api/loops/feedback"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          loop: "briefing",
+          text: trimmed,
+          target: { level: "item", anchor: { section, text: headline.slice(0, 200) } },
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(payload?.error || `Request failed: ${response.status}`);
+      }
+      setText("");
+      setOpen(false);
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save feedback");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-secondary)] ${
+          saved ? "text-emerald-500" : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+        }`}
+        title={saved ? "Feedback saved" : "Leave feedback on this item"}
+        aria-label={saved ? "Feedback saved" : "Leave feedback on this item"}
+      >
+        {saved ? <Check className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
+      </button>
+      {open && (
+        <form onSubmit={submit} onClick={(e) => e.stopPropagation()} className="flex w-full items-center gap-2 py-1">
+          <input
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            autoFocus
+            className="min-h-8 min-w-0 flex-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
+            placeholder="Feedback on this item"
+            aria-label="Feedback on this item"
+          />
+          <button
+            type="submit"
+            disabled={!text.trim() || busy}
+            className="inline-flex min-h-8 items-center rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-50"
+          >
+            <Send className="h-3.5 w-3.5" />
+          </button>
+        </form>
+      )}
+      {error && <p className="w-full text-xs text-red-500">{error}</p>}
+    </>
+  );
+}
+
+function CollapsibleItem({ item, section, date, absPath, feedbackable }: { item: BriefingItem; section: string; date?: string; absPath?: string; feedbackable?: boolean }) {
   const haptics = useHaptics();
   const [expanded, setExpanded] = useState(false);
   const hasDetails = item.details.trim().length > 0;
@@ -205,7 +302,7 @@ function CollapsibleItem({ item, date, absPath }: { item: BriefingItem; date?: s
   const footnoteId = footnoteMatch ? `fn-${footnoteMatch[1]}` : undefined;
 
   return (
-    <li id={footnoteId} className={`text-[var(--text-secondary)] ${hasDetails ? `briefing-expandable${expanded ? " briefing-expanded" : ""}` : ""}`}>
+    <li id={footnoteId} className={`text-[var(--text-secondary)] ${item.prose ? "list-none -ml-4 py-1" : ""} ${hasDetails ? `briefing-expandable${expanded ? " briefing-expanded" : ""}` : ""}`}>
       <div
         onClick={() => {
           if (!hasDetails) return;
@@ -213,9 +310,9 @@ function CollapsibleItem({ item, date, absPath }: { item: BriefingItem; date?: s
           else haptics.soft();
           setExpanded(!expanded);
         }}
-        className={`group flex items-start justify-between gap-2 py-0.5 ${hasDetails ? "cursor-pointer" : ""}`}
+        className={`group flex flex-wrap items-start justify-between gap-2 py-0.5 ${hasDetails ? "cursor-pointer" : ""}`}
       >
-        <span className="text-[var(--text-secondary)] leading-relaxed briefing-inline-md">
+        <span className="min-w-0 flex-1 text-[var(--text-secondary)] leading-relaxed briefing-inline-md">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeRaw]}
@@ -229,11 +326,12 @@ function CollapsibleItem({ item, date, absPath }: { item: BriefingItem; date?: s
             {renderCitations(item.headline)}
           </ReactMarkdown>
         </span>
-        {absPath && (
-          <span onClick={(e) => e.stopPropagation()} className="shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+        <span onClick={(e) => e.stopPropagation()} className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+          {feedbackable && <ItemFeedbackButton section={section} headline={item.headline} />}
+          {absPath && (
             <CopyReferenceButton variant="icon" reference={{ kind: "briefing-item", absPath, headline: item.headline }} />
-          </span>
-        )}
+          )}
+        </span>
       </div>
       {expanded && hasDetails && (
         <div className="pb-1 text-[var(--text-secondary)] leading-relaxed">
@@ -255,8 +353,8 @@ function CollapsibleItem({ item, date, absPath }: { item: BriefingItem; date?: s
   );
 }
 
-export function BriefingContent({ content, date, absPath }: BriefingContentProps) {
-  const { sections } = useMemo(() => parseBriefing(content), [content]);
+export function BriefingContent({ content, date, absPath, feedbackable = true }: BriefingContentProps) {
+  const { lede, sections } = useMemo(() => parseBriefing(content), [content]);
 
   // Fall back to plain markdown if no sections found
   if (sections.length === 0) {
@@ -287,6 +385,20 @@ export function BriefingContent({ content, date, absPath }: BriefingContentProps
 
   return (
     <div className="briefing-content prose max-w-none prose-headings:text-[var(--text-primary)] prose-headings:font-semibold prose-p:text-[var(--text-secondary)] prose-p:leading-relaxed prose-strong:text-[var(--text-primary)] prose-a:text-[var(--interactive-default)] hover:prose-a:text-[var(--interactive-hover)] prose-a:no-underline hover:prose-a:underline prose-a:underline-offset-2 prose-li:text-[var(--text-secondary)] prose-li:leading-relaxed prose-code:text-[var(--text-secondary)] prose-code:bg-[var(--bg-tertiary)] space-y-5">
+      {lede && (
+        <div className="px-1 text-[15px] leading-relaxed text-[var(--text-secondary)]">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              p: ({ children }) => <p className="!my-0">{children}</p>,
+              strong: ({ children }) => <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>,
+              a: ({ href, children, className }) => <BriefingLink href={href} className={className} date={date}>{children}</BriefingLink>,
+            }}
+          >
+            {lede}
+          </ReactMarkdown>
+        </div>
+      )}
       {sections.map((section, si) => {
         const isSourcesSection = /sources/i.test(section.heading);
         return (
@@ -319,7 +431,7 @@ export function BriefingContent({ content, date, absPath }: BriefingContentProps
             ) : (
               <ul className="briefing-list pl-9 pr-4 py-2 space-y-0 !m-0">
                 {section.items.map((item, ii) => (
-                  <CollapsibleItem key={ii} item={item} date={date} absPath={absPath} />
+                  <CollapsibleItem key={ii} item={item} section={section.heading} date={date} absPath={absPath} feedbackable={feedbackable} />
                 ))}
               </ul>
             )}

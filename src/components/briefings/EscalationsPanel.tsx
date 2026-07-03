@@ -342,6 +342,56 @@ function EscalationItemCard({ item, onChanged }: { item: EscalatedLoopItem; onCh
   );
 }
 
+/** Parse the source meeting out of an item's first citation ("meetings/<date>/<name>.md ..."). */
+function meetingKey(item: EscalatedLoopItem): { key: string; date: string; title: string } | null {
+  const source = item.citations?.[0]?.source || "";
+  const match = source.match(/meetings\/(\d{4}-\d{2}-\d{2})\/([^/]+?)(?:-\d{4}-\d{2}-\d{2}[^/]*)?\.md/);
+  if (!match) return null;
+  return { key: `${match[1]}/${match[2]}`, date: match[1], title: match[2] };
+}
+
+/** One source meeting's asks, collapsed behind a count until opened. */
+function MeetingGroup({ date, title, items, defaultOpen, onChanged }: {
+  date: string;
+  title: string;
+  items: EscalatedLoopItem[];
+  defaultOpen: boolean;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const decided = items.filter((item) => item.verdict).length;
+  return (
+    <div className="border-t border-[var(--border-default)] first:border-t-0">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[var(--bg-secondary)]"
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--text-tertiary)]" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--text-tertiary)]" />}
+          <span className="truncate text-sm font-medium text-[var(--text-primary)]">{title}</span>
+          <span className="shrink-0 text-xs text-[var(--text-tertiary)]">{date}</span>
+        </span>
+        <span className="shrink-0 text-xs text-[var(--text-tertiary)]">
+          {decided > 0 ? `${decided}/${items.length} decided` : `${items.length} ${items.length === 1 ? "ask" : "asks"}`}
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-[var(--border-default)] bg-[var(--bg-primary)]/40">
+          {items.map((item) => (
+            <EscalationItemCard
+              key={`${item.loop}:${item.id}:${item.artifact_date}`}
+              item={item}
+              onChanged={onChanged}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function EscalationsPanel() {
   const { data, error, mutate } = useSWR<EscalationsResponse>("/api/loops/escalations", fetcher, {
     refreshInterval: 60_000,
@@ -349,7 +399,34 @@ export function EscalationsPanel() {
   });
   const items = data?.items || [];
 
+  // The top fold's shape (scope §4): standalone signals (runtime, goals, library — always few)
+  // render flat; meeting asks group by SOURCE MEETING with progressive disclosure, so a busy
+  // extraction day reads as "3 meetings to review", never as a wall of items.
+  const { standalone, meetingGroups } = useMemo(() => {
+    const standaloneItems: EscalatedLoopItem[] = [];
+    const groups = new Map<string, { date: string; title: string; items: EscalatedLoopItem[] }>();
+    for (const item of items) {
+      const meeting = item.loop === "meeting-actions" ? meetingKey(item) : null;
+      if (!meeting) {
+        standaloneItems.push(item);
+        continue;
+      }
+      const existing = groups.get(meeting.key);
+      if (existing) existing.items.push(item);
+      else groups.set(meeting.key, { date: meeting.date, title: meeting.title, items: [item] });
+    }
+    // Newest meeting first — mirrors "recent asks are the verdict-worthy ones".
+    const sorted = [...groups.values()].sort((a, b) => b.date.localeCompare(a.date));
+    return { standalone: standaloneItems, meetingGroups: sorted };
+  }, [items]);
+
   if (error || items.length === 0) return null;
+
+  const askCount = meetingGroups.reduce((total, group) => total + group.items.length, 0);
+  const summary = [
+    askCount > 0 ? `${askCount} ${askCount === 1 ? "ask" : "asks"} from ${meetingGroups.length} ${meetingGroups.length === 1 ? "meeting" : "meetings"}` : null,
+    standalone.length > 0 ? `${standalone.length} ${standalone.length === 1 ? "signal" : "signals"}` : null,
+  ].filter(Boolean).join(" · ");
 
   return (
     <section className="mb-5 hilt-card hilt-card-static overflow-hidden">
@@ -358,11 +435,11 @@ export function EscalationsPanel() {
           <div className="flex min-w-0 items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
             <h2 className="truncate text-base font-semibold text-[var(--text-primary)]">
-              Awaiting your verdict
+              Needs you
             </h2>
           </div>
           <div className="flex shrink-0 items-center gap-2 text-xs text-[var(--text-tertiary)]">
-            <span>{items.length} {items.length === 1 ? "item" : "items"}</span>
+            <span>{summary}</span>
             {data?.errors?.length ? (
               <span title={data.errors.map((entry) => entry.loop ? `${entry.loop}: ${entry.message}` : entry.message).join("\n")}>
                 {data.errors.length} loop notes
@@ -372,10 +449,20 @@ export function EscalationsPanel() {
         </div>
       </div>
       <div>
-        {items.map((item) => (
+        {standalone.map((item) => (
           <EscalationItemCard
             key={`${item.loop}:${item.id}:${item.artifact_date}`}
             item={item}
+            onChanged={() => void mutate()}
+          />
+        ))}
+        {meetingGroups.map((group, index) => (
+          <MeetingGroup
+            key={group.date + group.title}
+            date={group.date}
+            title={group.title}
+            items={group.items}
+            defaultOpen={meetingGroups.length === 1 && index === 0 && group.items.length <= 5}
             onChanged={() => void mutate()}
           />
         ))}

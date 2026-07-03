@@ -35,9 +35,11 @@ interface ShadowBriefingResponse {
   generated_at: string | null;
 }
 
+// "v1" is the briefing that ships today (Hermes-era pipeline); "v2" is the loops-fed shadow.
+// Both are generated live each morning — "Live" as a label was wrong, both are live.
 const REVIEW_MODE_OPTIONS: Array<{ id: BriefingReviewMode; label: string }> = [
-  { id: "live", label: "Live" },
-  { id: "shadow", label: "v2 shadow" },
+  { id: "live", label: "v1" },
+  { id: "shadow", label: "v2" },
   { id: "compare", label: "Compare" },
 ];
 
@@ -165,6 +167,9 @@ function ShadowBriefingPane({ content, date }: { content: string; date: string }
       <div className="flex min-w-0 justify-end">
         <ShadowFeedbackButton date={date} />
       </div>
+      {/* Scope §4: the top fold — the union of every loop's escalated items — belongs to the v2
+          briefing, not to a standalone panel floating above v1. */}
+      <EscalationsPanel />
       <BriefingContent content={content} date={date} />
     </div>
   );
@@ -187,7 +192,7 @@ function CompareBriefings({
     <div className="grid gap-5 lg:grid-cols-2 lg:gap-0 lg:divide-x lg:divide-[var(--border-default)]">
       <section className="min-w-0 lg:pr-5">
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-normal text-[var(--text-tertiary)]">
-          Live
+          v1
         </h2>
         {liveFallback ?? <BriefingContent content={liveContent} date={date} absPath={absPath} />}
       </section>
@@ -198,6 +203,7 @@ function CompareBriefings({
           </h2>
           <ShadowFeedbackButton date={date} />
         </div>
+        <EscalationsPanel />
         <BriefingContent content={shadowContent} date={date} />
       </section>
     </div>
@@ -223,7 +229,10 @@ export function BriefingsView({
     retryStatus,
     retryMessage,
   } = useBriefings();
-  const [reviewMode, setReviewMode] = useState<BriefingReviewMode>("live");
+  // v2 is the default read when a shadow exists ("all the new stuff lives on v2" — the v1 pane is
+  // the comparison baseline; falls back to v1 when no shadow file exists for the date). An
+  // explicit user pick sticks for the session.
+  const [reviewMode, setReviewMode] = useState<BriefingReviewMode>("shadow");
   const [shadowBriefing, setShadowBriefing] = useState<ShadowBriefingResponse | null>(null);
 
   const mobileHud = isMobile && onHudVisibleChange ? (
@@ -365,10 +374,7 @@ export function BriefingsView({
                   retryMessage={retryMessage}
                 />
               ) : (
-                <>
-                  <EscalationsPanel />
-                  <BriefingContent content={briefing.content} date={briefing.date} absPath={briefing.absPath} />
-                </>
+                <BriefingContent content={briefing.content} date={briefing.date} absPath={briefing.absPath} />
               )
             ) : (
               <div className="text-sm text-[var(--text-tertiary)] text-center py-12">

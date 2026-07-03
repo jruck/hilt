@@ -39,8 +39,11 @@ function findFeedbackLoop(
   if (enabledLoop) return enabledLoop;
 
   // During the Briefings v2 shadow period, the briefing loop may be present in the registry but
-  // disabled while its review surface still needs to collect whole-briefing feedback.
-  if (loopId === "briefing" && level === "briefing") {
+  // disabled while its review surface still collects feedback — at EVERY level (scope §6:
+  // feedback attaches to any item, any section, or the briefing itself). `level` kept in the
+  // signature for future per-level routing.
+  void level;
+  if (loopId === "briefing") {
     return registry.loops.find((loop) => loop.id === loopId && !loop.enabled) ?? null;
   }
 

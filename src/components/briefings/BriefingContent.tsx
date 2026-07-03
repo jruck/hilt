@@ -366,13 +366,21 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable }: { item:
 export function BriefingContent({ content, date, absPath, feedbackable = true, escalations = [], onEscalationsChanged = () => {} }: BriefingContentProps) {
   const { lede, sections } = useMemo(() => parseBriefing(content), [content]);
 
-  // Nest each loop's escalations inside its owning section; anything unmatched goes to the
-  // fallback fold above the briefing (nothing silently disappears).
+  // Nest each loop's escalations inside its owning section. The join key is the briefing's OWN
+  // loop citations (`*loop:<id>, <date>*` — the generator stamps which section drew from which
+  // loop), so the generator's editorial placement decides ownership; the heading name-map is only
+  // a fallback for briefings that don't cite an escalating loop. Anything still unmatched goes to
+  // the fallback fold above (nothing silently disappears).
   const { bySection, unmatched } = useMemo(() => {
+    const sectionTexts = sections.map((section) =>
+      section.items.map((item) => `${item.headline}\n${item.details}`).join("\n"));
     const perSection = new Map<number, EscalatedLoopItem[]>();
     const leftovers: EscalatedLoopItem[] = [];
     for (const item of escalations) {
-      const sectionIndex = sections.findIndex((section) => loopMatchesSection(item.loop, section.heading));
+      let sectionIndex = sectionTexts.findIndex((text) => text.includes(`loop:${item.loop}`));
+      if (sectionIndex === -1) {
+        sectionIndex = sections.findIndex((section) => loopMatchesSection(item.loop, section.heading));
+      }
       if (sectionIndex === -1) {
         leftovers.push(item);
         continue;

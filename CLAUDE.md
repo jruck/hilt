@@ -18,6 +18,9 @@ File-native context space for Bridge planning, People memory, Briefings, Referen
 2. If architectural changes were made, update `docs/ARCHITECTURE.md`
 3. For new/modified types, update `docs/DATA-MODELS.md`
 4. For new/modified API routes, update `docs/API.md`
+5. **If the change touches loops, the briefing pipeline, schedules, or where any loop/briefing
+   file lives, update `docs/HOW-IT-WORKS.md`** — it renders IN THE APP (the ⓘ icon in the top
+   bar) as Justin's canonical plain-language reference, so a stale entry is a user-facing bug.
 
 ⚠️ **Do not commit without checking CHANGELOG.md** - incremental updates are preferred, but commit-time is the last chance.
 

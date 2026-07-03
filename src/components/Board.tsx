@@ -8,6 +8,7 @@ import type { ViewPrefix } from "@/lib/url-utils";
 import { chooseLandingView } from "@/lib/landing-view";
 import { ViewMode } from "./ViewToggle";
 import { NavBar } from "./NavBar";
+import { HowItWorksDoc } from "./system/HowItWorksDoc";
 import { AppHud } from "./AppHud";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBriefingUnread } from "@/hooks/useBriefingUnread";
@@ -307,6 +308,8 @@ export function Board() {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState<string>("");
+  // The ⓘ reference view: swaps the content area for docs/HOW-IT-WORKS.md (rendered).
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const [addTaskTrigger, setAddTaskTrigger] = useState(0);
   const [bridgeTaskOpenRequest, setBridgeTaskOpenRequest] = useState<BridgeTaskOpenRequest | null>(null);
 
@@ -398,11 +401,15 @@ export function Board() {
         openPriorities={openPriorities}
         hudVisible={hudVisible}
         setHudVisible={setHudVisible}
+        howItWorksOpen={howItWorksOpen}
+        setHowItWorksOpen={setHowItWorksOpen}
         unreadTabs={unreadTabs}
       />
 
+      {howItWorksOpen && <HowItWorksDoc onNavigated={() => setHowItWorksOpen(false)} />}
+
       <div
-        className="flex min-h-0 flex-1 overflow-hidden"
+        className={`flex min-h-0 flex-1 overflow-hidden${howItWorksOpen ? " hidden" : ""}`}
         style={undefined}
       >
         {/* Main content column — wrapped in PullToRefresh on mobile */}

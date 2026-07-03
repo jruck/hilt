@@ -6,7 +6,7 @@ import { useHaptics } from "@/hooks/useHaptics";
 import { ViewToggle, ViewMode } from "./ViewToggle";
 import { ThemeToggle } from "./ThemeToggle";
 import { SourceToggle } from "./SourceToggle";
-import { PanelBottom, Search, X } from "lucide-react";
+import { Info, PanelBottom, Search, X } from "lucide-react";
 import { useMobileChrome, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 
 const SHORTCUTS = [
@@ -69,6 +69,8 @@ interface NavBarProps {
   openPriorities: () => void;
   hudVisible: boolean;
   setHudVisible: React.Dispatch<React.SetStateAction<boolean>>;
+  howItWorksOpen: boolean;
+  setHowItWorksOpen: React.Dispatch<React.SetStateAction<boolean>>;
   unreadTabs?: Set<string>;
 }
 
@@ -81,6 +83,8 @@ export function NavBar({
   openPriorities,
   hudVisible,
   setHudVisible,
+  howItWorksOpen,
+  setHowItWorksOpen,
   unreadTabs,
 }: NavBarProps) {
   const isMobile = useIsMobile();
@@ -411,6 +415,20 @@ export function NavBar({
           aria-label={hudVisible ? "Hide HUD" : "Show HUD"}
         >
           <PanelBottom className="h-4 w-4" />
+        </button>
+        <button
+          onClick={() => {
+            haptics.selection();
+            setHowItWorksOpen((open) => !open);
+          }}
+          className={`pointer-events-auto rounded p-1.5 transition-colors hover:bg-[var(--bg-tertiary)] ${
+            howItWorksOpen ? "text-[var(--text-primary)] bg-[var(--bg-tertiary)]" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+          }`}
+          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+          title={howItWorksOpen ? "Back to the app" : "How it all works"}
+          aria-label={howItWorksOpen ? "Close the how-it-works reference" : "Open the how-it-works reference"}
+        >
+          <Info className="h-4 w-4" />
         </button>
         <div className="pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}><SourceToggle /></div>
       </div>

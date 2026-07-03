@@ -333,7 +333,7 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
   const footnoteId = footnoteMatch ? `fn-${footnoteMatch[1]}` : undefined;
 
   return (
-    <li id={footnoteId} className={`${headlineBound.length ? "group/askrow " : ""}relative text-[var(--text-secondary)] ${item.prose ? "list-none -ml-4 py-1" : ""} ${hasDetails ? `briefing-expandable${expanded ? " briefing-expanded" : ""}` : ""} ${escalatedHere ? "briefing-escalated" : ""}`}>
+    <li id={footnoteId} className={`${headlineBound.length ? "group/askrow " : ""}relative text-[var(--text-secondary)] ${item.prose ? "list-none py-1" : ""} ${hasDetails ? `briefing-expandable${expanded ? " briefing-expanded" : ""}` : ""} ${escalatedHere ? "briefing-escalated" : ""}`}>
       <div
         onClick={() => {
           if (!hasDetails) return;

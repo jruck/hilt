@@ -240,8 +240,13 @@ async function main(): Promise<void> {
   // yesterday's pending asks vanish from the panel). Backfill/older entries never escalate here
   // (the 2026-07-02 flood, twice); they live in the ledger and surface via the aging path below
   // once accepted, or contextually later.
+  // OWNERSHIP (Justin, 2026-07-03): verdicts are for JUSTIN'S commitments — "approve" means he
+  // accepts the work as his. Other attendees' commitments stay in the ledger as observations
+  // (closure detection, future waiting-on projections) but never demand his morning verdict.
+  // `unclear` still escalates: it may be his, and correcting it doubles as extractor feedback.
   for (const e of openEntries(ledger)) {
     if (e.verdict) continue;
+    if (e.owner.startsWith("other:")) continue;
     const meetingDate = e.opened_from.match(/meetings\/(\d{4}-\d{2}-\d{2})\//)?.[1] || today;
     if (!isRecentDate(meetingDate)) continue;
     items.push({

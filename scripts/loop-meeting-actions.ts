@@ -171,14 +171,21 @@ async function main(): Promise<void> {
   const ledger = readLedger(home);
   const now = isoNow();
 
-  // 0 · Apply unacted verdicts (approve = accepted+tracked; dismiss = dropped; revise = note).
+  // 0 · Apply unacted verdicts (approve/assign = accepted+tracked; dismiss = dropped;
+  // revise = correction, NOT a decision: the action text updates and the entry stays
+  // UN-verdicted so it RE-ESCALATES revised for a real approve/dismiss — a correction must
+  // not end the conversation (caught by Justin 2026-07-03).
   const verdicts = readUnactedVerdicts(home);
   for (const v of verdicts) {
     const entry = ledger.entries[v.item_id];
     if (!entry) continue;
+    if (v.verdict === "revise") {
+      if (v.note) entry.action = `${entry.action} [revised: ${v.note}]`;
+      delete entry.verdict;
+      continue;
+    }
     entry.verdict = { verdict: v.verdict, at: v.created_at, ...(v.note ? { note: v.note } : {}) };
     if (v.verdict === "dismiss") transition(entry, "dropped", now, "dismissed by verdict");
-    if (v.verdict === "revise" && v.note) entry.action = `${entry.action} [revised: ${v.note}]`;
   }
   if (verdicts.length) markVerdictsActed(home, verdicts.map((v) => v.id), { at: now, run_at: now });
 

@@ -305,10 +305,26 @@ function ItemFeedbackButton({ section, headline }: { section: string; headline: 
   );
 }
 
+/** Join keys are not reading material: strip loop item ids + loop citations from display text. */
+function cleanLoopTokens(text: string): string {
+  return text
+    .replace(/`[a-z]{2,8}-\d{4}-\d{2}-\d{2}-\d{3}`/g, "")
+    .replace(/\b[a-z]{2,8}-\d{4}-\d{2}-\d{2}-\d{3}\b/g, "")
+    .replace(/\*loop:[^*]+\*/g, "")
+    .replace(/[ \t]+$/gm, "")
+    .replace(/ {2,}/g, " ");
+}
+
 function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoopItems = [], onLoopItemsChanged = () => {} }: { item: BriefingItem; section: string; date?: string; absPath?: string; feedbackable?: boolean; boundLoopItems?: EscalatedLoopItem[]; onLoopItemsChanged?: () => void }) {
   const haptics = useHaptics();
   const [expanded, setExpanded] = useState(false);
-  const hasDetails = item.details.trim().length > 0;
+  // Asks bound to this bullet: headline-bound get controls under the headline; detail-bound
+  // render the sub-bullet list ALWAYS VISIBLE with each ask's controls inline on ITS line —
+  // never a parallel control stack repeating the editor's list (rejected 2026-07-03).
+  const headlineBound = boundLoopItems.filter((loopItem) => item.headline.includes(loopItem.id));
+  const detailBound = boundLoopItems.filter((loopItem) => item.details.includes(loopItem.id));
+  const hasAskList = detailBound.length > 0;
+  const hasDetails = !hasAskList && item.details.trim().length > 0;
 
   // Detect footnote items like "[1] Some text" and add anchor id
   const footnoteMatch = item.headline.match(/^\[(\d+)\]\s/);
@@ -342,7 +358,7 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
               a: ({ href, children, className }) => <BriefingLink href={href} className={className} date={date}>{children}</BriefingLink>,
             }}
           >
-            {renderCitations(item.headline)}
+            {renderCitations(hasAskList || headlineBound.length ? cleanLoopTokens(item.headline) : item.headline)}
           </ReactMarkdown>
         </span>
         <span onClick={(e) => e.stopPropagation()} className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
@@ -352,18 +368,45 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
           )}
         </span>
       </div>
-      {/* Editor-anchored asks: this bullet's text carries loop item id(s), so the verdict
-          controls attach to the EDITOR'S line — placement and phrasing are editorial judgment,
-          the affordance follows the item. Multi-bound bullets (a meeting digest listing several
-          ids) label each control row with a short title. */}
-      {boundLoopItems.map((loopItem) => (
-        <div key={loopItem.id}>
-          {boundLoopItems.length > 1 && (
-            <p className="!my-0 text-xs text-[var(--text-tertiary)]">{loopItem.title.slice(0, 90)}</p>
-          )}
-          <AskVerdictControls item={loopItem} onChanged={onLoopItemsChanged} />
-        </div>
+      {/* Headline-bound ask (the bullet IS the ask): controls directly under the editor's line. */}
+      {headlineBound.map((loopItem) => (
+        <AskVerdictControls key={loopItem.id} item={loopItem} onChanged={onLoopItemsChanged} />
       ))}
+      {/* Detail-bound asks: the editor's sub-bullets ARE the ask list — always visible, each
+          ask's controls inline on its own line. One structure, not two. */}
+      {hasAskList && (
+        <ul className="briefing-list pl-5 space-y-0.5 pb-1">
+          {item.details.split("\n").map((line, li) => {
+            const bound = detailBound.find((loopItem) => line.includes(loopItem.id));
+            const text = cleanLoopTokens(line).replace(/^\s*-\s*/, "").trim();
+            if (!text) return null;
+            return (
+              <li key={li} className="text-[var(--text-secondary)]">
+                <span className="leading-relaxed briefing-inline-md">
+                  {bound?.escalated && (
+                    <span
+                      className="mb-0.5 mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle"
+                      title={`Escalated: ${bound.escalated.reason || "urgent"}`}
+                    />
+                  )}
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeRaw]}
+                    components={{
+                      p: ({ children }) => <>{children}</>,
+                      strong: ({ children }) => <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>,
+                      a: ({ href, children, className }) => <BriefingLink href={href} className={className} date={date}>{children}</BriefingLink>,
+                    }}
+                  >
+                    {text}
+                  </ReactMarkdown>
+                </span>
+                {bound && <AskVerdictControls item={bound} onChanged={onLoopItemsChanged} />}
+              </li>
+            );
+          })}
+        </ul>
+      )}
       {expanded && hasDetails && (
         <div className="pb-1 text-[var(--text-secondary)] leading-relaxed">
           <ReactMarkdown

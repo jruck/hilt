@@ -226,15 +226,17 @@ async function main(): Promise<void> {
   writeLedger(home, ledger);
   writeProcessed(home, processedState);
 
-  // 4 · Emit the artifact: new asks escalated (v1 = all verdict-gated), aging items surfaced.
+  // 4 · Emit the artifact: pending recent asks escalated, aging items surfaced.
   const items: LoopItem[] = [];
-  // Escalation policy: only commitments from RECENT meetings (≤RECENT_DAYS) demand a verdict
-  // today — a historical backfill must not flood the morning panel with weeks of old asks
-  // (caught 2026-07-02: the first production run escalated 150+ items). Older entries live in
-  // the ledger and surface gradually via the aging path below.
-  for (const e of opened) {
+  // Escalation policy: every OPEN, UN-VERDICTED commitment from a RECENT meeting (≤RECENT_DAYS)
+  // awaits a verdict — keyed on the LEDGER, not on which run opened it (a re-run must not make
+  // yesterday's pending asks vanish from the panel). Backfill/older entries never escalate here
+  // (the 2026-07-02 flood, twice); they live in the ledger and surface via the aging path below
+  // once accepted, or contextually later.
+  for (const e of openEntries(ledger)) {
+    if (e.verdict) continue;
     const meetingDate = e.opened_from.match(/meetings\/(\d{4}-\d{2}-\d{2})\//)?.[1] || today;
-    const isRecent = isRecentDate(meetingDate);
+    if (!isRecentDate(meetingDate)) continue;
     items.push({
       id: e.id, loop: loop.id, kind: "action",
       title: `${e.owner === "justin" ? "" : `[${e.owner}] `}${e.action.slice(0, 140)}`,
@@ -242,7 +244,7 @@ async function main(): Promise<void> {
       citations: e.citations,
       confidence: e.confidence,
       owner: e.owner,
-      ...(isRecent ? { escalated: { reason: "new commitment awaiting your verdict" } } : {}),
+      escalated: { reason: "new commitment awaiting your verdict" },
       allowed_verdicts: ["approve", "dismiss", "assign_to_me", "assign_to_agent", "revise"],
     });
   }

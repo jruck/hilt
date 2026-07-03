@@ -163,6 +163,7 @@ test("renderEscalationsSection: only escalated items, with reason + citation; as
   const escalatedAsk: LoopItem = { ...ACTION, escalated: { reason: "due Thursday" } };
   const withAsk = renderEscalationsSection([escalatedAsk]);
   assert.ok(withAsk.includes("approve"), "ask escalation names its verdicts");
+  assert.ok(withAsk.includes(`\`${ACTION.id}\``), "item id rides in the view — the briefing model cites it so the reader UI can attach verdict controls to the briefing's own lines");
 });
 
 test("renderEscalationsSection returns empty string when nothing is escalated", () => {

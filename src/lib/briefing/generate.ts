@@ -119,7 +119,11 @@ export async function generateBriefing(opts: GenerateOptions): Promise<GenerateR
   const skill = fs.readFileSync(path.join(opts.vaultPath, SKILL_REL), "utf-8");
   const prompt = buildBriefingPrompt(opts.mode, skill, gathered);
 
-  const args = ["-p", prompt, "--output-format", "json"];
+  // The briefing model gets NO tools — the gather is inlined in the prompt and the HARNESS
+  // writes the file (validation-gated). Without this, the model can act on the SKILL's
+  // Hermes-era file instructions: on 2026-07-02 a shadow regeneration WROTE THE LIVE VAULT
+  // BRIEFING directly and returned only commentary (caught same night; vault restored).
+  const args = ["-p", prompt, "--output-format", "json", "--tools", ""];
   const model = opts.model || process.env.LIBRARY_CONNECTIONS_MODEL;
   if (model) args.push("--model", model);
 

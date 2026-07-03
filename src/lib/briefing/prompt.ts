@@ -23,7 +23,10 @@ The skill above is authoritative for WHAT to surface and the voice. These are ha
 - MEMO LINK (non-negotiable, mechanical rule): any line that FEATURES the editor's memo — i.e. **bolds** a phrase containing "editor's memo" or puts it in a heading — MUST end with \`[Read the memo](/api/reports/memo)\`. Passing references (an italic citation like "*…; Editor's memo, 6/28.*", or plain prose) need no link. If there's no fresh memo, don't feature it in bold — reference it plainly or not at all.
 - LIBRARY LINK (non-negotiable): the Library & knowledge section MUST end with \`[Full library report](/api/reports/morning)\` on its own line.
 - SECTIONS: keep the canonical section spine and order; omit a section only when it is genuinely empty (don't silently fold one into another).
-- LINKS: standalone link lines, never inline mid-bullet. Real ET times. Keep the exact footer.`;
+- LINKS: standalone link lines, never inline mid-bullet. Real ET times. Keep the exact footer.
+- OUTPUT CHANNEL (non-negotiable): your reply text IS the briefing — return ONLY the briefing
+  markdown. Never write files or use tools; the harness validates your text and writes the file
+  itself. Any skill instruction about writing to a path describes the HARNESS's job, not yours.`;
 
 const JOB: Record<BriefingMode, string> = {
   daily:

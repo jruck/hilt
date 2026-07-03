@@ -10,6 +10,7 @@ import { useScope } from "@/contexts/ScopeContext";
 import { withBasePath } from "@/lib/base-path";
 import { CopyReferenceButton } from "@/components/ui/CopyReferenceButton";
 import {
+  AskVerdictControls,
   EscalationsBlock,
   EscalationsFallbackFold,
   loopMatchesSection,
@@ -302,7 +303,7 @@ function ItemFeedbackButton({ section, headline }: { section: string; headline: 
   );
 }
 
-function CollapsibleItem({ item, section, date, absPath, feedbackable }: { item: BriefingItem; section: string; date?: string; absPath?: string; feedbackable?: boolean }) {
+function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoopItems = [], onLoopItemsChanged = () => {} }: { item: BriefingItem; section: string; date?: string; absPath?: string; feedbackable?: boolean; boundLoopItems?: EscalatedLoopItem[]; onLoopItemsChanged?: () => void }) {
   const haptics = useHaptics();
   const [expanded, setExpanded] = useState(false);
   const hasDetails = item.details.trim().length > 0;
@@ -323,6 +324,12 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable }: { item:
         className={`group flex flex-wrap items-start justify-between gap-2 py-0.5 ${hasDetails ? "cursor-pointer" : ""}`}
       >
         <span className="min-w-0 flex-1 text-[var(--text-secondary)] leading-relaxed briefing-inline-md">
+          {boundLoopItems.some((loopItem) => loopItem.escalated) && (
+            <span
+              className="mb-0.5 mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle"
+              title={`Escalated: ${boundLoopItems.find((loopItem) => loopItem.escalated)?.escalated?.reason || "urgent"}`}
+            />
+          )}
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeRaw]}
@@ -343,6 +350,18 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable }: { item:
           )}
         </span>
       </div>
+      {/* Editor-anchored asks: this bullet's text carries loop item id(s), so the verdict
+          controls attach to the EDITOR'S line — placement and phrasing are editorial judgment,
+          the affordance follows the item. Multi-bound bullets (a meeting digest listing several
+          ids) label each control row with a short title. */}
+      {boundLoopItems.map((loopItem) => (
+        <div key={loopItem.id}>
+          {boundLoopItems.length > 1 && (
+            <p className="!my-0 text-xs text-[var(--text-tertiary)]">{loopItem.title.slice(0, 90)}</p>
+          )}
+          <AskVerdictControls item={loopItem} onChanged={onLoopItemsChanged} />
+        </div>
+      ))}
       {expanded && hasDetails && (
         <div className="pb-1 text-[var(--text-secondary)] leading-relaxed">
           <ReactMarkdown
@@ -371,14 +390,34 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
   // loop), so the generator's editorial placement decides ownership; the heading name-map is only
   // a fallback for briefings that don't cite an escalating loop. Anything still unmatched goes to
   // the fallback fold above (nothing silently disappears).
-  const { bySection, unmatched } = useMemo(() => {
+  const { bySection, byBullet, unmatched } = useMemo(() => {
     const sectionTexts = sections.map((section) =>
       /sources/i.test(section.heading)
         ? "" // a Sources/footnotes section may quote loop ids without owning the domain
         : section.items.map((item) => `${item.headline}\n${item.details}`).join("\n"));
     const perSection = new Map<number, EscalatedLoopItem[]>();
+    const perBullet = new Map<string, EscalatedLoopItem[]>(); // "si:ii" → bound loop items
     const leftovers: EscalatedLoopItem[] = [];
     for (const item of escalations) {
+      // Strongest join first: an editor bullet that carries this item's ID owns it — the
+      // affordance attaches to the editor's own line (its placement, its phrasing).
+      let bound = false;
+      outer: for (let si = 0; si < sections.length; si++) {
+        if (!sectionTexts[si]) continue;
+        for (let ii = 0; ii < sections[si].items.length; ii++) {
+          const bullet = sections[si].items[ii];
+          if (`${bullet.headline}\n${bullet.details}`.includes(item.id)) {
+            const key = `${si}:${ii}`;
+            const bucket = perBullet.get(key);
+            if (bucket) bucket.push(item);
+            else perBullet.set(key, [item]);
+            bound = true;
+            break outer;
+          }
+        }
+      }
+      if (bound) continue;
+      // Next: the section that cites the loop; then the heading name-map; then the fallback fold.
       let sectionIndex = sectionTexts.findIndex((text) => text.includes(`loop:${item.loop}`));
       if (sectionIndex === -1) {
         sectionIndex = sections.findIndex((section) => loopMatchesSection(item.loop, section.heading));
@@ -391,7 +430,7 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
       if (bucket) bucket.push(item);
       else perSection.set(sectionIndex, [item]);
     }
-    return { bySection: perSection, unmatched: leftovers };
+    return { bySection: perSection, byBullet: perBullet, unmatched: leftovers };
   }, [escalations, sections]);
 
   // Fall back to plain markdown if no sections found
@@ -471,10 +510,10 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
             ) : (
               <ul className="briefing-list pl-9 pr-4 py-2 space-y-0 !m-0">
                 {section.items.map((item, ii) => (
-                  <CollapsibleItem key={ii} item={item} section={section.heading} date={date} absPath={absPath} feedbackable={feedbackable} />
+                  <CollapsibleItem key={ii} item={item} section={section.heading} date={date} absPath={absPath} feedbackable={feedbackable} boundLoopItems={byBullet.get(`${si}:${ii}`)} onLoopItemsChanged={onEscalationsChanged} />
                 ))}
-                {/* Loop items are bullets in the SAME list — urgency is a flag, verdicts follow
-                    ask-ness; only the amber dot and buttons distinguish them (one item model). */}
+                {/* Loop items the editor did NOT feature: bullets in the SAME list — urgency is
+                    a flag, verdicts follow ask-ness (one item model). */}
                 <EscalationsBlock items={sectionEscalations} onChanged={onEscalationsChanged} />
               </ul>
             )}

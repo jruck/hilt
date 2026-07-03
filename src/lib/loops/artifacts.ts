@@ -246,7 +246,9 @@ export function renderEscalationsSection(items: LoopItem[]): string {
 
   const lines = ["## Escalations", ""];
   for (const item of escalated) {
-    lines.push(`- **${item.title}** — ${item.escalated!.reason}`);
+    // The id rides in the view: the briefing model must be able to cite it in its own lines,
+    // because the reader UI attaches verdict controls to id-carrying briefing bullets.
+    lines.push(`- **${item.title}** — ${item.escalated!.reason} \`${item.id}\``);
     const citation = item.citations[0];
     if (citation) {
       const citationText = citation.date ? `${citation.source}, ${citation.date}` : citation.source;

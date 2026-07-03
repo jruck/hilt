@@ -330,7 +330,9 @@ export function BriefingsView({
       {mobileHud}
       {/* Scrollable content */}
       <div data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-        <div className={`${contentWidthClass} mx-auto overflow-x-hidden px-4 pb-0 pt-8 sm:px-6 sm:pb-8 sm:pt-2`}>
+        {/* overflow-x must stay visible: verdict controls float off the card's right edge onto
+            the canvas (lg+). The floats are hidden below lg, so mobile never overflows. */}
+        <div className={`${contentWidthClass} mx-auto px-4 pb-0 pt-8 sm:px-6 sm:pb-8 sm:pt-2`}>
           {/* Header with date selector */}
           {selectedId && (
             <BriefingHeader

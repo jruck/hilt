@@ -141,7 +141,7 @@ export function escalationsSummary(items: EscalatedLoopItem[]): string {
  * form. Exported so the SAME control attaches to an editor-written briefing bullet (id-stamped
  * line) or to a raw appended row: the affordance follows the item, not the rendering site.
  */
-export function AskVerdictControls({ item, onChanged }: { item: EscalatedLoopItem; onChanged: () => void }) {
+export function AskVerdictControls({ item, onChanged, vertical = false }: { item: EscalatedLoopItem; onChanged: () => void; vertical?: boolean }) {
   const [localVerdict, setLocalVerdict] = useState<Verdict | undefined>(item.verdict);
   const [busyVerdict, setBusyVerdict] = useState<Verdict | null>(null);
   const [verdictError, setVerdictError] = useState<string | null>(null);
@@ -180,61 +180,79 @@ export function AskVerdictControls({ item, onChanged }: { item: EscalatedLoopIte
 
   if (!isAsk(item)) return null;
 
+  const buttons = !localVerdict && verdictButtons.length > 0 && (
+    <div className={vertical ? "flex flex-col items-stretch gap-1" : "flex flex-wrap items-center gap-1.5 pb-1"}>
+      {verdictButtons.map((entry) => (
+        <button
+          key={entry.verdict}
+          type="button"
+          onClick={() => entry.verdict === "revise" ? setReviseOpen((value) => !value) : void submitVerdict(entry.verdict)}
+          disabled={Boolean(busyVerdict)}
+          className={`inline-flex min-h-6 items-center rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2 py-0.5 text-xs font-medium text-[var(--text-secondary)] shadow-sm transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-60 ${vertical ? "justify-start whitespace-nowrap" : ""}`}
+        >
+          {entry.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  const badge = localVerdict && (
+    <div className={vertical ? "" : "pb-1"}>
+      <span className={`inline-flex items-center whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${verdictBadgeClass(localVerdict)}`}>
+        {verdictLabel(localVerdict)}
+      </span>
+    </div>
+  );
+
+  const reviseForm = reviseOpen && !localVerdict && (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        const note = reviseNote.trim();
+        if (!note) return;
+        void submitVerdict("revise", note);
+      }}
+      className={vertical ? "flex w-56 flex-col gap-1" : "flex items-center gap-2 pb-1"}
+    >
+      <input
+        value={reviseNote}
+        onChange={(event) => setReviseNote(event.target.value)}
+        autoFocus
+        className="min-h-8 min-w-0 flex-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
+        placeholder="Revision note"
+        aria-label="Revision note"
+      />
+      <button
+        type="submit"
+        disabled={!reviseNote.trim() || Boolean(busyVerdict)}
+        className="inline-flex min-h-8 items-center justify-center rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/15 disabled:cursor-default disabled:opacity-50 dark:text-amber-300"
+      >
+        Revise
+      </button>
+    </form>
+  );
+
+  const error = verdictError && <p className={vertical ? "w-56 text-xs text-red-500" : "pb-1 text-xs text-red-500"}>{verdictError}</p>;
+
+  return <>{buttons}{badge}{reviseForm}{error}</>;
+}
+
+/**
+ * The floating placement (Justin, 2026-07-03): verdict controls live OFF the card on the canvas,
+ * stacked vertically, vertically centered on the item's line, revealed on hover like the feedback
+ * affordance — they never influence the body's width. Below lg (no canvas margin) they fall back
+ * to the inline horizontal row so touch devices keep a working affordance.
+ */
+export function FloatingAskControls({ item, onChanged }: { item: EscalatedLoopItem; onChanged: () => void }) {
+  if (!isAsk(item)) return null;
   return (
     <>
-      {!localVerdict && verdictButtons.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 pb-1">
-          {verdictButtons.map((entry) => (
-            <button
-              key={entry.verdict}
-              type="button"
-              onClick={() => entry.verdict === "revise" ? setReviseOpen((value) => !value) : void submitVerdict(entry.verdict)}
-              disabled={Boolean(busyVerdict)}
-              className="inline-flex min-h-6 items-center rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2 py-0.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-60"
-            >
-              {entry.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {localVerdict && (
-        <div className="pb-1">
-          <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${verdictBadgeClass(localVerdict)}`}>
-            {verdictLabel(localVerdict)}
-          </span>
-        </div>
-      )}
-
-      {reviseOpen && !localVerdict && (
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            const note = reviseNote.trim();
-            if (!note) return;
-            void submitVerdict("revise", note);
-          }}
-          className="flex items-center gap-2 pb-1"
-        >
-          <input
-            value={reviseNote}
-            onChange={(event) => setReviseNote(event.target.value)}
-            autoFocus
-            className="min-h-8 min-w-0 flex-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
-            placeholder="Revision note"
-            aria-label="Revision note"
-          />
-          <button
-            type="submit"
-            disabled={!reviseNote.trim() || Boolean(busyVerdict)}
-            className="inline-flex min-h-8 items-center rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/15 disabled:cursor-default disabled:opacity-50 dark:text-amber-300"
-          >
-            Revise
-          </button>
-        </form>
-      )}
-
-      {verdictError && <p className="pb-1 text-xs text-red-500">{verdictError}</p>}
+      <span className="absolute left-full top-1/2 z-10 hidden -translate-y-1/2 pl-6 lg:group-hover/ask:block">
+        <AskVerdictControls item={item} onChanged={onChanged} vertical />
+      </span>
+      <span className="lg:hidden">
+        <AskVerdictControls item={item} onChanged={onChanged} />
+      </span>
     </>
   );
 }
@@ -284,18 +302,12 @@ function LoopItemRow({ item, onChanged }: { item: EscalatedLoopItem; onChanged: 
   }
 
   return (
-    <li className={`text-[var(--text-secondary)] briefing-expandable${expanded ? " briefing-expanded" : ""}`}>
+    <li className={`group/ask relative text-[var(--text-secondary)] briefing-expandable${expanded ? " briefing-expanded" : ""}${item.escalated ? " briefing-escalated" : ""}`}>
       <div
         onClick={() => setExpanded((value) => !value)}
         className="group flex flex-wrap items-start justify-between gap-2 py-0.5 cursor-pointer"
       >
-        <span className="min-w-0 flex-1 leading-relaxed">
-          {item.escalated && (
-            <span
-              className="mb-0.5 mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle"
-              title={`Escalated: ${item.escalated.reason || "urgent"}`}
-            />
-          )}
+        <span className="min-w-0 flex-1 leading-relaxed" title={item.escalated ? `Escalated: ${item.escalated.reason || "urgent"}` : undefined}>
           {item.title}
         </span>
         <span onClick={(e) => e.stopPropagation()} className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
@@ -313,8 +325,9 @@ function LoopItemRow({ item, onChanged }: { item: EscalatedLoopItem; onChanged: 
         </span>
       </div>
 
-      {/* Asks carry their verdict controls inline — kind decides this, not escalation. */}
-      <AskVerdictControls item={item} onChanged={onChanged} />
+      {/* Asks carry their verdict controls — kind decides this, not escalation. Floating off the
+          card's right edge on hover (lg+); inline row below lg. */}
+      <FloatingAskControls item={item} onChanged={onChanged} />
 
       {feedbackOpen && (
         <form onSubmit={submitFeedback} className="flex items-center gap-2 pb-1">
@@ -380,13 +393,12 @@ function MeetingGroupRow({ date, title, items, defaultOpen, onChanged }: {
   const decided = items.filter((item) => item.verdict).length;
   const status = decided > 0 ? `${decided}/${items.length} decided` : `${items.length} ${items.length === 1 ? "ask" : "asks"}`;
   return (
-    <li className={`text-[var(--text-secondary)] briefing-expandable${open ? " briefing-expanded" : ""}`}>
+    <li className={`text-[var(--text-secondary)] briefing-escalated briefing-expandable${open ? " briefing-expanded" : ""}`}>
       <div
         onClick={() => setOpen((value) => !value)}
         className="group flex items-start justify-between gap-2 py-0.5 cursor-pointer"
       >
-        <span className="min-w-0 flex-1 leading-relaxed">
-          <span className="mb-0.5 mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle" title="Awaiting your verdicts" />
+        <span className="min-w-0 flex-1 leading-relaxed" title="Awaiting your verdicts">
           <strong className="font-semibold text-[var(--text-primary)]">{title}</strong>
           {" — "}{status} <span className="text-xs text-[var(--text-tertiary)]">· {date}</span>
         </span>
@@ -466,8 +478,8 @@ export function EscalationsFallbackFold({ items, onChanged }: {
 }) {
   if (items.length === 0) return null;
   return (
-    <section className="mb-5 hilt-card hilt-card-static overflow-hidden">
-      <div className="border-b border-[var(--border-default)] bg-[var(--bg-secondary)] px-4 py-3">
+    <section className="mb-5 hilt-card hilt-card-static overflow-visible">
+      <div className="rounded-t-lg border-b border-[var(--border-default)] bg-[var(--bg-secondary)] px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />

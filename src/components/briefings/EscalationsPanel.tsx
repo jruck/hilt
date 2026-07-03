@@ -247,7 +247,7 @@ export function FloatingAskControls({ item, onChanged }: { item: EscalatedLoopIt
   if (!isAsk(item)) return null;
   return (
     <>
-      <span className="absolute left-full top-1/2 z-10 hidden -translate-y-1/2 pl-6 lg:group-hover/ask:block">
+      <span className="absolute left-full top-1/2 z-10 hidden -translate-y-1/2 pl-6 lg:group-hover/askrow:block">
         <AskVerdictControls item={item} onChanged={onChanged} vertical />
       </span>
       <span className="lg:hidden">
@@ -302,7 +302,7 @@ function LoopItemRow({ item, onChanged }: { item: EscalatedLoopItem; onChanged: 
   }
 
   return (
-    <li className={`group/ask relative text-[var(--text-secondary)] briefing-expandable${expanded ? " briefing-expanded" : ""}${item.escalated ? " briefing-escalated" : ""}`}>
+    <li className={`group/askrow relative text-[var(--text-secondary)] briefing-expandable${expanded ? " briefing-expanded" : ""}${item.escalated ? " briefing-escalated" : ""}`}>
       <div
         onClick={() => setExpanded((value) => !value)}
         className="group flex flex-wrap items-start justify-between gap-2 py-0.5 cursor-pointer"

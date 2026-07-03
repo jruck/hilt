@@ -333,7 +333,7 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
   const footnoteId = footnoteMatch ? `fn-${footnoteMatch[1]}` : undefined;
 
   return (
-    <li id={footnoteId} className={`group/ask relative text-[var(--text-secondary)] ${item.prose ? "list-none -ml-4 py-1" : ""} ${hasDetails ? `briefing-expandable${expanded ? " briefing-expanded" : ""}` : ""} ${escalatedHere ? "briefing-escalated" : ""}`}>
+    <li id={footnoteId} className={`${headlineBound.length ? "group/askrow " : ""}relative text-[var(--text-secondary)] ${item.prose ? "list-none -ml-4 py-1" : ""} ${hasDetails ? `briefing-expandable${expanded ? " briefing-expanded" : ""}` : ""} ${escalatedHere ? "briefing-escalated" : ""}`}>
       <div
         onClick={() => {
           if (!hasDetails) return;
@@ -377,7 +377,7 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
             const text = cleanLoopTokens(line).replace(/^\s*-\s*/, "").trim();
             if (!text) return null;
             return (
-              <li key={li} className={`group/ask relative text-[var(--text-secondary)] ${bound?.escalated ? "briefing-escalated" : ""}`}>
+              <li key={li} className={`group/askrow relative text-[var(--text-secondary)] ${bound?.escalated ? "briefing-escalated" : ""}`}>
                 <span className="leading-relaxed briefing-inline-md" title={bound?.escalated ? `Escalated: ${bound.escalated.reason || "urgent"}` : undefined}>
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}

@@ -210,3 +210,62 @@
   reweave backlog drain, Codex side-by-side, Codex working-tree review.
 - **Known telemetry**: retro sweep first-pass validity 8/9 (89%) vs 33% live pre-fix; the one
   invalid = the 06-10 memo-line case (real fresh-memo day).
+
+## Pre-launch night sweep (2026-07-02 late — "do the most we possibly can before morning")
+
+- **LAUNCH BLOCKER found+fixed by UI verification**: the shadow briefing API joined the vault-layout
+  `briefings/` prefix onto `briefing-shadow/` where the generator writes prefix-stripped paths →
+  every lookup 404'd → `hasShadow` false → the Live|v2|Compare toggle NEVER rendered. One-line
+  strip; verified live for daily + weekend ids; Compare screenshot captured (live left / v2-loops
+  right, per-pane feedback button). Committed d969862.
+- **Escalation flood-gate** (491d9ea): first production meeting run escalated 150+ backfill asks;
+  now only ≤3-day-old meetings' commitments escalate. **Queue priority** (bd514dd): unprocessed
+  recent meetings (≤3d) jump the queue newest-first — without this, today's meetings wouldn't be
+  read for ~2 months at 25/run against the ~1400-meeting backlog.
+- **State-continuity finding** (no code change): the 19:30 launchd run started from an EMPTY
+  production ledger — the earlier manual drain's state lived in the eval home. Production ledger is
+  rebuilding from the oldest backlog (Oct 2024 first). Harmless (shadow phase), but the panel
+  briefly showed the old drain's artifact items that don't exist in the production ledger.
+- **Sim engagement round-trip staged**: verdict (dismiss, stale Oct-2024 entry `ma-2024-10-24-001`)
+  + item-level feedback posted through the REAL HTTP APIs, then store records re-authored to
+  `claude-sim` (provenance-honest; API surface stays justin-only). A second verdict targets a
+  no-longer-existing id (`ma-2026-05-07-001`) as a robustness probe. Consumption verified on the
+  next production run.
+- **Goals loop as-of discipline** (d969862): `observedLedger` now filters entries opened after the
+  as-of window (the grading-round-1 future-leak class); `--evidence-dump` persists the exact
+  evidence bundle for refuters. 4-week retro ran clean (06-09/16/23/30, 4 findings each, no rate
+  limits); adversarial refuter workflow launched (`wf_a3cb5862-188`).
+- **Round-2 regrade** launched on the fixed-harness re-sweep (`launchpad-r2`, 9/9 generated;
+  first-pass validity 7/9 — 05-26 missed the 2200B floor by 36B on Memorial-Day-week-thin data,
+  06-10 hit the per-line memo rule again). Workflow `wf_1934c41c-dcd`, same rubric as round 1.
+- **Extractor re-eval (prompt v2)** running into fresh home `extractor-eval-v2` (round-1 evidence
+  preserved in `extractor-eval/`). **RESULT: GATE MET — precision 0.957 / recall 0.792** (bars
+  0.85/0.75; v1 was 0.993/0.628 — the two-pass sweep bought +0.164 recall for −0.036 precision).
+- **Flywheel round-trip VERIFIED on production paths**: claude-sim verdict (dismiss, stale entry)
+  applied → entry `dropped` with note; unknown-id verdict absorbed without crash (robustness
+  probe); claude-sim feedback consumed into all extraction calls + stamped `processed`. Records
+  re-authored to claude-sim after posting through the real HTTP APIs (provenance-honest).
+
+## Justin's first-look feedback wave (2026-07-02 night — surface restructure)
+
+Justin reviewed the surface live and filed 7 points; a 3-agent scope audit confirmed his critique
+matches the scope nearly verbatim (flat escalation wall ≠ "the briefing is its reader" §4; missing
+per-item feedback ≠ universal affordance §6; Live/v2 split ≠ v2-owns-the-new-stuff). Shipped in
+response (commit 5828d87 + bridge d782af68):
+- Tabs `v1 | v2 | Compare`, v2 default; escalations fold moved INTO the v2 pane/column.
+- Fold grouped: meeting asks collapse by source meeting ("Needs you — 40 asks from 5 meetings ·
+  3 signals"); runtime/goals signals flat; newest first.
+- Universal per-item feedback on briefing bullets (anchored section+text → briefing loop);
+  feedback API accepts the disabled briefing loop at all levels during shadow.
+- Renderer bug (drops all non-bullet lines): day-thesis lede NEVER rendered pre-fix; prose
+  sections (Library) rendered empty — Justin's #6. Fixed + verified in DOM.
+- SECOND flood head found via Justin's 212 count: the aging path escalated all ≥7d open entries —
+  redefined as APPROVED-only, capped 5/run.
+- Gather now feeds SHADOW-phase loop artifacts (from sandbox) to the shadow briefing —
+  frontmatter-stripped, content-capped 6KB, escalations/health always whole. Tomorrow's v2 gains
+  meeting-ledger + goals sections (the unfinished Phase 7 reader half, now moving).
+- AUDIT HONESTY NOTE: the "old spine during shadow" was NOT a pre-registered deferral — Phase 7's
+  gate ("shadow briefing built purely from loop artifacts") is genuinely incomplete. Full SKILL
+  thinning to one-section-per-loop remains open, gated on Justin's read of the loop-fed mornings.
+- Justin's critique recorded as briefing-loop feedback (`fb-...7l4t`, author justin) — the
+  flywheel's first real user feedback record.

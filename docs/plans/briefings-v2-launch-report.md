@@ -6,14 +6,14 @@
 
 ## 1 · Retro sweep evidence (Phase 4)
 
-| Metric | Bar | Result | Evidence |
-|---|---|---|---|
-| First-pass validity | tracked | **8/9 (89%)** vs 33% pre-fix live | `$DATA_DIR/launchpad/*/result.json` |
-| Citation integrity (mean) | ~1.0 | **0.783 (round 1 — CONFOUNDED, see below)** | `$DATA_DIR/launchpad/grades.json` |
-| Fabrication count | **0 (blocker)** | **1** ("Emory parking eats 20 minutes", 06-23 — real; prompt rule added, re-sweep pending) | grades |
-| Selection score (mean) | judged | 0.769 (round 1, confounded) | grades |
-| Escalation sanity (mean) | ≥ 0.8 | **0.939 ✓** | grades |
-| Win/loss vs shipped | favor v2 | **7W–1L–1T ✓** | grades |
+| Metric | Bar | Round 1 (confounded) | **Round 2 (fixed harness — LAUNCH NUMBERS)** | Evidence |
+|---|---|---|---|---|
+| First-pass validity | tracked | 8/9 (89%) | **7/9 (78%)** — 05-26 under floor by 36B (Memorial-Day-thin), 06-10 memo-line rule | `launchpad-r2/*/result.json` |
+| Citation integrity (mean) | ~1.0 | 0.783 | **0.836** | `launchpad-r2/grades.json` |
+| Fabrication count | **0 (blocker)** | 1 (Emory parking) | **1** ("yesterday's 90-minute session", 05-05 — invented duration, low-materiality; GRANULARITY rule added, see below) | grades |
+| Selection score (mean) | judged | 0.769 | **0.811** | grades |
+| Escalation sanity (mean) | ≥ 0.8 | 0.939 ✓ | **0.922 ✓** | grades |
+| Win/loss vs shipped | favor v2 | 7W–1L–1T | **8W–1L–0T ✓** (several wins freshness-confounded in v2's favor — graders flagged each) | grades |
 
 **Round-1 confounds (the launchpad grading caught its own harness bugs):** (a) same-day meeting
 transcripts leaked into "6AM" retro traces (model cited afternoon meetings as done — counted
@@ -21,16 +21,40 @@ against citation integrity on most days); (b) the weekly-list file leaks FUTURE 
 into retro traces (05-12's "critical selection miss" was actually this). Both FIXED in gather
 (d=0 exclusion + git-reconstructed task list in as-of mode; verified on the regenerated 06-23
 trace). Also fixed from evidence: fabrication + count-discipline rules added to CALIBRATION.
-**Re-sweep + regrade queued behind the extractor eval** — round-2 numbers are the launch numbers.
+
+**Round-2 read (2026-07-02 night, workflow `wf_1934c41c-dcd`, 9/9 graded):** every mean moved the
+right way on the fixed harness. The single fabrication is a NEW instance of a finer class than
+Emory parking: a decorative invented specific ("90-minute session" from a start-timestamp-only
+filename). Two recurring non-fabrication citation classes: (a) schedule-overlap asserted as fact
+from start-times-only (05-19, 06-23 — calendar feed has no durations); (b) weekday arithmetic
+slips on derived dates (06-16). ALL THREE now have CALIBRATION rules (GRANULARITY + DERIVED
+DATES, added post-round-2); 05-05 re-run verification below. Residual known limits, graded as
+input gaps not model error: live-only sources (reminders, live task-state, calendar labels) are
+honestly absent from as-of traces — several graders noted the live briefing saw things no retro
+can reconstruct, and vice versa (freshness confound flagged per-day in grades).
+**Post-rule verification (05-05 regenerated + strict fabrication-only re-check):** the caught
+classes did NOT recur — no invented duration, no commit miscounts, no status inversion. Strict
+reading still found residual decorative specifics (a vendor attribution invented from a save
+filename — "Anthropic Agents SDK", likely wrong; one derived end-time "1:45–3:00 PM"; one
+ambiguous sprint-anchor parse). GRANULARITY extended again (entity attributions + end times).
+**Honest gate state: fabrication=0 is NOT green tonight.** Prompt rules demonstrably reduce each
+caught class but don't reach zero by prompt alone; the blocker bar is measured where it counts —
+the graded shadow week with the tightened prompt, before cutover. Residual class observed so far
+is decorative-minor (durations/attributions), never invented events, tasks, or meetings.
 
 ## 2 · Extractor evidence (Phase 5 gate)
 
-| Metric | Bar | Result | Evidence |
-|---|---|---|---|
-| Precision (core∪gray) | ≥ 0.85 | **0.993 ✓** (152 TP / 1 FP) — round 1 | `$DATA_DIR/launchpad/extractor-eval/report.json` |
-| Recall (core) | ≥ 0.75 | **0.628 ✗** round 1 → segmented: next-steps 0.789 / note-body 0.467 / **transcript-only 0.377**; justin-owned 0.721 | same |
-| Identity: duplicate suspects | ~0 | 3 pairs, all one 06-30 triplet; 10 sightings recorded | same |
-| Catch-phrase recall | ≥ 0.95 | ⏳ needs phrase-positive subset analysis | gold set spans |
+| Metric | Bar | Round 1 (prompt v1) | **Round 2 (prompt v2 — GATE)** | Evidence |
+|---|---|---|---|---|
+| Precision (core∪gray) | ≥ 0.85 | 0.993 (152TP/1FP) | **0.957 ✓** (200TP/9FP) | `extractor-eval-v2` report |
+| Recall (core) | ≥ 0.75 | 0.628 ✗ | **0.792 ✓** (179/226) | same |
+| Identity: duplicate suspects | ~0 | 3 pairs (one triplet) | **2 pairs**; 9 sightings | same |
+| Catch-phrase recall | ≥ 0.95 | — | **unmeasurable on this gold set**: zero phrase-positive commitments among the 293 (nobody said "action item:" in the 36 sampled meetings). Deferred to production telemetry — spans are logged per meeting; measure when ≥10 phrase-positive cases accumulate. | gold set |
+
+**GATE MET (2026-07-02 night).** Prompt v2 (two-pass note+transcript sweep, uncertainty→lower-
+confidence-not-omission, other-attendee commitments) bought **+0.164 recall for −0.036 precision**
+— both comfortably above bars. The 9 FPs and 47 remaining misses skew toward dialogue-implied
+next-cycle work (the gray zone the verdict gate absorbs by design).
 
 If bars miss → prompt iteration (documented here per attempt) → re-eval.
 **Iteration 1 (2026-07-02):** diagnosis = note-anchoring + conservatism suppressing uncertain-but-real
@@ -42,9 +66,12 @@ extractions. Prompt v2: mandatory two-pass (note, then full-transcript sweep), c
 
 - [x] Verdict round-trip: verdicts applied to ledger at run start (code path; exercised in smoke)
 - [x] Feedback capture → consumption → stamp (v1 read-adjust-stamp wired 2026-07-02)
-- [ ] End-to-end sim: claude-sim feedback via the REAL API → next extractor run consumes → health
-  notes it ← run during shadow week
-- [ ] Justin's first real verdicts flow through (shadow week)
+- [x] **End-to-end sim VERIFIED (2026-07-02 night)**: claude-sim verdict posted via the real API →
+  next production run applied it (entry `dropped`, note recorded); unknown-id verdict absorbed
+  without crash; claude-sim feedback consumed into every extraction call that run + stamped
+  `processed`. Store records re-authored claude-sim post-API (the HTTP surface stays justin-only).
+- [~] Justin's first real FEEDBACK flowed 2026-07-02 night (`fb-...7l4t`, the surface critique,
+  recorded to the briefing loop). First real VERDICTS: shadow week.
 
 ## 4 · Ops evidence (shadow period)
 
@@ -58,9 +85,18 @@ extractions. Prompt v2: mandatory two-pass (note, then full-transcript sweep), c
 ## 5 · Cutover checklist (nothing left behind — every remaining scope item, explicitly gated)
 
 **Gated on evidence (auto-accumulating):**
-- [ ] §1 grading complete, fabrication = 0
-- [ ] §2 extractor bars met (or explicitly re-argued with data)
-- [ ] Goals-loop retro spot-verify (4 as-of weeks + refuter pass) — queued behind extractor eval
+- [~] §1 grading complete (rounds 1+2 done; 8W–1L–0T, means all improved); fabrication = 0 NOT yet
+  green — residual decorative-minor class after three rule iterations; measured on the graded
+  shadow week before cutover
+- [x] §2 extractor bars met — **precision 0.957 / recall 0.792** (2026-07-02 night, prompt v2)
+- [x] Goals-loop retro spot-verify (4 as-of weeks + refuter pass) — **DONE 2026-07-02 night.**
+  4 as-of weeks (06-09/16/23/30, fixed as-of ledger filter, per-week evidence dumps), adversarial
+  refuter per week (`wf_a3cb5862-188`): **53 claims → 46 supported / 6 overstated (count-rounding
+  class) / 0 unsupported / 1 fabricated**; escalation sanity 4/4 weeks. The fabrication (06-30:
+  commit message embellished with invented touched-file paths) → granularity rule added to
+  GOALS_SYSTEM (cite exactly what the evidence line contains); **06-30 re-run + spot-refute:
+  12 claims → 11 supported / 1 overstated / 0 fabricated — fix verified.** Goals loop stays
+  `shadow`; its artifacts don't feed the briefing until live.
 - [ ] ≥5 shadow-v2 mornings generated + compared
 
 **Gated on Justin using it (the shadow review):**

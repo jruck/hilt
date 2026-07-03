@@ -92,9 +92,27 @@ function findUnprocessedMeetings(home: string): string[] {
 const feedbackGuidanceRef = { value: "" };
 
 interface ExtractionResult {
+  meeting_summary?: string;
   new_commitments: Array<{ action: string; owner: string; due?: string; quote: string; source: string; confidence: number }>;
   sightings: Array<{ ledger_id: string; quote: string }>;
   closures: Array<{ ledger_id: string; outcome: "resolved" | "dropped"; quote: string }>;
+}
+
+/** Per-meeting summaries captured at extraction time (the extractor has the full transcript in
+ * hand — a summary is one more JSON field). The artifact renders recent ones as content so the
+ * briefing editor has SUBSTANCE for exactly the meetings whose asks it surfaces — without this,
+ * asks from beyond gather's raw-meeting window arrive contextless ("six action items awaiting
+ * your verdict" was the editor's honest best; rejected 2026-07-03). */
+type MeetingSummaries = Record<string, { date: string; summary: string }>;
+function summariesPath(home: string): string { return path.join(home, "state", "meeting-summaries.json"); }
+function readSummaries(home: string): MeetingSummaries {
+  try { return JSON.parse(fs.readFileSync(summariesPath(home), "utf-8")); } catch { return {}; }
+}
+function writeSummaries(home: string, s: MeetingSummaries): void {
+  atomicWriteFile(summariesPath(home), `${JSON.stringify(s, null, 1)}\n`);
+}
+function meetingTitleFromRel(rel: string): string {
+  return (rel.split("/").pop() || rel).replace(/-\d{4}-\d{2}-\d{2}[^/]*\.md$/, "").replace(/\.md$/, "");
 }
 
 async function extractMeeting(rel: string, ledger: Ledger): Promise<ExtractionResult | "rate_limited" | null> {
@@ -125,6 +143,9 @@ async function extractMeeting(rel: string, ledger: Ledger): Promise<ExtractionRe
     const m = text.match(/\{[\s\S]*\}/);
     const parsedOut = JSON.parse(m ? m[0] : text) as ExtractionResult;
     return {
+      ...(typeof parsedOut.meeting_summary === "string" && parsedOut.meeting_summary.trim()
+        ? { meeting_summary: parsedOut.meeting_summary.trim().slice(0, 400) }
+        : {}),
       new_commitments: Array.isArray(parsedOut.new_commitments) ? parsedOut.new_commitments : [],
       sightings: Array.isArray(parsedOut.sightings) ? parsedOut.sightings : [],
       closures: Array.isArray(parsedOut.closures) ? parsedOut.closures : [],
@@ -179,6 +200,7 @@ async function main(): Promise<void> {
   const queue = (explicit || findUnprocessedMeetings(home)).slice(0, maxMeetings);
 
   const processedState = readProcessed(home);
+  const summaries = readSummaries(home);
   const opened: LedgerEntry[] = [];
   const closed: string[] = [];
   const sighted: string[] = [];
@@ -222,6 +244,10 @@ async function main(): Promise<void> {
       if (!entry || entry.status === "resolved" || entry.status === "dropped") continue;
       transition(entry, c.outcome, now, c.quote?.slice(0, 200));
       closed.push(c.ledger_id);
+    }
+    if (result.meeting_summary) {
+      summaries[rel] = { date: meetingDate, summary: result.meeting_summary };
+      writeSummaries(home, summaries);
     }
     processedState.processed[rel] = now;
     // Crash-safety: persist after EVERY meeting — a killed run keeps its completed extractions
@@ -281,12 +307,25 @@ async function main(): Promise<void> {
   }
 
   const open = openEntries(ledger);
+  // Recent-meeting summaries ride as content: the briefing editor needs each meeting's substance
+  // right where its asks surface — one entry per meeting, summary + nested asks (Justin's shape).
+  const recentSummaries = Object.entries(summaries)
+    .filter(([, s]) => isRecentDate(s.date))
+    .sort(([, a], [, b]) => b.date.localeCompare(a.date));
   const contentBody = [
     `# Meeting Actions — ${today}`,
     "",
     "_The action ledger loop: extraction → identity-resolved ledger → verdicts. v1: every new_",
     "_commitment is verdict-gated before it counts as accepted._",
     "",
+    ...(recentSummaries.length
+      ? [
+          "## Recent meetings",
+          "",
+          ...recentSummaries.map(([rel, s]) => `- **${meetingTitleFromRel(rel)}** (${s.date}): ${s.summary}`),
+          "",
+        ]
+      : []),
     "## Ledger deltas",
     "",
     `- Meetings processed: ${queue.length}${rateLimited ? " (rate-limited mid-queue; remainder next run)" : ""}`,

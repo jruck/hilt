@@ -50,8 +50,14 @@ the span is clearly the tracker artifact.
 Every extraction carries a VERBATIM quote (≤200 chars) from the note or transcript as its citation
 anchor. No quote, no extraction.
 
+MEETING SUMMARY: alongside extraction, write a 1–2 sentence evidence-bound summary of the
+meeting — what it was and the decision/outcome that matters, NOT a topic list. It becomes the
+briefing's context line for this meeting's asks, so make it the sentence a busy reader needs
+right before deciding them.
+
 Return ONLY JSON:
 {
+  "meeting_summary": "<1-2 sentences>",
   "new_commitments": [
     { "action": "<imperative>", "owner": "justin|other:<name>|unclear", "due": "<stated or empty>",
       "quote": "<verbatim>", "source": "note|transcript|both", "confidence": 0.0 }

@@ -107,8 +107,10 @@ function parseBriefing(content: string): { lede: string; sections: BriefingSecti
       continue;
     }
 
-    // Indented line (sub-bullet or continuation) — belongs to current item
-    if (currentItem && !currentItem.prose && line.match(/^\s{2,}/)) {
+    // Indented line (sub-bullet or continuation) — belongs to current item. Prose items absorb
+    // them too: a paragraph-styled meeting entry with indented ask sub-bullets must keep its
+    // asks as details, not have them smashed into the paragraph text.
+    if (currentItem && line.match(/^\s{2,}/)) {
       currentItem.details += (currentItem.details ? "\n" : "") + line;
       continue;
     }

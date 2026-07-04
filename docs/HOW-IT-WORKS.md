@@ -45,6 +45,12 @@ YOU — verdicts & feedback flow down; escalations flow up
      └─ ── raw feeds (no node yet): calendar · task lists · reminders · git activity
 ```
 
+One gap worth naming: the "Work & product" section is an *activity* digest (git commit subjects,
+sessions, tasks, meetings) — your [projects/](open://$VAULT/projects) and roadmap documents are
+currently **not read by the briefing pipeline at all**. A future work/projects node is the
+natural fix: per-project status synthesis (docs + their diffs + mapped commits + ledger
+decisions), with goals then reading it instead of raw git.
+
 Not a strict hierarchy: the goals node reads the meetings node's state sideways; the system node
 watches everything including the briefing itself. And the "raw feeds" line is the honest gap —
 part of the briefing's scope still arrives unsynthesized. That's where future nodes slot in

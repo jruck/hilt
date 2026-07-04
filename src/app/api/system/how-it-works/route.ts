@@ -18,10 +18,12 @@ export async function GET() {
     const vault = process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || "/Users/jruck/work/bridge";
     const dataDir = process.env.DATA_DIR || path.join(os.homedir(), ".hilt", "data");
 
+    // Expand tokens EVERYWHERE (hrefs and visible text alike): the doc shows full real paths
+    // as link text by request — "where does this actually live" must be answerable on sight.
     const content = fs.readFileSync(docPath, "utf-8")
-      .replaceAll("open://$VAULT", `open://${vault}`)
-      .replaceAll("open://$DATA", `open://${dataDir}`)
-      .replaceAll("open://$HILT", `open://${repo}`);
+      .replaceAll("$VAULT", vault)
+      .replaceAll("$DATA", dataDir)
+      .replaceAll("$HILT", repo);
 
     return NextResponse.json({
       content,

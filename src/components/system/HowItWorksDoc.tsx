@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useScope } from "@/contexts/ScopeContext";
 import { withBasePath } from "@/lib/base-path";
+import { SHARED_PROSE_TUNING } from "@/lib/prose";
 
 interface DocResponse {
   content: string;
@@ -35,7 +36,7 @@ export function HowItWorksDoc({ onNavigated = () => {} }: { onNavigated?: () => 
   }, []);
 
   if (error) {
-    return <div className="flex-1 p-8 text-sm text-[var(--text-tertiary)]">Couldn't load the reference: {error}</div>;
+    return <div className="flex-1 p-8 text-sm text-[var(--text-tertiary)]">Couldn&apos;t load the reference: {error}</div>;
   }
   if (!doc) {
     return <div className="flex-1 p-8 text-sm text-[var(--text-tertiary)]">Loading…</div>;
@@ -50,18 +51,20 @@ export function HowItWorksDoc({ onNavigated = () => {} }: { onNavigated?: () => 
           </span>
           <span className="text-xs text-[var(--text-tertiary)]">docs/HOW-IT-WORKS.md</span>
         </div>
-        <div className="prose max-w-none
-          prose-headings:text-[var(--text-primary)] prose-headings:font-semibold
+        {/* Composed from the shared base (SHARED_PROSE_TUNING covers code/pre/table treatment —
+            including theme-aware fenced blocks) + this surface's deltas: compact heading scale,
+            app-token body colors, interactive-style links. */}
+        <div className={`prose ${SHARED_PROSE_TUNING}
+          prose-headings:text-[var(--text-primary)]
           prose-h1:text-xl prose-h2:text-lg prose-h3:text-base
           prose-p:text-[var(--text-secondary)] prose-p:leading-relaxed
           prose-li:text-[var(--text-secondary)] prose-li:leading-relaxed
           prose-strong:text-[var(--text-primary)]
-          prose-a:text-[var(--interactive-default)] hover:prose-a:text-[var(--interactive-hover)]
-          prose-a:no-underline hover:prose-a:underline prose-a:underline-offset-2
+          prose-a:text-[var(--interactive-default)] [&_a:hover]:text-[var(--interactive-hover)]
+          prose-a:no-underline [&_a:hover]:underline prose-a:underline-offset-2
           prose-blockquote:text-[var(--text-secondary)] prose-blockquote:border-[var(--border-default)]
-          prose-code:text-[var(--text-secondary)] prose-code:bg-[var(--bg-tertiary)] prose-code:px-1 prose-code:py-0.5 prose-code:rounded
           prose-table:text-sm prose-th:text-[var(--text-primary)] prose-td:text-[var(--text-secondary)]
-          prose-hr:border-[var(--border-default)]">
+          prose-hr:border-[var(--border-default)]`}>
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             // Default sanitizer strips the custom open:// scheme to "" (clicks then reload the
@@ -69,8 +72,10 @@ export function HowItWorksDoc({ onNavigated = () => {} }: { onNavigated?: () => 
             urlTransform={(url) => url}
             components={{
               a: ({ href, children }) => {
-                if (href?.startsWith("open://")) {
-                  const target = href.slice("open://".length);
+                // Absolute paths (and legacy open:// hrefs) open in the Docs view — the doc's
+                // links ARE full real paths by design; nothing here goes to the web.
+                if (href?.startsWith("open://") || href?.startsWith("/")) {
+                  const target = href.startsWith("open://") ? href.slice("open://".length) : href;
                   return (
                     <a
                       href="#"

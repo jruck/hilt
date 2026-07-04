@@ -33,6 +33,7 @@ const SystemView = dynamic(() => import("./system").then(m => ({ default: m.Syst
 const SYSTEM_MODE_STORAGE_KEY = "hilt-system-mode";
 const PEOPLE_SCOPE_STORAGE_KEY = "hilt-people-scope";
 const HUD_VISIBILITY_STORAGE_KEY = "hilt-app-hud-visible";
+const HOW_IT_WORKS_STORAGE_KEY = "hilt-how-it-works-open";
 const BRIDGE_MODE_STORAGE_KEY = "hilt-bridge-mode";
 const CALENDAR_WARMUP_DELAY_MS = 1_200;
 const CALENDAR_WARMUP_IDLE_TIMEOUT_MS = 4_000;
@@ -156,6 +157,21 @@ export function Board() {
   // Track if we've hydrated from localStorage (to prevent hydration mismatch)
   const [isHydrated, setIsHydrated] = useState(false);
   const [hudVisible, setHudVisible] = useState(false);
+  // The ⓘ reference view: swaps the content area for docs/HOW-IT-WORKS.md (rendered).
+  // Persists across refresh like the HUD — a mode of the app, not ephemeral chrome.
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
+  // Any navigation (doc links opening files in Docs, HUD jumps, etc.) closes the reference —
+  // structural, so it can't depend on individual click handlers remembering to do it.
+  useEffect(() => {
+    setHowItWorksOpen(false);
+  }, [scopePath, urlViewMode]);
+  // Hydrate HUD + ⓘ pane visibility ONCE at mount. These reads previously lived in the
+  // view-prefs effect whose deps include urlViewMode — every navigation re-ran them and
+  // re-opened the ⓘ pane from stale storage, defeating both close paths (found 2026-07-04).
+  useEffect(() => {
+    setHudVisible(localStorage.getItem(HUD_VISIBILITY_STORAGE_KEY) === "true");
+    setHowItWorksOpen(localStorage.getItem(HOW_IT_WORKS_STORAGE_KEY) === "true");
+  }, []);
 
   // Default scope for all views — fetched from server preferences
   // undefined = not yet loaded, string = resolved path (always has a value once loaded)
@@ -228,8 +244,6 @@ export function Board() {
       });
     }
 
-    setHudVisible(localStorage.getItem(HUD_VISIBILITY_STORAGE_KEY) === "true");
-
     const frame = window.requestAnimationFrame(() => setIsHydrated(true));
     return () => {
       cancelled = true;
@@ -241,6 +255,11 @@ export function Board() {
     if (!isHydrated) return;
     localStorage.setItem(HUD_VISIBILITY_STORAGE_KEY, String(hudVisible));
   }, [hudVisible, isHydrated]);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    localStorage.setItem(HOW_IT_WORKS_STORAGE_KEY, String(howItWorksOpen));
+  }, [howItWorksOpen, isHydrated]);
 
   useEffect(() => {
     if (!isHydrated || viewMode === "calendar") return undefined;
@@ -308,8 +327,6 @@ export function Board() {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState<string>("");
-  // The ⓘ reference view: swaps the content area for docs/HOW-IT-WORKS.md (rendered).
-  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const [addTaskTrigger, setAddTaskTrigger] = useState(0);
   const [bridgeTaskOpenRequest, setBridgeTaskOpenRequest] = useState<BridgeTaskOpenRequest | null>(null);
 

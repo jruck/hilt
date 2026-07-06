@@ -277,11 +277,16 @@ async function main(): Promise<void> {
   // accepts the work as his. Other attendees' commitments stay in the ledger as observations
   // (closure detection, future waiting-on projections) but never demand his morning verdict.
   // `unclear` still escalates: it may be his, and correcting it doubles as extractor feedback.
+  let stampedFirstEscalation = false;
   for (const e of openEntries(ledger)) {
     if (e.verdict) continue;
     if (e.owner.startsWith("other:")) continue;
     const meetingDate = e.opened_from.match(/meetings\/(\d{4}-\d{2}-\d{2})\//)?.[1] || today;
-    if (!isRecentDate(meetingDate)) continue;
+    // Recency admits an ask to the queue; ONCE IN, it stays until decided (first_escalated_at) —
+    // 2026-07-06: a holiday weekend aged 15 undecided asks out of the panel silently. Backfill
+    // entries that never met the recency bar stay latent (the flood-gate holds).
+    if (!isRecentDate(meetingDate) && !e.first_escalated_at) continue;
+    if (!e.first_escalated_at) { e.first_escalated_at = now; stampedFirstEscalation = true; }
     items.push({
       id: e.id, loop: loop.id, kind: "action",
       title: `${e.owner === "justin" ? "" : `[${e.owner}] `}${e.action.slice(0, 140)}`,
@@ -312,6 +317,8 @@ async function main(): Promise<void> {
       escalated: { reason: `accepted commitment open ${age} days with no closure evidence` },
     });
   }
+
+  if (stampedFirstEscalation) writeLedger(home, ledger);
 
   const open = openEntries(ledger);
   // Recent-meeting summaries ride as content: the briefing editor needs each meeting's substance

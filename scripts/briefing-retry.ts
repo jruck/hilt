@@ -24,13 +24,31 @@ async function main(): Promise<void> {
   if (minutes < 6 * 60 + 30 || minutes > 17 * 60) return; // 06:30–17:00 ET
 
   const date = now.toLocaleDateString("en-CA");
-  const target = resolveBriefingTarget(vaultPath, "daily", date);
-  if (fs.existsSync(target.absPath)) return; // already generated — nothing to do
+  let failed = false;
 
-  console.error(`[briefing-retry] ${date} daily missing — regenerating`);
-  const result = await generateBriefing({ vaultPath, hiltRepoPath, mode: "daily", date });
-  console.log(JSON.stringify({ retried: date, status: result.status }, null, 2));
-  if (result.status === "invalid") process.exit(1);
+  const target = resolveBriefingTarget(vaultPath, "daily", date);
+  if (!fs.existsSync(target.absPath)) {
+    console.error(`[briefing-retry] ${date} daily (v1) missing — regenerating`);
+    const result = await generateBriefing({ vaultPath, hiltRepoPath, mode: "daily", date });
+    console.log(JSON.stringify({ retried: `${date} v1`, status: result.status }, null, 2));
+    if (result.status === "invalid") failed = true;
+  }
+
+  // v2 shadow gets the same net (2026-07-06: v1 failed at 06:00 and was healed by 10:54 while
+  // v2's identical failure sat dead all day — no toggle, no asks, no Compare).
+  const dataDir = process.env.DATA_DIR || path.join(process.env.HOME || "", ".hilt", "data");
+  const shadowPath = path.join(dataDir, "briefing-shadow", `${date}.md`);
+  if (!fs.existsSync(shadowPath)) {
+    console.error(`[briefing-retry] ${date} shadow (v2) missing — regenerating`);
+    const result = await generateBriefing({
+      vaultPath, hiltRepoPath, mode: "daily", date,
+      outputOverride: shadowPath, loops: true,
+    });
+    console.log(JSON.stringify({ retried: `${date} v2`, status: result.status }, null, 2));
+    if (result.status === "invalid") failed = true;
+  }
+
+  if (failed) process.exit(1);
 }
 
 main().catch((error) => {

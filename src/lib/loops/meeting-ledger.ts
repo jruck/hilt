@@ -30,6 +30,10 @@ export interface LedgerEntry {
   opened_from: string;
   /** Verdict state (v1: everything is verdict-gated before it counts as accepted). */
   verdict?: { verdict: string; at: string; note?: string };
+  /** Stamped the first time this entry escalates to the panel: once an ask has entered Justin's
+   * queue it STAYS there until decided — a pending decision must not expire because a long
+   * weekend pushed its meeting outside the recency window (caught 2026-07-06). */
+  first_escalated_at?: string;
   status_history: Array<{ at: string; from: LedgerStatus | null; to: LedgerStatus; evidence?: string }>;
   /** Additional sightings (restatements) — the identity test's receipts. */
   sightings: Array<{ at: string; meeting: string; quote?: string }>;

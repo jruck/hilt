@@ -178,7 +178,7 @@ Its files:
   (weekends under `weekend/`; physically `$DATA/briefing-shadow/`)
 - [$VAULT/briefings/]($VAULT/briefings) — v1 briefings, 6:00 AM, same editor **without** the
   node artifacts; the ablation baseline for judging what the nodes add (weekdays a retry watcher
-  re-attempts failures every 30 min; weekend failures wait for you or me)
+  re-attempts failures of BOTH briefings every 30 min; weekend failures wait for you or me)
 - [$VAULT/meta/loops-shadow/meta/loops/briefings/feedback/records.jsonl]($VAULT/meta/loops-shadow/meta/loops/briefings/feedback/records.jsonl)
   — your per-item and whole-briefing critique, awaiting the node's future health pass
 
@@ -186,6 +186,9 @@ Its files:
 
 - **Approve** — "this is mine, hold me to it." Tracked; re-escalates if still open 7+ days after
   you accepted it.
+- **Deciding is the only exit**: once an ask enters your queue it stays there until you rule on
+  it — recency admits new asks, but a pending decision never expires by aging out (a holiday
+  weekend proved the old behavior wrong, 2026-07-06).
 - **Dismiss** — permanently out of your queue.
 - **Assign to me** — same as approve today (wiring it to create a real task is a queued proposal).
 - **Revise** — a correction, not a decision: text updates, item returns revised for a real verdict.

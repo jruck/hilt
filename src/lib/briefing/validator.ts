@@ -89,10 +89,22 @@ export function validateBriefing(markdown: string, mode: BriefingMode): Validati
   // (2026-06-30/07-01 .invalid-drafts), burning 50–80 min of retries each; and a document-level
   // link check would let a second unlinked featured line ride a linked one (Codex review).
   const featuredLine = /(\*\*[^*\n]*editor'?s\s+memo[^*\n]*\*\*)|(^#{1,6}\s+.*editor'?s\s+memo)/i;
-  for (const line of markdown.split("\n")) {
-    if (featuredLine.test(line) && !line.includes(MEMO_LINK)) {
-      failures.push(`editor's memo is featured (bold/heading) without ${MEMO_LINK} on that line: "${line.slice(0, 80)}"`);
-    }
+  // The day-thesis lede (everything before the first section heading) is exempt: it's a summary
+  // sentence where inline links are against house style — mentioning the memo there is fine.
+  // This exact rule tripped three honest drafts (06-10, 07-06 ×2) purely on bold ledes.
+  const firstHeading = markdown.search(/^##\s/m);
+  const body = firstHeading === -1 ? markdown : markdown.slice(firstHeading);
+  // The link may sit on the featured line OR the immediately-following non-empty line — the
+  // LINKS style rule mandates standalone link lines, and 07-06 proved a model can't satisfy
+  // both "inline on that line" and "never inline" at once.
+  const bodyLines = body.split("\n");
+  for (let i = 0; i < bodyLines.length; i++) {
+    const line = bodyLines[i];
+    if (!featuredLine.test(line) || line.includes(MEMO_LINK)) continue;
+    let j = i + 1;
+    while (j < bodyLines.length && bodyLines[j].trim() === "") j++;
+    if (j < bodyLines.length && bodyLines[j].includes(MEMO_LINK)) continue;
+    failures.push(`editor's memo is featured (bold/heading) without ${MEMO_LINK} on that line or the next: "${line.slice(0, 80)}"`);
   }
 
   // Footer.

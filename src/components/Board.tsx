@@ -244,10 +244,15 @@ export function Board() {
       });
     }
 
+    // RAF for anti-flash, with a timeout fallback: a frame-starved context (occluded window,
+    // background tab, headless) never fires RAF, which left the whole app rendering null
+    // (found 2026-07-06 — blank page whenever no frames are produced).
     const frame = window.requestAnimationFrame(() => setIsHydrated(true));
+    const timer = window.setTimeout(() => setIsHydrated(true), 80);
     return () => {
       cancelled = true;
       window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
     };
   }, [replaceViewMode, urlViewMode]);
 

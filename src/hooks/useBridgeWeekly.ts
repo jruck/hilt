@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import type { BridgeWeekly, BridgeTask } from "@/lib/types";
+import { taskIdFromTaskPath } from "@/lib/tasks/weekly-v2";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
 import { withBasePath } from "@/lib/base-path";
 
@@ -202,6 +203,29 @@ export function useBridgeWeekly() {
     return newTask;
   }
 
+  /**
+   * Persist a task's project set. v2 tasks (line links a task file) write task frontmatter
+   * `projects` directly via the task-object route — `null` clears the key; the weekly file
+   * is untouched (the v2 line never carries project links). v1 keeps the legacy
+   * write-through (`projectPaths` serialized into the list line).
+   */
+  async function persistTaskProjects(task: BridgeTask | undefined, id: string, newPaths: string[], projectTitles?: Record<string, string>) {
+    const v2TaskId = task && !task.missing ? taskIdFromTaskPath(task.taskPath) : null;
+    if (v2TaskId) {
+      await fetch(withBasePath(`/api/tasks/${v2TaskId}`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projects: newPaths.length > 0 ? newPaths : null }),
+      });
+    } else {
+      await fetch(withBasePath(`/api/bridge/tasks/${id}`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectPaths: newPaths, projectTitles }),
+      });
+    }
+  }
+
   async function updateTaskProject(id: string, projectPath: string | null, projectTitles?: Record<string, string>) {
     // Legacy single-project update — adds to existing paths or sets as only path
     const task = data?.tasks.find(t => t.id === id);
@@ -209,7 +233,7 @@ export function useBridgeWeekly() {
     const newPaths = projectPath
       ? [...currentPaths.filter(p => p !== projectPath), projectPath]
       : [];
-    
+
     if (data) {
       const updatedTasks = data.tasks.map(t =>
         t.id === id ? { ...t, projectPath: newPaths[0] ?? null, projectPaths: newPaths } : t
@@ -217,11 +241,7 @@ export function useBridgeWeekly() {
       mutate({ ...data, tasks: updatedTasks }, false);
     }
 
-    await fetch(withBasePath(`/api/bridge/tasks/${id}`), {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectPaths: newPaths, projectTitles }),
-    });
+    await persistTaskProjects(task, id, newPaths, projectTitles);
     mutate();
   }
 
@@ -237,11 +257,7 @@ export function useBridgeWeekly() {
       mutate({ ...data, tasks: updatedTasks }, false);
     }
 
-    await fetch(withBasePath(`/api/bridge/tasks/${id}`), {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectPaths: newPaths, projectTitles }),
-    });
+    await persistTaskProjects(task, id, newPaths, projectTitles);
     mutate();
   }
 

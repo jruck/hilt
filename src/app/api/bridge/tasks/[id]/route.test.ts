@@ -39,8 +39,9 @@ vi.mock("@/lib/bridge/vault", () => ({
 }));
 
 import { DELETE, PUT } from "./route";
+import { POST as postTask } from "../route";
 import { GET as getWeekly } from "../../weekly/route";
-import { readTask } from "@/lib/tasks/store";
+import { listTasks, readTask } from "@/lib/tasks/store";
 
 const FIXTURE_DIR = path.join(__dirname, "..", "..", "..", "..", "..", "lib", "bridge", "__fixtures__", "weekly-v2");
 const LIST_REL = "lists/now/2026-07-06.md";
@@ -285,6 +286,92 @@ describe("PUT /api/bridge/tasks/[id] — v2 input validation (truth-store protec
     seedV2Vault();
     const res = await put("task-0", { details: "not an array" });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /api/bridge/tasks — v2 add (file first, surgical line splice)", () => {
+  function post(body: unknown) {
+    return postTask(
+      new Request("http://localhost/api/bridge/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }) as never,
+    );
+  }
+
+  it("creates the task FILE (accepted-me) then splices the line at the top of the task section", async () => {
+    seedV2Vault();
+    const res = await post({ title: "Brand new v2 task" });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+
+    // File is the truth: born accepted-me in tasks/.
+    const created = listTasks(state.baseDir).find((t) => t.title === "Brand new v2 task");
+    expect(created).toBeDefined();
+    expect(created!.status).toBe("accepted-me");
+
+    // Line: rendered from the file, inserted directly under ## Tasks (v1's insertion spot),
+    // before the previously-first task and any ### group heading.
+    const content = listContent();
+    const line = `- [ ] [Brand new v2 task](tasks/${created!.id}.md)`;
+    expect(content).toContain(line);
+    expect(content.indexOf("## Tasks")).toBeLessThan(content.indexOf(line));
+    expect(content.indexOf(line)).toBeLessThan(content.indexOf("Ship the A3 write-through"));
+    expect(content.indexOf(line)).toBeLessThan(content.indexOf("### Later"));
+
+    // Response shape matches the v1 add: the new task, hydrated, at the top (task-0).
+    expect(json.task.id).toBe("task-0");
+    expect(json.task.taskPath).toBe(`tasks/${created!.id}.md`);
+    expect(json.task.title).toBe("Brand new v2 task");
+    expect(json.task.missing).toBe(false);
+    expect(json.mirrorFailed).toBeUndefined();
+  });
+
+  it("mirror write failure: file created, warn + success + mirrorFailed, list untouched", async () => {
+    seedV2Vault();
+    const before = listContent();
+    state.failNextListWrite = true;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const res = await post({ title: "Orphaned but real" });
+    warn.mockRestore();
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.mirrorFailed).toBe(true);
+    expect(json.task.title).toBe("Orphaned but real");
+    // The task exists (truth); only the mirror line is missing.
+    expect(listTasks(state.baseDir).some((t) => t.title === "Orphaned but real")).toBe(true);
+    expect(listContent()).toBe(before);
+  });
+
+  it("no task-section anchor: file still created, mirrorFailed, list untouched", async () => {
+    fs.mkdirSync(path.join(state.baseDir, "lists", "now"), { recursive: true });
+    fs.writeFileSync(
+      path.join(state.baseDir, LIST_REL),
+      "---\ntype: weekly-list\nweek: 2026-07-06\nlist_format: 2\n---\n\n# Week of 2026-07-06\n\n## Notes\nNo tasks section at all.\n",
+      "utf-8",
+    );
+    const before = listContent();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const res = await post({ title: "Nowhere to land" });
+    warn.mockRestore();
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.mirrorFailed).toBe(true);
+    expect(listTasks(state.baseDir).some((t) => t.title === "Nowhere to land")).toBe(true);
+    expect(listContent()).toBe(before);
+  });
+
+  it("v1 lists keep the legacy add path — no task files are ever created", async () => {
+    seedV1Vault();
+    const res = await post({ title: "Another legacy task" });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.task.title).toBe("Another legacy task");
+    expect(listContent()).toContain("- [ ] Another legacy task");
+    expect(fs.existsSync(path.join(state.baseDir, "tasks"))).toBe(false);
   });
 });
 

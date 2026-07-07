@@ -19,17 +19,10 @@ export function proposalsDir(baseDir: string): string {
   return path.join(tasksDir(baseDir), ".proposals");
 }
 
-/**
- * Every id the lib mints matches this shape; anything else is rejected before it reaches a
- * path.join. Ids arrive from URLs (API routes) and loop payloads, so a permissive id is a
- * path-traversal vector (`../../evil` reads/writes outside the vault — confirmed exploit in
- * the A2 adversarial review).
- */
-const TASK_ID_RE = /^t-\d{8}-\d{3,}$/;
-
-export function isValidTaskId(id: string): boolean {
-  return TASK_ID_RE.test(id);
-}
+// Id validation lives in the pure task-id module (client components import it too);
+// re-exported here so store consumers keep one import site.
+import { isValidTaskId } from "./task-id";
+export { isValidTaskId };
 
 function assertValidTaskId(id: string): void {
   if (!isValidTaskId(id)) throw new Error(`invalid task id: ${JSON.stringify(id).slice(0, 80)}`);

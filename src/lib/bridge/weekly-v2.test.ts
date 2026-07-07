@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { addTask, parseWeeklyFile, updateTask } from "./weekly-parser";
-import { hydrateWeeklyTasks, removeWeeklyLines, replaceWeeklyLine, taskIdFromTaskPath } from "./weekly-v2-view";
+import { hydrateWeeklyTasks, insertWeeklyV2Line, removeWeeklyLines, replaceWeeklyLine, taskIdFromTaskPath } from "./weekly-v2-view";
 import { listFormatFromFrontmatter } from "@/lib/tasks/weekly-v2";
 
 const FIXTURE_DIR = path.join(__dirname, "__fixtures__", "weekly-v2");
@@ -167,5 +167,40 @@ describe("v2 marker robustness + line removal", () => {
     const dup = "- [ ] [A](tasks/t-20260706-001.md)\n- [ ] [A](tasks/t-20260706-001.md)\n";
     assert.equal(removeWeeklyLines(dup, 9, ["- [ ] [A](tasks/t-20260706-001.md)"]), null);
     assert.equal(removeWeeklyLines("nothing here\n", 1, ["- [ ] [gone](tasks/t-20260706-009.md)"]), null);
+  });
+});
+
+describe("insertWeeklyV2Line — surgical add splice (v3 unit A4)", () => {
+  const NEW = "- [ ] [Fresh](tasks/t-20260707-001.md)";
+
+  it("inserts directly under ## Tasks, before existing tasks and group headings (one-line diff)", () => {
+    const out = insertWeeklyV2Line(LIST, NEW);
+    assert.ok(out);
+    const before = LIST.split("\n");
+    const after = out!.split("\n");
+    assert.equal(after.length, before.length + 1);
+    const at = after.indexOf(NEW);
+    assert.equal(after[at - 1], "## Tasks");
+    // every other line is byte-identical
+    assert.deepEqual([...after.slice(0, at), ...after.slice(at + 1)], before);
+    // and the new line parses as the FIRST task (v1's task-0 convention)
+    const parsed = parseWeeklyFile(out!, "2026-07-06.md");
+    assert.equal(parsed.tasks[0].taskPath, "tasks/t-20260707-001.md");
+  });
+
+  it("skips blank lines under the heading instead of orphaning a gap", () => {
+    const content = "---\nweek: 2026-07-06\nlist_format: 2\n---\n\n## Tasks\n\n- [ ] [A](tasks/t-20260706-001.md)\n";
+    const out = insertWeeklyV2Line(content, NEW);
+    assert.ok(out!.includes(`## Tasks\n\n${NEW}\n- [ ] [A]`));
+  });
+
+  it("heading-less list: inserts before the first task line or ### group heading", () => {
+    const content = "---\nweek: 2026-07-06\nlist_format: 2\n---\n\n# Week\n\n### Later\n- [ ] [A](tasks/t-20260706-001.md)\n";
+    const out = insertWeeklyV2Line(content, NEW);
+    assert.ok(out!.includes(`# Week\n\n${NEW}\n### Later`));
+  });
+
+  it("returns null when there is no task-section anchor (caller treats as mirror failure)", () => {
+    assert.equal(insertWeeklyV2Line("---\nweek: 2026-07-06\nlist_format: 2\n---\n\n## Notes\nJust notes.\n", NEW), null);
   });
 });

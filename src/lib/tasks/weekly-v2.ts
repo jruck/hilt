@@ -4,7 +4,35 @@
  * `- [ ] [Title](tasks/t-….md) [due:: YYYY-MM-DD]` — checkbox + title→task-file link + due
  * badge. The task file is the source of truth; the checkbox is a write-through mirror.
  */
+import { isValidTaskId } from "./task-id";
 import type { TaskFile, WeeklyV2Line } from "./types";
+
+/**
+ * The task-store id for a weekly line's taskPath, or null when the line doesn't point into
+ * the canonical store (`tasks/<t-…>.md`). Mutations require a store-resolvable path — the
+ * store's own id validation is the path-traversal guard. Pure (hand-rolled posix-style
+ * normalization, no node:path) so client components can branch on v2-ness too.
+ */
+export function taskIdFromTaskPath(taskPath: string | null | undefined): string | null {
+  if (!taskPath) return null;
+  const forward = taskPath.replace(/\\/g, "/");
+  if (forward.startsWith("/")) return null; // absolute paths never resolve into the vault store
+  const normalized: string[] = [];
+  for (const segment of forward.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") {
+      // Mirror path.posix.normalize: ".." pops a real segment but survives at the front
+      // ("../tasks/…" must NOT normalize into the store — it escapes the vault).
+      if (normalized.length > 0 && normalized[normalized.length - 1] !== "..") normalized.pop();
+      else normalized.push("..");
+      continue;
+    }
+    normalized.push(segment);
+  }
+  const match = normalized.join("/").match(/^tasks\/([^/]+)\.md$/);
+  if (!match || !isValidTaskId(match[1])) return null;
+  return match[1];
+}
 
 export const WEEKLY_LIST_FORMAT_KEY = "list_format";
 

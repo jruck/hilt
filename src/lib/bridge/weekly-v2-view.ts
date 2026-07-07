@@ -10,24 +10,13 @@
  * touch the one mirrored line — a failed mirror is cosmetic and self-heals on the next
  * hydrated read, because the file is the source of truth.
  */
-import path from "path";
 import { hydrateWeeklyV2Line } from "../tasks/hydrate";
-import { isValidTaskId } from "../tasks/store";
-import { parseWeeklyV2Line } from "../tasks/weekly-v2";
+import { parseWeeklyV2Line, taskIdFromTaskPath } from "../tasks/weekly-v2";
 import type { BridgeTask } from "../types";
 
-/**
- * The task-store id for a weekly line's taskPath, or null when the line doesn't point into
- * the canonical store (`tasks/<t-…>.md`). Mutations require a store-resolvable path — the
- * store's own id validation is the path-traversal guard.
- */
-export function taskIdFromTaskPath(taskPath: string | null | undefined): string | null {
-  if (!taskPath) return null;
-  const normalized = path.posix.normalize(taskPath.replace(/\\/g, "/"));
-  const match = normalized.match(/^tasks\/([^/]+)\.md$/);
-  if (!match || !isValidTaskId(match[1])) return null;
-  return match[1];
-}
+// Moved to the pure weekly-v2 module (A4: client components branch on v2-ness too);
+// re-exported so server-side consumers keep importing it from the view lib.
+export { taskIdFromTaskPath };
 
 /**
  * Join parsed v2 weekly tasks with their task files. File wins for title/done/due/projects;
@@ -71,6 +60,38 @@ export function replaceWeeklyLine(
   const indent = expected.match(/^[\t ]*/)?.[0] ?? "";
   lines[index] = indent + replacement.replace(/^[\t ]*/, "");
   return lines.join("\n");
+}
+
+/**
+ * Insert a new task line at the top of the weekly task section — the same spot v1's addTask
+ * puts new tasks (first line under `## Tasks`, before any `###` group heading) — as a
+ * SURGICAL line splice (the v1 serializer never touches v2 content). Heading-less lists
+ * (new-format fallback) insert directly before the first task line or `###` group heading.
+ * Returns null when no anchor exists — the caller treats that as a cosmetic mirror failure
+ * (the task file, the truth, already exists).
+ */
+export function insertWeeklyV2Line(content: string, line: string): string | null {
+  const lines = content.split("\n");
+  let bodyStart = 0;
+  if (lines[0]?.trim() === "---") {
+    const end = lines.findIndex((l, i) => i > 0 && l.trim() === "---");
+    if (end !== -1) bodyStart = end + 1;
+  }
+  const heading = lines.findIndex((l, i) => i >= bodyStart && l.trim() === "## Tasks");
+  if (heading !== -1) {
+    // Skip blank lines directly under the heading so the new task doesn't orphan a gap.
+    let at = heading + 1;
+    while (at < lines.length && lines[at].trim() === "") at++;
+    lines.splice(at, 0, line);
+    return lines.join("\n");
+  }
+  for (let i = bodyStart; i < lines.length; i++) {
+    if (/^###\s+/.test(lines[i]) || /^- \[[ xX]\]\s/.test(lines[i])) {
+      lines.splice(i, 0, line);
+      return lines.join("\n");
+    }
+  }
+  return null;
 }
 
 /**

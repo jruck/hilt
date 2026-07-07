@@ -4,8 +4,11 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { X, Trash2, FolderOpen, MoreVertical, CalendarDays, FileText } from "lucide-react";
 import type { BridgeTask } from "@/lib/types";
 import { parseLifecycle } from "@/lib/attribution";
+import { taskIdFromTaskPath } from "@/lib/tasks/weekly-v2";
+import { withBasePath } from "@/lib/base-path";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
 import { useBridgeThoughts } from "@/hooks/useBridgeThoughts";
+import { useTaskFile } from "@/hooks/useTaskFile";
 import { ProjectPicker } from "./ProjectPicker";
 import { DatePickerPopover, formatDueDate } from "./DatePickerPopover";
 import { copyToClipboard } from "@/lib/references/clipboard";
@@ -64,6 +67,37 @@ export function BridgeTaskPanel({
 
   const { data: projects } = useBridgeProjects();
   const { data: thoughts } = useBridgeThoughts();
+
+  // v2 (task-file-backed list): the DETAILS editor reads/writes the task FILE body — the
+  // list line never carries details. v1 tasks leave v2TaskId null and use the legacy flow.
+  const degraded = task.missing === true;
+  const v2TaskId = degraded ? null : taskIdFromTaskPath(task.taskPath);
+  const { task: rawFileTask, mutate: mutateTaskFile } = useTaskFile(v2TaskId);
+  // keepPreviousData means a just-switched selection briefly serves the PREVIOUS task's
+  // file — never feed another task's body into the editor.
+  const fileTask = rawFileTask && rawFileTask.id === v2TaskId ? rawFileTask : null;
+  const lastSavedBody = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (fileTask) lastSavedBody.current = fileTask.body.replace(/\n+$/, "");
+  }, [fileTask]);
+
+  const handleBodyChange = useCallback(
+    (markdown: string) => {
+      if (!v2TaskId) return;
+      const normalized = markdown.replace(/\n+$/, "");
+      if (normalized === lastSavedBody.current) return;
+      lastSavedBody.current = normalized;
+      void fetch(withBasePath(`/api/tasks/${v2TaskId}`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: markdown }),
+      })
+        .then(() => mutateTaskFile())
+        .catch((err) => console.error("[bridge/task] Failed to save task body:", err));
+    },
+    [v2TaskId, mutateTaskFile]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -248,6 +282,13 @@ export function BridgeTaskPanel({
 
       {/* Header */}
       <div className="flex-shrink-0 flex items-start gap-3 px-6 py-5 border-b border-[var(--border-default)]">
+        {degraded ? (
+          // Degraded v2 line (task file missing/unlinked): raw title, read-only — every
+          // field edit would need the file, so the panel goes quiet instead of erroring.
+          <div className="flex-1 text-lg leading-snug font-semibold text-[var(--text-primary)]">
+            {displayTitle}
+          </div>
+        ) : (
         <textarea
           ref={titleRef}
           value={displayTitle}
@@ -266,6 +307,7 @@ export function BridgeTaskPanel({
           placeholder="Task title..."
           style={{ fieldSizing: "content" } as React.CSSProperties}
         />
+        )}
 
         {/* Three-dot menu */}
         <div className="flex-shrink-0 relative" ref={menuRef}>
@@ -278,31 +320,36 @@ export function BridgeTaskPanel({
 
           {showMenu && (
             <div className="absolute right-0 top-full mt-1 w-56 z-50 rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] shadow-lg overflow-hidden py-1">
-              <button
-                onClick={() => {
-                  setShowMenu(false);
-                  setShowPicker(true);
-                }}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
-              >
-                <FolderOpen className="w-4 h-4 text-[var(--text-tertiary)]" />
-                Attach project
-              </button>
-              <button
-                onClick={() => {
-                  setShowMenu(false);
-                  setShowDatePicker(true);
-                }}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
-              >
-                <CalendarDays className="w-4 h-4 text-[var(--text-tertiary)]" />
-                <span className="flex-1 text-left">Due date</span>
-                {task.dueDate && (
-                  <span className="max-w-24 truncate text-[10px] text-[var(--text-tertiary)]">
-                    {formatDueDate(task.dueDate)}
-                  </span>
-                )}
-              </button>
+              {/* Project/due edits need the task file — hidden while the line is degraded */}
+              {!degraded && (
+                <>
+                  <button
+                    onClick={() => {
+                      setShowMenu(false);
+                      setShowPicker(true);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
+                  >
+                    <FolderOpen className="w-4 h-4 text-[var(--text-tertiary)]" />
+                    Attach project
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowMenu(false);
+                      setShowDatePicker(true);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
+                  >
+                    <CalendarDays className="w-4 h-4 text-[var(--text-tertiary)]" />
+                    <span className="flex-1 text-left">Due date</span>
+                    {task.dueDate && (
+                      <span className="max-w-24 truncate text-[10px] text-[var(--text-tertiary)]">
+                        {formatDueDate(task.dueDate)}
+                      </span>
+                    )}
+                  </button>
+                </>
+              )}
               <CopyReferenceButton
                 variant="menu-item"
                 reference={{
@@ -427,15 +474,32 @@ export function BridgeTaskPanel({
         </div>
       )}
 
-      {/* Content — always editable */}
+      {/* Content — v2 edits the task FILE body; v1 edits the list's detail lines */}
       <div ref={editorAreaRef} className="flex-1 overflow-y-auto px-6 py-4">
-        <BridgeTaskEditor
-          markdown={fullMarkdown}
-          onChange={handleContentChange}
-          readOnly={false}
-          vaultPath={vaultPath}
-          filePath={filePath}
-        />
+        {degraded ? (
+          <div className="text-sm text-[var(--text-tertiary)] py-4">
+            Task file missing — this line renders from the weekly list only.
+          </div>
+        ) : v2TaskId ? (
+          fileTask && (
+            <BridgeTaskEditor
+              key={v2TaskId}
+              markdown={fileTask.body}
+              onChange={handleBodyChange}
+              readOnly={false}
+              vaultPath={vaultPath}
+              filePath={vaultPath ? `${vaultPath}/tasks/${v2TaskId}.md` : undefined}
+            />
+          )
+        ) : (
+          <BridgeTaskEditor
+            markdown={fullMarkdown}
+            onChange={handleContentChange}
+            readOnly={false}
+            vaultPath={vaultPath}
+            filePath={filePath}
+          />
+        )}
       </div>
     </div>
   );

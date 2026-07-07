@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { addTask, parseWeeklyFile } from "@/lib/bridge/weekly-parser";
-import { listVaultDir, readVaultFile, writeVaultFileAtomic } from "@/lib/bridge/vault";
+import { hydrateWeeklyTasks, insertWeeklyV2Line } from "@/lib/bridge/weekly-v2-view";
+import { getVaultPath, listVaultDir, readVaultFile, writeVaultFileAtomic } from "@/lib/bridge/vault";
+import { createTask } from "@/lib/tasks/store";
+import { renderWeeklyV2Line } from "@/lib/tasks/weekly-v2";
+import type { BridgeTask } from "@/lib/types";
 
 async function getCurrentWeekly() {
   const files = await listVaultDir("lists/now");
@@ -11,21 +15,69 @@ async function getCurrentWeekly() {
   return { filename, content };
 }
 
+/**
+ * v2 add (v3 unit A4): the task FILE is created first (truth — the task exists even if the
+ * list line never lands), then the rendered line is spliced surgically into the top of the
+ * weekly task section (v1's insertion convention; never the v1 serializer). A failed splice
+ * or list write is a cosmetic mirror failure — warn + success + `mirrorFailed` (A6's
+ * proposal/task surfaces show the orphaned file; the next recycle can re-carry it).
+ */
+async function addTaskV2(filename: string, content: string, title: string): Promise<NextResponse> {
+  const vaultPath = await getVaultPath();
+
+  // File first (truth).
+  const file = createTask(vaultPath, { title, status: "accepted-me" });
+  const relTaskPath = `tasks/${file.id}.md`;
+  const line = renderWeeklyV2Line(file, relTaskPath);
+
+  // Response fallback when the mirror fails — same shape the v1 add returns (task-0 = top).
+  const fallbackTask: BridgeTask = {
+    id: "task-0",
+    title: file.title,
+    done: false,
+    details: [],
+    rawLines: [line],
+    projectPath: null,
+    projectPaths: [],
+    dueDate: null,
+    group: null,
+    taskPath: relTaskPath,
+    missing: false,
+  };
+
+  const inserted = insertWeeklyV2Line(content, line);
+  if (inserted === null) {
+    console.warn(
+      `[bridge/tasks] v2 add mirror skipped: no task-section anchor in ${filename} (task file ${file.id} created)`,
+    );
+    return NextResponse.json({ task: fallbackTask, mirrorFailed: true });
+  }
+  try {
+    await writeVaultFileAtomic(`lists/now/${filename}`, inserted);
+  } catch (err) {
+    console.warn(
+      `[bridge/tasks] v2 add mirror write failed for ${filename} (task file ${file.id} created):`,
+      err,
+    );
+    return NextResponse.json({ task: fallbackTask, mirrorFailed: true });
+  }
+
+  const parsed = parseWeeklyFile(inserted, filename);
+  const tasks = hydrateWeeklyTasks(vaultPath, parsed.tasks);
+  const created = tasks.find(t => t.taskPath === relTaskPath) ?? fallbackTask;
+  return NextResponse.json({ task: created });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { title } = await request.json();
-    if (!title || typeof title !== "string") {
+    if (!title || typeof title !== "string" || !title.trim()) {
       return NextResponse.json({ error: "Title is required" }, { status: 400 });
     }
 
     const { filename, content } = await getCurrentWeekly();
-    // v2 add (task file + line) lands in A4 — until then answer plainly instead of letting
-    // the parser's corruption guard surface as a generic 500.
     if (parseWeeklyFile(content, filename).listFormat === 2) {
-      return NextResponse.json(
-        { error: "Adding tasks to a v2 weekly list is not supported yet" },
-        { status: 409 },
-      );
+      return await addTaskV2(filename, content, title.trim());
     }
     const updated = addTask(content, title.trim());
     await writeVaultFileAtomic(`lists/now/${filename}`, updated);

@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { BridgeTask } from "@/lib/types";
-import { GripVertical, ChevronRight } from "lucide-react";
+import { GripVertical, ChevronRight, Unlink } from "lucide-react";
 import { parseLifecycle, parseMention } from "@/lib/attribution";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useHaptics } from "@/hooks/useHaptics";
@@ -217,6 +217,13 @@ export function BridgeTaskItem({
               </span>
             </div>
           </div>
+
+          {/* v2 degraded line: the task file is missing/unlinked — quiet muted marker only */}
+          {task.missing && (
+            <span className="flex-shrink-0" title="Task file missing">
+              <Unlink className="w-3.5 h-3.5 text-[var(--text-quaternary)]" />
+            </span>
+          )}
 
           {/* @mention pill */}
           {mention && (

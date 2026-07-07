@@ -631,6 +631,7 @@ The response includes the weekly file's section order so the Bridge view can ren
 {
   filename: string;
   week: string;
+  listFormat: 1 | 2;       // frontmatter list_format (default 1)
   needsRecycle: boolean;
   sectionOrder: ("accomplishments" | "notes" | "tasks")[];
   tasks: BridgeTask[];
@@ -642,6 +643,12 @@ The response includes the weekly file's section order so the Bridge view can ren
   latestWeek: string;
 }
 ```
+
+When the list is v2 (`list_format: 2` frontmatter), each task line is **hydrated from its
+task file** (`title`/`done`/`dueDate`/`projectPaths` come from the file; additive
+`taskPath` + `missing` fields on each `BridgeTask`). A missing/unreadable task file
+degrades that line to its own raw data with `missing: true` — lines are never dropped.
+v1 lists are returned exactly as before (additive `listFormat: 1` only).
 
 ### GET /api/bridge/briefings
 
@@ -812,7 +819,7 @@ FeedbackRecord
 
 **File**: `src/app/api/bridge/tasks/route.ts`
 
-Add a new task to the current weekly list.
+Add a new task to the current weekly list. Whitespace-only titles → `400`.
 
 **Request Body**
 
@@ -823,8 +830,20 @@ Add a new task to the current weekly list.
 **Response**
 
 ```typescript
-{ task: BridgeTask }
+{ task: BridgeTask; mirrorFailed?: true }
 ```
+
+**Weekly list v2** (`listFormat === 2`): the task FILE is created first —
+`createTask(vault, { title, status: "accepted-me" })`, the truth — then the rendered line
+(`renderWeeklyV2Line`) is spliced surgically into the top of the weekly task section
+(`insertWeeklyV2Line`: directly under `## Tasks` before any `###` group, matching v1's
+insertion convention; heading-less lists insert before the first task line or group
+heading; never the v1 serializer). A failed splice or list write follows the A3
+mirror-failure contract: warn + `200` with `mirrorFailed: true` — the task file exists
+even though the line never landed. The response `task` is the hydrated new task
+(`task-0`, `taskPath` set), same shape as the v1 add.
+
+v1 lists flow through the legacy `addTask` serializer unchanged.
 
 ### PUT /api/bridge/tasks/[id]
 
@@ -849,6 +868,25 @@ Update a task by ID. Supports toggling done, renaming, editing details, moving p
 ```typescript
 { tasks: BridgeTask[] }
 ```
+
+**Weekly list v2 write-through** (branch keyed strictly on the owning list's
+`listFormat === 2`): the task FILE is the source of truth and is written FIRST via the
+task store; the list line is a mirror updated second.
+
+- Checkbox: checked → audited `done` transition (`accepted-*` may shortcut straight to
+  `done`), unchecked → `in-progress` (reopen); then the line's checkbox is mirrored
+  (`mirrorCheckbox`). A failed mirror is cosmetic — warn + `200` with `mirrorFailed: true`
+  (the next hydrated read self-heals). A failed file write is an error (`404` missing
+  file, `409` linkless line or illegal transition) and the list is untouched. Never
+  list-first.
+- `title` / `dueDate`: written to the file, then the line is re-rendered from the file
+  (`renderWeeklyV2Line`, task-file link preserved).
+- `details` / `projectPaths`: task file ONLY (body / frontmatter `projects`) — the weekly
+  file is byte-untouched.
+- `moveTo`: list-view concern; reorders lines verbatim, task files untouched.
+- Response is the hydrated task list plus `listFormat: 2`.
+
+v1 lists flow through the legacy path unchanged.
 
 ### DELETE /api/bridge/tasks/[id]
 

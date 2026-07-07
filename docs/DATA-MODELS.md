@@ -37,8 +37,19 @@ interface BridgeTask {
   projectPaths: string[];  // All linked project/thought paths
   dueDate: string | null;  // YYYY-MM-DD from [due:: ...]
   group: string | null;    // ### group heading inside ## Tasks
+  // Weekly list v2 (list_format: 2) additive fields — absent on v1 lists
+  taskPath?: string | null; // v2: LAST markdown-link target on the line = vault-relative task-file path
+  missing?: boolean;       // v2 hydration: true when the task file is absent/unreadable (raw line rendered as-is)
 }
 ```
+
+On a v2 list the parser delegates line parsing to `src/lib/tasks/weekly-v2.ts`
+(`parseWeeklyV2Line`): `title`/`done`/`dueDate` come from the line, `taskPath` is the
+last link target, and `projectPaths` stays **empty** (the v1 title-link project overload
+is dead in v2 — projects live in task frontmatter and arrive via hydration). Hydration
+(`src/lib/bridge/weekly-v2-view.ts`) then overlays task-FILE truth onto
+`title`/`done`/`dueDate`/`projectPaths` per line, or degrades to the raw line's own data
+with `missing: true`.
 
 ### BridgeWeekly
 
@@ -50,6 +61,7 @@ type BridgeWeeklySection = "accomplishments" | "notes" | "tasks";
 interface BridgeWeekly {
   filename: string;        // "2026-01-27.md"
   week: string;            // "2026-01-27" from frontmatter
+  listFormat: 1 | 2;       // frontmatter list_format (default 1); 2 = task-file-backed view
   needsRecycle: boolean;   // Current date in newer ISO week
   sectionOrder: BridgeWeeklySection[]; // Source order of weekly sections
   tasks: BridgeTask[];

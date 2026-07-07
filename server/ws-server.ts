@@ -241,6 +241,12 @@ async function startServer() {
     eventServer.broadcast("bridge", "weekly-changed", {});
   });
 
+  // Task files (tasks/ + tasks/.proposals/) — the only broadcast path for /api/tasks
+  // mutations: routes never broadcast; the file write lands here via chokidar.
+  bridgeWatcher.on("tasks-changed", () => {
+    eventServer.broadcast("bridge", "tasks-changed", {});
+  });
+
   bridgeWatcher.on("projects-changed", () => {
     eventServer.broadcast("bridge", "projects-changed", {});
   });
@@ -297,6 +303,7 @@ async function startServer() {
         bridgeWatcher.on("areas-changed", () => graphRunner?.onDirChanged("areas"));
         bridgeWatcher.on("thoughts-changed", () => graphRunner?.onDirChanged("thoughts"));
         bridgeWatcher.on("weekly-changed", () => graphRunner?.onDirChanged("weekly"));
+        bridgeWatcher.on("tasks-changed", () => graphRunner?.onDirChanged("tasks"));
 
         // ScopeWatcher: persistent internal client at the vault root covers
         // references/ + docs/ (BridgeWatcher does not). Ref-counted; survives UI subs.
@@ -338,6 +345,7 @@ async function startServer() {
         bridgeWatcher.on("areas-changed", () => semanticRunner?.onDirChanged("areas"));
         bridgeWatcher.on("thoughts-changed", () => semanticRunner?.onDirChanged("thoughts"));
         bridgeWatcher.on("weekly-changed", () => semanticRunner?.onDirChanged("weekly"));
+        bridgeWatcher.on("tasks-changed", () => semanticRunner?.onDirChanged("tasks"));
 
         // ScopeWatcher: persistent internal client at the vault root covers references/ + docs/.
         // Ref-counted via a reserved client id, so it coexists with the GraphRunner's client.

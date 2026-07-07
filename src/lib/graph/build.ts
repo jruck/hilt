@@ -71,7 +71,9 @@ export function resolveVaultRoot(): string {
  * Primary-vault top-level dirs included in the default global graph. `references`
  * is walked but its `.cache` (candidates) is excluded by the dotdir filter and
  * pulled separately via the candidate cache API. `libraries/` is intentionally
- * NOT here — it is opt-in and modeled as cluster nodes.
+ * NOT here — it is opt-in and modeled as cluster nodes. `tasks` (v3 task objects)
+ * is walked as plain notes; its `.proposals` dotdir is excluded here (proposals are
+ * ephemeral) even though the BridgeWatcher DOES watch it for `tasks-changed`.
  */
 export const INCLUDED_DIRS = [
   "projects",
@@ -81,6 +83,7 @@ export const INCLUDED_DIRS = [
   "areas",
   "thoughts",
   "lists/now",
+  "tasks",
   "docs",
 ] as const;
 

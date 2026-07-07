@@ -7,11 +7,15 @@
 
 import * as chokidar from "chokidar";
 import { EventEmitter } from "events";
+import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { isIgnoredBridgePath } from "./watch-ignore";
+
+export type BridgeChangeType = "weekly" | "projects" | "people" | "thoughts" | "areas" | "tasks";
 
 export interface BridgeChangedEvent {
-  type: "weekly" | "projects" | "people" | "thoughts" | "areas";
+  type: BridgeChangeType;
   path: string;
 }
 
@@ -26,6 +30,15 @@ export class BridgeWatcher extends EventEmitter {
   }
 
   start(): void {
+    // Ensure the task stores exist so a fresh vault has something to watch
+    // (tasks/.proposals/ creates tasks/ too). Best-effort: a read-only vault
+    // must not take the watcher down.
+    try {
+      fs.mkdirSync(path.join(this.vaultPath, "tasks", ".proposals"), { recursive: true });
+    } catch (err) {
+      console.warn("[BridgeWatcher] Could not ensure tasks dirs:", err);
+    }
+
     const watchPaths = [
       path.join(this.vaultPath, "lists", "now"),
       path.join(this.vaultPath, "projects"),
@@ -33,12 +46,15 @@ export class BridgeWatcher extends EventEmitter {
       path.join(this.vaultPath, "thoughts"),
       path.join(this.vaultPath, "people"),
       path.join(this.vaultPath, "meetings"),
+      path.join(this.vaultPath, "tasks"),
     ];
 
     this.watcher = chokidar.watch(watchPaths, {
       ignoreInitial: true,
       depth: 2,
-      ignored: [/(^|[/\\])\../, /node_modules/],
+      // NOT the blanket dot-regex: tasks/.proposals/ must be watched (proposal task
+      // files live there from birth). See watch-ignore.ts for the exact semantics.
+      ignored: (watchedPath: string) => isIgnoredBridgePath(watchedPath),
       persistent: true,
       awaitWriteFinish: {
         stabilityThreshold: 200,
@@ -53,9 +69,12 @@ export class BridgeWatcher extends EventEmitter {
         return;
       }
 
-      let changeType: "weekly" | "projects" | "people" | "thoughts" | "areas";
+      let changeType: BridgeChangeType;
       if (filePath.includes(path.join("lists", "now"))) {
         changeType = "weekly";
+      } else if (filePath.includes(path.sep + "tasks" + path.sep)) {
+        // Covers tasks/*.md AND tasks/.proposals/*.md — one event for both stores.
+        changeType = "tasks";
       } else if (filePath.includes(path.sep + "people" + path.sep) || filePath.includes(path.sep + "meetings" + path.sep)) {
         changeType = "people";
       } else if (filePath.includes(path.sep + "areas" + path.sep)) {
@@ -76,7 +95,7 @@ export class BridgeWatcher extends EventEmitter {
     console.log(`[BridgeWatcher] Watching: ${watchPaths.join(", ")}`);
   }
 
-  private debouncedEmit(type: "weekly" | "projects" | "people" | "thoughts" | "areas", filePath: string): void {
+  private debouncedEmit(type: BridgeChangeType, filePath: string): void {
     const key = type;
     const existing = this.debounceTimers.get(key);
     if (existing) clearTimeout(existing);
@@ -89,6 +108,7 @@ export class BridgeWatcher extends EventEmitter {
         people: "people-changed",
         areas: "areas-changed",
         thoughts: "thoughts-changed",
+        tasks: "tasks-changed",
       };
       const eventName = eventNames[type] || "projects-changed";
       this.emit(eventName, { type, path: filePath });

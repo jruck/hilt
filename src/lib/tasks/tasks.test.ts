@@ -690,3 +690,14 @@ test("hydrateWeeklyV2Lines: N lines in → N out, order preserved", () => {
   assert.equal(out[0].task?.id, t1.id);
   assert.equal(out[2].task?.id, t2.id);
 });
+
+test("taskPath/proposalPath reject non-canonical ids (path-traversal guard)", () => {
+  const dir = tmpdir();
+  for (const evil of ["../../evil", "t-20260707-001/../x", "..", "t-abc", "t-20260707-1", ""]) {
+    assert.throws(() => taskPath(dir, evil), /invalid task id/);
+    assert.throws(() => proposalPath(dir, evil), /invalid task id/);
+  }
+  // the canonical shape still passes, including widened sequences
+  assert.ok(taskPath(dir, "t-20260707-001").endsWith("t-20260707-001.md"));
+  assert.ok(taskPath(dir, "t-20260707-1234").endsWith("t-20260707-1234.md"));
+});

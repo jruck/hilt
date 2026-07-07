@@ -19,11 +19,29 @@ export function proposalsDir(baseDir: string): string {
   return path.join(tasksDir(baseDir), ".proposals");
 }
 
+/**
+ * Every id the lib mints matches this shape; anything else is rejected before it reaches a
+ * path.join. Ids arrive from URLs (API routes) and loop payloads, so a permissive id is a
+ * path-traversal vector (`../../evil` reads/writes outside the vault — confirmed exploit in
+ * the A2 adversarial review).
+ */
+const TASK_ID_RE = /^t-\d{8}-\d{3,}$/;
+
+export function isValidTaskId(id: string): boolean {
+  return TASK_ID_RE.test(id);
+}
+
+function assertValidTaskId(id: string): void {
+  if (!isValidTaskId(id)) throw new Error(`invalid task id: ${JSON.stringify(id).slice(0, 80)}`);
+}
+
 export function taskPath(baseDir: string, id: string): string {
+  assertValidTaskId(id);
   return path.join(tasksDir(baseDir), `${id}.md`);
 }
 
 export function proposalPath(baseDir: string, id: string): string {
+  assertValidTaskId(id);
   return path.join(proposalsDir(baseDir), `${id}.md`);
 }
 

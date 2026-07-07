@@ -990,6 +990,79 @@ Create a new weekly list, optionally carrying over incomplete tasks from the cur
 
 ---
 
+## Task Routes
+
+Routes for the task-object store (v3 unit A2). Task files live at `<vault>/tasks/<id>.md`;
+proposals are task files from birth at `<vault>/tasks/.proposals/<id>.md`. All IO goes through
+`src/lib/tasks/` (store.ts / proposals.ts). **These routes never broadcast** — the file write
+triggers the BridgeWatcher, which emits `tasks-changed` on the `bridge` channel (the only push
+path). Vault resolution: `getVaultPath()`, same as the Bridge routes.
+
+### GET /api/tasks
+
+**File**: `src/app/api/tasks/route.ts`
+
+List both stores.
+
+**Response**
+
+```typescript
+{
+  tasks: TaskFile[];      // accepted tasks (tasks/)
+  proposals: TaskFile[];  // proposals (tasks/.proposals/)
+}
+```
+
+### POST /api/tasks
+
+Create a task file. `status: "proposed"` writes into `tasks/.proposals/`; the (default)
+accepted statuses write into `tasks/`.
+
+**Request Body**
+
+```typescript
+{
+  title: string;                                            // required, non-empty
+  body?: string;
+  status?: "proposed" | "accepted-me" | "accepted-agent";   // default "accepted-me"
+  due?: string;                                             // YYYY-MM-DD
+  projects?: string[];                                      // vault-relative paths
+  origin?: TaskOrigin;
+  provenance?: { quote: string; source: string };
+}
+```
+
+**Response**: `201` with `{ task: TaskFile; store: "tasks" | "proposals" }`.
+Validation failures (empty title, non-creatable status, malformed fields) are `400`, never `500`.
+
+### GET /api/tasks/[id]
+
+**File**: `src/app/api/tasks/[id]/route.ts`
+
+Read one task by id — probes `tasks/` first, then `tasks/.proposals/`.
+
+**Response**: `{ task: TaskFile; store: "tasks" | "proposals" }`; `404` when neither store has it.
+
+### PUT /api/tasks/[id]
+
+Patch an **accepted** task's non-status fields, or transition its status through the shared
+audited path. Two mutually exclusive body shapes:
+
+**Patch** — allowed keys: `title`, `body`, `due`, `projects`, `origin`, `provenance`. JSON
+cannot carry `undefined`, so an explicit `null` clears the key (the lib's undefined-clears
+convention); only optional keys (`due`, `projects`, `origin`, `provenance`) are clearable —
+`title: null` / `body: null` are `400`. Unknown keys are `400` (catches `dueDate`-style typos).
+`status` in a patch is `400` with a message pointing at the transition shape.
+
+**Transition** — `{ transition: { to: TaskStatus, via: string } }` (must be the only key).
+Calls `transitionTask`, which appends the `## History` ledger line (`- <iso> status: a → b
+(via …)`). Illegal transitions are `400`.
+
+**Response**: `{ task: TaskFile; store: "tasks" }`. A proposal id gets `409` (proposals are
+managed via the verdict flow, not PUT); an unknown id gets `404`.
+
+---
+
 ## Docs Routes
 
 Routes for the Docs view, which provides a file browser and editor for project files.
@@ -1804,7 +1877,7 @@ The EventServer provides a channel-based pub/sub system for real-time updates. C
 | `tree` | `{ scope: string }` | `changed` | File tree structure changed (file add/remove/rename) |
 | `file` | `{ scope: string }` | `changed` | File content changed within scope |
 | `inbox` | `{ scope: string }` | `changed` | Todo.md file changed within scope |
-| `bridge` | *(none)* | `weekly-changed`, `projects-changed` | Vault weekly list or project files changed |
+| `bridge` | *(none)* | `weekly-changed`, `projects-changed`, `people-changed`, `areas-changed`, `thoughts-changed`, `tasks-changed` | Vault weekly list, project, people/meeting, area, thought, or task files changed (`tasks-changed` covers `tasks/` **and** `tasks/.proposals/`) |
 
 ### Client Usage (React Hook)
 

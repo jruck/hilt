@@ -659,6 +659,52 @@ interface InboxDB {
 }
 ```
 
+## Task Object Models (v3 Phase 1)
+
+One markdown file per task at `<vault>/tasks/<id>.md`; proposals are task files from birth at `<vault>/tasks/.proposals/<id>.md` (approve = rename into `tasks/`, dismiss = unlink — the meeting loop's ledger is the memory). Frontmatter keys are snake_case in the file. Source: `src/lib/tasks/types.ts`.
+
+### TaskFile
+
+```typescript
+type TaskStatus = "proposed" | "accepted-me" | "accepted-agent" | "in-progress" | "done" | "dropped";
+
+interface TaskFile {
+  id: string;                 // t-YYYYMMDD-NNN, collision-checked across tasks/ AND tasks/.proposals/
+  title: string;
+  status: TaskStatus;
+  due?: string;               // YYYY-MM-DD
+  projects?: string[];        // vault-relative project paths (replaces the weekly title-link overload)
+  origin?: { loop?: string; meeting?: string; item_id?: string; thread?: string };
+  created_at: string;         // ISO 8601
+  provenance?: { quote: string; source: string };
+  extra?: Record<string, unknown>; // unknown frontmatter keys — preserved across parse/serialize
+  body: string;               // running context/work ledger; status transitions append
+                              // "- <ISO> status: a → b (via …)" under "## History"
+}
+```
+
+Round-trip byte fidelity is the parse/serialize contract (`src/lib/tasks/task-file.ts`): `parse(serialize(x)) === x` and `serialize(parse(text)) === text` for files Hilt wrote; bodies are never reformatted. Allowed status transitions live in `src/lib/tasks/status.ts` (`done → in-progress` is the checkbox-uncheck reopen; `dropped` is terminal).
+
+### WeeklyV2Line / HydratedWeeklyV2Line
+
+```typescript
+interface WeeklyV2Line {           // parsed from "- [ ] [Title](tasks/t-….md) [due:: YYYY-MM-DD]"
+  raw: string;                     // the exact source line
+  checked: boolean;                // checked = done, unchecked = in-progress (write-through mirror)
+  title: string;
+  taskPath: string | null;         // first link target — the task file is the source of truth
+  due: string | null;
+}
+
+interface HydratedWeeklyV2Line {
+  line: WeeklyV2Line;
+  task?: TaskFile;
+  missing: boolean;                // per-line degradation: unreadable file → raw line kept, never dropped
+}
+```
+
+Weekly lists opt in via frontmatter `list_format: 2` (`listFormatFromFrontmatter`); the v1 parser (`src/lib/bridge/weekly-parser.ts`) is untouched.
+
 ## Reference Library Models
 
 The Reference Library is file-native first. Durable references live under `references/` in the bridge vault, while discovery candidates live under `references/.cache/library-candidates/`. Source definitions live in bridge-owned YAML files under `meta/sources/`.

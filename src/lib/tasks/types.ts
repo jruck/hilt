@@ -27,6 +27,8 @@ export interface TaskOrigin {
   loop?: string;
   /** Vault-relative meeting path. */
   meeting?: string;
+  /** Vault-relative weekly-list path this task was carried from (weekly recycle, unit A5). */
+  list?: string;
   /** The ledger/loop item this proposal was minted from (e.g. `ma-2026-06-30-001`). */
   item_id?: string;
   /** Feedback thread id (Phase C escalations). */

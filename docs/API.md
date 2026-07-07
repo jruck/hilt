@@ -1011,19 +1011,48 @@ Upload a file (image, etc.) to a media directory within the vault. Uses multipar
 
 Create a new weekly list, optionally carrying over incomplete tasks from the current week.
 
+**As of v3 unit A5 the minted week is a v2 (task-file-backed) list.** The route injects
+`list_format: 2` into the new file's frontmatter itself, immediately after the `week:` line,
+POST-interpolation — template anchors are never trusted (the template body is preamble/Notes
+only; a missing `## Tasks` anchor is appended). Every carried task is converted via
+`src/lib/bridge/recycle-v2.ts` (`buildV2CarrySection`):
+
+- **v1 line** → `createTask` (title; `[due:: …]` → frontmatter `due`; title project links →
+  frontmatter `projects`; indent-stripped details → body, trailing blank run trimmed; status
+  `accepted-me`; `origin: { list: "lists/now/<outgoing>.md" }`) + a `renderWeeklyV2Line` line.
+- **v2 line** (a later v2→v2 recycle) → the EXISTING task file is relinked, never re-minted;
+  hand-added list sub-bullets ride along verbatim.
+- **Unresolvable content** (conversion failure such as a whitespace-only title, a v2 line whose
+  file is missing, stray non-task lines between tasks) is carried VERBATIM — never skipped —
+  and renders via the v2 missing/linkless degradation path.
+- `###` group headings are preserved the same way the v1 recycle preserved them.
+
+The outgoing file is untouched except the pre-existing accomplishments write. Data
+preservation: before any write the route snapshots `lists/now/*.md` to
+`$DATA_DIR/backups/<date>-recycle-v2/` (best-effort, logged; existing snapshot files are never
+overwritten, so the first copy of the day — the pre-recycle state — wins).
+
 **Request Body**
 
 ```typescript
 {
-  carry: string[];   // Task IDs to carry forward
-  newWeek: string;   // ISO date string for the new week
+  carry: string[];          // Task IDs to carry forward
+  newWeek: string;          // ISO date string for the new week
+  notes?: string;           // Carried notes text
+  accomplishments?: string; // Written to the OUTGOING week's ## Accomplishments
 }
 ```
 
 **Response**
 
 ```typescript
-{ filename: string }
+{
+  filename: string;      // "<newWeek>.md"
+  listFormat: 2;         // the minted list is v2
+  tasksCreated: number;  // task files minted from v1 lines
+  tasksRelinked: number; // existing task files relinked (v2→v2 recycle)
+  verbatimLines: number; // lines carried verbatim (unresolvable content)
+}
 ```
 
 ---

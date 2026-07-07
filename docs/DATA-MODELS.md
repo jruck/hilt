@@ -686,7 +686,9 @@ interface TaskFile {
   status: TaskStatus;
   due?: string;               // YYYY-MM-DD
   projects?: string[];        // vault-relative project paths (replaces the weekly title-link overload)
-  origin?: { loop?: string; meeting?: string; item_id?: string; thread?: string };
+  origin?: { loop?: string; meeting?: string; list?: string; item_id?: string; thread?: string };
+                              // list = vault-relative weekly-list path the task was carried
+                              // from by the weekly recycle (e.g. "lists/now/2026-07-13.md")
   created_at: string;         // ISO 8601
   provenance?: { quote: string; source: string };
   extra?: Record<string, unknown>; // unknown frontmatter keys — preserved across parse/serialize

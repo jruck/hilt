@@ -11,6 +11,8 @@ import {
   filterMeetingDismissed,
   joinMeetingNextSteps,
   meetingVaultRelPath,
+  mergeDismissed,
+  type DismissedRecord,
   type MeetingAsk,
 } from "./meeting-next-steps";
 
@@ -147,6 +149,22 @@ test("join with a null meeting path yields nothing (inline notes, unresolvable p
   assert.equal(result.total, 0);
 });
 
+test("join drops verdict=dismiss asks from the unminted lane; other verdicts keep their cards", () => {
+  const dismissed = makeAsk({ id: "ma-1", verdict: "dismiss" });
+  const approved = makeAsk({ id: "ma-2", verdict: "approve" });
+  const assigned = makeAsk({ id: "ma-3", verdict: "assign_to_me" });
+  const undecided = makeAsk({ id: "ma-4" });
+
+  const result = joinMeetingNextSteps({
+    meetingRelPath: REL,
+    tasks: [],
+    proposals: [],
+    escalations: [dismissed, approved, assigned, undecided],
+  });
+
+  assert.deepEqual(result.unmintedAsks.map((a) => a.id), ["ma-2", "ma-3", "ma-4"]);
+});
+
 // ── filterMeetingDismissed ────────────────────────────────────────────────────────────────────
 
 test("filterMeetingDismissed keeps only records opened FROM this meeting (exact join key)", () => {
@@ -163,6 +181,83 @@ test("filterMeetingDismissed keeps only records opened FROM this meeting (exact 
 
 test("filterMeetingDismissed yields nothing for a null meeting path", () => {
   assert.deepEqual(filterMeetingDismissed([{ id: "ma-1", opened_from: REL }], null), []);
+});
+
+// ── mergeDismissed ────────────────────────────────────────────────────────────────────────────
+
+function makeRecord(overrides: Partial<DismissedRecord>): DismissedRecord {
+  return {
+    id: "ma-2026-07-06-001",
+    action: "Send the deck",
+    dismissed_at: "2026-07-06T12:00:00.000Z",
+    opened_from: REL,
+    ...overrides,
+  };
+}
+
+test("mergeDismissed: limbo-only — a fresh dismiss verdict shows before the ledger stamps it", () => {
+  const limbo = makeAsk({ id: "ma-9", title: "Ping legal", verdict: "dismiss" });
+  const merged = mergeDismissed([], [limbo], REL);
+  assert.deepEqual(merged, [{ id: "ma-9", action: "Ping legal" }]);
+  assert.equal(merged[0].dismissed_at, undefined);
+});
+
+test("mergeDismissed: ledger-only — records pass through with their timestamps", () => {
+  const merged = mergeDismissed([makeRecord({})], [], REL);
+  assert.deepEqual(merged, [
+    { id: "ma-2026-07-06-001", action: "Send the deck", dismissed_at: "2026-07-06T12:00:00.000Z" },
+  ]);
+});
+
+test("mergeDismissed: both — dedupe by ledger id, the ledger record (real timestamp) wins", () => {
+  const record = makeRecord({ id: "ma-1" });
+  const sameAskStillInFeed = makeAsk({ id: "ma-1", verdict: "dismiss" });
+  const freshLimbo = makeAsk({ id: "ma-2", title: "New dismissal", verdict: "dismiss" });
+
+  const merged = mergeDismissed([record], [sameAskStillInFeed, freshLimbo], REL);
+  // Limbo first (dismissed just now; the ledger list is newest-first), no duplicate ma-1.
+  assert.deepEqual(merged.map((item) => item.id), ["ma-2", "ma-1"]);
+  assert.equal(merged.find((item) => item.id === "ma-1")?.dismissed_at, record.dismissed_at);
+});
+
+test("mergeDismissed scopes both sides to the meeting; different meetings are filtered", () => {
+  const recordElsewhere = makeRecord({ id: "ma-1", opened_from: "meetings/2026-07-05/Other.md" });
+  const limboElsewhere = makeAsk({
+    id: "ma-2",
+    verdict: "dismiss",
+    citations: [{ source: "meetings/2026-07-05/Other.md" }],
+  });
+  const limboHere = makeAsk({ id: "ma-3", verdict: "dismiss" });
+
+  assert.deepEqual(
+    mergeDismissed([recordElsewhere], [limboElsewhere, limboHere], REL).map((item) => item.id),
+    ["ma-3"],
+  );
+});
+
+test("mergeDismissed unscoped (no meetingRel) merges everything; null meetingRel yields nothing", () => {
+  const record = makeRecord({ id: "ma-1", opened_from: "meetings/2026-07-05/Other.md" });
+  const limbo = makeAsk({ id: "ma-2", verdict: "dismiss" });
+  assert.deepEqual(mergeDismissed([record], [limbo]).map((item) => item.id), ["ma-2", "ma-1"]);
+  assert.deepEqual(mergeDismissed([record], [limbo], null), []);
+});
+
+test("mergeDismissed ignores non-dismiss verdicts, undecided asks, and insights", () => {
+  const merged = mergeDismissed(
+    [],
+    [
+      makeAsk({ id: "ma-1", verdict: "approve" }),
+      makeAsk({ id: "ma-2" }),
+      makeAsk({ id: "ma-3", kind: "insight", verdict: "dismiss" }),
+    ],
+    REL,
+  );
+  assert.deepEqual(merged, []);
+});
+
+test("mergeDismissed strips the owner prefix from limbo titles (ledger actions never had it)", () => {
+  const limbo = makeAsk({ id: "ma-1", title: "[unclear] Chase the invoice", verdict: "dismiss" });
+  assert.equal(mergeDismissed([], [limbo], REL)[0].action, "Chase the invoice");
 });
 
 // ── askToTaskFile ─────────────────────────────────────────────────────────────────────────────

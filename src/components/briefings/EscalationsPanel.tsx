@@ -7,6 +7,8 @@ import remarkGfm from "remark-gfm";
 import { AlertTriangle, Check, ChevronDown, ChevronRight, MessageSquare, Send, X } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import type { Citation, LoopItem, RegistryLoop, Verdict, VerdictRecord, FeedbackRecord } from "@/lib/loops/types";
+import { parseOwnerPrefix } from "@/lib/tasks/owner";
+import { OwnerChip } from "@/components/tasks/TaskCard";
 
 export type EscalatedLoopItem = LoopItem & {
   loop_phase: RegistryLoop["phase"];
@@ -90,6 +92,18 @@ function isAsk(item: LoopItem): boolean {
 function verdictLabel(verdict: Verdict): string {
   return visibleVerdicts.find((entry) => entry.verdict === verdict)?.label
     ?? verdict.replace(/_/g, " ");
+}
+
+/** Decided-state badge text — past tense. The imperative button labels ("Dismiss") on a badge
+ * read as available ACTIONS ("the button itself says dismiss which suggests it wasn't
+ * dismissed" — Justin, 2026-07-07). */
+function verdictBadgeLabel(verdict: Verdict): string {
+  if (verdict === "approve") return "Approved";
+  if (verdict === "dismiss") return "Dismissed";
+  if (verdict === "assign_to_me") return "Assigned to me";
+  if (verdict === "assign_to_agent") return "Assigned to agent";
+  if (verdict === "revise") return "Revision sent";
+  return verdictLabel(verdict);
 }
 
 function verdictBadgeClass(verdict: Verdict): string {
@@ -211,7 +225,7 @@ export function AskVerdictControls({ item, onChanged, vertical = false }: { item
   const badge = localVerdict && (
     <div className={vertical ? "" : "pb-1"}>
       <span className={`inline-flex items-center whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${verdictBadgeClass(localVerdict)}`}>
-        {verdictLabel(localVerdict)}
+        {verdictBadgeLabel(localVerdict)}
       </span>
     </div>
   );
@@ -286,6 +300,9 @@ function LoopItemRow({ item, onChanged }: { item: EscalatedLoopItem; onChanged: 
   const confidence = typeof item.confidence === "number"
     ? `${Math.round(item.confidence * 100)}%`
     : null;
+  // The `[unclear] …` / `[other:Name] …` title prefix renders as a chip, matching TaskCard —
+  // the raw artifact/briefing markdown keeps the bracket; only the app strips it.
+  const { title: displayTitle, owner } = parseOwnerPrefix(item.title);
 
   async function submitFeedback(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -320,7 +337,8 @@ function LoopItemRow({ item, onChanged }: { item: EscalatedLoopItem; onChanged: 
         className="group flex flex-wrap items-start justify-between gap-2 py-0.5 cursor-pointer"
       >
         <span className="min-w-0 flex-1 leading-relaxed" title={item.escalated ? `Escalated: ${item.escalated.reason || "urgent"}` : undefined}>
-          {item.title}
+          {displayTitle}
+          <OwnerChip owner={owner} className="ml-1.5 align-middle" />
         </span>
         <span onClick={(e) => e.stopPropagation()} className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
           <button

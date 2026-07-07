@@ -12,6 +12,7 @@
  */
 import type { LoopItem, Verdict } from "../loops/types";
 import type { TaskFile, TaskStatus } from "./types";
+import { parseOwnerPrefix } from "./owner";
 
 /** An escalated loop item as `/api/loops/escalations` returns it (structural — matches
  * EscalatedLoopItem without importing the briefing component). */
@@ -84,9 +85,16 @@ export function joinMeetingNextSteps(input: {
     if (task.origin?.item_id) minted.add(`${task.origin.loop ?? ""}:${task.origin.item_id}`);
   }
 
+  // A dismissed ask is OUT of the card lanes immediately — even in the limbo window where the
+  // verdict is recorded but the loop hasn't applied it to its ledger yet (the proposal file is
+  // already deleted; a badge-carrying card lingering here was the 2026-07-07 sighting). It
+  // surfaces in the dismissed tail instead (mergeDismissed). Approve/assign/revise keep their
+  // badge-card treatment — approve genuinely becomes a task; only dismissal means "out of
+  // sight but recorded".
   const unmintedAsks = input.escalations.filter(
     (item) =>
       (item.kind === "action" || item.kind === "proposal") &&
+      item.verdict !== "dismiss" &&
       askMatchesMeeting(item, rel) &&
       !minted.has(`${item.loop}:${item.id}`),
   );
@@ -106,6 +114,58 @@ export function filterMeetingDismissed<T extends { opened_from: string }>(
 ): T[] {
   if (!meetingRelPath) return [];
   return items.filter((item) => item.opened_from === meetingRelPath);
+}
+
+/** A ledger-backed dismissed record as `/api/loops/dismissed` returns it (structural). */
+export interface DismissedRecord {
+  id: string;
+  action: string;
+  dismissed_at: string;
+  opened_from: string;
+}
+
+/** One row of a dismissed tail. `dismissed_at` is absent for LIMBO dismissals — the verdict is
+ * recorded but the loop hasn't stamped its ledger yet (renderers show "just now"). */
+export interface DismissedDisplayItem {
+  id: string;
+  action: string;
+  dismissed_at?: string;
+}
+
+/**
+ * The dismissed-tail item list for one surface: ledger-backed records MERGED with limbo
+ * dismissals from the escalations feed (verdict === "dismiss", ledger stamp pending until the
+ * loop's next run). Dedupe is by ledger id — once the loop applies the verdict, the same item
+ * arrives from `/api/loops/dismissed` and the ledger record (which has the real timestamp)
+ * wins. Limbo items sort first (they were dismissed just now; the ledger list is newest-first).
+ *
+ * `meetingRelPath` scopes both sides to one meeting (B2/B3 tails): ledger records by exact
+ * `opened_from` equality, limbo asks by citation match. Pass `null` when the surface is
+ * meeting-scoped but the path is unresolvable (nothing renders); omit it entirely for
+ * unscoped surfaces (the Priorities Proposals tail).
+ */
+export function mergeDismissed(
+  ledgerItems: DismissedRecord[],
+  escalationItems: MeetingAsk[],
+  meetingRelPath?: string | null,
+): DismissedDisplayItem[] {
+  const scoped = meetingRelPath !== undefined;
+  if (scoped && meetingRelPath === null) return [];
+  const ledger = scoped ? filterMeetingDismissed(ledgerItems, meetingRelPath!) : ledgerItems;
+  const ledgerIds = new Set(ledger.map((item) => item.id));
+  const limbo = escalationItems.filter(
+    (item) =>
+      (item.kind === "action" || item.kind === "proposal") &&
+      item.verdict === "dismiss" &&
+      !ledgerIds.has(item.id) &&
+      (!scoped || askMatchesMeeting(item, meetingRelPath!)),
+  );
+  return [
+    // Owner prefixes strip here too: the ledger `action` never carried them (the loop adds the
+    // bracket only when composing the item TITLE), so limbo rows match post-loop rows exactly.
+    ...limbo.map((item) => ({ id: item.id, action: parseOwnerPrefix(item.title).title })),
+    ...ledger.map(({ id, action, dismissed_at }) => ({ id, action, dismissed_at })),
+  ];
 }
 
 /** Shape a ledger ask as a TaskFile so the shared TaskCard renders it uniformly. */

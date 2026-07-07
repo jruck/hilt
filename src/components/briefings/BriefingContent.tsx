@@ -4,7 +4,7 @@ import { useState, useMemo, useCallback, type FormEvent, type MouseEvent, type R
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
-import { Check, MessageSquare, Send } from "lucide-react";
+import { Check, ChevronRight, MessageSquare, Send } from "lucide-react";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useScope } from "@/contexts/ScopeContext";
 import { withBasePath } from "@/lib/base-path";
@@ -30,8 +30,9 @@ import {
 } from "@/lib/briefing/canvas";
 import { MeetingCard } from "./MeetingCard";
 import { TaskCard } from "@/components/tasks/TaskCard";
-import { useTasksList } from "@/hooks/useTaskFile";
-import { askToTaskFile, joinMeetingNextSteps } from "@/lib/tasks/meeting-next-steps";
+import { PROPOSAL_LOOP, formatRelativeDate } from "@/components/tasks/ProposalsSection";
+import { useDismissed, useTasksList } from "@/hooks/useTaskFile";
+import { askToTaskFile, joinMeetingNextSteps, mergeDismissed } from "@/lib/tasks/meeting-next-steps";
 import type { TaskFile } from "@/lib/tasks/types";
 import type { Verdict } from "@/lib/loops/types";
 interface BriefingContentProps {
@@ -447,11 +448,34 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
     ...[...join.proposals, ...join.tasks].map((task) => `${task.origin?.loop ?? ""}:${task.origin?.item_id ?? ""}`),
   ]);
   const extraBoundAsks = boundLoopItems.filter(
-    (loopItem) => (loopItem.kind === "action" || loopItem.kind === "proposal") && !joined.has(`${loopItem.loop}:${loopItem.id}`),
+    (loopItem) =>
+      (loopItem.kind === "action" || loopItem.kind === "proposal")
+      // A dismissed ask never renders as a card — not even in the limbo window before the
+      // loop stamps its ledger. It lands in the dismissed tail below instead.
+      && loopItem.verdict !== "dismiss"
+      && !joined.has(`${loopItem.loop}:${loopItem.id}`),
   );
   const pendingCount = join.proposals.length
     + join.unmintedAsks.filter((ask) => !ask.verdict).length
     + extraBoundAsks.filter((ask) => !ask.verdict).length;
+
+  // Dismissed-but-never-gone (gate-B), the same "Dismissed · N" tail as the meeting view (B2):
+  // this meeting's ledger-backed dismissals merged with limbo ones from the escalations feed
+  // (verdict recorded, ledger stamp pending; deduped by ledger id once it lands).
+  const haptics = useHaptics();
+  const { dismissed } = useDismissed(PROPOSAL_LOOP);
+  const meetingDismissed = useMemo(
+    () => mergeDismissed(dismissed, canvas.escalations.filter((e) => e.loop === PROPOSAL_LOOP), meetingRel),
+    [dismissed, canvas.escalations, meetingRel],
+  );
+  const [dismissedExpanded, setDismissedExpanded] = useState(false);
+  const toggleDismissed = useCallback(() => {
+    setDismissedExpanded((prev) => {
+      const next = !prev;
+      next ? haptics.soft() : haptics.rigid();
+      return next;
+    });
+  }, [haptics]);
 
   // Sub-lines that survive hydration: id-only lines whose ids are known objects are consumed by
   // their cards; everything else (the meeting citation, editorial sub-bullets, unknown ids)
@@ -538,6 +562,38 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
       {landedStamped.map((task) => (
         <TaskCard key={task.id} flush hideMeeting showStatus task={task} />
       ))}
+      {/* Dismissed asks FROM THIS MEETING — the quiet reveal-tail idiom, classes copied exactly
+          from the meeting view (B2) / Proposals section (A6). Renders only when N > 0. */}
+      {meetingDismissed.length > 0 && (
+        <div>
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-[var(--border-default)]" />
+            <button
+              onClick={toggleDismissed}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+              title={dismissedExpanded ? "Hide dismissed items" : "View dismissed items"}
+            >
+              <ChevronRight className={`w-3.5 h-3.5 transition-transform ${dismissedExpanded ? "rotate-90" : ""}`} />
+              Dismissed · {meetingDismissed.length}
+            </button>
+            <div className="h-px flex-1 bg-[var(--border-default)]" />
+          </div>
+          {dismissedExpanded && (
+            <div className="mt-3 space-y-0.5">
+              {meetingDismissed.map((dismissedItem) => (
+                <div key={dismissedItem.id} className="flex items-baseline gap-2 px-3 py-1">
+                  <span className="min-w-0 flex-1 truncate text-xs text-[var(--text-tertiary)]" title={dismissedItem.action}>
+                    {dismissedItem.action}
+                  </span>
+                  <span className="flex-shrink-0 text-xs text-[var(--text-quaternary)]">
+                    {dismissedItem.dismissed_at ? formatRelativeDate(dismissedItem.dismissed_at) : "just now"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </MeetingCard>
   );
 }
@@ -595,6 +651,10 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
     const perBullet = new Map<string, EscalatedLoopItem[]>(); // "si:ii" → bound loop items
     const leftovers: EscalatedLoopItem[] = [];
     for (const item of escalations) {
+      // A dismissed ask never renders as a row anywhere — it lives in the Dismissed tails
+      // (bound bullets keep their small badge; UNFEATURED dismissed asks otherwise landed as
+      // badge rows in the section blocks AND the tail — double presence, reviewer-confirmed).
+      if ((item.kind === "action" || item.kind === "proposal") && item.verdict === "dismiss") continue;
       // Strongest join first: an editor bullet that carries this item's ID owns it — the
       // affordance attaches to the editor's own line (its placement, its phrasing).
       let bound = false;

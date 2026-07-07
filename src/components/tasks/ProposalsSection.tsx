@@ -15,10 +15,12 @@
 import { useMemo, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { useDismissed, useTasksList } from "@/hooks/useTaskFile";
+import { useEscalations } from "@/components/briefings/EscalationsPanel";
 import { useHaptics } from "@/hooks/useHaptics";
 import { withBasePath } from "@/lib/base-path";
 import type { TaskFile } from "@/lib/tasks/types";
 import type { Verdict } from "@/lib/loops/types";
+import { mergeDismissed } from "@/lib/tasks/meeting-next-steps";
 import { TaskCard } from "./TaskCard";
 
 /** The one proposal-minting loop today; generalize when a second loop mints proposals.
@@ -59,7 +61,15 @@ async function postVerdict(body: unknown): Promise<void> {
 
 export function ProposalsSection({ searchQuery = "" }: { searchQuery?: string }) {
   const { proposals, mutate } = useTasksList();
-  const { dismissed } = useDismissed(PROPOSAL_LOOP);
+  const { dismissed: dismissedLedger } = useDismissed(PROPOSAL_LOOP);
+  // Limbo dismissals (verdict recorded, ledger stamp pending until the loop's next run) merge
+  // into the tail immediately — the proposal FILE is already deleted, so without this the
+  // dismissal would be invisible until the loop ran. Deduped by ledger id once it lands.
+  const { items: escalations, mutate: mutateEscalations } = useEscalations();
+  const dismissed = useMemo(
+    () => mergeDismissed(dismissedLedger, escalations.filter((item) => item.loop === PROPOSAL_LOOP)),
+    [dismissedLedger, escalations],
+  );
   const haptics = useHaptics();
   const [expanded, setExpanded] = useState(() => {
     try { return sessionStorage.getItem("bridge-proposals-expanded") === "true"; } catch { return false; }
@@ -102,6 +112,8 @@ export function ProposalsSection({ searchQuery = "" }: { searchQuery?: string })
       ...(note ? { note } : {}),
     });
     mutate();
+    // A dismiss must land in the tail NOW (the escalations feed carries the fresh verdict).
+    mutateEscalations();
   };
 
   return (
@@ -156,7 +168,7 @@ export function ProposalsSection({ searchQuery = "" }: { searchQuery?: string })
                     {item.action}
                   </span>
                   <span className="flex-shrink-0 text-xs text-[var(--text-quaternary)]">
-                    {formatRelativeDate(item.dismissed_at)}
+                    {item.dismissed_at ? formatRelativeDate(item.dismissed_at) : "just now"}
                   </span>
                 </div>
               ))}

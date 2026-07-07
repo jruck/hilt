@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import type { TaskFile } from "@/lib/tasks/types";
 import type { Verdict } from "@/lib/loops/types";
 import { formatHiltMonthDay } from "@/lib/display-date";
+import { ownerChip, parseOwnerPrefix, type OwnerTag } from "@/lib/tasks/owner";
 
 // Each button carries a plain-language tooltip of its EFFECT (gate-B: verdict clarity).
 const VERDICT_BUTTONS: Array<{ verdict: Verdict; label: string; title: string }> = [
@@ -23,6 +24,18 @@ const VERDICT_BUTTONS: Array<{ verdict: Verdict; label: string; title: string }>
 
 function verdictLabel(verdict: Verdict): string {
   return VERDICT_BUTTONS.find((entry) => entry.verdict === verdict)?.label ?? verdict.replace(/_/g, " ");
+}
+
+/** Decided-state badge text — past tense. The imperative button labels ("Dismiss") on a badge
+ * read as available ACTIONS ("the button itself says dismiss which suggests it wasn't
+ * dismissed" — Justin, 2026-07-07). */
+function verdictBadgeLabel(verdict: Verdict): string {
+  if (verdict === "approve") return "Approved";
+  if (verdict === "dismiss") return "Dismissed";
+  if (verdict === "assign_to_me") return "Assigned to me";
+  if (verdict === "assign_to_agent") return "Assigned to agent";
+  if (verdict === "revise") return "Revision sent";
+  return verdictLabel(verdict);
 }
 
 function verdictBadgeClass(verdict: Verdict): string {
@@ -67,6 +80,24 @@ function DueBadge({ due }: { due: string }) {
   );
 }
 
+/**
+ * The owner chip: a `[unclear] …` / `[other:Name] …` title prefix (the loop's TEXT-surface
+ * encoding) renders as this small muted chip instead — STATUS_BADGES styling, plain-language
+ * tooltip. Exported so the briefing fallback rows (LoopItemRow) match exactly.
+ */
+export function OwnerChip({ owner, className = "" }: { owner: OwnerTag | null; className?: string }) {
+  const chip = ownerChip(owner);
+  if (!chip) return null;
+  return (
+    <span
+      className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] ${className}`}
+      title={chip.title}
+    >
+      {chip.label}
+    </span>
+  );
+}
+
 const STATUS_BADGES: Partial<Record<TaskFile["status"], { label: string; className: string }>> = {
   "accepted-me": { label: "Accepted", className: "bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]" },
   "accepted-agent": { label: "Agent", className: "bg-blue-500/10 text-blue-600 dark:text-blue-300" },
@@ -104,6 +135,8 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, fl
 
   const meeting = !hideMeeting && task.origin?.meeting ? meetingLabel(task.origin.meeting) : null;
   const statusBadge = showStatus ? STATUS_BADGES[task.status] : undefined;
+  // Render-level only: the file/markdown keeps the bracket prefix; the card shows a chip.
+  const { title: displayTitle, owner } = parseOwnerPrefix(task.title);
 
   async function submitVerdict(verdict: Verdict, note?: string) {
     if (!onVerdict) return;
@@ -131,8 +164,9 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, fl
       <div className="px-3 py-2.5">
         <div className="flex items-start gap-2">
           <span className="min-w-0 flex-1 text-sm leading-relaxed text-[var(--text-primary)]">
-            {task.title}
+            {displayTitle}
           </span>
+          <OwnerChip owner={owner} className="flex-shrink-0" />
           {statusBadge && (
             <span className={`flex-shrink-0 px-1.5 py-0.5 rounded text-xs font-medium ${statusBadge.className}`}>
               {statusBadge.label}
@@ -174,7 +208,7 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, fl
         {localVerdict && (
           <div className="mt-1.5">
             <span className={`inline-flex items-center whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${verdictBadgeClass(localVerdict)}`}>
-              {verdictLabel(localVerdict)}
+              {verdictBadgeLabel(localVerdict)}
             </span>
           </div>
         )}

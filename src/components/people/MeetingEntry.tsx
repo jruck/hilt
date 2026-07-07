@@ -37,9 +37,9 @@ import { buildReference } from "@/lib/references/build";
 import { copyToClipboard } from "@/lib/references/clipboard";
 import {
   askToTaskFile,
-  filterMeetingDismissed,
   joinMeetingNextSteps,
   meetingVaultRelPath,
+  mergeDismissed,
 } from "@/lib/tasks/meeting-next-steps";
 
 const BridgeTaskEditor = dynamic(
@@ -403,12 +403,13 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
   );
 
   // Dismissed-but-never-gone (gate-B), scoped to THIS meeting: the loop ledger's dismissed
-  // records whose `opened_from` IS this meeting's vault-relative path — the same join key as
-  // the lanes above. Renders as the quiet "Dismissed · N" tail inside Next steps.
+  // records whose `opened_from` IS this meeting's vault-relative path — MERGED with limbo
+  // dismissals from the escalations feed (verdict recorded, ledger stamp pending until the
+  // loop's next run; deduped by ledger id). Renders as the quiet "Dismissed · N" tail.
   const { dismissed } = useDismissed(PROPOSAL_LOOP);
   const meetingDismissed = useMemo(
-    () => filterMeetingDismissed(dismissed, meetingRel),
-    [dismissed, meetingRel],
+    () => mergeDismissed(dismissed, escalations, meetingRel),
+    [dismissed, escalations, meetingRel],
   );
   const [dismissedExpanded, setDismissedExpanded] = useState(false);
   const toggleDismissed = useCallback(() => {
@@ -1022,7 +1023,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
                               {item.action}
                             </span>
                             <span className="flex-shrink-0 text-xs text-[var(--text-quaternary)]">
-                              {formatRelativeDate(item.dismissed_at)}
+                              {item.dismissed_at ? formatRelativeDate(item.dismissed_at) : "just now"}
                             </span>
                           </div>
                         ))}

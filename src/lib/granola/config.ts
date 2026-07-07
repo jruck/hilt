@@ -53,6 +53,33 @@ export function getGranolaDefaultDaysBack(): number {
   return boundedInt(process.env.HILT_GRANOLA_SYNC_DAYS_BACK, 7, 1, 3650);
 }
 
+/**
+ * Post-meeting extraction trigger gate (v3 unit B1): default ON whenever the granola daemon is
+ * enabled; HILT_MEETING_TRIGGER=0 disables it quickly, =1 forces it on (only meaningful in the
+ * process that runs the daemon — the daemon is what registers the post-sync observer).
+ */
+export function meetingTriggerEnabled(): boolean {
+  const value = process.env.HILT_MEETING_TRIGGER;
+  if (value === "0") return false;
+  if (value === "1") return true;
+  return granolaDaemonEnabled();
+}
+
+/** Settle rule: N consecutive no-growth transcript observations (default 3)… */
+export function getMeetingTriggerSettlePolls(): number {
+  return boundedInt(process.env.HILT_MEETING_TRIGGER_SETTLE_POLLS, 3, 2, 50);
+}
+
+/** …spanning at least this quiet window (default 2 min — quality over speed). */
+export function getMeetingTriggerSettleMs(): number {
+  return boundedInt(process.env.HILT_MEETING_TRIGGER_SETTLE_MS, 120_000, 10_000, 3_600_000);
+}
+
+/** Hard kill for a triggered loop run (default 15 min; one claude call per meeting inside). */
+export function getMeetingTriggerRunTimeoutMs(): number {
+  return boundedInt(process.env.HILT_MEETING_TRIGGER_RUN_TIMEOUT_MS, 900_000, 60_000, 3_600_000);
+}
+
 function boundedInt(value: string | undefined, fallback: number, min: number, max: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;

@@ -30,9 +30,23 @@ import {
   writeTranscriptMarkdownIfChanged,
 } from "./markdown";
 import { fetchGranolaDocumentsFromRemote } from "./remote";
+import { contentToMarkdown } from "./content";
+import type { MeetingObservation } from "./extraction-trigger";
 import type { GranolaSyncRunInput, GranolaSyncRunReport, GranolaSyncStatus } from "./types";
 
 let activeRun: Promise<GranolaSyncRunReport> | null = null;
+
+/**
+ * Post-sync observer (v3 unit B1): the granola daemon registers the extraction trigger here so
+ * each incremental sync cycle reports the meeting docs it saw (note present, enhanced-notes
+ * present, transcript growth measure). Only the daemon's process registers one — manual syncs
+ * from other processes never fire the trigger (single writer for the trigger state file).
+ */
+export type GranolaPostSyncObserver = (observations: MeetingObservation[]) => void;
+let postSyncObserver: GranolaPostSyncObserver | null = null;
+export function setGranolaPostSyncObserver(observer: GranolaPostSyncObserver | null): void {
+  postSyncObserver = observer;
+}
 
 export async function getGranolaSyncStatus(): Promise<GranolaSyncStatus> {
   const handoff = await getObsidianHandoffStatus();
@@ -130,6 +144,7 @@ async function runGranolaSyncInner(input: GranolaSyncRunInput): Promise<GranolaS
       return report;
     }
 
+    const meetingObservations: MeetingObservation[] = [];
     for (const doc of docs) {
       report.considered++;
       const match = findHiltCalendarMatch(doc);
@@ -175,6 +190,22 @@ async function runGranolaSyncInner(input: GranolaSyncRunInput): Promise<GranolaS
           calendarMatch: match,
           syncedAt: new Date().toISOString(),
         });
+        if (input.mode === "incremental" && postSyncObserver && noteAvailable) {
+          meetingObservations.push({
+            granolaId: doc.id,
+            meetingPath: noteRelativePath,
+            enhancedNotesPresent: contentToMarkdown(doc.panelContent).trim().length > 0,
+            transcriptMeasure: doc.transcript.length,
+          });
+        }
+      }
+    }
+
+    if (postSyncObserver && meetingObservations.length > 0) {
+      try {
+        postSyncObserver(meetingObservations);
+      } catch (error) {
+        console.error("[GranolaSync] post-sync observer failed:", error);
       }
     }
 

@@ -1,9 +1,10 @@
 import * as fs from "fs";
 import * as path from "path";
 import { queryCalendarEvents } from "../calendar/db";
-import { getGranolaDaemonStatePath, getGranolaFastPollMs, getGranolaPollMs, granolaDaemonEnabled } from "./config";
+import { getGranolaDaemonStatePath, getGranolaFastPollMs, getGranolaPollMs, granolaDaemonEnabled, meetingTriggerEnabled } from "./config";
 import { hasRecentOpenGranolaMeeting } from "./db";
-import { runGranolaSync } from "./sync";
+import { observeGranolaSyncForExtraction } from "./extraction-trigger";
+import { runGranolaSync, setGranolaPostSyncObserver } from "./sync";
 
 let timer: ReturnType<typeof setTimeout> | null = null;
 let running = false;
@@ -11,6 +12,9 @@ const startedAt = new Date().toISOString();
 
 export function startGranolaSyncDaemon(): void {
   if (!granolaDaemonEnabled() || timer || running) return;
+  // Post-meeting extraction trigger (v3 B1): each incremental sync reports its meeting docs to
+  // the settle-detector, which fires the meeting-actions loop minutes after a meeting settles.
+  if (meetingTriggerEnabled()) setGranolaPostSyncObserver(observeGranolaSyncForExtraction);
   const tick = async () => {
     running = true;
     writeDaemonState({ running: true });
@@ -32,6 +36,7 @@ export function startGranolaSyncDaemon(): void {
 export function stopGranolaSyncDaemon(): void {
   if (timer) clearTimeout(timer);
   timer = null;
+  setGranolaPostSyncObserver(null);
   writeDaemonState({ running: false, enabled: false });
 }
 

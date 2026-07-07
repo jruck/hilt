@@ -85,11 +85,23 @@ calendar/task feeds into a real node with overdue/deadline escalations).
 
 ## The nodes, with their full inventories
 
-### 🤝 Meetings node — shadow · runs 7:30 PM · home physically in $DATA
+### 🤝 Meetings node — shadow · runs minutes after each meeting + 7:30 PM sweep · home physically in $DATA
 
 Reads each meeting's note **and full transcript**; extracts commitments, a 1–2 sentence meeting
 summary, and closure evidence. Parses only meetings ≤30 days old; escalates only **your** (or
 unclear-owner) commitments from the last 3 days as asks.
+
+**When it runs (two paths, same loop):**
+- **Minutes after a meeting ends** — the Granola sync daemon watches every meeting it syncs;
+  once the meeting's enhanced notes have landed AND the transcript has stopped growing (no
+  growth across 3 sync polls spanning at least 2 minutes — quality over speed: the extraction
+  reads the enhanced note), it runs the loop for just that meeting. Each meeting fires at most
+  once (tracked in `$DATA/loops/meeting-trigger-state.json`, which survives restarts), runs are
+  strictly one-at-a-time, and anything the nightly already read never re-fires. Kill switch:
+  `HILT_MEETING_TRIGGER=0`.
+- **7:30 PM nightly sweep** — unchanged, the safety net: it catches meetings the trigger missed
+  (no transcript, trigger disabled, run failure) and skips everything the trigger already
+  processed (they share the same read-tracking and ledger).
 
 - [$VAULT/meta/loops-shadow/meta/loops/meetings/reports/]($VAULT/meta/loops-shadow/meta/loops/meetings/reports)
   — daily artifact: meeting summaries, ledger deltas, escalated asks
@@ -98,7 +110,10 @@ unclear-owner) commitments from the last 3 days as asks.
 - [$VAULT/meta/loops-shadow/meta/loops/meetings/state/meeting-summaries.json]($VAULT/meta/loops-shadow/meta/loops/meetings/state/meeting-summaries.json)
   — the per-meeting context sentences the briefing leads with
 - [$VAULT/meta/loops-shadow/meta/loops/meetings/state/processed-meetings.json]($VAULT/meta/loops-shadow/meta/loops/meetings/state/processed-meetings.json)
-  — read-tracking so no meeting is parsed twice
+  — read-tracking so no meeting is parsed twice (shared by the post-meeting trigger and the
+  nightly — whichever reads a meeting first stamps it here)
+- `$DATA/loops/meeting-trigger-state.json` — the post-meeting trigger's own memory: per meeting,
+  the transcript-stability countdown and the fired-at stamp that guarantees at-most-once firing
 - [$VAULT/meta/loops-shadow/meta/loops/meetings/proposals/]($VAULT/meta/loops-shadow/meta/loops/meetings/proposals)
   — the proposals drawer: every ask that escalates to you ALSO becomes a task proposal file
   here (full task-file format, status `proposed`). While the node is in shadow this drawer is
@@ -202,7 +217,8 @@ Its files:
 - **Feedback (💬 on any bullet)** — free-form; rides into the owning node's next run.
 
 A verdict is a recorded decision first — the owning node applies it to its ledger at its next
-run (7:30 PM for meeting asks). Since A6 there is ALSO an instant file effect: when the ask has
+run (for meeting asks: the next post-meeting trigger run or the 7:30 PM sweep, whichever
+comes first). Since A6 there is ALSO an instant file effect: when the ask has
 a proposal file in `$VAULT/tasks/.proposals/`, Approve/Assign moves it into `$VAULT/tasks/` as a
 real task right away, Dismiss deletes the file (the ledger still remembers), and Revise appends
 your note to it. Today the meetings node still mints proposals into its shadow drawer (see its
@@ -219,7 +235,8 @@ Approve / Assign to agent / Dismiss / Revise buttons as the briefing.
 | Time | Node / worker |
 |---|---|
 | hourly | library intake (ingest, retry) |
-| 7:30 PM | meetings node |
+| minutes after each meeting | meetings node (post-meeting trigger, just that meeting) |
+| 7:30 PM | meetings node (nightly sweep — the safety net) |
 | 3:30–4:45 AM | library synthesis + upkeep (reweave, cleanup, refetch, semantic) |
 | 5:10–5:30 AM | library morning report + memo |
 | 5:40 AM | goals node |

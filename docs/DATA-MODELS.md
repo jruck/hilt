@@ -743,6 +743,29 @@ interface RegistryLoop {
 
 Sink precedence (`resolveProposalSink`, exact order): `--proposals-dir` flag → that dir; `--ledger-home` flag → `<home>/proposals/` (eval isolation); registry `proposal_sink: "vault"` → `<vault>/tasks/.proposals/`; else `<loopHome>/proposals/`. Ids are minted by `createProposalIn` (store.ts): collision-checked against the sink dir AND the vault's canonical `tasks/` + `.proposals/`, so a shadow-minted id never collides in the vault.
 
+### Post-meeting extraction trigger state (v3 unit B1)
+
+`$DATA_DIR/loops/meeting-trigger-state.json` — the granola-daemon-hosted trigger's memory (`src/lib/granola/extraction-trigger.ts`; atomic writes, entries pruned after 14 unobserved days):
+
+```typescript
+interface TriggerState {
+  version: 1;
+  meetings: Record<string, TriggerMeetingState>;  // keyed by granola_id
+}
+
+interface TriggerMeetingState {
+  meeting_path: string;        // vault-relative note path — the loop's meeting key
+  transcript_measure: number;  // transcript entry count at last poll (growth detector)
+  stable_polls: number;        // consecutive no-growth sync observations (incl. current)
+  stable_since: string;        // ISO of the first observation at the current measure
+  last_observed_at: string;    // ISO; drives pruning
+  fired_at?: string;           // once set, this meeting NEVER fires again (survives restarts)
+  fired_reason?: "settled" | "already-processed"; // "already-processed" = nightly got it first
+}
+```
+
+Settled = enhanced notes present ∧ `transcript_measure > 0` ∧ `stable_polls ≥ 3` ∧ `now − stable_since ≥ 120s` (knobs: `HILT_MEETING_TRIGGER_SETTLE_POLLS` / `HILT_MEETING_TRIGGER_SETTLE_MS`). The trigger also consults the loop's own `processed-meetings.json` (registry-resolved home) before firing.
+
 ## Reference Library Models
 
 The Reference Library is file-native first. Durable references live under `references/` in the bridge vault, while discovery candidates live under `references/.cache/library-candidates/`. Source definitions live in bridge-owned YAML files under `meta/sources/`.

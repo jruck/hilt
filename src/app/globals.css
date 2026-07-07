@@ -2210,6 +2210,18 @@ body [data-radix-popper-content-wrapper]::after {
   font-weight: 400;
 }
 
+/* A pill inside bold markdown acts as pill AND heading (the ⏭ headline form `**[pill]** — lead`):
+   the label picks up the emphasis it would have had as plain text. Default stays 500 — pills
+   don't assume boldness (Justin, 2026-07-07). The date segment stays metadata-muted either way. */
+strong .hilt-object-pill,
+b .hilt-object-pill {
+  font-weight: 600;
+}
+strong .hilt-object-pill .hilt-object-pill-date,
+b .hilt-object-pill .hilt-object-pill-date {
+  font-weight: 400;
+}
+
 .dark .hilt-object-pill {
   border-color: rgba(255, 255, 255, 0.1);
   background: rgba(0, 0, 0, 0.35);

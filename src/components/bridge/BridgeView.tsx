@@ -15,12 +15,15 @@ import { ProjectBoard } from "./ProjectBoard";
 import { ThoughtBoard } from "./ThoughtBoard";
 import { RecycleModal } from "./RecycleModal";
 import { BridgeTaskPanel } from "./BridgeTaskPanel";
+import { TaskFilePanel } from "./TaskFilePanel";
 import { ProposalsSection } from "@/components/tasks/ProposalsSection";
 import { AppHud, AppHudCollapsedBar } from "@/components/AppHud";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { SecondaryInlineContent } from "@/components/layout/SecondaryToolbar";
 import { BridgeModeToggle, type BridgeMode } from "./BridgeModeToggle";
 import { parseLifecycle } from "@/lib/attribution";
+import { isValidTaskId } from "@/lib/tasks/task-id";
+import { taskIdFromTaskPath } from "@/lib/tasks/weekly-v2";
 import type { CalendarEventOpenDetail } from "@/lib/calendar/deeplink";
 import type { BridgeArea, BridgeTask, BridgeProject, BridgeWeeklySection } from "@/lib/types";
 
@@ -77,6 +80,9 @@ export function BridgeView({
 
   const [showRecycleModal, setShowRecycleModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<BridgeTask | null>(null);
+  // FILE-addressable selection (mutually exclusive with the weekly-positional one above):
+  // a bare task-file id — proposals, done/dropped, past-week tasks with no weekly row.
+  const [selectedFileTaskId, setSelectedFileTaskId] = useState<string | null>(null);
   const [autoFocusPanel, setAutoFocusPanel] = useState(false);
   const [autoFocusTitleToken, setAutoFocusTitleToken] = useState(0);
   const [sheetVisible, setSheetVisible] = useState(false);
@@ -112,12 +118,13 @@ export function BridgeView({
   const resolvedTask = selectedTask && weekly
     ? weekly.tasks.find(t => t.id === selectedTask.id) ?? null
     : null;
-  useMobileChromeVisibilityLock(Boolean(resolvedTask) || showRecycleModal);
+  const paneOpen = Boolean(resolvedTask) || Boolean(selectedFileTaskId);
+  useMobileChromeVisibilityLock(paneOpen || showRecycleModal);
 
   // Animate bottom sheet in on mobile when task is selected
   useEffect(() => {
     let cancelled = false;
-    if (resolvedTask && isMobile) {
+    if (paneOpen && isMobile) {
       // Trigger slide-up animation after mount
       const frame = requestAnimationFrame(() => setSheetVisible(true));
       return () => {
@@ -132,7 +139,7 @@ export function BridgeView({
     return () => {
       cancelled = true;
     };
-  }, [resolvedTask, isMobile]);
+  }, [paneOpen, isMobile]);
 
   // Strip 🆕 marker when user navigates away from a task ("read receipt")
   const markTaskRead = useCallback((task: BridgeTask | null) => {
@@ -150,6 +157,7 @@ export function BridgeView({
     setTimeout(() => {
       markTaskRead(selectedTask);
       setSelectedTask(null);
+      setSelectedFileTaskId(null);
       setAutoFocusPanel(false);
     }, 300);
   }, [selectedTask, markTaskRead]);
@@ -157,6 +165,7 @@ export function BridgeView({
   const handleAddTask = useCallback((title: string) => {
     // Select immediately — the optimistic task has id "task-0"
     setSelectedTask({ id: "task-0", title, done: false, details: [], rawLines: [`- [ ] ${title}`], projectPath: null, projectPaths: [], dueDate: null, group: null });
+    setSelectedFileTaskId(null);
     setAutoFocusPanel(true);
     setAutoFocusTitleToken((token) => token + 1);
     addTask(title);
@@ -271,6 +280,7 @@ export function BridgeView({
     } else {
       setSelectedTask(task);
     }
+    setSelectedFileTaskId(null);
     setAutoFocusPanel(false);
   }, [selectedTask, markTaskRead]);
 
@@ -281,16 +291,43 @@ export function BridgeView({
       markTaskRead(selectedTask);
     }
     setSelectedTask(task);
+    setSelectedFileTaskId(null);
     setAutoFocusPanel(false);
   }, [weekly?.tasks, selectedTask, markTaskRead]);
 
+  // Open a task by its FILE id (`t-…`): the weekly row's full panel when the task is on this
+  // week's list, the file-addressable pane otherwise (proposals, done/dropped, past weeks).
+  const openTaskByFileId = useCallback((fileId: string) => {
+    const weeklyTask = weekly?.tasks.find(t => taskIdFromTaskPath(t.taskPath) === fileId);
+    if (weeklyTask) {
+      openTaskById(weeklyTask.id);
+      return;
+    }
+    if (selectedTask) markTaskRead(selectedTask);
+    setSelectedTask(null);
+    setSelectedFileTaskId(fileId);
+    setAutoFocusPanel(false);
+  }, [weekly?.tasks, openTaskById, selectedTask, markTaskRead]);
+
   useEffect(() => {
     if (!openTaskRequest || lastHandledOpenTaskToken.current === openTaskRequest.token) return;
-    const task = weekly?.tasks.find(t => t.id === openTaskRequest.taskId);
-    if (!task) return;
-    openTaskById(task.id);
+    // Wait for the weekly list: a file id must prefer its weekly row over the bare-file pane.
+    if (!weekly) return;
+    const { taskId } = openTaskRequest;
+    const weeklyTask = weekly.tasks.find(t => t.id === taskId);
+    if (weeklyTask) {
+      openTaskById(weeklyTask.id);
+      lastHandledOpenTaskToken.current = openTaskRequest.token;
+      return;
+    }
+    if (isValidTaskId(taskId)) {
+      openTaskByFileId(taskId);
+      lastHandledOpenTaskToken.current = openTaskRequest.token;
+      return;
+    }
+    // Unknown weekly id (e.g. stale HUD reference) — mark handled so it never loops.
     lastHandledOpenTaskToken.current = openTaskRequest.token;
-  }, [openTaskById, openTaskRequest, weekly?.tasks]);
+  }, [openTaskById, openTaskByFileId, openTaskRequest, weekly]);
 
   const weeklySectionOrder = useMemo(() => {
     if (!weekly) return [];
@@ -429,7 +466,7 @@ export function BridgeView({
             {weeklySectionOrder.map(renderWeeklySection)}
 
             {/* A6: loop-minted task proposals awaiting a verdict — renders only when any exist */}
-            <ProposalsSection searchQuery={q} />
+            <ProposalsSection searchQuery={q} onOpenTask={openTaskByFileId} />
 
             {filteredAreas && hasFilteredAreas && (
               <AreaBoard
@@ -478,6 +515,17 @@ export function BridgeView({
         )}
       </div>
 
+      {/* File-addressable task pane — no weekly row required (proposals, done, past weeks) */}
+      {!resolvedTask && selectedFileTaskId && !isMobile && (
+        <div className="w-96 flex-shrink-0 overflow-visible">
+          <TaskFilePanel
+            taskId={selectedFileTaskId}
+            vaultPath={weekly.vaultPath}
+            onClose={() => setSelectedFileTaskId(null)}
+          />
+        </div>
+      )}
+
       {/* Task detail panel — side panel on desktop, bottom sheet on mobile */}
       {resolvedTask && !isMobile && (
         <div className="w-96 flex-shrink-0 overflow-visible">
@@ -524,8 +572,8 @@ export function BridgeView({
         </div>
       )}
 
-      {/* Mobile bottom sheet */}
-      {resolvedTask && isMobile && (
+      {/* Mobile bottom sheet — weekly panel or the file-addressable pane */}
+      {(resolvedTask || selectedFileTaskId) && isMobile && (
         <>
           {/* Backdrop */}
           <div
@@ -547,6 +595,13 @@ export function BridgeView({
               <div className="w-12 h-1 rounded-full bg-[var(--text-tertiary)] opacity-40" />
             </div>
             <div className="overflow-y-auto pb-[var(--hilt-mobile-nav-clearance)]" style={{ maxHeight: "calc(85vh - 24px)" }}>
+              {!resolvedTask && selectedFileTaskId ? (
+                <TaskFilePanel
+                  taskId={selectedFileTaskId}
+                  vaultPath={weekly.vaultPath}
+                  onClose={closeSheet}
+                />
+              ) : resolvedTask ? (
               <BridgeTaskPanel
                 task={resolvedTask}
                 autoFocusTitle={autoFocusPanel}
@@ -585,6 +640,7 @@ export function BridgeView({
                   }
                 }}
               />
+              ) : null}
             </div>
           </div>
         </>

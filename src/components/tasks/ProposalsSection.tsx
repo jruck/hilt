@@ -59,7 +59,12 @@ async function postVerdict(body: unknown): Promise<void> {
   }
 }
 
-export function ProposalsSection({ searchQuery = "" }: { searchQuery?: string }) {
+export function ProposalsSection({ searchQuery = "", onOpenTask }: {
+  searchQuery?: string;
+  /** Open a proposal's detail pane by task-file id (the file-addressable pane); clicking a
+   *  card body triggers it — the verdict buttons stay independent. */
+  onOpenTask?: (taskId: string) => void;
+}) {
   const { proposals, mutate } = useTasksList();
   const { dismissed: dismissedLedger } = useDismissed(PROPOSAL_LOOP);
   // Limbo dismissals (verdict recorded, ledger stamp pending until the loop's next run) merge
@@ -142,6 +147,7 @@ export function ProposalsSection({ searchQuery = "" }: { searchQuery?: string })
               // Only loop-minted proposals carry the verdict join (origin.loop + item_id);
               // anything else renders read-only rather than posting a broken verdict.
               onVerdict={task.origin?.loop && task.origin?.item_id ? handleVerdict(task) : undefined}
+              onOpen={onOpenTask ? () => onOpenTask(task.id) : undefined}
             />
           ))}
         </div>

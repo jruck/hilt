@@ -9,6 +9,7 @@
  * badge once decided) but are props-driven — the POSTing lives in the surface, not the card.
  */
 import { useEffect, useState } from "react";
+import { ChevronRight } from "lucide-react";
 import type { TaskFile } from "@/lib/tasks/types";
 import type { Verdict } from "@/lib/loops/types";
 import type { ObjectRef } from "@/lib/objects/types";
@@ -18,7 +19,8 @@ import { parseLifecycle } from "@/lib/attribution";
 import { ownerChip, parseOwnerPrefix, type OwnerTag } from "@/lib/tasks/owner";
 
 // Each button carries a plain-language tooltip of its EFFECT (gate-B: verdict clarity).
-const VERDICT_BUTTONS: Array<{ verdict: Verdict; label: string; title: string }> = [
+// Exported for the file-addressable task pane (TaskFilePanel) — same buttons, same language.
+export const VERDICT_BUTTONS: Array<{ verdict: Verdict; label: string; title: string }> = [
   { verdict: "approve", label: "Approve", title: "Take this on — becomes your task and joins this week's list" },
   { verdict: "assign_to_agent", label: "Assign to agent", title: "Mark as agent work — joins this week's Ready for agents section (agent execution arrives in Phase C)" },
   { verdict: "dismiss", label: "Dismiss", title: "Decline — removed; the loop remembers and won't re-propose it" },
@@ -32,7 +34,7 @@ function verdictLabel(verdict: Verdict): string {
 /** Decided-state badge text — past tense. The imperative button labels ("Dismiss") on a badge
  * read as available ACTIONS ("the button itself says dismiss which suggests it wasn't
  * dismissed" — Justin, 2026-07-07). */
-function verdictBadgeLabel(verdict: Verdict): string {
+export function verdictBadgeLabel(verdict: Verdict): string {
   if (verdict === "approve") return "Approved";
   if (verdict === "dismiss") return "Dismissed";
   if (verdict === "assign_to_me") return "Assigned to me";
@@ -41,7 +43,7 @@ function verdictBadgeLabel(verdict: Verdict): string {
   return verdictLabel(verdict);
 }
 
-function verdictBadgeClass(verdict: Verdict): string {
+export function verdictBadgeClass(verdict: Verdict): string {
   if (verdict === "approve" || verdict === "assign_to_me") return "border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300";
   if (verdict === "dismiss") return "border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]";
   if (verdict === "revise") return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300";
@@ -57,7 +59,7 @@ function meetingLabel(meeting: string): { title: string; date: string | null } {
   return { title, date };
 }
 
-function DueBadge({ due }: { due: string }) {
+export function DueBadge({ due }: { due: string }) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const dueDate = new Date(`${due}T00:00:00`);
@@ -101,7 +103,8 @@ export function OwnerChip({ owner, className = "" }: { owner: OwnerTag | null; c
   );
 }
 
-const STATUS_BADGES: Partial<Record<TaskFile["status"], { label: string; className: string }>> = {
+// Exported for the file-addressable task pane (TaskFilePanel) — one status voice everywhere.
+export const STATUS_BADGES: Partial<Record<TaskFile["status"], { label: string; className: string }>> = {
   "accepted-me": { label: "Accepted", className: "bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]" },
   "accepted-agent": { label: "Agent", className: "bg-blue-500/10 text-blue-600 dark:text-blue-300" },
   "in-progress": { label: "In progress", className: "bg-blue-500/10 text-blue-600 dark:text-blue-300" },
@@ -124,9 +127,13 @@ export interface TaskCardProps {
   /** In-briefing rendering (B3 canvas): drop the hilt-card hover chrome/shadow for a quiet
    *  bordered block that sits in the reading flow instead of popping out of it. */
   flush?: boolean;
+  /** Clicking the card body opens the task's detail pane (verdict buttons, the revise form,
+   *  and the meeting pill stay independent — they stop propagation). Purity kept: the card
+   *  only calls back; the surface decides what "open" means. */
+  onOpen?: () => void;
 }
 
-export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, meetingRef, flush }: TaskCardProps) {
+export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, meetingRef, flush, onOpen }: TaskCardProps) {
   const [busyVerdict, setBusyVerdict] = useState<Verdict | null>(null);
   const [localVerdict, setLocalVerdict] = useState<Verdict | null>(verdict ?? null);
   const [verdictError, setVerdictError] = useState<string | null>(null);
@@ -169,9 +176,12 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
   }
 
   return (
-    <div className={flush
-      ? "group/taskcard rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)]"
-      : "group/taskcard hilt-card"}>
+    <div
+      onClick={onOpen}
+      className={`${flush
+        ? "group/taskcard rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)]"
+        : "group/taskcard hilt-card"}${onOpen ? " cursor-pointer" : ""}`}
+    >
       <div className="px-3 py-2.5">
         <div className="flex items-start gap-2">
           <span className="min-w-0 flex-1 text-sm leading-relaxed text-[var(--text-primary)]">
@@ -184,6 +194,10 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
             </span>
           )}
           {task.due && <DueBadge due={task.due} />}
+          {/* Open-pane affordance — BridgeTaskItem's chevron idiom, hover-revealed. */}
+          {onOpen && (
+            <ChevronRight className="mt-0.5 w-4 h-4 flex-shrink-0 text-[var(--text-tertiary)] opacity-0 transition-opacity group-hover/taskcard:opacity-100" />
+          )}
         </div>
 
         {task.provenance?.quote && (
@@ -208,7 +222,10 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
         )}
 
         {onVerdict && !localVerdict && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/taskcard:opacity-100">
+          <div
+            onClick={(event) => event.stopPropagation()}
+            className="mt-1.5 flex flex-wrap items-center gap-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/taskcard:opacity-100"
+          >
             {VERDICT_BUTTONS.map((entry) => (
               <button
                 key={entry.verdict}
@@ -234,6 +251,7 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
 
         {reviseOpen && !localVerdict && (
           <form
+            onClick={(event) => event.stopPropagation()}
             onSubmit={(event) => {
               event.preventDefault();
               const note = reviseNote.trim();

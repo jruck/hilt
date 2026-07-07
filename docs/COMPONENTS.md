@@ -309,7 +309,25 @@ Individual task item with status management.
 
 **Files**: `src/components/bridge/BridgeTaskPanel.tsx`, `BridgeTaskDetail.tsx`, `BridgeTaskEditor.tsx`
 
-Task detail view with editing capabilities.
+Task detail view with editing capabilities. BridgeTaskPanel is keyed to a WEEKLY-LIST row
+(positional selection resolved against `weekly.tasks`).
+
+### TaskFilePanel.tsx
+
+**File**: `src/components/bridge/TaskFilePanel.tsx`
+
+The FILE-addressable task detail pane — keyed to a task-file id (`t-…`), decoupled from weekly
+list position. Data flows entirely through `useTaskFile` → `/api/tasks/[id]`, so proposals,
+done/dropped tasks, and past-week tasks open with no weekly row. Editability follows the store:
+accepted/in-progress → title + body editable (body edits preserve the read-only `## History`
+audit section via `src/lib/tasks/task-body.ts` split/join); proposed → read-only fields + the
+shared verdict buttons (POST `/api/loops/verdicts`), pane stays open showing the new state after
+a verdict; done/dropped → read-only. BridgeView renders it whenever the selection is a bare file
+id (`selectedFileTaskId`) — clicking any TaskCard anywhere (Proposals section, briefing canvas,
+meeting Next steps, task object pills) lands here or, when the task IS on this week's list, in
+BridgeTaskPanel. Cross-view opens arrive via the task-open channel
+(`src/lib/tasks/deeplink.ts` → Board → `openTaskRequest`); the CLI navigate API accepts
+`{view:"bridge", path:"/task/t-…"}`.
 
 ### BridgeNotes.tsx
 

@@ -37,6 +37,7 @@ import { TaskCard } from "@/components/tasks/TaskCard";
 import { PROPOSAL_LOOP, formatRelativeDate } from "@/components/tasks/ProposalsSection";
 import { useDismissed, useTasksList } from "@/hooks/useTaskFile";
 import { askToTaskFile, joinMeetingNextSteps, mergeDismissed } from "@/lib/tasks/meeting-next-steps";
+import { requestTaskOpen } from "@/lib/tasks/deeplink";
 import type { TaskFile } from "@/lib/tasks/types";
 import type { Verdict } from "@/lib/loops/types";
 interface BriefingContentProps {
@@ -263,6 +264,8 @@ function CanvasTaskCard({ task, canvas }: { task: TaskFile; canvas: CanvasContex
       // canvas cards sit outside their meeting's entry, so the attribution earns navigation.
       meetingRef={task.origin?.meeting ? { kind: "meeting", id: task.origin.meeting } : undefined}
       onVerdict={pending ? canvas.makeVerdictHandler(task.origin?.loop, task.origin?.item_id) : undefined}
+      // Clicking the card body opens the task's detail pane in Priorities (cross-view channel).
+      onOpen={() => requestTaskOpen(task.id)}
     />
   );
 }
@@ -576,6 +579,7 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
           hideMeeting
           task={task}
           onVerdict={canvas.makeVerdictHandler(task.origin?.loop, task.origin?.item_id)}
+          onOpen={() => requestTaskOpen(task.id)}
         />
       ))}
       {[...join.unmintedAsks, ...extraBoundAsks].map((ask) => (
@@ -589,7 +593,7 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
         />
       ))}
       {landedStamped.map((task) => (
-        <TaskCard key={task.id} flush hideMeeting showStatus task={task} />
+        <TaskCard key={task.id} flush hideMeeting showStatus task={task} onOpen={() => requestTaskOpen(task.id)} />
       ))}
       {/* Dismissed asks FROM THIS MEETING — the quiet reveal-tail idiom, classes copied exactly
           from the meeting view (B2) / Proposals section (A6). Renders only when N > 0. */}

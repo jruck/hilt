@@ -20,6 +20,7 @@ import { BookMarked, CalendarClock, FolderOpen, SquareCheck, UserRound, type Luc
 import { useScope } from "@/contexts/ScopeContext";
 import type { ObjectKind, ObjectNavTarget, ObjectRef, ResolvedObject } from "@/lib/objects/types";
 import { meetingDateSegment } from "@/lib/briefing/canvas";
+import { requestTaskOpen } from "@/lib/tasks/deeplink";
 import { resolveObject, useObjectCard } from "@/hooks/useObjectCard";
 import { ObjectPopover } from "./ObjectPopover";
 import { ObjectCard } from "./ObjectCard";
@@ -58,9 +59,17 @@ export function ObjectPill({ refr, children, className, showDate = true }: Objec
   const dateSegment = refr.kind === "meeting" && showDate ? meetingDateSegment(refr.id) : null;
 
   const navigate = useCallback((nav: ObjectNavTarget) => {
+    // Task refs open the task detail PANE, not a bare view switch: the resolver's nav stays
+    // {view:"bridge", scope:""}, but the click-through routes through the task-open channel
+    // (Board switches Bridge to Priorities; BridgeView selects the pane by file id).
+    if (refr.kind === "task") {
+      requestTaskOpen(refr.id);
+      setOpen(false);
+      return;
+    }
     navigateTo(nav.view, nav.scope);
     setOpen(false);
-  }, [navigateTo]);
+  }, [navigateTo, refr.kind, refr.id]);
 
   const handleClick = useCallback(async () => {
     if (open) {
@@ -73,6 +82,10 @@ export function ObjectPill({ refr, children, className, showDate = true }: Objec
       try {
         const result = await resolveObject(refr);
         if (result.nav) {
+          if (refr.kind === "task") {
+            requestTaskOpen(refr.id);
+            return;
+          }
           navigateTo(result.nav.view, result.nav.scope);
           return;
         }

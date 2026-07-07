@@ -41,6 +41,7 @@ import {
   meetingVaultRelPath,
   mergeDismissed,
 } from "@/lib/tasks/meeting-next-steps";
+import { requestTaskOpen } from "@/lib/tasks/deeplink";
 
 const BridgeTaskEditor = dynamic(
   () => import("../bridge/BridgeTaskEditor").then((mod) => mod.BridgeTaskEditor),
@@ -980,6 +981,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
                         onVerdict={task.origin?.loop && task.origin?.item_id
                           ? makeNextStepVerdictHandler(task.origin.loop, task.origin.item_id)
                           : undefined}
+                        onOpen={() => requestTaskOpen(task.id)}
                       />
                     ))}
                     {nextSteps.unmintedAsks.map((item) => (
@@ -994,7 +996,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
                       />
                     ))}
                     {nextSteps.tasks.map((task) => (
-                      <TaskCard key={task.id} task={task} hideMeeting showStatus />
+                      <TaskCard key={task.id} task={task} hideMeeting showStatus onOpen={() => requestTaskOpen(task.id)} />
                     ))}
                   </div>
                 )}

@@ -18,6 +18,7 @@ import { prefetchWeatherForecast } from "@/hooks/useWeather";
 import { PullToRefresh } from "./PullToRefresh";
 import { MobileChromeProvider } from "@/contexts/MobileChromeContext";
 import { CALENDAR_EVENT_OPEN_EVENT, PENDING_CALENDAR_EVENT_STORAGE_KEY, type CalendarEventOpenDetail } from "@/lib/calendar/deeplink";
+import { TASK_OPEN_EVENT, type TaskOpenDetail } from "@/lib/tasks/deeplink";
 import { isSystemMode, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode, type SystemMode } from "@/lib/system/navigation";
 import { withBasePath } from "@/lib/base-path";
 import type { BridgeMode } from "./bridge/BridgeModeToggle";
@@ -335,7 +336,10 @@ export function Board() {
   const [addTaskTrigger, setAddTaskTrigger] = useState(0);
   const [bridgeTaskOpenRequest, setBridgeTaskOpenRequest] = useState<BridgeTaskOpenRequest | null>(null);
 
-  const openBridgeTaskFromHud = useCallback((taskId: string) => {
+  // The universal task-open entry point: switches Bridge to Priorities and hands the id to
+  // BridgeView as an open-request. Accepts weekly ids ("task-3", the HUD) AND task-file ids
+  // ("t-…", every other surface) — BridgeView resolves either into the right pane.
+  const openBridgeTask = useCallback((taskId: string) => {
     storeBridgeMode("priorities");
     navigateTo("bridge", "");
     setBridgeTaskOpenRequest((current) => ({
@@ -343,6 +347,18 @@ export function Board() {
       token: (current?.token ?? 0) + 1,
     }));
   }, [navigateTo]);
+
+  // Cross-view channel: any surface that knows a task id (briefing canvas cards, meeting
+  // Next-steps cards, task object pills) dispatches TASK_OPEN_EVENT (the calendar-deeplink
+  // idiom) instead of threading a callback through every layer.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<TaskOpenDetail>).detail;
+      if (detail?.taskId) openBridgeTask(detail.taskId);
+    };
+    window.addEventListener(TASK_OPEN_EVENT, handler);
+    return () => window.removeEventListener(TASK_OPEN_EVENT, handler);
+  }, [openBridgeTask]);
 
   const openCalendarEventFromHud = useCallback((detail: CalendarEventOpenDetail) => {
     if (typeof window !== "undefined") {
@@ -373,7 +389,14 @@ export function Board() {
   //     reliably wakes a backgrounded window.
   useEffect(() => {
     const handleNavigate = (view: string, path: string) => {
-      navigateTo(view as ViewPrefix, path || "");
+      // Task deep-link: {view:"bridge", path:"/task/t-…"} opens the task detail pane
+      // (weekly row's panel or the file-addressable pane) instead of a bare view switch.
+      const taskMatch = view === "bridge" ? path.match(/^\/task\/([^/]+)$/) : null;
+      if (taskMatch) {
+        openBridgeTask(taskMatch[1]);
+      } else {
+        navigateTo(view as ViewPrefix, path || "");
+      }
       if (window.electronAPI?.focusWindow) {
         window.electronAPI.focusWindow();
       }
@@ -392,7 +415,7 @@ export function Board() {
       unsubWs();
       unsubIpc?.();
     };
-  }, [navigateTo, on]);
+  }, [navigateTo, on, openBridgeTask]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -474,7 +497,7 @@ export function Board() {
             hudVisible={hudVisible}
             onHudVisibleChange={setHudVisible}
             onOpenCalendarEvent={openCalendarEventFromHud}
-            onOpenTask={openBridgeTaskFromHud}
+            onOpenTask={openBridgeTask}
             onBridgeModeChange={setBridgeMode}
           />
         ) : viewMode === "calendar" ? (
@@ -522,7 +545,7 @@ export function Board() {
         ) : viewMode === "briefings" ? (
           <BriefingsView
             onOpenCalendarEvent={openCalendarEventFromHud}
-            onOpenTask={openBridgeTaskFromHud}
+            onOpenTask={openBridgeTask}
             onBridgeModeChange={setBridgeMode}
           />
         ) : viewMode === "calendar" ? (
@@ -540,7 +563,7 @@ export function Board() {
           placement="bottom"
           onCollapse={() => setHudVisible(false)}
           onOpenCalendarEvent={openCalendarEventFromHud}
-          onOpenTask={openBridgeTaskFromHud}
+          onOpenTask={openBridgeTask}
         />
       )}
     </div>

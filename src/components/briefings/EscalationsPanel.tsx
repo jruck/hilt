@@ -11,6 +11,7 @@ import { meetingLabelFromRelPath } from "@/lib/briefing/canvas";
 import { parseOwnerPrefix } from "@/lib/tasks/owner";
 import { ObjectPill } from "@/components/objects/ObjectPill";
 import { OwnerChip } from "@/components/tasks/TaskCard";
+import { MeetingCard } from "./MeetingCard";
 
 export type EscalatedLoopItem = LoopItem & {
   loop_phase: RegistryLoop["phase"];
@@ -162,12 +163,14 @@ function DetailMarkdown({ markdown }: { markdown: string }) {
   );
 }
 
-/** Parse the source meeting out of an item's first citation ("meetings/<date>/<name>.md ..."). */
-function meetingKey(item: EscalatedLoopItem): { key: string; date: string; title: string } | null {
+/** Parse the source meeting out of an item's first citation ("meetings/<date>/<name>.md ...").
+ * `rel` is the full vault-relative note path (the whole `meetings/….md` match, prefix-agnostic) —
+ * the id a meeting ObjectPill needs, where `key` is only the dedupe/group key. */
+function meetingKey(item: EscalatedLoopItem): { key: string; date: string; title: string; rel: string } | null {
   const source = item.citations?.[0]?.source || "";
   const match = source.match(/meetings\/(\d{4}-\d{2}-\d{2})\/([^/]+?)(?:-\d{4}-\d{2}-\d{2}[^/]*)?\.md/);
   if (!match) return null;
-  return { key: `${match[1]}/${match[2]}`, date: match[1], title: match[2] };
+  return { key: `${match[1]}/${match[2]}`, date: match[1], title: match[2], rel: match[0] };
 }
 
 export function escalationsSummary(items: EscalatedLoopItem[]): string {
@@ -483,15 +486,60 @@ function MeetingGroupRow({ date, title, items, defaultOpen, onChanged }: {
   );
 }
 
+/** UNFEATURED meeting-ask group in the ⏭ Next steps section: the SAME MeetingCard shell the
+ * editor-featured entries use, so the section reads as one list of meeting cards. No editor
+ * substance lead exists for an unfeatured group, so the header is just the DATED meeting pill
+ * (wrapped in <strong> — the heading-grade pill form the featured `**[pill]**` headlines get) +
+ * the shell's own "N pending" count. Expansion contents are UNCHANGED from MeetingGroupRow —
+ * the same decidable LoopItemRow ask rows (smallest correct change: shell swap only). */
+function MeetingGroupCard({ date, title, rel, items, defaultOpen, onChanged }: {
+  date: string;
+  title: string;
+  rel: string;
+  items: EscalatedLoopItem[];
+  defaultOpen: boolean;
+  onChanged: () => void;
+}) {
+  return (
+    <MeetingCard
+      title={title}
+      date={date}
+      pendingCount={items.filter((item) => !item.verdict).length}
+      defaultOpen={defaultOpen}
+      summary={(
+        // ObjectPill stops its own click propagation, so the pill opens its popover without
+        // toggling the card. NOT passing meetingRel: the summary IS the pill — the shell's
+        // structural header pill would be a duplicate.
+        <strong className="font-semibold text-[var(--text-primary)]">
+          <ObjectPill refr={{ kind: "meeting", id: rel }}>{title}</ObjectPill>
+        </strong>
+      )}
+    >
+      <ul className="briefing-list space-y-0.5">
+        {items.map((item) => (
+          <LoopItemRow
+            key={`${item.loop}:${item.id}:${item.artifact_date}`}
+            item={item}
+            onChanged={onChanged}
+          />
+        ))}
+      </ul>
+    </MeetingCard>
+  );
+}
+
 /** Loop items for one section, rendered as <li> rows INSIDE the section's existing list —
- * standalone items flat, meeting asks grouped by source meeting. */
-export function EscalationsBlock({ items, onChanged }: {
+ * standalone items flat, meeting asks grouped by source meeting. When the owning section is
+ * ⏭ Next steps (`asMeetingCards`), each group renders in the MeetingCard shell instead of the
+ * pre-pill MeetingGroupRow, matching the featured entries; other sections keep the row form. */
+export function EscalationsBlock({ items, onChanged, asMeetingCards = false }: {
   items: EscalatedLoopItem[];
   onChanged: () => void;
+  asMeetingCards?: boolean;
 }) {
   const { standalone, meetingGroups } = useMemo(() => {
     const standaloneItems: EscalatedLoopItem[] = [];
-    const groups = new Map<string, { date: string; title: string; items: EscalatedLoopItem[] }>();
+    const groups = new Map<string, { date: string; title: string; rel: string; items: EscalatedLoopItem[] }>();
     for (const item of items) {
       const meeting = item.loop === "meeting-actions" ? meetingKey(item) : null;
       if (!meeting) {
@@ -500,7 +548,7 @@ export function EscalationsBlock({ items, onChanged }: {
       }
       const existing = groups.get(meeting.key);
       if (existing) existing.items.push(item);
-      else groups.set(meeting.key, { date: meeting.date, title: meeting.title, items: [item] });
+      else groups.set(meeting.key, { date: meeting.date, title: meeting.title, rel: meeting.rel, items: [item] });
     }
     // Newest meeting first — mirrors "recent asks are the verdict-worthy ones".
     const sorted = [...groups.values()].sort((a, b) => b.date.localeCompare(a.date));
@@ -518,16 +566,29 @@ export function EscalationsBlock({ items, onChanged }: {
           onChanged={onChanged}
         />
       ))}
-      {meetingGroups.map((group, index) => (
-        <MeetingGroupRow
-          key={group.date + group.title}
-          date={group.date}
-          title={group.title}
-          items={group.items}
-          defaultOpen={meetingGroups.length === 1 && index === 0 && group.items.length <= 5}
-          onChanged={onChanged}
-        />
-      ))}
+      {meetingGroups.map((group, index) => {
+        const defaultOpen = meetingGroups.length === 1 && index === 0 && group.items.length <= 5;
+        return asMeetingCards ? (
+          <MeetingGroupCard
+            key={group.date + group.title}
+            date={group.date}
+            title={group.title}
+            rel={group.rel}
+            items={group.items}
+            defaultOpen={defaultOpen}
+            onChanged={onChanged}
+          />
+        ) : (
+          <MeetingGroupRow
+            key={group.date + group.title}
+            date={group.date}
+            title={group.title}
+            items={group.items}
+            defaultOpen={defaultOpen}
+            onChanged={onChanged}
+          />
+        );
+      })}
     </>
   );
 }

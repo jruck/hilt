@@ -841,8 +841,21 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
                   );
                 })}
                 {/* Loop items the editor did NOT feature: bullets in the SAME list — urgency is
-                    a flag, verdicts follow ask-ness (one item model). */}
-                <EscalationsBlock items={sectionEscalations} onChanged={onEscalationsChanged} />
+                    a flag, verdicts follow ask-ness (one item model). Inside ⏭ Next steps the
+                    meeting groups take the same MeetingCard shell as the featured entries —
+                    EXCEPT asks whose meeting is already featured above: the featured card's
+                    citation join (joinMeetingNextSteps) renders those, so a group here would be
+                    a second identical card for the same meeting (adversarial finding). */}
+                <EscalationsBlock
+                  items={isNextSteps
+                    ? sectionEscalations.filter((it) => {
+                        const src = it.citations?.[0]?.source || "";
+                        return !meetingRels.some((rel) => rel && src.includes(rel));
+                      })
+                    : sectionEscalations}
+                  onChanged={onEscalationsChanged}
+                  asMeetingCards={isNextSteps}
+                />
               </ul>
             )}
           </div>

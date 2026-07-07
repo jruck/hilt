@@ -2211,15 +2211,31 @@ body [data-radix-popper-content-wrapper]::after {
 }
 
 /* A pill inside bold markdown acts as pill AND heading (the ⏭ headline form `**[pill]** — lead`):
-   the label picks up the emphasis it would have had as plain text. Default stays 500 — pills
-   don't assume boldness (Justin, 2026-07-07). The date segment stays metadata-muted either way. */
+   heading-grade, matching the 🧠 bold leads exactly — 1em (not the pill's 0.92em metadata size),
+   text-primary, weight 600 ("if they're used in place of where there would otherwise be a normal
+   heading, they should look like headings, just with a pill wrapping" — Justin, 2026-07-07).
+   Default stays 500/0.92em — pills don't assume boldness. line-height stays 1.4: 1.4em is still
+   under the row's leading-relaxed (1.625em) line box, so the chip never grows the row.
+   The `.dark strong` selectors (0,2,1) outrank `.dark .hilt-object-pill` (0,2,0) — without them
+   the dark base color (translucent zinc, NOT text-primary) would beat `strong .hilt-object-pill`
+   (0,1,1); var(--text-primary) resolves per theme so one declaration serves both. */
 strong .hilt-object-pill,
-b .hilt-object-pill {
+b .hilt-object-pill,
+.dark strong .hilt-object-pill,
+.dark b .hilt-object-pill {
+  font-size: 1em;
   font-weight: 600;
+  color: var(--text-primary);
 }
+/* The date segment stays metadata either way: tertiary/400, one step SMALLER (0.92em) than the
+   heading-grade label — the plain-text form it replaces rendered its date as text-xs tertiary
+   metadata, and the size step keeps the label/date hierarchy inside the chip so the date never
+   reads as part of the heading. */
 strong .hilt-object-pill .hilt-object-pill-date,
 b .hilt-object-pill .hilt-object-pill-date {
+  font-size: 0.92em;
   font-weight: 400;
+  color: var(--text-tertiary);
 }
 
 .dark .hilt-object-pill {

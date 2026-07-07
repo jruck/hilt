@@ -156,6 +156,11 @@ export type TaskPatch = Partial<Omit<TaskFile, "id" | "status" | "created_at">>;
 export function updateTask(baseDir: string, id: string, patch: TaskPatch): TaskFile {
   const task = readTask(baseDir, id);
   if (!task) throw new Error(`task not found: ${id}`);
+  // A cleared/garbage title writes an unparseable file — the task bricks (reads degrade to
+  // missing, mutations throw). Reject at the truth store, not just at polite callers.
+  if ("title" in patch && (typeof patch.title !== "string" || !patch.title.trim())) {
+    throw new Error(`task title must be a non-empty string (patching ${id})`);
+  }
   const updated: TaskFile = { ...task, ...patch };
   if (patch.body !== undefined) updated.body = normalizeBody(patch.body);
   // Drop keys explicitly cleared via undefined so the object matches its parsed form exactly

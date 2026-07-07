@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as path from "path";
 import { parseWeeklyFile } from "@/lib/bridge/weekly-parser";
+import { hydrateWeeklyTasks } from "@/lib/bridge/weekly-v2-view";
 import { listVaultDir, readVaultFile, getVaultPath } from "@/lib/bridge/vault";
 
 export async function GET(request: NextRequest) {
@@ -30,8 +31,16 @@ export async function GET(request: NextRequest) {
     const content = await readVaultFile(`lists/now/${filename}`);
     const weekly = parseWeeklyFile(content, filename);
 
+    // v2 lists are views over task files: hydrate each line from its file (title/status/
+    // due/projects come from the FILE; missing file → raw line + missing: true, never
+    // dropped). v1 lists pass through untouched — response shape is additive only.
+    const tasks = weekly.listFormat === 2
+      ? hydrateWeeklyTasks(vaultPath, weekly.tasks)
+      : weekly.tasks;
+
     return NextResponse.json({
       ...weekly,
+      tasks,
       vaultPath,
       filePath: path.join(vaultPath, "lists/now", filename),
       availableWeeks,

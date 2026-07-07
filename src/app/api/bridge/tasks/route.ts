@@ -19,6 +19,14 @@ export async function POST(request: NextRequest) {
     }
 
     const { filename, content } = await getCurrentWeekly();
+    // v2 add (task file + line) lands in A4 — until then answer plainly instead of letting
+    // the parser's corruption guard surface as a generic 500.
+    if (parseWeeklyFile(content, filename).listFormat === 2) {
+      return NextResponse.json(
+        { error: "Adding tasks to a v2 weekly list is not supported yet" },
+        { status: 409 },
+      );
+    }
     const updated = addTask(content, title.trim());
     await writeVaultFileAtomic(`lists/now/${filename}`, updated);
 

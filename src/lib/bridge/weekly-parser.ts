@@ -1,3 +1,4 @@
+import { listFormatFromFrontmatter, parseWeeklyV2Line } from "../tasks/weekly-v2";
 import type { BridgeTask, BridgeWeekly, BridgeWeeklySection } from "../types";
 
 /**
@@ -70,6 +71,9 @@ function addOneIndent(line: string): string {
 export function parseWeeklyFile(content: string, filename: string): Omit<BridgeWeekly, 'vaultPath' | 'filePath' | 'availableWeeks' | 'latestWeek'> {
   const [fm, body, bodyLineOffset] = parseFrontmatter(content);
   const week = fm.week || "";
+  // Version marker decides the task-line parser: `list_format: 2` → v2 (title links to the
+  // task FILE, which is the source of truth); anything else → v1, byte-for-byte unchanged.
+  const listFormat = listFormatFromFrontmatter(fm);
   const lines = body.split("\n");
 
   // Find section boundaries. Weekly files can put Notes before or after Tasks,
@@ -137,7 +141,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
   // Parse tasks
   const tasks: BridgeTask[] = [];
   if (tasksStart !== -1) {
-    let currentTask: { titleLine: string; done: boolean; rawLines: string[]; detailLines: string[]; startLine: number; projectPath: string | null; projectPaths: string[]; dueDate: string | null; group: string | null } | null = null;
+    let currentTask: { titleLine: string; done: boolean; rawLines: string[]; detailLines: string[]; startLine: number; projectPath: string | null; projectPaths: string[]; dueDate: string | null; group: string | null; taskPath: string | null } | null = null;
     let currentGroup: string | null = null;
 
     for (let i = tasksStart; i < tasksEnd; i++) {
@@ -159,6 +163,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
             projectPaths: currentTask.projectPaths,
             dueDate: currentTask.dueDate,
             group: currentTask.group,
+            taskPath: currentTask.taskPath,
           });
           currentTask = null;
         }
@@ -166,9 +171,13 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
         continue;
       }
 
-      const taskMatch = line.match(/^- \[([ x])\] (.+)$/);
+      // v2 lists delegate task-line parsing to the A1 primitive (the LAST link on the line
+      // is the task-file path); the v1 title-link project overload is dead in v2, so
+      // projectPaths stays EMPTY — projects live in task frontmatter and arrive via hydration.
+      const v2Line = listFormat === 2 ? parseWeeklyV2Line(line) : null;
+      const taskMatch = listFormat === 2 ? null : line.match(/^- \[([ x])\] (.+)$/);
 
-      if (taskMatch) {
+      if (taskMatch || v2Line) {
         // Save previous task
         if (currentTask) {
           tasks.push({
@@ -182,42 +191,59 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
             projectPaths: currentTask.projectPaths,
             dueDate: currentTask.dueDate,
             group: currentTask.group,
+            taskPath: currentTask.taskPath,
           });
         }
-        // Check if title contains a markdown link: [display text](path)
-        // Handles prefix text (emoji markers, etc.) before the link
-        const titleRaw = taskMatch[2];
-        // Extract Dataview inline field [due:: YYYY-MM-DD]
-        const dueMatch = titleRaw.match(/\[due::\s*(\d{4}-\d{2}-\d{2})\]/);
-        const dueDate = dueMatch ? dueMatch[1] : null;
-        const titleWithoutDue = dueMatch ? titleRaw.replace(dueMatch[0], "").trim() : titleRaw;
-        // Extract all markdown links from the title
-        const allLinks: { text: string; path: string }[] = [];
-        const linkRegex = /\[(.+?)\]\((.+?)\)/g;
-        let linkExec;
-        while ((linkExec = linkRegex.exec(titleWithoutDue)) !== null) {
-          allLinks.push({ text: linkExec[1], path: linkExec[2] });
+        if (v2Line) {
+          currentTask = {
+            titleLine: v2Line.title,
+            done: v2Line.checked,
+            rawLines: [line],
+            detailLines: [],
+            startLine: bodyLineOffset + i,
+            projectPath: null,
+            projectPaths: [],
+            dueDate: v2Line.due,
+            group: currentGroup,
+            taskPath: v2Line.taskPath,
+          };
+        } else if (taskMatch) {
+          // Check if title contains a markdown link: [display text](path)
+          // Handles prefix text (emoji markers, etc.) before the link
+          const titleRaw = taskMatch[2];
+          // Extract Dataview inline field [due:: YYYY-MM-DD]
+          const dueMatch = titleRaw.match(/\[due::\s*(\d{4}-\d{2}-\d{2})\]/);
+          const dueDate = dueMatch ? dueMatch[1] : null;
+          const titleWithoutDue = dueMatch ? titleRaw.replace(dueMatch[0], "").trim() : titleRaw;
+          // Extract all markdown links from the title
+          const allLinks: { text: string; path: string }[] = [];
+          const linkRegex = /\[(.+?)\]\((.+?)\)/g;
+          let linkExec;
+          while ((linkExec = linkRegex.exec(titleWithoutDue)) !== null) {
+            allLinks.push({ text: linkExec[1], path: linkExec[2] });
+          }
+          // Build display title: replace first link with its text, remove subsequent links
+          let displayTitle = titleWithoutDue;
+          if (allLinks.length > 0) {
+            // Replace first link with just the display text
+            displayTitle = displayTitle.replace(/\[(.+?)\]\((.+?)\)/, "$1");
+            // Remove any additional links (they're just project attachments)
+            displayTitle = displayTitle.replace(/\s*\[.+?\]\(.+?\)/g, "").trim();
+          }
+          const projectPaths = allLinks.map(l => l.path);
+          currentTask = {
+            titleLine: displayTitle,
+            done: taskMatch[1] === "x",
+            rawLines: [line],
+            detailLines: [],
+            startLine: bodyLineOffset + i,
+            projectPath: projectPaths[0] ?? null,
+            projectPaths,
+            dueDate,
+            group: currentGroup,
+            taskPath: null,
+          };
         }
-        // Build display title: replace first link with its text, remove subsequent links
-        let displayTitle = titleWithoutDue;
-        if (allLinks.length > 0) {
-          // Replace first link with just the display text
-          displayTitle = displayTitle.replace(/\[(.+?)\]\((.+?)\)/, "$1");
-          // Remove any additional links (they're just project attachments)
-          displayTitle = displayTitle.replace(/\s*\[.+?\]\(.+?\)/g, "").trim();
-        }
-        const projectPaths = allLinks.map(l => l.path);
-        currentTask = {
-          titleLine: displayTitle,
-          done: taskMatch[1] === "x",
-          rawLines: [line],
-          detailLines: [],
-          startLine: bodyLineOffset + i,
-          projectPath: projectPaths[0] ?? null,
-          projectPaths,
-          dueDate,
-          group: currentGroup,
-        };
       } else if (currentTask && line.match(/^[\t ]{2,}|^\t/)) {
         // Indented line belongs to current task
         currentTask.rawLines.push(line);
@@ -245,6 +271,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
         projectPaths: currentTask.projectPaths,
         dueDate: currentTask.dueDate,
         group: currentTask.group,
+        taskPath: currentTask.taskPath,
       });
     }
   }
@@ -283,6 +310,7 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
   return {
     filename,
     week,
+    listFormat,
     needsRecycle,
     sectionOrder,
     tasks,
@@ -297,6 +325,12 @@ export function parseWeeklyFile(content: string, filename: string): Omit<BridgeW
  */
 export function addTask(content: string, title: string, projectPath?: string): string {
   const parsed = parseWeeklyFile(content, "");
+  // v2 lines are `[title](task-file)` links rendered from task files — this v1 serializer
+  // would write a bare/project-linked line and orphan it from the task store. v2 add flows
+  // (create file + line) are owned by the routes (unit A4), never this function.
+  if (parsed.listFormat === 2) {
+    throw new Error("addTask: v1 serializer cannot write to a list_format: 2 weekly list");
+  }
   const projectPaths = projectPath ? [projectPath] : [];
   const titleText = projectPath ? `[${title}](${projectPath})` : title;
   const newTask: BridgeTask = {
@@ -397,6 +431,11 @@ export function updateTask(
   projectTitles?: Record<string, string>
 ): string {
   const parsed = parseWeeklyFile(content, "");
+  // v2 title lines render from the task FILE (renderWeeklyV2Line) — this v1 serializer
+  // would replace the task-file link with a project link and sever the line from its file.
+  if (parsed.listFormat === 2) {
+    throw new Error("updateTask: v1 serializer cannot write to a list_format: 2 weekly list");
+  }
   const updatedTasks = parsed.tasks.map(task => {
     if (task.id !== taskId) return task;
     const done = updates.done !== undefined ? updates.done : task.done;

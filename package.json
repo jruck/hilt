@@ -17,7 +17,7 @@
     "start:gateway": "NODE_ENV=production NEXT_PUBLIC_BASE_PATH=/hilt HILT_DIST_DIR=.next-gateway tsx server/app-server.ts",
     "lint": "eslint",
     "test:map": "tsx --test src/lib/map/**/*.test.ts",
-    "test:bridge": "tsx --test src/lib/bridge/weekly-parser.test.ts src/lib/bridge/area-parser.test.ts src/lib/bridge/area-goal-context.test.ts src/lib/bridge/briefing-files.test.ts src/lib/bridge/briefing-link-targets.test.ts src/lib/bridge/briefing-status.test.ts && vitest run src/lib/bridge/people-parser.test.ts",
+    "test:bridge": "tsx --test src/lib/bridge/weekly-parser.test.ts src/lib/bridge/weekly-v2.test.ts src/lib/bridge/weekly-goldens.test.ts src/lib/bridge/area-parser.test.ts src/lib/bridge/area-goal-context.test.ts src/lib/bridge/briefing-files.test.ts src/lib/bridge/briefing-link-targets.test.ts src/lib/bridge/briefing-status.test.ts && vitest run src/lib/bridge/people-parser.test.ts \"src/app/api/bridge/tasks/[id]/route.test.ts\"",
     "test:calendar": "tsx --test src/lib/calendar/**/*.test.ts",
     "test:granola": "tsx --test src/lib/granola/**/*.test.ts",
     "test:graph": "tsx --test src/lib/graph/**/*.test.ts",

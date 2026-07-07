@@ -52,6 +52,9 @@ export interface BridgeTask {
   projectPaths: string[];      // All linked project paths
   dueDate: string | null;      // YYYY-MM-DD from [due:: ...] inline field
   group: string | null;        // ### subheading label within ## Tasks section
+  // --- weekly list v2 (list_format: 2) additive fields; absent on v1 lists ---
+  taskPath?: string | null;    // v2: LAST markdown-link target on the line = vault-relative task-file path
+  missing?: boolean;           // v2 hydration: true when the task file is absent/unreadable (raw line rendered as-is)
 }
 
 export type BridgeWeeklySection = "accomplishments" | "notes" | "tasks";
@@ -59,6 +62,7 @@ export type BridgeWeeklySection = "accomplishments" | "notes" | "tasks";
 export interface BridgeWeekly {
   filename: string;        // "2026-01-27.md"
   week: string;            // "2026-01-27" from frontmatter
+  listFormat: 1 | 2;       // frontmatter list_format (default 1); 2 = task-file-backed view (v3)
   needsRecycle: boolean;   // Current date in newer ISO week
   sectionOrder: BridgeWeeklySection[]; // Source file order for weekly sections
   tasks: BridgeTask[];

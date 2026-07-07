@@ -8,10 +8,16 @@ import type { TaskFile, WeeklyV2Line } from "./types";
 
 export const WEEKLY_LIST_FORMAT_KEY = "list_format";
 
-/** Version marker decides the parser: `list_format: 2` → v2, anything else → v1 (legacy). */
+/**
+ * Version marker decides the parser: `list_format: 2` → v2, anything else → v1 (legacy).
+ * The bridge's line-based frontmatter parser keeps YAML quote characters in raw values, so a
+ * hand-edited `list_format: "2"` arrives as the string `"2"` INCLUDING quotes — treat it as v2
+ * too, else every checkbox click on that list silently diverges from the task files.
+ */
 export function listFormatFromFrontmatter(fm: Record<string, unknown>): 1 | 2 {
   const raw = fm[WEEKLY_LIST_FORMAT_KEY];
-  return raw === 2 || raw === "2" ? 2 : 1;
+  const value = typeof raw === "string" ? raw.replace(/^["']|["']$/g, "") : raw;
+  return value === 2 || value === "2" ? 2 : 1;
 }
 
 // Uppercase [X] is accepted as checked — Obsidian/hand edits use it interchangeably.

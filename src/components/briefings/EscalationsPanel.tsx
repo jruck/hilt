@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { AlertTriangle, Check, ChevronDown, ChevronRight, MessageSquare, Send, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
-import type { Citation, LoopItem, RegistryLoop, Verdict, VerdictRecord, FeedbackRecord } from "@/lib/loops/types";
+import { CommentBox } from "@/components/comments/CommentBox";
+import { useVerdictNote, VerdictNoteField, VerdictNoteTrigger } from "@/components/comments/VerdictNoteField";
+import type { Citation, LoopItem, RegistryLoop, Verdict, VerdictRecord } from "@/lib/loops/types";
 import { meetingLabelFromRelPath } from "@/lib/briefing/canvas";
 import { parseOwnerPrefix } from "@/lib/tasks/owner";
 import { ObjectPill } from "@/components/objects/ObjectPill";
@@ -67,7 +69,6 @@ const visibleVerdicts: Array<{ verdict: Verdict; label: string }> = [
   { verdict: "approve", label: "Approve" },
   { verdict: "assign_to_agent", label: "Assign to agent" },
   { verdict: "dismiss", label: "Dismiss" },
-  { verdict: "revise", label: "Revise" },
 ];
 
 const fetcher = async (url: string): Promise<EscalationsResponse> => {
@@ -192,8 +193,9 @@ export function AskVerdictControls({ item, onChanged, vertical = false }: { item
   const [localVerdict, setLocalVerdict] = useState<Verdict | undefined>(item.verdict);
   const [busyVerdict, setBusyVerdict] = useState<Verdict | null>(null);
   const [verdictError, setVerdictError] = useState<string | null>(null);
-  const [reviseOpen, setReviseOpen] = useState(false);
-  const [reviseNote, setReviseNote] = useState("");
+  // The unified note (gate-B comment primitive): typed text rides ANY verdict click as its
+  // note in the same POST; the field's own Send posts it as a pure comment (no decision).
+  const noteControl = useVerdictNote();
   const allowed = useMemo(() => new Set(item.allowed_verdicts || []), [item.allowed_verdicts]);
   const verdictButtons = visibleVerdicts.filter((entry) => allowed.size === 0 || allowed.has(entry.verdict));
 
@@ -214,8 +216,7 @@ export function AskVerdictControls({ item, onChanged, vertical = false }: { item
         note,
       });
       setLocalVerdict(record.verdict);
-      setReviseOpen(false);
-      setReviseNote("");
+      noteControl.reset();
       onChanged();
     } catch (error) {
       setLocalVerdict(previousVerdict);
@@ -233,13 +234,15 @@ export function AskVerdictControls({ item, onChanged, vertical = false }: { item
         <button
           key={entry.verdict}
           type="button"
-          onClick={() => entry.verdict === "revise" ? setReviseOpen((value) => !value) : void submitVerdict(entry.verdict)}
+          // Revise still needs its note; any OTHER verdict simply carries whatever is typed.
+          onClick={() => void submitVerdict(entry.verdict, noteControl.noteText)}
           disabled={Boolean(busyVerdict)}
           className={`inline-flex min-h-6 items-center rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2 py-0.5 text-xs font-medium text-[var(--text-secondary)] shadow-sm transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-60 ${vertical ? "justify-start whitespace-nowrap" : ""}`}
         >
           {entry.label}
         </button>
       ))}
+      <VerdictNoteTrigger control={noteControl} vertical={vertical} />
     </div>
   );
 
@@ -251,37 +254,23 @@ export function AskVerdictControls({ item, onChanged, vertical = false }: { item
     </div>
   );
 
-  const reviseForm = reviseOpen && !localVerdict && (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        const note = reviseNote.trim();
-        if (!note) return;
-        void submitVerdict("revise", note);
-      }}
-      className={vertical ? "flex w-56 flex-col gap-1" : "flex items-center gap-2 pb-1"}
-    >
-      <input
-        value={reviseNote}
-        onChange={(event) => setReviseNote(event.target.value)}
-        autoFocus
-        className="min-h-8 min-w-0 flex-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
-        placeholder="Revision note"
-        aria-label="Revision note"
-      />
-      <button
-        type="submit"
-        disabled={!reviseNote.trim() || Boolean(busyVerdict)}
-        className="inline-flex min-h-8 items-center justify-center rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/15 disabled:cursor-default disabled:opacity-50 dark:text-amber-300"
-      >
-        Revise
-      </button>
-    </form>
+  const noteField = !localVerdict && (
+    <VerdictNoteField
+      control={noteControl}
+      // task_id-bearing asks target their TASK so the comment dual-writes (drawer + visible
+      // file note-line); pre-A6 asks without a file stay drawer-only.
+      target={item.task_id
+        ? { kind: "task", id: item.task_id }
+        : { kind: "loop-item", loop: item.loop, itemId: item.id, artifactDate: item.artifact_date }}
+      busy={Boolean(busyVerdict)}
+      vertical={vertical}
+      className={vertical ? undefined : "flex items-center gap-2 pb-1"}
+    />
   );
 
   const error = verdictError && <p className={vertical ? "w-56 text-xs text-red-500" : "pb-1 text-xs text-red-500"}>{verdictError}</p>;
 
-  return <>{buttons}{badge}{reviseForm}{error}</>;
+  return <>{buttons}{badge}{noteField}{error}</>;
 }
 
 /**
@@ -312,11 +301,7 @@ export function FloatingAskControls({ item, onChanged }: { item: EscalatedLoopIt
  */
 function LoopItemRow({ item, onChanged }: { item: EscalatedLoopItem; onChanged: () => void }) {
   const [expanded, setExpanded] = useState(false);
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [feedbackText, setFeedbackText] = useState("");
-  const [feedbackBusy, setFeedbackBusy] = useState(false);
-  const [feedbackSaved, setFeedbackSaved] = useState(false);
-  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [commentOpen, setCommentOpen] = useState(false);
   const citation = formatCitation(item.citations);
   const meetingCitationRel = firstMeetingCitationSource(item.citations);
   const confidence = typeof item.confidence === "number"
@@ -325,32 +310,6 @@ function LoopItemRow({ item, onChanged }: { item: EscalatedLoopItem; onChanged: 
   // The `[unclear] …` / `[other:Name] …` title prefix renders as a chip, matching TaskCard —
   // the raw artifact/briefing markdown keeps the bracket; only the app strips it.
   const { title: displayTitle, owner } = parseOwnerPrefix(item.title);
-
-  async function submitFeedback(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const text = feedbackText.trim();
-    if (!text) return;
-    setFeedbackBusy(true);
-    setFeedbackError(null);
-    try {
-      await postJson<FeedbackRecord>("/api/loops/feedback", {
-        loop: item.loop,
-        target: {
-          level: "item",
-          item_id: item.id,
-          artifact_date: item.artifact_date,
-        },
-        text: feedbackText.trim(),
-      });
-      setFeedbackText("");
-      setFeedbackOpen(false);
-      setFeedbackSaved(true);
-    } catch (error) {
-      setFeedbackError(error instanceof Error ? error.message : "Failed to save feedback");
-    } finally {
-      setFeedbackBusy(false);
-    }
-  }
 
   return (
     <li className={`group/askrow relative text-[var(--text-secondary)] briefing-expandable${expanded ? " briefing-expanded" : ""}${item.escalated ? " briefing-escalated" : ""}`}>
@@ -362,57 +321,33 @@ function LoopItemRow({ item, onChanged }: { item: EscalatedLoopItem; onChanged: 
           {displayTitle}
           <OwnerChip owner={owner} className="ml-1.5 align-middle" />
         </span>
-        <span onClick={(e) => e.stopPropagation()} className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-          <button
-            type="button"
-            onClick={() => setFeedbackOpen((value) => !value)}
-            className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-secondary)] ${
-              feedbackSaved ? "text-emerald-500" : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-            }`}
-            title={feedbackSaved ? "Feedback saved" : "Leave feedback"}
-            aria-label={feedbackSaved ? "Feedback saved" : "Leave feedback"}
-          >
-            {feedbackSaved ? <Check className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
-          </button>
+        <span
+          onClick={(e) => e.stopPropagation()}
+          // While the box is OPEN it must not fade on blur, and the form takes its own
+          // full-width line beneath the row (the row container flex-wraps) — the pre-refit
+          // layout (adversarial finding: hover-gating an open form made it vanish mid-typing).
+          className={commentOpen
+            ? "order-last basis-full flex items-center gap-0.5 opacity-100"
+            : "flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"}
+        >
+          {/* The shared comment gesture (gate-B primitive): same icon → inline input → check
+              flash as briefing bullets; routes via postComment — task_id-bearing asks target
+              their TASK so the comment dual-writes (drawer + visible file note-line). */}
+          <CommentBox
+            compact
+            onOpenChange={setCommentOpen}
+            target={item.task_id
+              ? { kind: "task", id: item.task_id }
+              : { kind: "loop-item", loop: item.loop, itemId: item.id, artifactDate: item.artifact_date }}
+            placeholder="Feedback"
+            triggerTitle="Leave feedback"
+          />
         </span>
       </div>
 
       {/* Asks carry their verdict controls — kind decides this, not escalation. Floating off the
           card's right edge on hover (lg+); inline row below lg. */}
       <FloatingAskControls item={item} onChanged={onChanged} />
-
-      {feedbackOpen && (
-        <form onSubmit={submitFeedback} className="flex items-center gap-2 pb-1">
-          <input
-            value={feedbackText}
-            onChange={(event) => setFeedbackText(event.target.value)}
-            autoFocus
-            className="min-h-8 min-w-0 flex-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
-            placeholder="Feedback"
-            aria-label="Feedback"
-          />
-          <button
-            type="submit"
-            disabled={!feedbackText.trim() || feedbackBusy}
-            className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-50"
-            title="Save feedback"
-            aria-label="Save feedback"
-          >
-            <Send className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setFeedbackOpen(false)}
-            className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-md text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-            title="Close feedback"
-            aria-label="Close feedback"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </form>
-      )}
-
-      {feedbackError && <p className="pb-1 text-xs text-red-500">{feedbackError}</p>}
 
       {expanded && (
         <div className="mb-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 py-2 space-y-1">

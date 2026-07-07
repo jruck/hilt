@@ -75,11 +75,18 @@ export async function POST(request: NextRequest) {
       : undefined;
     const anchor = parseAnchor(targetBody.anchor);
 
+    const section = typeof targetBody.section === "string" && targetBody.section.trim()
+      ? targetBody.section.trim()
+      : undefined;
+
     if (level === "item" && Boolean(itemId) === Boolean(anchor)) {
       return NextResponse.json({ error: "item feedback requires exactly one of item_id or anchor" }, { status: 400 });
     }
     if (level !== "item" && (itemId || anchor)) {
       return NextResponse.json({ error: "section and briefing feedback must omit item_id and anchor" }, { status: 400 });
+    }
+    if (section && level !== "section") {
+      return NextResponse.json({ error: "target.section is only valid for section-level feedback" }, { status: 400 });
     }
 
     const { vaultPath, registry, error } = await loadLoopRegistryContext();
@@ -97,6 +104,7 @@ export async function POST(request: NextRequest) {
       level,
       ...(artifactDate ? { artifact_date: artifactDate } : {}),
       ...(itemId ? { item_id: itemId } : {}),
+      ...(section ? { section } : {}),
       ...(anchor ? { anchor } : {}),
     };
     const record: FeedbackRecord = {

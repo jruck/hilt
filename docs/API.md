@@ -778,7 +778,9 @@ Gate-B addition: a successful approve/assign_to_me file effect ALSO splices the 
   loop: string;
   item_id: string;
   verdict: "approve" | "dismiss" | "assign_to_me" | "assign_to_agent" | "revise";
-  note?: string; // required for revise
+  note?: string; // required for revise; OPTIONAL on every verdict (the unified verdict-note
+                 // field) — the loop's pass 0 persists it onto entry.verdict, and a dismiss
+                 // note rides the A7 dismissed digest as "— declined: <note ≤100 chars>"
 }
 ```
 
@@ -839,12 +841,15 @@ Normally the target loop must be enabled. The `briefing` loop is the permanent e
   target: {
     level: "item" | "section" | "briefing";
     item_id?: string;
+    section?: string;   // section level ONLY: the briefing section heading (400 at other levels)
     anchor?: { section?: string; citation?: string; text: string };
     artifact_date?: string;
   };
   text: string;
 }
 ```
+
+Clients do not call this route directly from components — the comment primitive's `postComment` router (`src/lib/comments/post.ts`) is the single client entry point; it translates `CommentTarget` kinds (loop-item, briefing, briefing-section, briefing-anchor, and task-with-origin) into this body. See DATA-MODELS "Comment Primitive".
 
 **Response**
 

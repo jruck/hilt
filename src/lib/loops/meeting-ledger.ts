@@ -107,7 +107,7 @@ export function openLedgerDigest(ledger: Ledger, nowIso: string): string {
   const open = openEntries(ledger);
   if (!open.length) return "(ledger empty — every commitment you extract is NEW)";
   return open
-    .map((e) => `${e.id} · ${e.owner} · ${e.action.slice(0, 120)} · opened ${e.opened_at.slice(0, 10)} (${entryAgeDays(e, nowIso)}d)`)
+    .map((e) => `${e.id} · ${e.owner} · ${digestText(e.action, 120)} · opened ${e.opened_at.slice(0, 10)} (${entryAgeDays(e, nowIso)}d)`)
     .join("\n");
 }
 
@@ -138,10 +138,27 @@ export function recentlyDismissedEntries(ledger: Ledger, nowIso: string, windowD
  * The compact recently-dismissed digest for the extractor prompt (id, owner, action) — the
  * companion to openLedgerDigest. Empty string when nothing is recently dismissed, so the
  * prompt builder can omit the section entirely.
+ *
+ * When the dismiss verdict carried a NOTE (any verdict can, since the gate-B comment
+ * primitive), the line carries the reason — "— declined: <note>" — so the extractor learns
+ * WHY, not just that it was declined (better identity resolution AND better future proposals).
  */
+/** Prompt-safe truncation: flattens newlines (one line per digest entry is the format) and
+ * never splits a surrogate pair (a lone surrogate in the prompt is malformed UTF-16). */
+function digestText(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  let cut = flat.slice(0, max);
+  if (cut && !cut.isWellFormed()) cut = cut.slice(0, -1);
+  return cut;
+}
+
 export function dismissedLedgerDigest(ledger: Ledger, nowIso: string): string {
   return recentlyDismissedEntries(ledger, nowIso)
-    .map((e) => `${e.id} · ${e.owner} · ${e.action.slice(0, 120)}`)
+    .map((e) => {
+      const note = e.verdict?.note?.trim();
+      const reason = note ? ` — declined: ${digestText(note, 100)}` : "";
+      return `${e.id} · ${e.owner} · ${digestText(e.action, 120)}${reason}`;
+    })
     .join("\n");
 }
 

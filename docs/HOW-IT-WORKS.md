@@ -253,6 +253,12 @@ Its files:
 - **Assign to me** — same as approve today (wiring it to create a real task is a queued proposal).
 - **Revise** — a correction, not a decision: text updates, item returns revised for a real verdict.
 - **Feedback (💬 on any bullet)** — free-form; rides into the owning node's next run.
+- **A note with your verdict (💬 in the verdict-button row)** — the same comment gesture, next to
+  the buttons: type a note and click ANY verdict and the note travels with the decision (the
+  node's ledger keeps it). Notes on a **Dismiss** matter most: the reason rides the node's
+  "recently dismissed" memory, so the extractor learns WHY you declined — not just that you did.
+  Send the note WITHOUT clicking a verdict and it's a pure comment on the item (feedback, no
+  decision) — Revise stays for now, but this is where it's headed (Phase C threads).
 
 A verdict is a recorded decision first — the owning node applies it to its ledger at its next
 run (for meeting asks: the next post-meeting trigger run or the 7:30 PM sweep, whichever

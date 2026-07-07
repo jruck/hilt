@@ -153,6 +153,9 @@ export interface FeedbackTarget {
   level: "item" | "section" | "briefing";
   /** For asks and any item with a minted id. */
   item_id?: string;
+  /** Section-level feedback only: the section heading it attaches to (the comment primitive's
+   *  `briefing-section` target — src/lib/comments/types.ts). */
+  section?: string;
   /** For synthesized content bullets without ids: citation-based anchor (scope §6). */
   anchor?: { section?: string; citation?: string; text: string };
 }

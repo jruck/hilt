@@ -13,7 +13,9 @@ import { ChevronRight } from "lucide-react";
 import type { TaskFile } from "@/lib/tasks/types";
 import type { Verdict } from "@/lib/loops/types";
 import type { ObjectRef } from "@/lib/objects/types";
+import type { ImplementedCommentTarget } from "@/lib/comments/types";
 import { ObjectPill } from "@/components/objects/ObjectPill";
+import { useVerdictNote, VerdictNoteField, VerdictNoteTrigger } from "@/components/comments/VerdictNoteField";
 import { formatHiltMonthDay } from "@/lib/display-date";
 import { parseLifecycle } from "@/lib/attribution";
 import { ownerChip, parseOwnerPrefix, type OwnerTag } from "@/lib/tasks/owner";
@@ -24,7 +26,6 @@ export const VERDICT_BUTTONS: Array<{ verdict: Verdict; label: string; title: st
   { verdict: "approve", label: "Approve", title: "Take this on — becomes your task and joins this week's list" },
   { verdict: "assign_to_agent", label: "Assign to agent", title: "Mark as agent work — joins this week's Ready for agents section (agent execution arrives in Phase C)" },
   { verdict: "dismiss", label: "Dismiss", title: "Decline — removed; the loop remembers and won't re-propose it" },
-  { verdict: "revise", label: "Revise", title: "Send a correction — returns for a fresh verdict" },
 ];
 
 function verdictLabel(verdict: Verdict): string {
@@ -137,8 +138,13 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
   const [busyVerdict, setBusyVerdict] = useState<Verdict | null>(null);
   const [localVerdict, setLocalVerdict] = useState<Verdict | null>(verdict ?? null);
   const [verdictError, setVerdictError] = useState<string | null>(null);
-  const [reviseOpen, setReviseOpen] = useState(false);
-  const [reviseNote, setReviseNote] = useState("");
+  // The unified note (gate-B comment primitive): typed text rides ANY verdict click in the
+  // same POST (what the revise input used to do, for every verdict); the field's own Send
+  // posts it as a pure comment on the task's origin ask (or the task file when origin-less).
+  const noteControl = useVerdictNote();
+  const commentTarget: ImplementedCommentTarget = task.origin?.loop && task.origin.item_id
+    ? { kind: "loop-item", loop: task.origin.loop, itemId: task.origin.item_id }
+    : { kind: "task", id: task.id };
 
   // Follow a decided verdict arriving from the server (SWR refresh) — but never CLEAR a
   // just-clicked local badge when the prop is still undefined.
@@ -166,8 +172,7 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
       // set the badge: the item stays proposed and returns revised for a REAL verdict (the
       // briefing idiom) — locking the controls here stranded the card until navigation.
       if (verdict !== "revise") setLocalVerdict(verdict);
-      setReviseOpen(false);
-      setReviseNote("");
+      noteControl.reset();
     } catch (error) {
       setVerdictError(error instanceof Error ? error.message : "Failed to save verdict");
     } finally {
@@ -231,13 +236,16 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
                 key={entry.verdict}
                 type="button"
                 title={entry.title}
-                onClick={() => entry.verdict === "revise" ? setReviseOpen((value) => !value) : void submitVerdict(entry.verdict)}
+                // Any verdict carries whatever note is typed (Revise retired: a note IS the
+                // correction — post it as a comment, or attach it to a real decision).
+                onClick={() => void submitVerdict(entry.verdict, noteControl.noteText)}
                 disabled={Boolean(busyVerdict)}
                 className="inline-flex min-h-6 items-center rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2 py-0.5 text-xs font-medium text-[var(--text-secondary)] shadow-sm transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-60"
               >
                 {entry.label}
               </button>
             ))}
+            <VerdictNoteTrigger control={noteControl} />
           </div>
         )}
 
@@ -249,33 +257,12 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
           </div>
         )}
 
-        {reviseOpen && !localVerdict && (
-          <form
-            onClick={(event) => event.stopPropagation()}
-            onSubmit={(event) => {
-              event.preventDefault();
-              const note = reviseNote.trim();
-              if (!note) return;
-              void submitVerdict("revise", note);
-            }}
-            className="mt-1.5 flex items-center gap-2"
-          >
-            <input
-              value={reviseNote}
-              onChange={(event) => setReviseNote(event.target.value)}
-              autoFocus
-              className="min-h-8 min-w-0 flex-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
-              placeholder="Revision note"
-              aria-label="Revision note"
-            />
-            <button
-              type="submit"
-              disabled={!reviseNote.trim() || Boolean(busyVerdict)}
-              className="inline-flex min-h-8 items-center justify-center rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/15 disabled:cursor-default disabled:opacity-50 dark:text-amber-300"
-            >
-              Revise
-            </button>
-          </form>
+        {onVerdict && !localVerdict && (
+          <VerdictNoteField
+            control={noteControl}
+            target={commentTarget}
+            busy={Boolean(busyVerdict)}
+          />
         )}
 
         {verdictError && <p className="mt-1 text-xs text-red-500">{verdictError}</p>}

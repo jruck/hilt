@@ -1,18 +1,17 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
 import { useBriefings } from "@/hooks/useBriefings";
 import { BriefingHeader } from "./BriefingHeader";
 import { BriefingContent } from "./BriefingContent";
 import { BriefingFailureCard } from "./BriefingFailureCard";
 import { useEscalations } from "./EscalationsPanel";
-import { Check, MessageSquare, Newspaper, Send, X } from "lucide-react";
+import { Newspaper } from "lucide-react";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { BridgeModeToggle, type BridgeMode } from "@/components/bridge/BridgeModeToggle";
 import { SecondaryInlineContent } from "@/components/layout/SecondaryToolbar";
 import { AppHud, AppHudCollapsedBar } from "@/components/AppHud";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { withBasePath } from "@/lib/base-path";
+import { CommentBox } from "@/components/comments/CommentBox";
 import type { CalendarEventOpenDetail } from "@/lib/calendar/deeplink";
 
 interface BriefingsViewProps {
@@ -23,99 +22,10 @@ interface BriefingsViewProps {
   onOpenTask?: (taskId: string) => void;
 }
 
-async function postBriefingFeedback(date: string, text: string): Promise<void> {
-  const response = await fetch(withBasePath("/api/loops/feedback"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      loop: "briefing",
-      target: {
-        level: "briefing",
-        artifact_date: date,
-      },
-      text,
-    }),
-  });
-  const payload = await response.json().catch(() => null) as { error?: string } | null;
-  if (!response.ok) {
-    throw new Error(payload?.error || `Request failed: ${response.status}`);
-  }
-}
-
+/** Whole-briefing feedback — the shared CommentBox (labeled form), routed through postComment
+ * to the briefing loop's feedback stream (the gate-B comment primitive; C2 → threads). */
 function BriefingFeedbackButton({ date }: { date: string }) {
-  const [open, setOpen] = useState(false);
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function submitFeedback(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await postBriefingFeedback(date, trimmed);
-      setText("");
-      setOpen(false);
-      setSaved(true);
-    } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Failed to save feedback");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (!open) {
-    return (
-      <div className="flex flex-col items-end gap-1">
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className={`inline-flex min-h-7 items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium transition-colors ${
-            saved
-              ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
-              : "border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-          }`}
-        >
-          {saved ? <Check className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
-          Feedback
-        </button>
-        {error && <p className="text-xs text-red-500">{error}</p>}
-      </div>
-    );
-  }
-
-  return (
-    <form onSubmit={submitFeedback} className="flex min-w-0 flex-1 items-center justify-end gap-2">
-      <input
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        className="min-h-8 min-w-0 flex-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)] sm:max-w-xs"
-        placeholder="Feedback"
-        aria-label="Feedback"
-      />
-      <button
-        type="submit"
-        disabled={!text.trim() || busy}
-        className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-50"
-        title="Save feedback"
-        aria-label="Save feedback"
-      >
-        <Send className="h-3.5 w-3.5" />
-      </button>
-      <button
-        type="button"
-        onClick={() => setOpen(false)}
-        className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-md text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-        title="Close feedback"
-        aria-label="Close feedback"
-      >
-        <X className="h-3.5 w-3.5" />
-      </button>
-    </form>
-  );
+  return <CommentBox target={{ kind: "briefing", date }} />;
 }
 
 export function BriefingsView({

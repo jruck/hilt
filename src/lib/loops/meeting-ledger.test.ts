@@ -14,6 +14,7 @@ import path from "node:path";
 import {
   DISMISSED_IMMUNITY_DAYS,
   readLedger,
+  writeLedger,
   dismissedLedgerDigest,
   normalizeActionText,
   openEntries,
@@ -104,6 +105,47 @@ test("dismissedLedgerDigest: compact id · owner · action lines; empty string w
   const digest = dismissedLedgerDigest(ledgerOf(d1), NOW);
   assert.equal(digest, "ma-2026-07-02-001 · justin · Send Sarah the pricing sheet");
   assert.equal(dismissedLedgerDigest(ledgerOf(entry({})), NOW), "");
+});
+
+test("dismissedLedgerDigest: a dismiss note becomes the declined reason (≤100 chars)", () => {
+  // The gate-B comment primitive lets any verdict carry a note; a dismiss reason rides the
+  // digest so the extractor learns WHY it was declined.
+  const withNote = dismissed("ma-2026-07-02-001", "Send Sarah the pricing sheet", "2026-07-03T10:00:00.000Z");
+  withNote.verdict = { verdict: "dismiss", at: "2026-07-03T10:00:00.000Z", note: "Sarah left the account" };
+  assert.equal(
+    dismissedLedgerDigest(ledgerOf(withNote), NOW),
+    "ma-2026-07-02-001 · justin · Send Sarah the pricing sheet — declined: Sarah left the account",
+  );
+
+  // Long reasons truncate to 100 chars; whitespace-only notes render as no reason at all.
+  const longNote = "x".repeat(140);
+  const truncated = dismissed("ma-2026-07-02-002", "Another ask", "2026-07-03T10:00:00.000Z");
+  truncated.verdict = { verdict: "dismiss", at: "2026-07-03T10:00:00.000Z", note: longNote };
+  const line = dismissedLedgerDigest(ledgerOf(truncated), NOW);
+  assert.ok(line.endsWith(`declined: ${"x".repeat(100)}`));
+  assert.ok(!line.includes("x".repeat(101)));
+
+  const blankNote = dismissed("ma-2026-07-02-003", "Blank-note ask", "2026-07-03T10:00:00.000Z");
+  blankNote.verdict = { verdict: "dismiss", at: "2026-07-03T10:00:00.000Z", note: "   " };
+  assert.equal(
+    dismissedLedgerDigest(ledgerOf(blankNote), NOW),
+    "ma-2026-07-02-003 · justin · Blank-note ask",
+  );
+});
+
+test("ledger verdict note round-trips through write + read", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-ledger-note-"));
+  const noted = dismissed("ma-2026-07-02-001", "Send Sarah the pricing sheet", "2026-07-03T10:00:00.000Z");
+  noted.verdict = { verdict: "dismiss", at: "2026-07-03T10:00:00.000Z", note: "Sarah left the account" };
+  writeLedger(home, ledgerOf(noted));
+  const reread = readLedger(home);
+  assert.deepEqual(reread.entries["ma-2026-07-02-001"].verdict, {
+    verdict: "dismiss",
+    at: "2026-07-03T10:00:00.000Z",
+    note: "Sarah left the account",
+  });
+  // And the digest built from the REREAD ledger still carries the reason.
+  assert.ok(dismissedLedgerDigest(reread, NOW).includes("— declined: Sarah left the account"));
 });
 
 test("buildExtractorTask: RECENTLY DISMISSED section present with digest, absent without", () => {

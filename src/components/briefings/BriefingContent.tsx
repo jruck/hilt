@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useMemo, useCallback, type FormEvent, type MouseEvent, type ReactNode } from "react";
+import { useState, useMemo, useCallback, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
-import { Check, ChevronRight, MessageSquare, Send } from "lucide-react";
+import { ChevronRight } from "lucide-react";
+import { CommentBox } from "@/components/comments/CommentBox";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useScope } from "@/contexts/ScopeContext";
 import { withBasePath } from "@/lib/base-path";
@@ -150,78 +151,20 @@ function BriefingLink({
 }
 
 /** Universal per-item feedback (scope §6: "a comment affordance on any briefing bullet"). Anchors
- * by (briefing date, section, bullet text) and routes to the briefing loop. */
-function ItemFeedbackButton({ section, headline }: { section: string; headline: string }) {
-  const [open, setOpen] = useState(false);
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const response = await fetch(withBasePath("/api/loops/feedback"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          loop: "briefing",
-          text: trimmed,
-          target: { level: "item", anchor: { section, text: headline.slice(0, 200) } },
-        }),
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null) as { error?: string } | null;
-        throw new Error(payload?.error || `Request failed: ${response.status}`);
-      }
-      setText("");
-      setOpen(false);
-      setSaved(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save feedback");
-    } finally {
-      setBusy(false);
-    }
-  }
-
+ * by (briefing date, section, bullet text) and routes to the briefing loop — now via the shared
+ * CommentBox + postComment (the gate-B comment primitive; C2 turns these into threads). */
+function ItemFeedbackButton({ section, headline, date }: { section: string; headline: string; date?: string }) {
   return (
-    <>
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-secondary)] ${
-          saved ? "text-emerald-500" : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-        }`}
-        title={saved ? "Feedback saved" : "Leave feedback on this item"}
-        aria-label={saved ? "Feedback saved" : "Leave feedback on this item"}
-      >
-        {saved ? <Check className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
-      </button>
-      {open && (
-        <form onSubmit={submit} onClick={(e) => e.stopPropagation()} className="flex w-full items-center gap-2 py-1">
-          <input
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            autoFocus
-            className="min-h-8 min-w-0 flex-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
-            placeholder="Feedback on this item"
-            aria-label="Feedback on this item"
-          />
-          <button
-            type="submit"
-            disabled={!text.trim() || busy}
-            className="inline-flex min-h-8 items-center rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-50"
-          >
-            <Send className="h-3.5 w-3.5" />
-          </button>
-        </form>
-      )}
-      {error && <p className="w-full text-xs text-red-500">{error}</p>}
-    </>
+    <CommentBox
+      compact
+      target={{
+        kind: "briefing-anchor",
+        ...(date ? { date } : {}),
+        anchor: { section, text: headline.slice(0, 200) },
+      }}
+      placeholder="Feedback on this item"
+      triggerTitle="Leave feedback on this item"
+    />
   );
 }
 
@@ -334,7 +277,7 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
           </ReactMarkdown>
         </span>
         <span onClick={(e) => e.stopPropagation()} className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-          {feedbackable && <ItemFeedbackButton section={section} headline={item.headline} />}
+          {feedbackable && <ItemFeedbackButton section={section} headline={item.headline} date={date} />}
           {absPath && (
             <CopyReferenceButton variant="icon" reference={{ kind: "briefing-item", absPath, headline: item.headline }} />
           )}
@@ -553,7 +496,7 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
       defaultOpen={defaultOpen}
       actions={(
         <>
-          {feedbackable && <ItemFeedbackButton section={section} headline={item.headline} />}
+          {feedbackable && <ItemFeedbackButton section={section} headline={item.headline} date={date} />}
           {absPath && (
             <CopyReferenceButton variant="icon" reference={{ kind: "briefing-item", absPath, headline: item.headline }} />
           )}

@@ -768,6 +768,34 @@ interface TriggerMeetingState {
 
 Settled = enhanced notes present ∧ `transcript_measure > 0` ∧ `stable_polls ≥ 3` ∧ `now − stable_since ≥ 120s` (knobs: `HILT_MEETING_TRIGGER_SETTLE_POLLS` / `HILT_MEETING_TRIGGER_SETTLE_MS`). The trigger also consults the loop's own `processed-meetings.json` (registry-resolved home) before firing.
 
+## Comment Primitive (gate-B pre-build for Phase C)
+
+**File**: `src/lib/comments/types.ts` (the target model), `src/lib/comments/post.ts` (the router)
+
+ONE "leave a comment" gesture across the app: `CommentTarget` is the typed anchor union, `postComment(target, text)` is the only client entry point, and `CommentBox` / `VerdictNoteField` (`src/components/comments/`) are the only inputs. **`CommentTarget` is explicitly the anchor contract C2's thread store adopts VERBATIM** — a comment is the first message of a chat session with a deferred agent turn; C2 swaps `postComment`'s internals for the thread store and retires the Revise button. Do not fork per-surface target shapes.
+
+```typescript
+type CommentTarget =
+  | { kind: "task"; id: string }                       // task-object file (tasks/ or .proposals/)
+  | { kind: "loop-item"; loop: string; itemId: string; artifactDate?: string }
+  | { kind: "briefing"; date: string }                 // whole morning briefing
+  | { kind: "briefing-section"; date: string; section: string }
+  | { kind: "briefing-anchor"; date?: string;          // synthesized bullet without a minted id
+      anchor: { section?: string; citation?: string; text: string } }
+  | { kind: "library"; id: string }                    // NOT ROUTED until C2 (typed out)
+  | { kind: "meeting"; rel: string };                  // NOT ROUTED until C2 (typed out)
+
+// What postComment accepts today — library/meeting are compile-time excluded (and throw
+// at runtime through a cast) until C2's thread store absorbs them.
+type ImplementedCommentTarget = Exclude<CommentTarget, { kind: "library" } | { kind: "meeting" }>;
+```
+
+Routing (kind → store TODAY): `loop-item` / `briefing` / `briefing-section` / `briefing-anchor` → `POST /api/loops/feedback` (faithful `FeedbackTarget` translation; briefing kinds post under the `briefing` loop). `task` → the task's ORIGIN loop item when `origin.loop + origin.item_id` exist (a task comment IS feedback on its source ask); origin-less tasks get a `- <iso> note: <text>` line appended to the task-file body via `PUT /api/tasks/[id]` (the file is the record; C2 lifts these into threads).
+
+Verdict notes are the SIBLING path, not postComment: `useVerdictNote` + `VerdictNoteField` let typed text ride ANY verdict click as `note` in the single `POST /api/loops/verdicts` request (what revise alone did before); the loop's pass 0 persists it as `entry.verdict = { verdict, at, note? }`, and dismiss notes surface in the A7 dismissed digest as `… — declined: <note ≤100 chars>` so the extractor learns why.
+
+Supporting type change: `FeedbackTarget` (`src/lib/loops/types.ts`) gains `section?: string` — valid ONLY at `level: "section"`, carrying the briefing section heading for the `briefing-section` kind.
+
 ## Object Reference Models (v3 unit B5)
 
 **File**: `src/lib/objects/types.ts` (the shared contract), `src/lib/objects/uri.ts` (grammar)

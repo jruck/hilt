@@ -150,6 +150,22 @@ describe("POST /api/loops/verdicts — proposal file effects", () => {
     expect(fs.existsSync(taskPath(vault, proposal.id))).toBe(false);
   });
 
+  it("ANY verdict may carry a note; it lands on the appended record (the ledger persists it)", async () => {
+    // The gate-B comment primitive: the note field rides every verdict click, not just revise.
+    // The loop's pass 0 copies record.note onto entry.verdict, so the record is the contract.
+    mintProposal("ma-2026-07-05-010");
+    const res = await postVerdict({
+      loop: "meeting-actions", item_id: "ma-2026-07-05-010", verdict: "dismiss",
+      note: "Sarah left the account",
+    });
+    expect(res.status).toBe(201);
+    expect((await res.json()).note).toBe("Sarah left the account");
+
+    const record = readVerdicts(meetingsHome()).find((r) => r.item_id === "ma-2026-07-05-010");
+    expect(record?.verdict).toBe("dismiss");
+    expect(record?.note).toBe("Sarah left the account");
+  });
+
   it("revise appends the note and the file stays proposed in place", async () => {
     const proposal = mintProposal("ma-2026-07-05-005");
     const res = await postVerdict({

@@ -24,7 +24,9 @@ import { useTaskFile } from "@/hooks/useTaskFile";
 import { withBasePath } from "@/lib/base-path";
 import { parseLifecycle } from "@/lib/attribution";
 import { historyEntries, joinTaskBody, splitTaskBody } from "@/lib/tasks/task-body";
+import type { ImplementedCommentTarget } from "@/lib/comments/types";
 import { ObjectPill } from "@/components/objects/ObjectPill";
+import { useVerdictNote, VerdictNoteField, VerdictNoteTrigger } from "@/components/comments/VerdictNoteField";
 import {
   DueBadge,
   STATUS_BADGES,
@@ -72,9 +74,14 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
   const [localVerdict, setLocalVerdict] = useState<Verdict | null>(null);
   const [busyVerdict, setBusyVerdict] = useState<Verdict | null>(null);
   const [verdictError, setVerdictError] = useState<string | null>(null);
-  const [reviseOpen, setReviseOpen] = useState(false);
-  const [reviseNote, setReviseNote] = useState("");
+  // The unified note (gate-B comment primitive): typed text rides ANY verdict click in one
+  // POST; the field's own Send posts a pure comment (no decision) via postComment.
+  const noteControl = useVerdictNote();
+  const { reset: resetNote, setSaved: setNoteSaved } = noteControl;
   const task: TaskFile | null = rawTask && rawTask.id === taskId ? rawTask : null;
+  const commentTarget: ImplementedCommentTarget = task?.origin?.loop && task.origin.item_id
+    ? { kind: "loop-item", loop: task.origin.loop, itemId: task.origin.item_id }
+    : { kind: "task", id: taskId };
 
   // Reset verdict state when the pane re-targets another task.
   useEffect(() => {
@@ -84,13 +91,13 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
       setLocalVerdict(null);
       setBusyVerdict(null);
       setVerdictError(null);
-      setReviseOpen(false);
-      setReviseNote("");
+      resetNote();
+      setNoteSaved(false);
     });
     return () => {
       cancelled = true;
     };
-  }, [taskId]);
+  }, [taskId, resetNote, setNoteSaved]);
 
   const dismissed = localVerdict === "dismiss";
   const status = task?.status ?? null;
@@ -166,8 +173,7 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
       });
       // Revise keeps the item proposed (returns revised for a REAL verdict — TaskCard idiom).
       if (verdict !== "revise") setLocalVerdict(verdict);
-      setReviseOpen(false);
-      setReviseNote("");
+      resetNote();
       mutate();
     } catch (err) {
       setVerdictError(err instanceof Error ? err.message : "Failed to save verdict");
@@ -253,41 +259,22 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
                     key={entry.verdict}
                     type="button"
                     title={entry.title}
-                    onClick={() => entry.verdict === "revise" ? setReviseOpen((value) => !value) : void submitVerdict(entry.verdict)}
+                    // Any verdict carries whatever note is typed (Revise retired at the
+                    // comment-primitive consolidation).
+                    onClick={() => void submitVerdict(entry.verdict, noteControl.noteText)}
                     disabled={Boolean(busyVerdict)}
                     className="inline-flex min-h-6 items-center rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2 py-0.5 text-xs font-medium text-[var(--text-secondary)] shadow-sm transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-60"
                   >
                     {entry.label}
                   </button>
                 ))}
+                <VerdictNoteTrigger control={noteControl} />
               </div>
-              {reviseOpen && (
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    const note = reviseNote.trim();
-                    if (!note) return;
-                    void submitVerdict("revise", note);
-                  }}
-                  className="mt-1.5 flex items-center gap-2"
-                >
-                  <input
-                    value={reviseNote}
-                    onChange={(event) => setReviseNote(event.target.value)}
-                    autoFocus
-                    className="min-h-8 min-w-0 flex-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
-                    placeholder="Revision note"
-                    aria-label="Revision note"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!reviseNote.trim() || Boolean(busyVerdict)}
-                    className="inline-flex min-h-8 items-center justify-center rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/15 disabled:cursor-default disabled:opacity-50 dark:text-amber-300"
-                  >
-                    Revise
-                  </button>
-                </form>
-              )}
+              <VerdictNoteField
+                control={noteControl}
+                target={commentTarget}
+                busy={Boolean(busyVerdict)}
+              />
               {verdictError && <p className="mt-1 text-xs text-red-500">{verdictError}</p>}
             </div>
           )}

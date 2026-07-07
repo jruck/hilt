@@ -601,7 +601,9 @@ The **third derived cache** (`src/lib/semantic/`, flag-gated `HILT_SEMANTIC_ENAB
 | Semantic review queue | `${DATA_DIR}/semantic-review-queue/<vault>.json` | Server JSON | Sibling of the Library review queue — the semantic sample/decimal lane (ruling R10) |
 | Reweave attempt counts | `${DATA_DIR}/library-reweave-attempts/<vault>.json` | Server JSON | Per-item failure counts for the nightly reweave drain — repeat-failers sink to the back of the bounded worklist; cleared on success, pruned when items leave the backlog (operational state, never vault markdown) |
 | Briefing markdown | `briefings/YYYY-MM-DD.md`, `briefings/weekend/YYYY-MM-DD.md` | Bridge vault markdown | Weekday daily briefings plus Saturday-start weekend editions; weekend ids use `weekend:YYYY-MM-DD` in Hilt |
+| Briefing shadow markdown (historical) | `${DATA_DIR}/briefing-shadow/` | Retired at the v3 Phase 0 cutover (2026-07-07): the loops-fed briefing IS the vault briefing now. Directory kept as read-only history of the shadow period; no writer, no reader. |
 | Briefing run status | `~/.hermes/cron/jobs.json` + `~/.hermes/cron/output/` | Read-only Hermes files | Same-day failed weekday Morning Briefing detection when no `briefings/YYYY-MM-DD.md` exists; retry watcher status is read separately from the real generator job |
+| Briefing v2 loop artifacts/responses | Bridge vault `meta/loops/*` for live loops; `${DATA_DIR}/loops-shadow/meta/loops/*` for shadow loops | Markdown artifacts + append-only JSONL | Loop escalations shown in Briefing; verdict and feedback logs remain file-native under each loop home |
 | Scope path | URL + ScopeContext | URL state | Current folder scope |
 
 ## API Routes
@@ -623,6 +625,9 @@ The **third derived cache** (`src/lib/semantic/`, flag-gated `HILT_SEMANTIC_ENAB
 | `/api/bridge/briefings/[date]` | GET | Read briefing markdown by id or failed daily Hermes run payload | `date` / `weekend:date` id |
 | `/api/bridge/briefings/link-target` | GET | Resolve briefing links to native Hilt destinations | `href`, `date` |
 | `/api/bridge/briefings/retry` | POST | Queue existing Hermes Morning Briefing cron job | daily `id` or `date` |
+| `/api/loops/escalations` | GET | List escalated enabled-loop items and existing ask verdicts | - |
+| `/api/loops/verdicts` | POST | Append ask verdict records | `loop`, `item_id`, `verdict`, `note` |
+| `/api/loops/feedback` | POST | Append free-form loop feedback | `loop`, `target`, `text` |
 | `/api/bridge/people` | GET | List people + groups | - |
 | `/api/bridge/people/[slug]` | GET | Person detail + meetings | `slug` |
 | `/api/bridge/people/[slug]/notes` | PUT | Update dated notes section | `slug`, `date`, `notes` |

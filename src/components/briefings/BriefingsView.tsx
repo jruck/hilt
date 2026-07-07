@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent } from "react";
 import { useBriefings } from "@/hooks/useBriefings";
 import { BriefingHeader } from "./BriefingHeader";
 import { BriefingContent } from "./BriefingContent";
@@ -9,11 +9,7 @@ import { useEscalations } from "./EscalationsPanel";
 import { Check, MessageSquare, Newspaper, Send, X } from "lucide-react";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { BridgeModeToggle, type BridgeMode } from "@/components/bridge/BridgeModeToggle";
-import {
-  SecondaryInlineContent,
-  SecondarySegmentedButton,
-  SecondarySegmentedControl,
-} from "@/components/layout/SecondaryToolbar";
+import { SecondaryInlineContent } from "@/components/layout/SecondaryToolbar";
 import { AppHud, AppHudCollapsedBar } from "@/components/AppHud";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { withBasePath } from "@/lib/base-path";
@@ -27,23 +23,7 @@ interface BriefingsViewProps {
   onOpenTask?: (taskId: string) => void;
 }
 
-type BriefingReviewMode = "live" | "shadow" | "compare";
-
-interface ShadowBriefingResponse {
-  exists: boolean;
-  content: string | null;
-  generated_at: string | null;
-}
-
-// "v1" is the briefing that ships today (Hermes-era pipeline); "v2" is the loops-fed shadow.
-// Both are generated live each morning — "Live" as a label was wrong, both are live.
-const REVIEW_MODE_OPTIONS: Array<{ id: BriefingReviewMode; label: string }> = [
-  { id: "live", label: "v1" },
-  { id: "shadow", label: "v2" },
-  { id: "compare", label: "Compare" },
-];
-
-async function postShadowFeedback(date: string, text: string): Promise<void> {
+async function postBriefingFeedback(date: string, text: string): Promise<void> {
   const response = await fetch(withBasePath("/api/loops/feedback"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -62,30 +42,7 @@ async function postShadowFeedback(date: string, text: string): Promise<void> {
   }
 }
 
-function BriefingReviewModeToggle({
-  mode,
-  onModeChange,
-}: {
-  mode: BriefingReviewMode;
-  onModeChange: (mode: BriefingReviewMode) => void;
-}) {
-  return (
-    <SecondarySegmentedControl>
-      {REVIEW_MODE_OPTIONS.map((option) => (
-        <SecondarySegmentedButton
-          key={option.id}
-          active={mode === option.id}
-          onClick={() => onModeChange(option.id)}
-          aria-pressed={mode === option.id}
-        >
-          {option.label}
-        </SecondarySegmentedButton>
-      ))}
-    </SecondarySegmentedControl>
-  );
-}
-
-function ShadowFeedbackButton({ date }: { date: string }) {
+function BriefingFeedbackButton({ date }: { date: string }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -99,7 +56,7 @@ function ShadowFeedbackButton({ date }: { date: string }) {
     setBusy(true);
     setError(null);
     try {
-      await postShadowFeedback(date, trimmed);
+      await postBriefingFeedback(date, trimmed);
       setText("");
       setOpen(false);
       setSaved(true);
@@ -123,7 +80,7 @@ function ShadowFeedbackButton({ date }: { date: string }) {
           }`}
         >
           {saved ? <Check className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
-          Feedback on v2
+          Feedback
         </button>
         {error && <p className="text-xs text-red-500">{error}</p>}
       </div>
@@ -137,7 +94,7 @@ function ShadowFeedbackButton({ date }: { date: string }) {
         onChange={(event) => setText(event.target.value)}
         className="min-h-8 min-w-0 flex-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)] sm:max-w-xs"
         placeholder="Feedback"
-        aria-label="Feedback on v2"
+        aria-label="Feedback"
       />
       <button
         type="submit"
@@ -161,59 +118,6 @@ function ShadowFeedbackButton({ date }: { date: string }) {
   );
 }
 
-function ShadowBriefingPane({ content, date }: { content: string; date: string }) {
-  // Escalations nest inside their owning briefing sections (Justin, 2026-07-02); loops with no
-  // matching section fall back to a fold above the content.
-  const { items, mutate } = useEscalations();
-  return (
-    <div className="space-y-3">
-      <div className="flex min-w-0 justify-end">
-        <ShadowFeedbackButton date={date} />
-      </div>
-      <BriefingContent content={content} date={date} escalations={items} onEscalationsChanged={mutate} />
-    </div>
-  );
-}
-
-function CompareShadowContent({ content, date }: { content: string; date: string }) {
-  const { items, mutate } = useEscalations();
-  return <BriefingContent content={content} date={date} escalations={items} onEscalationsChanged={mutate} />;
-}
-
-function CompareBriefings({
-  liveContent,
-  shadowContent,
-  date,
-  absPath,
-  liveFallback,
-}: {
-  liveContent: string;
-  shadowContent: string;
-  date: string;
-  absPath?: string;
-  liveFallback?: ReactNode;
-}) {
-  return (
-    <div className="grid gap-5 lg:grid-cols-2 lg:gap-0 lg:divide-x lg:divide-[var(--border-default)]">
-      <section className="min-w-0 lg:pr-5">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-normal text-[var(--text-tertiary)]">
-          v1
-        </h2>
-        {liveFallback ?? <BriefingContent content={liveContent} date={date} absPath={absPath} />}
-      </section>
-      <section className="min-w-0 lg:pl-5">
-        <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
-          <h2 className="text-xs font-semibold uppercase tracking-normal text-[var(--text-tertiary)]">
-            v2 (loops)
-          </h2>
-          <ShadowFeedbackButton date={date} />
-        </div>
-        <CompareShadowContent content={shadowContent} date={date} />
-      </section>
-    </div>
-  );
-}
-
 export function BriefingsView({
   onBridgeModeChange,
   hudVisible,
@@ -233,11 +137,9 @@ export function BriefingsView({
     retryStatus,
     retryMessage,
   } = useBriefings();
-  // v2 is the default read when a shadow exists ("all the new stuff lives on v2" — the v1 pane is
-  // the comparison baseline; falls back to v1 when no shadow file exists for the date). An
-  // explicit user pick sticks for the session.
-  const [reviewMode, setReviewMode] = useState<BriefingReviewMode>("shadow");
-  const [shadowBriefing, setShadowBriefing] = useState<ShadowBriefingResponse | null>(null);
+  // Escalations nest inside their owning briefing sections (Justin, 2026-07-02); loops with no
+  // matching section fall back to a fold above the content.
+  const { items: escalations, mutate: mutateEscalations } = useEscalations();
 
   const mobileHud = isMobile && onHudVisibleChange ? (
     hudVisible ? (
@@ -253,46 +155,9 @@ export function BriefingsView({
     )
   ) : null;
 
-  useEffect(() => {
-    if (!selectedId) {
-      setShadowBriefing(null);
-      return;
-    }
-
-    let cancelled = false;
-    setShadowBriefing(null);
-
-    fetch(withBasePath(`/api/bridge/briefings/shadow?id=${encodeURIComponent(selectedId)}`), { cache: "no-store" })
-      .then((response) => {
-        if (!response.ok) throw new Error(`shadow request failed: ${response.status}`);
-        return response.json() as Promise<ShadowBriefingResponse>;
-      })
-      .then((data) => {
-        if (!cancelled) setShadowBriefing(data);
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          console.warn("[briefings] failed to load shadow briefing", error);
-          setShadowBriefing({ exists: false, content: null, generated_at: null });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedId]);
-
-  const shadowContent = shadowBriefing?.exists && typeof shadowBriefing.content === "string"
-    ? shadowBriefing.content
-    : null;
-  const hasShadow = shadowContent !== null;
-  const effectiveReviewMode = hasShadow ? reviewMode : "live";
-  const contentWidthClass = effectiveReviewMode === "compare" ? "max-w-6xl" : "max-w-3xl";
-  const headerRightSlot = hasShadow || onBridgeModeChange ? (
+  const headerRightSlot = briefing || onBridgeModeChange ? (
     <div className="flex items-center gap-2">
-      {hasShadow ? (
-        <BriefingReviewModeToggle mode={reviewMode} onModeChange={setReviewMode} />
-      ) : null}
+      {briefing ? <BriefingFeedbackButton date={briefing.date} /> : null}
       {onBridgeModeChange ? (
         <BridgeModeToggle mode="briefing" onModeChange={onBridgeModeChange} />
       ) : null}
@@ -332,7 +197,7 @@ export function BriefingsView({
       <div data-mobile-scroll-chrome="bottom" className="hilt-mobile-scroll-clearance flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {/* overflow-x must stay visible: verdict controls float off the card's right edge onto
             the canvas (lg+). The floats are hidden below lg, so mobile never overflows. */}
-        <div className={`${contentWidthClass} mx-auto px-4 pb-0 pt-8 sm:px-6 sm:pb-8 sm:pt-2`}>
+        <div className="max-w-3xl mx-auto px-4 pb-0 pt-8 sm:px-6 sm:pb-8 sm:pt-2">
           {/* Header with date selector */}
           {selectedId && (
             <BriefingHeader
@@ -355,24 +220,7 @@ export function BriefingsView({
             {isLoadingContent ? (
               <LoadingState className="min-h-40 py-12" />
             ) : briefing ? (
-              effectiveReviewMode === "shadow" && shadowContent ? (
-                <ShadowBriefingPane content={shadowContent} date={briefing.date} />
-              ) : effectiveReviewMode === "compare" && shadowContent ? (
-                <CompareBriefings
-                  liveContent={briefing.content}
-                  shadowContent={shadowContent}
-                  date={briefing.date}
-                  absPath={briefing.absPath}
-                  liveFallback={briefing.status === "failed" && briefing.run ? (
-                    <BriefingFailureCard
-                      run={briefing.run}
-                      onRetry={retryBriefing}
-                      retryStatus={retryStatus}
-                      retryMessage={retryMessage}
-                    />
-                  ) : undefined}
-                />
-              ) : briefing.status === "failed" && briefing.run ? (
+              briefing.status === "failed" && briefing.run ? (
                 <BriefingFailureCard
                   run={briefing.run}
                   onRetry={retryBriefing}
@@ -380,7 +228,13 @@ export function BriefingsView({
                   retryMessage={retryMessage}
                 />
               ) : (
-                <BriefingContent content={briefing.content} date={briefing.date} absPath={briefing.absPath} />
+                <BriefingContent
+                  content={briefing.content}
+                  date={briefing.date}
+                  absPath={briefing.absPath}
+                  escalations={escalations}
+                  onEscalationsChanged={mutateEscalations}
+                />
               )
             ) : (
               <div className="text-sm text-[var(--text-tertiary)] text-center py-12">

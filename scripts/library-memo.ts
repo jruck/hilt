@@ -1,4 +1,5 @@
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
@@ -18,9 +19,11 @@ const execFileAsync = promisify(execFile);
  * The editor's memo (Library v2, Workstream 3): the weekly synthesis pass over the period's study
  * intake. One non-agentic Claude call reads the KB index plus the week's already-digested items and
  * writes an argument — 2-4 through-lines tying the reading to specific active projects, plus a
- * "worth your time" shortlist — to the vault as a first-class library item at
- * references/process/memos/YYYY-MM-DD-editors-memo.md. Re-running the same day overwrites that
- * day's memo (idempotent). Skips cleanly (exit 0) on thin intake or a closed Claude window.
+ * "worth your time" shortlist — to the loop home at
+ * meta/loops/references/memos/YYYY-MM-DD-editors-memo.md (legacy memos remain at
+ * references/process/memos/; readers fall back there for history). Re-running the same day
+ * overwrites that day's memo (idempotent). Skips cleanly (exit 0) on thin intake or a closed
+ * Claude window.
  *
  *   DATA_DIR=~/.hilt/data npx tsx scripts/library-memo.ts [--days 7] [--dry-run]
  */
@@ -309,17 +312,21 @@ async function main(): Promise<void> {
   const linkedMemoMarkdown = linkReferencedItemMentions(sanitizeWikilinkLabels(memo.memo_markdown), referencedBodyLinkItems(memo, items));
   const body = `# ${memo.title}\n\n${linkedMemoMarkdown}`;
 
-  const memoDir = path.join(vaultPath, "references", "process", "memos");
+  const memoDir = path.join(vaultPath, "meta", "loops", "references", "memos");
   fs.mkdirSync(memoDir, { recursive: true });
   const memoPath = path.join(memoDir, `${today}-editors-memo.md`);
   fs.writeFileSync(memoPath, stringifyMarkdown(frontmatter, body), "utf-8");
 
   // Remote surface: render to ~/.hilt/reports/memo/ so the memo is always readable at
-  // /api/reports/memo (in Hilt and over the tailnet); the Sunday briefing links here. Best-effort.
+  // /api/reports/memo (in Hilt and over the tailnet); the Sunday briefing links here. The vault
+  // copy carries YAML frontmatter report-html.ts would render literally, so render from a plain
+  // markdown scratch copy (same pattern as the steering report). Best-effort.
   try {
+    const renderSrc = path.join(os.tmpdir(), `hilt-editors-memo-${today}.md`);
+    fs.writeFileSync(renderSrc, `${body}\n`, "utf-8");
     const tsxBin = fs.existsSync("node_modules/.bin/tsx") ? "node_modules/.bin/tsx" : "npx";
     const prefix = tsxBin === "npx" ? ["tsx"] : [];
-    await execFileAsync(tsxBin, [...prefix, "scripts/report-html.ts", "--md", memoPath, "--out", path.join(process.env.HOME || "~", ".hilt", "reports", "memo", "index.html"), "--title", "Editor's Memo"], { env: process.env, timeout: 60_000 });
+    await execFileAsync(tsxBin, [...prefix, "scripts/report-html.ts", "--md", renderSrc, "--out", path.join(process.env.HOME || "~", ".hilt", "reports", "memo", "index.html"), "--title", "Editor's Memo"], { env: process.env, timeout: 60_000 });
   } catch (error) {
     console.error("[memo] report render failed:", error instanceof Error ? error.message.slice(0, 200) : error);
   }

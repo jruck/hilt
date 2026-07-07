@@ -89,7 +89,7 @@ export function librarySchedulerJobs(logDir = librarySchedulerLogDir()): Library
       id: "steering",
       label: "com.hilt.library.steering",
       // The Library v2 steering loop: scorecard + feedback clustering + judge/formula disagreements →
-      // the morning report (meta/library-reports/). Proposals only — never applies changes. Runs after
+      // the morning report (the references loop artifact at meta/loops/references/reports/). Proposals only — never applies changes. Runs after
       // the nightly drain + cleanup so it reports on their results, before the morning briefing.
       script: "library:steering",
       schedule: { hour: 5, minute: 10 },

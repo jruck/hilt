@@ -38,10 +38,9 @@ function findFeedbackLoop(
   const enabledLoop = findEnabledLoop(registry, loopId);
   if (enabledLoop) return enabledLoop;
 
-  // During the Briefings v2 shadow period, the briefing loop may be present in the registry but
-  // disabled while its review surface still collects feedback — at EVERY level (scope §6:
-  // feedback attaches to any item, any section, or the briefing itself). `level` kept in the
-  // signature for future per-level routing.
+  // The briefing loop is registry-present but not yet an enabled generator loop; its feedback
+  // stream (every level — item, section, whole-briefing) is PERMANENT load-bearing wiring for
+  // the single-briefing UI's Feedback button and per-item comments. Do not remove as cruft.
   void level;
   if (loopId === "briefing") {
     return registry.loops.find((loop) => loop.id === loopId && !loop.enabled) ?? null;

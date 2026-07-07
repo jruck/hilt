@@ -177,6 +177,24 @@ interface BriefingNativeLinkTarget {
   scope: string;           // Absolute Docs path or Library item scope
   path: string;            // Bridge-vault-relative source markdown path
 }
+
+interface LoopEscalationsResponse {
+  loops: Array<{
+    id: string;
+    phase: "live" | "shadow";
+    artifact_date: string;
+  }>;
+  items: Array<LoopItem & {
+    loop_phase: "live" | "shadow";
+    artifact_date: string;
+    verdict?: Verdict;     // Latest existing ask verdict, when present
+  }>;
+  errors: Array<{
+    loop?: string;
+    phase?: "live" | "shadow";
+    message: string;
+  }>;
+}
 ```
 
 ### PinnedFolder

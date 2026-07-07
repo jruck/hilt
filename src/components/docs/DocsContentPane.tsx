@@ -57,6 +57,8 @@ const DocsEditor = dynamic(
 
 interface DocsContentPaneProps {
   filePath: string | null;
+  /** A navigated-to folder with no index.md — renders a placeholder pane instead of "Select a file". */
+  directoryPath?: string | null;
   scopePath: string;
   content: string | null;
   fileMeta: {
@@ -84,6 +86,7 @@ interface DocsContentPaneProps {
 
 export function DocsContentPane({
   filePath,
+  directoryPath,
   scopePath,
   content,
   fileMeta,
@@ -342,8 +345,9 @@ export function DocsContentPane({
     </div>
   );
 
-  // No file selected
+  // No file selected — or a navigated-to folder with no index.md (placeholder, like unviewable files)
   if (!filePath) {
+    const dirName = directoryPath?.split("/").filter(Boolean).pop();
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
         {onToggleSidebar && !sidebarOpen && (
@@ -351,8 +355,18 @@ export function DocsContentPane({
             {SidebarToggle}
           </div>
         )}
-        <div className="flex-1 flex items-center justify-center text-[var(--text-tertiary)]">
-          <p className="text-sm">Select a file to view</p>
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-[var(--text-tertiary)]">
+          {directoryPath ? (
+            <>
+              <FolderOpen className="w-12 h-12" />
+              <div className="text-center">
+                <p className="text-sm font-medium text-[var(--text-secondary)]">{dirName}</p>
+                <p className="mt-1 text-xs">This folder has no preview — select a file inside it to view</p>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm">Select a file to view</p>
+          )}
         </div>
       </div>
     );

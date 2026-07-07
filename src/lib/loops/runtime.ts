@@ -37,8 +37,14 @@ export interface SubstrateInputs {
   claudeVersion: string | null;
   /** Whether the headless OAuth token is configured (existence only — never the value). */
   oauthTokenConfigured: boolean;
-  /** Free disk space fraction 0..1 for the volume holding the vault. */
+  /**
+   * User-facing disk capacity fraction 0..1 for the volume holding the vault.
+   * On macOS this should use Finder-style "available for important usage";
+   * POSIX df free blocks are a fallback and can undercount purgeable space.
+   */
   diskFreeFraction: number | null;
+  /** POSIX df free-block fraction, retained as diagnostic context when it differs. */
+  diskImmediateFreeFraction?: number | null;
   /** Supervisor heartbeat age in minutes (null = no heartbeat file). */
   supervisorHeartbeatAgeMin: number | null;
   /** Today's briefing file exists in the vault (checked after the morning window). */
@@ -194,11 +200,17 @@ export function substrateItems(inputs: SubstrateInputs, today: string): LoopItem
   }
 
   if (inputs.diskFreeFraction !== null && inputs.diskFreeFraction < 0.1) {
+    const immediate =
+      inputs.diskImmediateFreeFraction !== null &&
+      inputs.diskImmediateFreeFraction !== undefined &&
+      Math.abs(inputs.diskImmediateFreeFraction - inputs.diskFreeFraction) >= 0.01
+        ? ` (${(inputs.diskImmediateFreeFraction * 100).toFixed(1)}% immediately free)`
+        : "";
     items.push({
       id: `rt-${today}-disk`,
       loop: RUNTIME_LOOP_ID,
       kind: "insight",
-      title: `Disk free ${(inputs.diskFreeFraction * 100).toFixed(1)}% — below 10%`,
+      title: `Disk available ${(inputs.diskFreeFraction * 100).toFixed(1)}%${immediate} — below 10%`,
       citations: [cite],
       escalated: { reason: "vault writes and sqlite stores at risk" },
     });

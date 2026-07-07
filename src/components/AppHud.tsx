@@ -251,13 +251,17 @@ export function AppHud({ onCollapse, onOpenCalendarEvent, onOpenTask, placement,
 
         <div
           className={
+            /* grid-rows-[minmax(0,1fr)]: without an explicit row, the single implicit row is
+               auto-sized to CONTENT — panels taller than the fixed-height HUD overflow and the
+               bottom row gets cropped by overflow-hidden instead of the agenda list scrolling.
+               Pinning the row to the container height lets panels shrink and inner lists scroll. */
             mobileLayout
               ? handoffGap
-                ? "grid min-h-0 flex-1 grid-cols-[minmax(160px,48vw)_48px_minmax(180px,54vw)_minmax(260px,78vw)] gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain px-1 pb-2 pt-1"
-                : "grid min-h-0 flex-1 grid-cols-[minmax(160px,48vw)_minmax(180px,54vw)_minmax(260px,78vw)] gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain px-1 pb-2 pt-1"
+                ? "grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] grid-cols-[minmax(160px,48vw)_48px_minmax(180px,54vw)_minmax(260px,78vw)] gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain px-1 pb-2 pt-1"
+                : "grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] grid-cols-[minmax(160px,48vw)_minmax(180px,54vw)_minmax(260px,78vw)] gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain px-1 pb-2 pt-1"
               : handoffGap
-                ? "grid min-h-0 flex-1 grid-cols-[minmax(190px,0.9fr)_56px_minmax(220px,1fr)_minmax(280px,1.35fr)] gap-3 overflow-x-auto px-0 pb-0 pt-0"
-                : "grid min-h-0 flex-1 grid-cols-[minmax(190px,0.9fr)_minmax(220px,1fr)_minmax(280px,1.35fr)] gap-3 overflow-x-auto px-0 pb-0 pt-0"
+                ? "grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] grid-cols-[minmax(190px,0.9fr)_56px_minmax(220px,1fr)_minmax(280px,1.35fr)] gap-3 overflow-x-auto px-0 pb-0 pt-0"
+                : "grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] grid-cols-[minmax(190px,0.9fr)_minmax(220px,1fr)_minmax(280px,1.35fr)] gap-3 overflow-x-auto px-0 pb-0 pt-0"
           }
         >
           <section className="min-h-0 min-w-0">

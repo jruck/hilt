@@ -67,7 +67,7 @@ function oauthTokenConfigured(): boolean {
 
 async function diskFreeFraction(): Promise<number | null> {
   try {
-    const { stdout } = await execFileAsync("df", ["-k", vaultPath], { timeout: 10_000 });
+    const { stdout } = await execFileAsync("/bin/df", ["-k", vaultPath], { timeout: 10_000 });
     const line = stdout.trim().split("\n").at(-1) || "";
     const parts = line.split(/\s+/);
     const total = Number(parts[1]);
@@ -76,6 +76,68 @@ async function diskFreeFraction(): Promise<number | null> {
   } catch {
     return null;
   }
+}
+
+interface DiskCapacity {
+  availableFraction: number | null;
+  immediateFreeFraction: number | null;
+}
+
+function fraction(bytes: number | null, totalBytes: number | null): number | null {
+  if (bytes === null || totalBytes === null || totalBytes <= 0) return null;
+  const value = bytes / totalBytes;
+  if (!Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(1, value));
+}
+
+async function macosAvailableCapacity(): Promise<DiskCapacity | null> {
+  if (process.platform !== "darwin") return null;
+  try {
+    const script = `
+ObjC.import("Foundation");
+const url = $.NSURL.fileURLWithPath(${JSON.stringify(vaultPath)});
+const keys = $([
+  $.NSURLVolumeAvailableCapacityKey,
+  $.NSURLVolumeAvailableCapacityForImportantUsageKey,
+  $.NSURLVolumeTotalCapacityKey,
+]);
+const values = url.resourceValuesForKeysError(keys, null);
+function numberForKey(key) {
+  const value = values.objectForKey(key);
+  if (!value) return null;
+  const n = Number(ObjC.unwrap(value));
+  return Number.isFinite(n) ? n : null;
+}
+console.log(JSON.stringify({
+  immediate: numberForKey($.NSURLVolumeAvailableCapacityKey),
+  important: numberForKey($.NSURLVolumeAvailableCapacityForImportantUsageKey),
+  total: numberForKey($.NSURLVolumeTotalCapacityKey),
+}));
+`;
+    const { stdout } = await execFileAsync("/usr/bin/osascript", ["-l", "JavaScript", "-e", script], { timeout: 10_000 });
+    const parsed = JSON.parse(String(stdout)) as { immediate?: unknown; important?: unknown; total?: unknown };
+    const total = Number(parsed.total);
+    const important = Number(parsed.important);
+    const immediate = Number(parsed.immediate);
+    return {
+      availableFraction: fraction(Number.isFinite(important) ? important : null, Number.isFinite(total) ? total : null),
+      immediateFreeFraction: fraction(Number.isFinite(immediate) ? immediate : null, Number.isFinite(total) ? total : null),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function diskCapacity(): Promise<DiskCapacity> {
+  const immediateFreeFraction = await diskFreeFraction();
+  const macos = await macosAvailableCapacity();
+  if (macos?.availableFraction !== null && macos?.availableFraction !== undefined) {
+    return {
+      availableFraction: macos.availableFraction,
+      immediateFreeFraction: macos.immediateFreeFraction ?? immediateFreeFraction,
+    };
+  }
+  return { availableFraction: immediateFreeFraction, immediateFreeFraction };
 }
 
 function supervisorHeartbeatAgeMin(): number | null {
@@ -98,18 +160,39 @@ function briefingPresent(): boolean | null {
   return fs.existsSync(path.join(vaultPath, "briefings", `${today}.md`));
 }
 
+function formatPercent(value: number | null | undefined): string {
+  return value === null || value === undefined ? "unknown" : `${(value * 100).toFixed(1)}%`;
+}
+
+function diskLine(inputs: SubstrateInputs): string {
+  const available = formatPercent(inputs.diskFreeFraction);
+  const immediate = inputs.diskImmediateFreeFraction;
+  if (
+    inputs.diskFreeFraction !== null &&
+    inputs.diskFreeFraction !== undefined &&
+    immediate !== null &&
+    immediate !== undefined &&
+    Math.abs(immediate - inputs.diskFreeFraction) >= 0.01
+  ) {
+    return `${available} (${formatPercent(immediate)} immediately free by df)`;
+  }
+  return available;
+}
+
 async function main(): Promise<void> {
   const registry = loadRegistry(vaultPath);
   const loop = registry.loops.find((l) => l.id === "runtime");
   if (!loop || !loop.enabled) throw new Error("runtime loop missing/disabled in registry");
 
   const bases = { shadow: defaultSandboxDir(), live: vaultPath };
+  const disk = await diskCapacity();
   const inputs: SubstrateInputs = {
     launchdExitCodes: await launchdExitCodes(),
     criticalJobs: CRITICAL_JOBS,
     claudeVersion: await claudeVersion(),
     oauthTokenConfigured: oauthTokenConfigured(),
-    diskFreeFraction: await diskFreeFraction(),
+    diskFreeFraction: disk.availableFraction,
+    diskImmediateFreeFraction: disk.immediateFreeFraction,
     supervisorHeartbeatAgeMin: supervisorHeartbeatAgeMin(),
     briefingPresent: briefingPresent(),
   };
@@ -132,7 +215,7 @@ async function main(): Promise<void> {
     `- Enabled loops watched: ${registry.loops.filter((l) => l.enabled && l.id !== "runtime").length}`,
     `- Findings: ${items.length} (${escalated.length} escalated)`,
     `- claude CLI: ${inputs.claudeVersion || "NOT RESOLVABLE"}`,
-    `- Disk free: ${inputs.diskFreeFraction !== null ? `${(inputs.diskFreeFraction * 100).toFixed(1)}%` : "unknown"}`,
+    `- Disk available: ${diskLine(inputs)}`,
     `- Supervisor heartbeat: ${inputs.supervisorHeartbeatAgeMin !== null ? `${Math.round(inputs.supervisorHeartbeatAgeMin)} min` : "no heartbeat file"}`,
     "",
     "## Findings",

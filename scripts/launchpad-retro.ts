@@ -24,7 +24,7 @@ const args = process.argv.slice(2);
 const argValue = (name: string): string | null => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] || null : null; };
 const vaultPath = process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || "/Users/jruck/work/bridge";
 const hiltRepoPath = process.cwd();
-const launchpadDir = path.join(process.env.DATA_DIR || "data", "launchpad");
+const launchpadDir = path.join(process.env.DATA_DIR || "data", process.env.LAUNCHPAD_DIR_NAME || "launchpad");
 
 function weeklyDates(back: number): string[] {
   // One representative WEEKDAY per week (Tuesdays: mid-week signal, avoids Monday memo-freshness

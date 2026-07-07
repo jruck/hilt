@@ -32,7 +32,7 @@ function newestDatedMarkdown(
   dir: string,
   pattern: RegExp,
   asOfDate: string | null,
-): string | null {
+): { date: string; filePath: string } | null {
   if (!fs.existsSync(dir)) return null;
   const candidates = fs.readdirSync(dir)
     .map((name) => {
@@ -43,7 +43,17 @@ function newestDatedMarkdown(
     })
     .filter((entry): entry is { date: string; filePath: string } => Boolean(entry))
     .sort((a, b) => b.date.localeCompare(a.date));
-  return candidates[0]?.filePath || null;
+  return candidates[0] || null;
+}
+
+/** Newest dated file across dirs (earlier dirs win date ties — list the loop home first). */
+function newestAcrossDirs(dirs: string[], pattern: RegExp, asOfDate: string | null): string | null {
+  let best: { date: string; filePath: string } | null = null;
+  for (const dir of dirs) {
+    const candidate = newestDatedMarkdown(dir, pattern, asOfDate);
+    if (candidate && (!best || candidate.date > best.date)) best = candidate;
+  }
+  return best?.filePath || null;
 }
 
 function relativeVaultPath(vaultPath: string, filePath: string): string {
@@ -51,11 +61,17 @@ function relativeVaultPath(vaultPath: string, filePath: string): string {
 }
 
 function resolveMorningReport(vaultPath: string, date: string | null): BriefingNativeLinkTarget | null {
-  const reportsDir = path.join(vaultPath, "meta", "library-reports");
-  const exact = date ? path.join(reportsDir, `${date}.md`) : null;
-  const filePath = exact && fs.existsSync(exact)
-    ? exact
-    : newestDatedMarkdown(reportsDir, /^(\d{4}-\d{2}-\d{2})\.md$/, date);
+  // The loop home (meta/loops/references/reports/) is the single-write location; the legacy
+  // meta/library-reports/ dir still resolves for dates that only exist there, so old briefings
+  // keep working.
+  const dirs = [
+    path.join(vaultPath, "meta", "loops", "references", "reports"),
+    path.join(vaultPath, "meta", "library-reports"),
+  ];
+  const exact = date
+    ? dirs.map((dir) => path.join(dir, `${date}.md`)).find((candidate) => fs.existsSync(candidate)) || null
+    : null;
+  const filePath = exact || newestAcrossDirs(dirs, /^(\d{4}-\d{2}-\d{2})\.md$/, date);
   if (!filePath) return null;
   return {
     kind: "library-morning-report",
@@ -66,10 +82,20 @@ function resolveMorningReport(vaultPath: string, date: string | null): BriefingN
 }
 
 function resolveEditorsMemo(vaultPath: string, date: string | null): BriefingNativeLinkTarget | null {
-  const memosDir = path.join(vaultPath, "references", "process", "memos");
-  const filePath = newestDatedMarkdown(memosDir, /^(\d{4}-\d{2}-\d{2})-editors-memo\.md$/, date);
+  // Loop home first (single-write since the loop migration); legacy references/process/memos/
+  // still resolves for memos that only exist there.
+  const dirs = [
+    path.join(vaultPath, "meta", "loops", "references", "memos"),
+    path.join(vaultPath, "references", "process", "memos"),
+  ];
+  const filePath = newestAcrossDirs(dirs, /^(\d{4}-\d{2}-\d{2})-editors-memo\.md$/, date);
   if (!filePath) return null;
   const relPath = relativeVaultPath(vaultPath, filePath);
+  // Legacy memos under references/ are library items (the scanner only walks references/), so they
+  // open in the library item view. Loop-home memos live outside the scanner's roots — open in docs.
+  if (relPath.startsWith("meta/")) {
+    return { kind: "library-editors-memo", view: "docs", scope: filePath, path: relPath };
+  }
   return {
     kind: "library-editors-memo",
     view: "library",

@@ -25,8 +25,8 @@ export interface GenerateOptions {
   /** Launchpad/backtest: sets BRIEFING_AS_OF=1 so the gatherer suppresses live-only sources
    *  (reminders, session/area mtimes, source-state) and bounds everything to `date`. */
   asOf?: boolean;
-  /** Briefings v2 reader: sets BRIEFING_LOOPS=1 so the gatherer includes loop artifacts (the
-   *  shadow-v2 variant during the Phase 8 shadow period; flips live at cutover). */
+  /** Sets BRIEFING_LOOPS=1 so the gatherer includes loop artifacts — the standard for THE
+   *  briefing since the v3 Phase 0 cutover (2026-07-07). */
   loops?: boolean;
   /** When set, the raw gathered data is also written here (the grading trace). */
   gatherDumpPath?: string;

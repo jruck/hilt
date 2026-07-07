@@ -1460,6 +1460,22 @@ body [data-radix-popper-content-wrapper]::after {
   margin-top: calc(1.7142857em * var(--prose-rhythm));
   margin-bottom: calc(1.7142857em * var(--prose-rhythm));
 }
+
+/* ===== Theme-aware fenced code blocks — safety net for EVERY prose surface =====
+   Tailwind Typography's default `pre` is a FIXED dark slate (--tw-prose-pre-bg) regardless of app
+   theme — a black box in light mode. SHARED_PROSE_TUNING sets the correct tokens via utilities, but
+   surfaces composed without it (HowItWorksDoc historically; tweets/transcripts/briefing bullets)
+   silently fall through to the dark default. This pins every .prose pre to theme tokens app-wide;
+   plain `.prose pre` (0,1,1) outranks prose's own zero-specificity :where() rules in any order. */
+.prose pre {
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+.prose pre code {
+  color: inherit;
+  background-color: transparent;
+}
+
 .hilt-prose.prose :where(figure, img, video):not(:where([class~="not-prose"] *)) {
   margin-top: calc(2em * var(--prose-rhythm));
   margin-bottom: calc(2em * var(--prose-rhythm));

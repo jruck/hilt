@@ -476,8 +476,8 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
         prose-headings:text-[var(--text-primary)] prose-headings:font-semibold
         prose-h2:text-lg prose-h2:mb-3 prose-h2:mt-6
         prose-p:text-[var(--text-secondary)] prose-p:leading-relaxed prose-p:mb-3
-        prose-a:text-[var(--interactive-default)] hover:prose-a:text-[var(--interactive-hover)]
-        prose-a:no-underline hover:prose-a:underline prose-a:underline-offset-2
+        prose-a:text-[var(--interactive-default)] [&_a:hover]:text-[var(--interactive-hover)]
+        prose-a:no-underline [&_a:hover]:underline prose-a:underline-offset-2
         prose-strong:text-[var(--text-primary)]
         prose-li:text-[var(--text-secondary)] prose-li:leading-relaxed
         prose-ul:mb-3 prose-ol:mb-3
@@ -496,7 +496,7 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
   }
 
   return (
-    <div className="briefing-content prose max-w-none prose-headings:text-[var(--text-primary)] prose-headings:font-semibold prose-p:text-[var(--text-secondary)] prose-p:leading-relaxed prose-strong:text-[var(--text-primary)] prose-a:text-[var(--interactive-default)] hover:prose-a:text-[var(--interactive-hover)] prose-a:no-underline hover:prose-a:underline prose-a:underline-offset-2 prose-li:text-[var(--text-secondary)] prose-li:leading-relaxed prose-code:text-[var(--text-secondary)] prose-code:bg-[var(--bg-tertiary)] space-y-5">
+    <div className="briefing-content prose max-w-none prose-headings:text-[var(--text-primary)] prose-headings:font-semibold prose-p:text-[var(--text-secondary)] prose-p:leading-relaxed prose-strong:text-[var(--text-primary)] prose-a:text-[var(--interactive-default)] [&_a:hover]:text-[var(--interactive-hover)] prose-a:no-underline [&_a:hover]:underline prose-a:underline-offset-2 prose-li:text-[var(--text-secondary)] prose-li:leading-relaxed prose-code:text-[var(--text-secondary)] prose-code:bg-[var(--bg-tertiary)] space-y-5">
       {lede && (
         <div className="px-1 text-[15px] leading-relaxed text-[var(--text-secondary)]">
           <ReactMarkdown

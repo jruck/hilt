@@ -97,7 +97,7 @@ function formatCitation(citations: Citation[]): string | null {
 
 function DetailMarkdown({ markdown }: { markdown: string }) {
   return (
-    <div className="prose max-w-none text-xs prose-p:my-1 prose-p:text-[var(--text-secondary)] prose-li:text-[var(--text-secondary)] prose-ul:my-1 prose-ol:my-1 prose-strong:text-[var(--text-primary)] prose-a:text-[var(--interactive-default)] hover:prose-a:text-[var(--interactive-hover)]">
+    <div className="prose max-w-none text-xs prose-p:my-1 prose-p:text-[var(--text-secondary)] prose-li:text-[var(--text-secondary)] prose-ul:my-1 prose-ol:my-1 prose-strong:text-[var(--text-primary)] prose-a:text-[var(--interactive-default)] [&_a:hover]:text-[var(--interactive-hover)]">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{

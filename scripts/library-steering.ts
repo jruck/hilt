@@ -1,4 +1,5 @@
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
@@ -23,7 +24,9 @@ const execFileAsync = promisify(execFile);
  *   2. clusters any UNPROCESSED feedback into root-cause patterns with fix proposals (one light,
  *      non-agentic Claude call — skipped cleanly when the window is closed or there is no feedback),
  *   3. surfaces the top judge↔formula disagreements (the calibration backlog),
- *   4. writes the MORNING REPORT to the vault at meta/library-reports/YYYY-MM-DD.md.
+ *   4. writes the MORNING REPORT as the library loop artifact at
+ *      meta/loops/references/reports/YYYY-MM-DD.md (single-write — the legacy
+ *      meta/library-reports/ copy is history only, kept readable via fallback).
  *
  * It NEVER applies changes: proposals wait for the user's more/less/rollback verdict (the
  * /process-library-feedback protocol stamps processed_at after approved implementation). Scheduled
@@ -159,9 +162,6 @@ async function main(): Promise<void> {
   // LOCAL date, not UTC: an evening run after 8pm EDT would otherwise stamp tomorrow's date and the
   // next morning's scheduled run would silently overwrite it.
   const today = new Date().toLocaleDateString("sv-SE");
-  const reportDir = path.join(vaultPath, "meta", "library-reports");
-  fs.mkdirSync(reportDir, { recursive: true });
-  const reportPath = path.join(reportDir, `${today}.md`);
 
   const scorecard = await computeScorecard();
   const judgments = readJudgments();
@@ -228,26 +228,30 @@ async function main(): Promise<void> {
     "",
   );
 
-  fs.writeFileSync(reportPath, `${lines.join("\n")}\n`, "utf-8");
-
   // Remote surface: render the latest report to ~/.hilt/reports/morning/ so it's always viewable at
-  // https://<machine>.<tailnet>.ts.net/api/reports/morning (GET /api/reports/:name). Best-effort —
-  // a render failure must never fail the steering run itself.
+  // https://<machine>.<tailnet>.ts.net/api/reports/morning (GET /api/reports/:name). The vault copy
+  // is now the loop artifact (YAML frontmatter report-html.ts would render literally), so render
+  // from a plain markdown scratch copy. Best-effort — a render failure must never fail the steering
+  // run itself.
   try {
+    const renderSrc = path.join(os.tmpdir(), `hilt-morning-report-${today}.md`);
+    fs.writeFileSync(renderSrc, `${lines.join("\n")}\n`, "utf-8");
     const tsxBin = fs.existsSync("node_modules/.bin/tsx") ? "node_modules/.bin/tsx" : "npx";
     const prefix = tsxBin === "npx" ? ["tsx"] : [];
-    await execFileAsync(tsxBin, [...prefix, "scripts/report-html.ts", "--md", reportPath, "--out", path.join(process.env.HOME || "~", ".hilt", "reports", "morning", "index.html"), "--title", "Library Morning Report"], { env: process.env, timeout: 60_000 });
+    await execFileAsync(tsxBin, [...prefix, "scripts/report-html.ts", "--md", renderSrc, "--out", path.join(process.env.HOME || "~", ".hilt", "reports", "morning", "index.html"), "--title", "Library Morning Report"], { env: process.env, timeout: 60_000 });
   } catch (error) {
     console.error("[steering] report render failed:", error instanceof Error ? error.message.slice(0, 200) : error);
   }
 
-  // ── Briefings v2 conformance: emit the contract-shaped loop artifact (scope §3.2) ────────────
+  // ── The morning report's ONE vault write: the contract-shaped loop artifact (scope §3.2) ─────
   // The library is loop #1. Its content dimension = the report sections above; escalations =
   // proposal items awaiting Justin's verdict (steering's clusters, now with STABLE minted ids —
   // fixing R-lib "proposals have no structured store"); health = the scorecard the run previously
   // discarded. Writes through the WRITE GUARD: while the registry says phase:shadow this lands in
-  // the sandbox ($DATA_DIR/loops-shadow); flipping to live at the Phase 2 gate moves it to
-  // meta/loops/references/reports/. Best-effort: conformance failure must never fail steering.
+  // the sandbox ($DATA_DIR/loops-shadow); phase:live puts it at meta/loops/references/reports/.
+  // Best-effort: conformance failure must never fail steering (the HTML remote surface above still
+  // rendered), but with the legacy meta/library-reports/ write retired a failure here means no
+  // vault copy this run — watch stderr.
   let loopArtifactPath: string | null = null;
   try {
     const registry = loadRegistry(vaultPath);
@@ -278,7 +282,7 @@ async function main(): Promise<void> {
           loop: loop.id,
           kind: "insight",
           title: line.replace(/^- /, "").slice(0, 140),
-          citations: [{ source: "meta/library-reports (judge↔formula calibration backlog)" }],
+          citations: [{ source: "meta/loops/references/reports (judge↔formula calibration backlog)" }],
         });
       });
       const sc = (scorecard?.json || {}) as Record<string, any>;
@@ -307,7 +311,6 @@ async function main(): Promise<void> {
   }
 
   console.log(JSON.stringify({
-    report: reportPath,
     loop_artifact: loopArtifactPath,
     scorecard: scorecard?.json || null,
     unprocessed_feedback: unprocessed.length,

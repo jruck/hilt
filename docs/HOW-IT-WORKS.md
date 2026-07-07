@@ -24,10 +24,10 @@ The whole system is **one node design, repeated**. A node ("loop"):
 So every fact in a briefing is traceable: briefing line → node artifact → that node's state or
 its source (a transcript, a job exit code, a saved article).
 
-## Where things physically live (exactly two places + two symlinks)
+## Where things physically live (exactly two places + one symlink)
 
 **1. The vault — `$VAULT`** ([open]($VAULT)). Your permanent, git-tracked knowledge base.
-Everything trusted lives here: your notes, references, the v1 briefings, and the homes of the
+Everything trusted lives here: your notes, references, the briefings, and the homes of the
 two *live* nodes (library, system) under `$VAULT/meta/loops/`.
 
 **2. Hilt's private data directory — `$DATA`.** The app's own working folder: **outside the
@@ -36,17 +36,18 @@ vault, not in git, not knowledge** — working machinery. This is where the **sa
 - `$DATA/loops-shadow/` — the homes of the on-probation ("shadow") nodes: meetings, goals,
   and the briefing node's feedback drawer. Identical drawer structure to the vault homes,
   safer address: a misbehaving probation node can't touch anything permanent.
-- `$DATA/briefing-shadow/` — every v2 briefing.
+- `$DATA/briefing-shadow/` — the v2 shadow briefings from the trial period (2026-06-26 →
+  2026-07-06), kept as read-only history. Retired at the cutover: the loops-fed briefing now
+  IS the vault briefing; nothing writes or reads here anymore.
 
-**The two symlinks (why some links land on "vault" addresses for sandbox data):** Hilt's Docs
-tab can only browse the vault. So two git-ignored symlinks inside the vault point into the data
+**The one symlink (why some links land on "vault" addresses for sandbox data):** Hilt's Docs
+tab can only browse the vault. So a git-ignored symlink inside the vault points into the data
 directory, purely for inspectability:
 
 - `$VAULT/meta/loops-shadow` → `$DATA/loops-shadow`
-- `$VAULT/meta/briefing-shadow` → `$DATA/briefing-shadow`
 
 Same files, two paths. Links below use the vault symlink address (so they open in Docs), but
-anything under `meta/loops-shadow` or `meta/briefing-shadow` **physically lives in `$DATA`**.
+anything under `meta/loops-shadow` **physically lives in `$DATA`**.
 
 **Graduation** = copying a probation node's home from `$DATA/loops-shadow/meta/loops/<domain>/`
 to `$VAULT/meta/loops/<domain>/` and flipping one line in the roster:
@@ -127,13 +128,12 @@ The knowledge itself:
 - [$VAULT/references/.cache/kb-index.md]($VAULT/references/.cache/kb-index.md) — compact map of
   the library that other AI passes read for orientation
 
-Its reports (three surfaces today — transition debt, collapsing to one at cutover):
-- [$VAULT/meta/loops/references/reports/]($VAULT/meta/loops/references/reports) — the contract
-  synthesis
-- [$VAULT/meta/library-reports/]($VAULT/meta/library-reports) — legacy morning report; what
-  "Full library report" opens today
-- [$VAULT/references/process/memos/]($VAULT/references/process/memos) — the weekly essay behind
-  "Read the memo"
+Its reports (one home since the 2026-07-07 cutover):
+- [$VAULT/meta/loops/references/reports/]($VAULT/meta/loops/references/reports) — the daily
+  synthesis; what "Full library report" opens
+- [$VAULT/meta/loops/references/memos/]($VAULT/meta/loops/references/memos) — the weekly
+  editor's essay behind "Read the memo" (older memos remain readable from the pre-cutover homes
+  `meta/library-reports/` and `references/process/memos/`; nothing new lands there)
 
 Bookkeeping:
 - [$VAULT/meta/sources/.source-state.json]($VAULT/meta/sources/.source-state.json) — per-source
@@ -152,8 +152,8 @@ Contradictions escalate with evidence; keeps no state of its own.
 ### 📈 System node — live · runs 5:45 AM · home in the vault
 
 The watchdog: every scheduled job's exit code, disk space, stale CLIs, missing artifacts. Its
-escalations are the 🔴 items in the briefing. Known gap: it runs *before* the 6:00/6:20
-briefings, so a briefing failure isn't caught until the next morning.
+escalations are the 🔴 items in the briefing. Known gap: it runs *before* the 6:00 briefing,
+so a briefing failure isn't caught until the next morning.
 
 - [$VAULT/meta/loops/system/reports/]($VAULT/meta/loops/system/reports)
 
@@ -174,11 +174,11 @@ no artifact/health drawers of its own — a known gap in the pattern):
    escalated).
 
 Its files:
-- [$VAULT/meta/briefing-shadow/]($VAULT/meta/briefing-shadow) — v2 briefings, 6:20 AM daily
-  (weekends under `weekend/`; physically `$DATA/briefing-shadow/`)
-- [$VAULT/briefings/]($VAULT/briefings) — v1 briefings, 6:00 AM, same editor **without** the
-  node artifacts; the ablation baseline for judging what the nodes add (weekdays a retry watcher
-  re-attempts failures of BOTH briefings every 30 min; weekend failures wait for you or me)
+- [$VAULT/briefings/]($VAULT/briefings) — THE briefing, 6:00 AM daily (weekends under
+  `weekend/`), loops-fed since the 2026-07-07 cutover. Weekdays a retry watcher re-attempts
+  failures every 30 min; weekend failures wait for you or me. The v1/v2 A-B trial ended
+  2026-07-06 (8 wins, 1 loss); the shadow copies from that period sit read-only in
+  `$DATA/briefing-shadow/`.
 - [$VAULT/meta/loops-shadow/meta/loops/briefings/feedback/records.jsonl]($VAULT/meta/loops-shadow/meta/loops/briefings/feedback/records.jsonl)
   — your per-item and whole-briefing critique, awaiting the node's future health pass
 
@@ -207,6 +207,5 @@ run (7:30 PM for meeting asks).
 | 5:10–5:30 AM | library morning report + memo |
 | 5:40 AM | goals node |
 | 5:45 AM | system node |
-| 6:00 AM | v1 briefing (ablation baseline) |
-| 6:20 AM | v2 briefing (the tree's synthesis) |
+| 6:00 AM | the briefing (the tree's synthesis) |
 | 7:10–7:25 AM | library newsletters + recommendations |

@@ -78,6 +78,12 @@ export function DocsTreeItem({
   const isDirectory = node.type === "directory";
   const isIgnored = node.ignored === true;
   const indent = depth * 16;
+  // Bring the selected row (file OR folder) into view when selection lands on it — navigated
+  // links (Copy reference, open://, wikilinks) can target rows far outside the visible tree.
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (isSelected) rowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [isSelected]);
   // Local sort state for immediate UI feedback
   const [localSortOrder, setLocalSortOrder] = useState(sortOrderProp);
   useEffect(() => { setLocalSortOrder(sortOrderProp); }, [sortOrderProp]);
@@ -147,6 +153,7 @@ export function DocsTreeItem({
 
   return (
     <div
+      ref={rowRef}
       className={`
         group/row relative flex items-center gap-1 px-2 ${isMobile ? "py-2.5 text-[15px]" : "py-1 text-sm"}
         transition-colors duration-150

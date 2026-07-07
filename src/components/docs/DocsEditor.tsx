@@ -428,7 +428,7 @@ export function DocsEditor({
   // Shared prose treatment is the single source of truth (see src/lib/prose.ts). Docs' deltas:
   // `leading-normal` (its Lexical DOM wants the tighter line-height) and blue web-style links.
   const proseClass = `prose ${proseInvert} leading-normal ${SHARED_PROSE_TUNING}
-    prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline`;
+    prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:no-underline [&_a:hover]:underline`;
 
   const markdownComponents: import("react-markdown").Components = {
     code({ className, children, ...props }) {

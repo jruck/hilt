@@ -10,8 +10,9 @@ import type { SchedulerJobSchedule } from "@/lib/library/scheduler-jobs";
  * weekend Sat/Sun) — avoids seven separate weekday plists. Two variants:
  *   - "shadow": runs `briefing:shadow` → writes to $DATA_DIR/briefing-shadow, never commits, runs
  *     ALONGSIDE Hermes for the parallel parity comparison (the safe pre-cutover state).
- *   - "live": runs `briefing:daily` (real vault path + commit/push) + a 30-min retry-watch that
- *     regenerates a missing day. Installed only at cutover, when Hermes's crons are disabled.
+ *   - "live": runs `briefing:daily` (real vault path + commit/push; carries `--loops` so the single
+ *     briefing reads the loop artifacts) + a 30-min retry-watch that regenerates a missing day.
+ *     Installed only at cutover, when Hermes's crons are disabled.
  */
 export interface BriefingSchedulerJobDefinition {
   id: string;

@@ -736,6 +736,78 @@ Queue a retry for a failed briefing by invoking the existing Hermes cron job wit
 }
 ```
 
+### GET /api/loops/escalations
+
+**File**: `src/app/api/loops/escalations/route.ts`
+
+List escalated Briefings v2 loop items from enabled loops. Live loops read from the Bridge vault; shadow loops read from `${DATA_DIR}/loops-shadow`. Missing registries, missing artifacts, and per-loop parse errors return a 200 with empty or partial results plus `errors`.
+
+**Response**
+
+```typescript
+{
+  loops: Array<{ id: string; phase: "live" | "shadow"; artifact_date: string }>;
+  items: Array<LoopItem & {
+    loop_phase: "live" | "shadow";
+    artifact_date: string;
+    verdict?: Verdict; // latest existing ask verdict, when present
+  }>;
+  errors: Array<{ loop?: string; phase?: "live" | "shadow"; message: string }>;
+}
+```
+
+### POST /api/loops/verdicts
+
+**File**: `src/app/api/loops/verdicts/route.ts`
+
+Append a verdict record for an ask item.
+
+**Request Body**
+
+```typescript
+{
+  loop: string;
+  item_id: string;
+  verdict: "approve" | "dismiss" | "assign_to_me" | "assign_to_agent" | "revise";
+  note?: string; // required for revise
+}
+```
+
+**Response**
+
+```typescript
+VerdictRecord
+```
+
+### POST /api/loops/feedback
+
+**File**: `src/app/api/loops/feedback/route.ts`
+
+Append free-form feedback for a loop item, section, or briefing.
+
+Normally the target loop must be enabled. The `briefing` loop is the permanent exception: it is registry-present but not an enabled generator loop, and this route accepts it at every level (item, section, briefing) — it backs the briefing view's Feedback button and per-item comment affordances.
+
+**Request Body**
+
+```typescript
+{
+  loop: string;
+  target: {
+    level: "item" | "section" | "briefing";
+    item_id?: string;
+    anchor?: { section?: string; citation?: string; text: string };
+    artifact_date?: string;
+  };
+  text: string;
+}
+```
+
+**Response**
+
+```typescript
+FeedbackRecord
+```
+
 ### POST /api/bridge/tasks
 
 **File**: `src/app/api/bridge/tasks/route.ts`

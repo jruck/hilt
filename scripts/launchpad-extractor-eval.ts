@@ -28,7 +28,7 @@ const args = process.argv.slice(2);
 const argValue = (name: string): string | null => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] || null : null; };
 const stage = argValue("--stage") || "all";
 const vaultPath = process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || "/Users/jruck/work/bridge";
-const evalDir = path.join(process.env.DATA_DIR || "data", "launchpad", "extractor-eval");
+const evalDir = path.join(process.env.DATA_DIR || "data", "launchpad", process.env.EVAL_HOME_NAME || "extractor-eval");
 const goldPath = path.join(vaultPath, "meta/loops/meetings/state/gold-set.json");
 
 interface GoldCommitment { action: string; owner: string; quote: string; confidence: number; source: string; in_next_steps: boolean; due?: string }

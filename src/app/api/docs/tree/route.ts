@@ -86,14 +86,34 @@ function buildFileTree(
     const children: FileNode[] = [];
     let fileCount = 0;
 
-    // Sort: directories first, then alphabetically
-    const sorted = entries.sort((a, b) => {
-      if (a.isDirectory() && !b.isDirectory()) return -1;
-      if (!a.isDirectory() && b.isDirectory()) return 1;
-      return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    // Symlinks report isDirectory()/isFile() as FALSE on the Dirent, which silently dropped them
+    // from the tree (e.g. the vault's meta/loops-shadow → ~/.hilt sandbox links, which exist
+    // precisely to keep that data inspectable in Docs). Resolve each entry's effective type once
+    // (statSync follows the link; broken links resolve to neither and are skipped). Cycles are
+    // bounded by MAX_DEPTH.
+    const resolved = entries.map((entry) => {
+      let isDir = entry.isDirectory();
+      let isFile = entry.isFile();
+      if (entry.isSymbolicLink()) {
+        try {
+          const stats = fs.statSync(path.join(dirPath, entry.name));
+          isDir = stats.isDirectory();
+          isFile = stats.isFile();
+        } catch {
+          // Broken symlink — leave both false; skipped below.
+        }
+      }
+      return { entry, isDir, isFile };
     });
 
-    for (const entry of sorted) {
+    // Sort: directories first, then alphabetically
+    const sorted = resolved.sort((a, b) => {
+      if (a.isDir && !b.isDir) return -1;
+      if (!a.isDir && b.isDir) return 1;
+      return a.entry.name.localeCompare(b.entry.name, undefined, { sensitivity: "base" });
+    });
+
+    for (const { entry, isDir, isFile } of sorted) {
       // Skip hidden files and directories
       if (entry.name.startsWith(".")) continue;
 
@@ -106,14 +126,14 @@ function buildFileTree(
       const fullPath = path.join(dirPath, entry.name);
 
       try {
-        if (entry.isDirectory()) {
+        if (isDir) {
           // Skip ignored directories entirely (macOS system, cloud sync)
           if (isIgnoredDir(entry.name)) continue;
 
           const result = buildFileTree(fullPath, depth + 1);
           children.push(result.node);
           maxModTime = Math.max(maxModTime, result.maxModTime);
-        } else if (entry.isFile()) {
+        } else if (isFile) {
           const fileStats = fs.statSync(fullPath);
           const ext = path.extname(entry.name).slice(1).toLowerCase();
 

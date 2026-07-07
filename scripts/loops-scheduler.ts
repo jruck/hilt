@@ -49,16 +49,6 @@ function jobs(): LibrarySchedulerJobDefinition[] {
       stdout: path.join(dir, "goals.out.log"),
       stderr: path.join(dir, "goals.err.log"),
     },
-    {
-      // Shadow-v2 briefing (Phase 8 shadow period): the v2 reader over loop artifacts, sandboxed.
-      // 06:20 — after the live 06:00 run, so the side-by-side compares same-morning outputs.
-      id: "shadow-v2",
-      label: "com.hilt.loops.shadow-v2",
-      script: "briefing:shadow:v2",
-      schedule: { hour: 6, minute: 20 },
-      stdout: path.join(dir, "shadow-v2.out.log"),
-      stderr: path.join(dir, "shadow-v2.err.log"),
-    },
   ];
 }
 

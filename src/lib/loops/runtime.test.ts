@@ -92,6 +92,20 @@ test("substrate: known-good inputs produce zero items", () => {
   assert.equal(substrateItems(good, "2026-07-06").length, 0);
 });
 
+test("substrate: low df free does not escalate when macOS available capacity is healthy", () => {
+  const good: SubstrateInputs = {
+    launchdExitCodes: {},
+    criticalJobs: [],
+    claudeVersion: "2.1.198 (Claude Code)",
+    oauthTokenConfigured: true,
+    diskFreeFraction: 0.87,
+    diskImmediateFreeFraction: 0.083,
+    supervisorHeartbeatAgeMin: 3,
+    briefingPresent: true,
+  };
+  assert.equal(substrateItems(good, "2026-07-06").some((i) => i.id.includes("disk")), false);
+});
+
 test("substrate: each induced failure produces the right item with the right escalation", () => {
   const bad: SubstrateInputs = {
     launchdExitCodes: { "com.hilt.briefing.daily": 1, "com.hilt.library.cleanup": 78 },
@@ -99,6 +113,7 @@ test("substrate: each induced failure produces the right item with the right esc
     claudeVersion: "1.0.38 (Claude Code)",
     oauthTokenConfigured: false,
     diskFreeFraction: 0.05,
+    diskImmediateFreeFraction: 0.02,
     supervisorHeartbeatAgeMin: 90,
     briefingPresent: false,
   };
@@ -111,6 +126,7 @@ test("substrate: each induced failure produces the right item with the right esc
   assert.ok(byId("claude-fossil")?.escalated, "v1.x CLI is the fossil incident class");
   assert.ok(byId("token-missing")?.escalated);
   assert.ok(byId("disk")?.escalated);
+  assert.match(byId("disk")?.title || "", /Disk available 5\.0% \(2\.0% immediately free\)/);
   assert.ok(byId("supervisor")?.escalated);
   assert.ok(byId("briefing-missing")?.escalated);
 });

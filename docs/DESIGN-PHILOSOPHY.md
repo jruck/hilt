@@ -613,6 +613,8 @@ This section tracks design decisions and refinements over time. Each entry shoul
 - Show the area title, a domain-specific icon, and each `## Goals` bullet directly on the card. Do not substitute counts, file paths, or metadata chips when the user is trying to understand what sits under Health, Home, Relationships, Career, etc.
 - Open the backing area markdown in Docs for detail editing instead of introducing a custom area drawer on the first pass.
 
+**Principle (2026-07-04)**: Persistent surfaces vs. ephemeral chrome — if a toggleable surface is a *mode the app runs in* (the HUD, the ⓘ reference pane), its open state persists across refresh (localStorage, hydrate-gated, same pattern as `HUD_VISIBILITY_STORAGE_KEY`). Ephemeral chrome (menus, popovers, dialogs) resets. When adding a new toggleable surface, ask which one it is; default pane-level toggles to persistent.
+
 ---
 
 *This document should grow as design work continues. After UI changes are committed, consider what preferences or principles the changes reveal and add them here.*

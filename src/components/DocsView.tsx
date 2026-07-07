@@ -60,6 +60,25 @@ export function DocsView({ scopePath, focusedPath, onPathChange, searchQuery }: 
 
   const isMobile = useIsMobile();
 
+  // A navigated-to FOLDER with no index.md: nothing fetchable, but the link should still "work" —
+  // highlight the folder in the tree, scroll to it, and show a placeholder in the content pane
+  // (mirrors the unviewable-file fallback). Cleared whenever a real file gets selected.
+  const [selectedDirPath, setSelectedDirPath] = useState<string | null>(null);
+  useEffect(() => {
+    if (selectedPath) setSelectedDirPath(null);
+  }, [selectedPath]);
+
+  // Resilience net: a selectedPath that turns out to be a DIRECTORY (a path the tree lookup missed —
+  // e.g. before the symlink fix, or a race with tree loading) errors as "path must be a file". Convert
+  // it to the folder-selection experience instead of leaving a dead error pane.
+  useEffect(() => {
+    if (!selectedPath || !fileError) return;
+    if (/must be a file, not a directory/i.test(fileError.message)) {
+      setSelectedDirPath(selectedPath);
+      setSelectedPath(null);
+    }
+  }, [fileError, selectedPath, setSelectedPath]);
+
   // Sidebar open/closed state
   // Desktop: persist to localStorage; Mobile: derive from navigation intent
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -215,8 +234,9 @@ export function DocsView({ scopePath, focusedPath, onPathChange, searchQuery }: 
       if (indexPath) {
         setSelectedPath(indexPath, { replace: true });
       } else {
-        // No index.md — just expand the folder, deselect file
+        // No index.md — select the FOLDER itself (tree highlight + placeholder pane).
         setSelectedPath(null);
+        setSelectedDirPath(focusedPath);
       }
     } else {
       // Expand all parent folders in one atomic update
@@ -270,7 +290,9 @@ export function DocsView({ scopePath, focusedPath, onPathChange, searchQuery }: 
         if (isMobile) setSidebarOpen(false);
         return;
       }
+      // No index.md — select the folder itself (tree highlight + placeholder pane).
       setSelectedPath(null);
+      setSelectedDirPath(folderPath);
       if (isMobile) setSidebarOpen(true);
     },
     [expandPath, setSelectedPath, findIndexFile, isMobile, onPathChange]
@@ -319,7 +341,7 @@ export function DocsView({ scopePath, focusedPath, onPathChange, searchQuery }: 
           <DocsFileTree
             tree={tree}
             expandedPaths={expandedPaths}
-            selectedPath={selectedPath}
+            selectedPath={selectedPath ?? selectedDirPath}
             onToggleExpand={toggleExpanded}
             onSelect={handleFileSelect}
             isLoading={treeLoading}
@@ -360,6 +382,7 @@ export function DocsView({ scopePath, focusedPath, onPathChange, searchQuery }: 
       {/* Content pane — always visible, fills remaining space */}
       <DocsContentPane
         filePath={selectedPath}
+        directoryPath={selectedDirPath}
         scopePath={scopePath}
         content={fileContent}
         fileMeta={fileMeta}

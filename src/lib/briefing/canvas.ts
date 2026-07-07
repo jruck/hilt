@@ -144,6 +144,23 @@ export function parseBriefing(content: string): { lede: string; sections: Briefi
 }
 
 /** Join keys are not reading material: strip loop item ids + loop citations from display text. */
+/**
+ * CommonMark forbids unescaped spaces and bare parens in link DESTINATIIONS — and vault meeting
+ * paths are full of both ("…/Discuss survey cadence UX-… @ 09-57-15.md", "…(Just Keep
+ * Swimming)…"), so `[name](hilt:meeting/<path>)` is not parsed as a link at all and the raw
+ * markdown leaks into the briefing verbatim (B5 launch finding). The CommonMark-legal form is
+ * an angle-bracket destination: `[name](<hilt:…>)`. The generator is instructed to emit that
+ * form; this normalizer repairs the bare form defensively. Meeting/project ids end in `.md`,
+ * which makes the destination end unambiguous even with interior parens; other kinds never
+ * contain spaces/parens and pass through untouched.
+ */
+export function normalizeHiltLinks(markdown: string): string {
+  return markdown.replace(
+    /\]\((hilt:(?:meeting|project)\/[^\n<>]*?\.md)\)/g,
+    "](<$1>)",
+  );
+}
+
 export function cleanLoopTokens(text: string): string {
   return text
     .replace(/`[a-z]{2,8}-\d{4}-\d{2}-\d{2}-\d{3}`/g, "")

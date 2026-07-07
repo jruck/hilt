@@ -10,6 +10,7 @@ import {
   meetingLabelFromRelPath,
   parseBriefing,
   stripTaskTokens,
+  normalizeHiltLinks,
 } from "./canvas";
 
 // ── parseBriefing (moved out of BriefingContent at B3 — behavior locked here) ─────────────────
@@ -150,4 +151,16 @@ test("isNextStepsHeading keys on the ⏭ marker (incl. VS16), never on the words
   assert.equal(isNextStepsHeading("🧠 Don't drop this"), false);
   // an old briefing mentioning "next steps" in a heading must NOT trigger the canvas treatment
   assert.equal(isNextStepsHeading("Next steps"), false);
+});
+
+test("normalizeHiltLinks: bare space/paren destinations become angle-bracket form; clean forms untouched", () => {
+  const bare = "- **[Survey UX](hilt:meeting/meetings/2026-07-07/Discuss survey cadence UX-2026-07-07 @ 09-57-15.md) (7/7)** — lead";
+  const fixed = normalizeHiltLinks(bare);
+  assert.ok(fixed.includes("](<hilt:meeting/meetings/2026-07-07/Discuss survey cadence UX-2026-07-07 @ 09-57-15.md>)"));
+  const parens = "[OC](hilt:meeting/meetings/2026-06-30/Owens Corning (Just Keep Swimming)-2026-06-30 @ 14-00-25.md)";
+  assert.ok(normalizeHiltLinks(parens).includes("(Just Keep Swimming)-2026-06-30 @ 14-00-25.md>)"));
+  const already = "[x](<hilt:meeting/meetings/2026-07-07/a b.md>)";
+  assert.equal(normalizeHiltLinks(already), already);
+  const task = "[t](hilt:task/t-20260707-001)";
+  assert.equal(normalizeHiltLinks(task), task);
 });

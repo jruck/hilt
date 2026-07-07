@@ -137,6 +137,8 @@ export function ProposalsSection({ searchQuery = "" }: { searchQuery?: string })
             <TaskCard
               key={task.id}
               task={task}
+              // B5: the meeting attribution is an object pill — preview + jump to the meeting.
+              meetingRef={task.origin?.meeting ? { kind: "meeting", id: task.origin.meeting } : undefined}
               // Only loop-minted proposals carry the verdict join (origin.loop + item_id);
               // anything else renders read-only rather than posting a broken verdict.
               onVerdict={task.origin?.loop && task.origin?.item_id ? handleVerdict(task) : undefined}

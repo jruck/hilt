@@ -7,7 +7,9 @@ import remarkGfm from "remark-gfm";
 import { AlertTriangle, Check, ChevronDown, ChevronRight, MessageSquare, Send, X } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import type { Citation, LoopItem, RegistryLoop, Verdict, VerdictRecord, FeedbackRecord } from "@/lib/loops/types";
+import { meetingLabelFromRelPath } from "@/lib/briefing/canvas";
 import { parseOwnerPrefix } from "@/lib/tasks/owner";
+import { ObjectPill } from "@/components/objects/ObjectPill";
 import { OwnerChip } from "@/components/tasks/TaskCard";
 
 export type EscalatedLoopItem = LoopItem & {
@@ -57,10 +59,13 @@ export function useEscalations(): { items: EscalatedLoopItem[]; mutate: () => vo
   return { items: data?.items || [], mutate: () => void mutate() };
 }
 
+// Aligned with TaskCard's VERDICT_BUTTONS (B5): Approve / Assign to agent / Dismiss / Revise —
+// one verdict vocabulary everywhere an ask renders. `assign_to_me` leaves the VISIBLE set only
+// (approve already means "mine"); the API keeps accepting it and its badge still renders.
 const visibleVerdicts: Array<{ verdict: Verdict; label: string }> = [
   { verdict: "approve", label: "Approve" },
+  { verdict: "assign_to_agent", label: "Assign to agent" },
   { verdict: "dismiss", label: "Dismiss" },
-  { verdict: "assign_to_me", label: "Assign to me" },
   { verdict: "revise", label: "Revise" },
 ];
 
@@ -119,6 +124,19 @@ function formatCitation(citations: Citation[]): string | null {
   const parts = [first.source, first.date, first.anchor].filter(Boolean);
   const suffix = citations.length > 1 ? ` +${citations.length - 1}` : "";
   return `${parts.join(" - ")}${suffix}`;
+}
+
+/** First citation whose source is a vault meeting note path — that one renders as a meeting
+ * ObjectPill (B5) instead of the raw path; anything else keeps the plain formatCitation text. */
+function firstMeetingCitationSource(citations: Citation[]): string | null {
+  const cite = citations.find((c) => /^meetings\/\d{4}-\d{2}-\d{2}\/[^\n]+\.md$/.test(c.source || ""));
+  return cite?.source ?? null;
+}
+
+/** "meetings/2026-07-05/Floyds sync-….md" → "Floyds sync · 2026-07-05" (the pill's label). */
+function meetingCitationLabel(rel: string): string {
+  const { title, date } = meetingLabelFromRelPath(rel);
+  return date ? `${title} · ${date}` : title;
 }
 
 function DetailMarkdown({ markdown }: { markdown: string }) {
@@ -297,6 +315,7 @@ function LoopItemRow({ item, onChanged }: { item: EscalatedLoopItem; onChanged: 
   const [feedbackSaved, setFeedbackSaved] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const citation = formatCitation(item.citations);
+  const meetingCitationRel = firstMeetingCitationSource(item.citations);
   const confidence = typeof item.confidence === "number"
     ? `${Math.round(item.confidence * 100)}%`
     : null;
@@ -399,7 +418,20 @@ function LoopItemRow({ item, onChanged }: { item: EscalatedLoopItem; onChanged: 
             <p className="text-xs leading-5 text-[var(--text-secondary)]">Escalated: {item.escalated.reason}</p>
           )}
           {citation && (
-            <p className="text-xs italic text-[var(--text-tertiary)]" title={citation}>{citation}</p>
+            meetingCitationRel ? (
+              // The meeting citation is an object, not a path: pill (preview + click-through),
+              // full formatCitation kept as the tooltip, extra citations as a plain "+N".
+              <p className="text-xs text-[var(--text-tertiary)]" title={citation}>
+                <ObjectPill refr={{ kind: "meeting", id: meetingCitationRel }}>
+                  {meetingCitationLabel(meetingCitationRel)}
+                </ObjectPill>
+                {item.citations.length > 1 && (
+                  <span className="ml-1.5 italic">+{item.citations.length - 1}</span>
+                )}
+              </p>
+            ) : (
+              <p className="text-xs italic text-[var(--text-tertiary)]" title={citation}>{citation}</p>
+            )
           )}
           <p className="text-xs text-[var(--text-tertiary)]">
             {item.kind} · {item.loop} ({item.loop_phase}) · {item.artifact_date}{confidence ? ` · confidence ${confidence}` : ""}

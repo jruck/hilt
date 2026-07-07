@@ -10,16 +10,17 @@
  *
  * The header IS the meeting reference (title + date, via the summary lead + tooltip) — the
  * expansion suppresses the editor's own-meeting citation line as redundant (see
- * `isRedundantMeetingCitationLine`). Navigating the header to the meeting in People is
- * DEFERRED: People addresses meetings by granola id (`/{slug}/meeting/{granolaId}`) and no
- * resolver exists from a vault meeting rel-path to that target; it belongs to the upcoming
- * universal object-pill unit, not a bespoke one-off here.
+ * `isRedundantMeetingCitationLine`). When `meetingRel` is present the summary lead carries a
+ * meeting ObjectPill (B5): the universal resolver maps the vault rel-path through frontmatter
+ * `granola_id` to People's meeting inbox, closing the header-nav gap deferred at B3 (no
+ * rel-path→granola-id resolver existed then).
  */
 import { useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useHaptics } from "@/hooks/useHaptics";
+import { ObjectPill } from "@/components/objects/ObjectPill";
 
-export function MeetingCard({ title, date, summary, pendingCount, defaultOpen = false, actions, children }: {
+export function MeetingCard({ title, date, summary, pendingCount, defaultOpen = false, actions, children, meetingRel, suppressHeaderPill = false }: {
   /** Meeting title derived from the cited vault path — tooltip/fallback when no summary. */
   title: string;
   /** YYYY-MM-DD from the cited path (null when underivable). */
@@ -33,6 +34,11 @@ export function MeetingCard({ title, date, summary, pendingCount, defaultOpen = 
   actions?: ReactNode;
   /** The meeting's cards (TaskCards; any leftover editorial sub-lines ride above them). */
   children: ReactNode;
+  /** Vault-relative meeting note path — renders the header's meeting ObjectPill (B5). */
+  meetingRel?: string | null;
+  /** True when the summary already carries its own pill for this meeting (an editor-written
+   * inline `hilt:` citation) — the structural header pill would be a duplicate. */
+  suppressHeaderPill?: boolean;
 }) {
   const haptics = useHaptics();
   const [open, setOpen] = useState(defaultOpen);
@@ -53,6 +59,12 @@ export function MeetingCard({ title, date, summary, pendingCount, defaultOpen = 
       >
         <span className="min-w-0 flex-1 leading-relaxed briefing-inline-md">
           {summary ?? <strong className="font-semibold text-[var(--text-primary)]">{title}</strong>}
+          {meetingRel && !suppressHeaderPill ? (
+            // stopPropagation: the pill toggles its own popover, never the row's expansion.
+            <span className="ml-1.5" onClick={(e) => e.stopPropagation()}>
+              <ObjectPill refr={{ kind: "meeting", id: meetingRel }}>{title}</ObjectPill>
+            </span>
+          ) : null}
         </span>
         {actions && (
           <span onClick={(e) => e.stopPropagation()} className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">

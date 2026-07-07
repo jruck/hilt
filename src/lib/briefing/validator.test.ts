@@ -147,6 +147,34 @@ test("a pre-B3 daily (no ⏭ section) still validates unchanged", () => {
   assert.equal(r.pass, true, `unexpected failures: ${r.failures.join(" | ")}`);
 });
 
+// ── B5 pill citations: citation-only sub-bullets are a SOFT warning, never a failure ────────
+
+test("a citation-only sub-bullet warns but never fails", () => {
+  const md = validDaily().replace(
+    "  - Threads to last week's flagged risk. *git: everpro, 6/25*",
+    "  - Threads to last week's flagged risk.\n  - *meetings/2026-06-25/EverPro sync-2026-06-25.md, 2026-06-25*",
+  );
+  const r = validateBriefing(md, "daily");
+  assert.equal(r.pass, true, `must stay soft — unexpected failures: ${r.failures.join(" | ")}`);
+  assert.ok(r.warnings.some((w) => w.includes("citation-only")), r.warnings.join(" | "));
+});
+
+test("evidence sub-bullets with trailing citations do NOT warn", () => {
+  // validDaily()'s sub-bullets all carry real prose before their citations.
+  const r = validateBriefing(validDaily(), "daily");
+  assert.ok(!r.warnings.some((w) => w.includes("citation-only")), r.warnings.join(" | "));
+});
+
+test("the ⏭ meeting-citation sub-bullet is exempt (load-bearing join key, not reading material)", () => {
+  const md = validDaily().replace(
+    "## 💼 Work & product",
+    "## ⏭ Next steps\n- **OC planning (6/30)** — Phase 2 verbally approved\n  - *meetings/2026-06-30/OC planning-2026-06-30.md, 2026-06-30*\n  - `t-20260707-001`\n\n## 💼 Work & product",
+  );
+  const r = validateBriefing(md, "daily");
+  assert.equal(r.pass, true, `unexpected failures: ${r.failures.join(" | ")}`);
+  assert.ok(!r.warnings.some((w) => w.includes("citation-only")), r.warnings.join(" | "));
+});
+
 test("out-of-order sections fail", () => {
   const md = validDaily().replace("## 📈 System", "## 📅 System"); // a second 📅 after 📚 → order break
   const r = validateBriefing(md, "daily");

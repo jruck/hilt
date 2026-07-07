@@ -768,6 +768,44 @@ interface TriggerMeetingState {
 
 Settled = enhanced notes present ∧ `transcript_measure > 0` ∧ `stable_polls ≥ 3` ∧ `now − stable_since ≥ 120s` (knobs: `HILT_MEETING_TRIGGER_SETTLE_POLLS` / `HILT_MEETING_TRIGGER_SETTLE_MS`). The trigger also consults the loop's own `processed-meetings.json` (registry-resolved home) before firing.
 
+## Object Reference Models (v3 unit B5)
+
+**File**: `src/lib/objects/types.ts` (the shared contract), `src/lib/objects/uri.ts` (grammar)
+
+Universal object references: everywhere Hilt name-drops a system object it renders as a
+consistent inline pill (ObjectPill) that previews the object's card and navigates to its
+native view.
+
+```typescript
+type ObjectKind = "meeting" | "task" | "person" | "project" | "library";
+
+interface ObjectRef {
+  kind: ObjectKind;
+  id: string;   // the kind's native identifier — may contain "/" (vault-relative paths)
+}
+```
+
+**`hilt:` URI grammar** — markdown carries object references as ordinary links, so files stay
+portable and degrade to plain links anywhere else:
+
+```
+[display text](hilt:meeting/<vault-rel-path>)   hilt:meeting/meetings/2026-07-05/Floyds….md
+[display text](hilt:task/<task-id>)             hilt:task/t-20260705-003
+[display text](hilt:person/<slug>)              hilt:person/art-vandelay
+[display text](hilt:project/<vault-rel-path>)   hilt:project/projects/everpro-migration
+[display text](hilt:library/<artifact-id>)      hilt:library/9f3a…
+```
+
+`parseHiltUri` splits on the FIRST `/` after the scheme (path ids keep their internal slashes)
+and returns `null` for any non-`hilt:` href — that null is the injection seam: the briefing's
+`BriefingLink` renders an `ObjectPill` for a parsed ref and falls through to its normal anchor
+for everything else, so pre-B5 briefings render byte-identically. `buildHiltUri`
+percent-encodes per id segment (spaces/unicode stay markdown-safe); hand-written un-encoded
+ids still parse.
+
+The resolver contract (`ResolvedObject`: `card: ObjectCardData` + `nav: ObjectNavTarget |
+null`) lives in the same file — see `GET /api/objects/resolve` in API.md.
+
 ## Reference Library Models
 
 The Reference Library is file-native first. Durable references live under `references/` in the bridge vault, while discovery candidates live under `references/.cache/library-candidates/`. Source definitions live in bridge-owned YAML files under `meta/sources/`.

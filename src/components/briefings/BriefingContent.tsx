@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback, type FormEvent, type MouseEvent, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import { Check, ChevronRight, MessageSquare, Send } from "lucide-react";
@@ -24,11 +24,14 @@ import {
   isRedundantMeetingCitationLine,
   isTaskIdOnlyLine,
   meetingLabelFromRelPath,
+  normalizeHiltLinks,
   parseBriefing,
   stripTaskTokens,
   type BriefingItem,
 } from "@/lib/briefing/canvas";
 import { MeetingCard } from "./MeetingCard";
+import { ObjectPill } from "@/components/objects/ObjectPill";
+import { parseHiltUri } from "@/lib/objects/uri";
 import { TaskCard } from "@/components/tasks/TaskCard";
 import { PROPOSAL_LOOP, formatRelativeDate } from "@/components/tasks/ProposalsSection";
 import { useDismissed, useTasksList } from "@/hooks/useTaskFile";
@@ -49,6 +52,13 @@ interface BriefingContentProps {
 }
 
 /** Replace [^N] citation markers with superscript HTML */
+/** react-markdown's defaultUrlTransform allowlists http/https/mailto/… and strips everything
+ * else to "" BEFORE the `a` component runs — the same sanitizer that ate open:// links in the
+ * v2 era. hilt: object URIs must pass through or the pill seam is dead code and the link
+ * degrades to <a href=""> (opens a duplicate app tab — B5 adversarial finding). */
+const briefingUrlTransform = (url: string): string =>
+  url.startsWith("hilt:") ? url : defaultUrlTransform(url);
+
 function renderCitations(text: string): string {
   return text.replace(/\[\^(\d+)\]/g, '<sup><a href="#fn-$1" class="citation-link">$1</a></sup>');
 }
@@ -112,6 +122,15 @@ function BriefingLink({
       window.open(displayHref, "_blank", "noopener,noreferrer");
     }
   }, [date, displayHref, href, isHash, nativeHref, navigateTo]);
+
+  // B5: a `hilt:kind/id` href IS an object reference — render the universal pill (popover
+  // preview + native-view click-through) instead of an anchor. parseHiltUri is the single
+  // injection seam: it returns null for every other href (hash citations, /api/reports/…,
+  // external links), so non-hilt links — i.e. every pre-B5 briefing — render exactly as before.
+  const objectRef = href ? parseHiltUri(href) : null;
+  if (objectRef) {
+    return <ObjectPill refr={objectRef}>{children}</ObjectPill>;
+  }
 
   return (
     <a
@@ -239,6 +258,9 @@ function CanvasTaskCard({ task, canvas }: { task: TaskFile; canvas: CanvasContex
       flush
       task={task}
       showStatus={!pending}
+      // B5: the meeting attribution renders as an object pill (preview + click-through) —
+      // canvas cards sit outside their meeting's entry, so the attribution earns navigation.
+      meetingRef={task.origin?.meeting ? { kind: "meeting", id: task.origin.meeting } : undefined}
       onVerdict={pending ? canvas.makeVerdictHandler(task.origin?.loop, task.origin?.item_id) : undefined}
     />
   );
@@ -294,6 +316,7 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
       >
         <span className="min-w-0 flex-1 text-[var(--text-secondary)] leading-relaxed briefing-inline-md" title={escalatedHere ? `Escalated: ${boundLoopItems.find((loopItem) => loopItem.escalated)?.escalated?.reason || "urgent"}` : undefined}>
           <ReactMarkdown
+            urlTransform={briefingUrlTransform}
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeRaw]}
             components={{
@@ -344,6 +367,7 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
                   {residue && (
                     <span className="leading-relaxed briefing-inline-md">
                       <ReactMarkdown
+            urlTransform={briefingUrlTransform}
                         remarkPlugins={[remarkGfm]}
                         rehypePlugins={[rehypeRaw]}
                         components={{
@@ -369,6 +393,7 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
               <li key={li} className={`group/askrow relative text-[var(--text-secondary)] ${bound?.escalated ? "briefing-escalated" : ""}`}>
                 <span className="leading-relaxed briefing-inline-md" title={bound?.escalated ? `Escalated: ${bound.escalated.reason || "urgent"}` : undefined}>
                   <ReactMarkdown
+            urlTransform={briefingUrlTransform}
                     remarkPlugins={[remarkGfm]}
                     rehypePlugins={[rehypeRaw]}
                     components={{
@@ -389,6 +414,7 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
       {expanded && !hasAskList && hasDetails && (
         <div className="pb-1 text-[var(--text-secondary)] leading-relaxed">
           <ReactMarkdown
+            urlTransform={briefingUrlTransform}
             remarkPlugins={[remarkGfm]}
             components={{
               strong: ({ children }) => <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>,
@@ -517,6 +543,8 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
     <MeetingCard
       title={title}
       date={meetingDate}
+      meetingRel={meetingRel}
+      suppressHeaderPill={item.headline.includes(`hilt:meeting/${meetingRel}`)}
       pendingCount={pendingCount}
       defaultOpen={defaultOpen}
       actions={(
@@ -528,14 +556,14 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
         </>
       )}
       summary={(
-        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents} urlTransform={briefingUrlTransform}>
           {renderCitations(stripTaskTokens(cleanLoopTokens(item.headline)))}
         </ReactMarkdown>
       )}
     >
       {leftoverLines.map((line, index) => (
         <div key={`line-${index}`} className="leading-relaxed briefing-inline-md text-[var(--text-secondary)]">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents} urlTransform={briefingUrlTransform}>
             {line}
           </ReactMarkdown>
         </div>
@@ -599,7 +627,9 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
 }
 
 export function BriefingContent({ content, date, absPath, feedbackable = true, escalations = [], onEscalationsChanged = () => {} }: BriefingContentProps) {
-  const { lede, sections } = useMemo(() => parseBriefing(content), [content]);
+  // Repair bare hilt: destinations (spaces/parens break CommonMark link parsing) BEFORE parse
+  // so every downstream render site sees pill-able links.
+  const { lede, sections } = useMemo(() => parseBriefing(normalizeHiltLinks(content)), [content]);
 
   // ── B3 canvas: the live task stores + the shared verdict wire ────────────────────────────
   // useTasksList revalidates on the `tasks-changed` WS event; POSTing a verdict goes to the
@@ -712,6 +742,7 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
         prose-code:text-[var(--text-secondary)] prose-code:bg-[var(--bg-tertiary)]
       ">
         <ReactMarkdown
+            urlTransform={briefingUrlTransform}
           remarkPlugins={[remarkGfm]}
           components={{
             a: ({ href, children, className }) => <BriefingLink href={href} className={className} date={date}>{children}</BriefingLink>,
@@ -728,6 +759,7 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
       {lede && (
         <div className="px-1 text-[15px] leading-relaxed text-[var(--text-secondary)]">
           <ReactMarkdown
+            urlTransform={briefingUrlTransform}
             remarkPlugins={[remarkGfm]}
             components={{
               p: ({ children }) => <p className="!my-0">{children}</p>,
@@ -764,6 +796,7 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
                   return (
                     <div key={ii} id={fnMatch ? `fn-${fnMatch[1]}` : undefined} className="py-0.5 leading-relaxed">
                       <ReactMarkdown
+            urlTransform={briefingUrlTransform}
                         remarkPlugins={[remarkGfm]}
                         rehypePlugins={[rehypeRaw]}
                         components={{

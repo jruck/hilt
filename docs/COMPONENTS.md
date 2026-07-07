@@ -618,6 +618,45 @@ Hook for theme state management (light/dark mode).
 
 ---
 
+## Object Pills (universal object references, v3 unit B5)
+
+Everywhere Hilt name-drops a system object (meeting, task, person, project, library item) it
+renders as ONE inline chip with a popover preview and native-view click-through. Markdown
+reaches the pill through the briefing's `BriefingLink` seam (`hilt:kind/id` link hrefs —
+`parseHiltUri` returns null for every other href, so non-hilt links render exactly as before);
+structured surfaces call `ObjectPill` directly with props.
+
+- **`src/components/objects/ObjectPill.tsx`** — the chip: `<button>` (not `<a>`), tiny lucide
+  kind-glyph (meeting=CalendarClock, task=SquareCheck, person=UserRound, project=FolderOpen,
+  library=BookMarked) + label, `.hilt-object-pill` tokens (the subtle evidence-chip/weather-chip
+  family, NOT the blue `.briefing-link`). Render is ZERO network; the resolve fetch fires on
+  OPEN via SWR (`useObjectCard`, deduped per kind+id). Coarse pointers (checked at tap time):
+  tap resolves + navigates directly, no popover. Unresolvable ref → the pill keeps its label
+  and the popover shows "Couldn't load this <kind>"; `nav: null` disables click-through.
+- **`src/components/objects/ObjectPopover.tsx`** — the house popover shell, extracted from the
+  AppHud eventPopover pattern + CalendarEventPopoverContent's viewport clamp (fixed z-100,
+  getBoundingClientRect anchor, outside-mousedown + Escape dismissal, body portal).
+- **`src/components/objects/ObjectCard.tsx`** — kind dispatch over `ObjectCardData`;
+  `cards/MeetingObjectCard.tsx` is THE canonical meeting card — the same component renders the
+  pill popover body (frontmatter-derived data) AND People's Active meetings section
+  (`PersonMeetingList`'s `ActiveMeetingsSection` re-pointed at it in B5); `cards/TaskObjectCard`
+  wraps the shared `TaskCard`; `cards/SimpleObjectCards` covers person/project/library.
+- **`src/hooks/useObjectCard.ts`** — lazy SWR over `GET /api/objects/resolve` (key is null until
+  the popover opens) + `resolveObject()` for the imperative coarse-pointer tap path.
+
+**Adoption (v1: meeting + task):** briefing prose via `BriefingLink`; the B3 canvas
+`MeetingCard` header lead (`meetingRel` prop — closes the header-nav gap deferred at B3);
+`TaskCard`'s meeting attribution line (`meetingRef?: ObjectRef` prop — pill when passed, plain
+text otherwise; passed by the Proposals section and briefing canvas cards, NOT by
+meeting-scoped surfaces that pass `hideMeeting`); `EscalationsPanel`'s `LoopItemRow` expanded
+citation (first vault-meeting-path citation becomes a pill, `formatCitation` stays as tooltip,
+"+N" plain text for extras).
+
+**HUD sibling note:** the HUD's `EventHero`/eventPopover in `AppHud.tsx` and
+`CalendarEventPopoverContent` are the SOURCE patterns the popover shell was extracted from —
+they are intentionally NOT migrated onto ObjectPill in v1 (scope fence); keep them visually in
+step if the shell changes.
+
 ## Object references ("Copy reference")
 
 Any object the user might pull into an agent chat should offer a **Copy reference** affordance that

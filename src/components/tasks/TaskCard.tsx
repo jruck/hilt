@@ -11,6 +11,8 @@
 import { useEffect, useState } from "react";
 import type { TaskFile } from "@/lib/tasks/types";
 import type { Verdict } from "@/lib/loops/types";
+import type { ObjectRef } from "@/lib/objects/types";
+import { ObjectPill } from "@/components/objects/ObjectPill";
 import { formatHiltMonthDay } from "@/lib/display-date";
 import { ownerChip, parseOwnerPrefix, type OwnerTag } from "@/lib/tasks/owner";
 
@@ -115,12 +117,15 @@ export interface TaskCardProps {
   showStatus?: boolean;
   /** Hide the meeting attribution line — for surfaces already scoped to that meeting. */
   hideMeeting?: boolean;
+  /** B5: when present, the meeting attribution line renders as a meeting ObjectPill
+   *  (popover preview + click-through) instead of plain text. Absent → today's text. */
+  meetingRef?: ObjectRef;
   /** In-briefing rendering (B3 canvas): drop the hilt-card hover chrome/shadow for a quiet
    *  bordered block that sits in the reading flow instead of popping out of it. */
   flush?: boolean;
 }
 
-export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, flush }: TaskCardProps) {
+export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, meetingRef, flush }: TaskCardProps) {
   const [busyVerdict, setBusyVerdict] = useState<Verdict | null>(null);
   const [localVerdict, setLocalVerdict] = useState<Verdict | null>(verdict ?? null);
   const [verdictError, setVerdictError] = useState<string | null>(null);
@@ -183,8 +188,17 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, fl
 
         {meeting && (
           <p className="mt-0.5 text-xs text-[var(--text-tertiary)]" title={task.origin?.meeting}>
-            {meeting.title}
-            {meeting.date ? ` · ${meeting.date}` : ""}
+            {meetingRef ? (
+              <ObjectPill refr={meetingRef}>
+                {meeting.title}
+                {meeting.date ? ` · ${meeting.date}` : ""}
+              </ObjectPill>
+            ) : (
+              <>
+                {meeting.title}
+                {meeting.date ? ` · ${meeting.date}` : ""}
+              </>
+            )}
           </p>
         )}
 

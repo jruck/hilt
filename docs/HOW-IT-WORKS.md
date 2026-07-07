@@ -211,12 +211,23 @@ no artifact/health drawers of its own — a known gap in the pattern):
      pending cards — the same join the meeting view's "Next steps" accordion uses, so deciding
      in either place updates both. The card's header IS the meeting reference (title + date),
      so the editor's own-meeting citation line is suppressed inside the expansion as redundant;
-     citations pointing at any *other* source still render.
+     citations pointing at any *other* source still render. Since B5 the header lead also
+     carries the meeting's chip — click it to preview the meeting or jump to it in People.
    - a **ledger item id** with no task file (older asks, signals, insights) keeps the original
      treatment: verdict buttons attach to exactly the editor's sentence (amber marker =
      escalated). Old briefings carry no task ids and render exactly as they always did.
    - **library items** stay prose + the report link — deliberately not hydrated into cards yet
      (the by-id fetch records an "opened" event, which passive rendering would pollute).
+   - **object pills** (new at B5): when the editor cites an object as a `hilt:` link
+     (`[OC planning](hilt:meeting/meetings/…/OC planning.md)`), it renders as a small inline
+     chip with the object's icon. Click the chip to preview the object's card in a popover —
+     meeting title, time, attendees, Granola link — and click the card's title to jump to the
+     object itself (a meeting opens in People, a task in Bridge). On a phone, tapping the chip
+     jumps straight there. The same chips appear outside the briefing too: a task card's
+     "which meeting did this come from" line, and the meeting citation inside an expanded ask
+     row. The editor is told to cite this way and to keep sub-bullets for *evidence* — a
+     sub-bullet that is nothing but a citation now draws a soft validator warning (never a
+     failure, so old briefings are untouched).
 
 Its files:
 - [$VAULT/briefings/]($VAULT/briefings) — THE briefing, 6:00 AM daily (weekends under

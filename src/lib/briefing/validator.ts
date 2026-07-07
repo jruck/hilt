@@ -113,6 +113,27 @@ export function validateBriefing(markdown: string, mode: BriefingMode): Validati
     failures.push(`editor's memo is featured (bold/heading) without ${MEMO_LINK} on that line or the next: "${line.slice(0, 80)}"`);
   }
 
+  // Citation-only sub-bullets (B5 pill citations — SOFT, never a failure): sub-bullets should
+  // be EVIDENCE (a fact, a quote, a delta); a detail line that is ONLY an italic `*source, date*`
+  // citation span duplicates what an inline `hilt:` pill citation already carries. The ⏭ Next
+  // steps section is exempt — its meeting-citation first sub-bullet is the load-bearing join key
+  // of the id contract (canvas.ts), not reading material.
+  let currentHeading = "";
+  for (const line of markdown.split("\n")) {
+    const heading = line.match(/^##\s+(.*)/);
+    if (heading) { currentHeading = heading[1]; continue; }
+    if (currentHeading.includes("⏭")) continue;
+    const sub = line.match(/^\s{2,}-\s+(.*)$/);
+    if (!sub) continue;
+    // `*loop:<id>, <item-id>*` spans are the LOAD-BEARING ask-binding join key (SKILL: "exact
+    // form is load-bearing") — warning on them coaches the generator to break its own contract
+    // (B5 adversarial finding; there is no hilt: kind for loop items).
+    if (/^\*loop:/.test(sub[1].trim())) continue;
+    if (/^\*[^*]+\*[\s.,;:]*$/.test(sub[1].trim())) {
+      warnings.push(`citation-only sub-bullet (sub-bullets are evidence; cite objects inline as [name](hilt:kind/id) pills): "${line.trim().slice(0, 80)}"`);
+    }
+  }
+
   // Footer.
   if (!markdown.includes(FOOTER_MARKER)) failures.push(`missing footer ("${FOOTER_MARKER}…")`);
 

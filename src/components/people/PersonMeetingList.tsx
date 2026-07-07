@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowLeft, CalendarDays, Check, Copy, ExternalLink, EyeOff, FileText, FolderOpen, Inbox, Link as LinkIcon, Loader2, MoreVertical, Network, Plus, Settings, Trash2, Video } from "lucide-react";
 import { useScope } from "@/contexts/ScopeContext";
@@ -10,6 +10,7 @@ import { buildReference } from "@/lib/references/build";
 import { copyToClipboard } from "@/lib/references/clipboard";
 import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import MeetingRow from "./MeetingRow";
+import { MeetingObjectCard, type MeetingCardAction } from "@/components/objects/cards/MeetingObjectCard";
 import type { PersonActiveMeeting, PersonCalendarCandidate, PersonDetail, PersonMeeting, PersonResourceLink, SuggestedMeeting } from "@/lib/types";
 import { withBasePath } from "@/lib/base-path";
 import { formatHiltMonthDay } from "@/lib/display-date";
@@ -755,6 +756,10 @@ function PeopleResourcesSection({
   );
 }
 
+/** Active meetings render through the canonical MeetingObjectCard (B5) — the card JSX that
+ * used to live inline here was extracted as that shared component, so the object popover and
+ * People stay one rendering. Behavior/visuals are unchanged: same title/time/match lines,
+ * same open-in-calendar header icon, same join/resource/provider chips. */
 function ActiveMeetingsSection({
   meetings,
   onOpenCalendar,
@@ -767,81 +772,43 @@ function ActiveMeetingsSection({
       <div className="mb-2 text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Active meetings</div>
       <div className="grid gap-2">
         {meetings.map((meeting) => (
-          <div key={meeting.seriesKey} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-2.5">
-            <div className="flex min-w-0 items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-[var(--text-primary)]">{meeting.title}</div>
-                <div className="mt-0.5 text-xs text-[var(--text-secondary)]">{formatActiveMeetingTime(meeting)}</div>
-                <div className="mt-0.5 text-[11px] text-[var(--text-tertiary)]">
-                  {meeting.method === "icaluid" ? "iCal UID" : "Title"} · {Math.round(meeting.confidence * 100)}% · {meeting.historicalCount} recording{meeting.historicalCount === 1 ? "" : "s"}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => onOpenCalendar(meeting)}
-                className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-                title="Open in Calendar"
-              >
-                <CalendarDays className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {meeting.joinLinks.map((link, index) => (
-                <PeopleActionLink
-                  key={`${link.kind}:${link.url}`}
-                  href={link.url}
-                  icon={<Video className="h-3 w-3" />}
-                  label={joinLinkLabel(link.kind)}
-                  primary={index === 0}
-                />
-              ))}
-              {meeting.resourceLinks.map((link) => (
-                <PeopleActionLink
-                  key={`resource:${link.kind}:${link.url}`}
-                  href={link.url}
-                  icon={link.kind === "web" ? <LinkIcon className="h-3 w-3" /> : <FileText className="h-3 w-3" />}
-                  label={link.label}
-                />
-              ))}
-              {meeting.providerUrl ? (
-                <PeopleActionLink
-                  href={meeting.providerUrl}
-                  icon={<ExternalLink className="h-3 w-3" />}
-                  label="Provider"
-                />
-              ) : null}
-            </div>
-          </div>
+          <MeetingObjectCard
+            key={meeting.seriesKey}
+            title={meeting.title}
+            timeLabel={formatActiveMeetingTime(meeting)}
+            metaLabel={`${meeting.method === "icaluid" ? "iCal UID" : "Title"} · ${Math.round(meeting.confidence * 100)}% · ${meeting.historicalCount} recording${meeting.historicalCount === 1 ? "" : "s"}`}
+            headerAction={{
+              icon: <CalendarDays className="h-3.5 w-3.5" />,
+              onClick: () => onOpenCalendar(meeting),
+              title: "Open in Calendar",
+            }}
+            actions={[
+              ...meeting.joinLinks.map((link, index): MeetingCardAction => ({
+                type: "link",
+                href: link.url,
+                icon: <Video className="h-3 w-3" />,
+                label: joinLinkLabel(link.kind),
+                primary: index === 0,
+              })),
+              ...meeting.resourceLinks.map((link): MeetingCardAction => ({
+                type: "link",
+                href: link.url,
+                icon: link.kind === "web" ? <LinkIcon className="h-3 w-3" /> : <FileText className="h-3 w-3" />,
+                label: link.label,
+              })),
+              ...(meeting.providerUrl
+                ? [{
+                    type: "link",
+                    href: meeting.providerUrl,
+                    icon: <ExternalLink className="h-3 w-3" />,
+                    label: "Provider",
+                  } satisfies MeetingCardAction]
+                : []),
+            ]}
+          />
         ))}
       </div>
     </div>
-  );
-}
-
-function PeopleActionLink({
-  href,
-  icon,
-  label,
-  primary = false,
-}: {
-  href: string;
-  icon: ReactNode;
-  label: string;
-  primary?: boolean;
-}) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className={primary
-        ? "inline-flex h-7 items-center gap-1.5 rounded-md bg-[var(--interactive-default)] px-2 text-xs font-medium text-white hover:bg-[var(--interactive-hover)]"
-        : "inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-default)] px-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"}
-      title={href}
-    >
-      {icon}
-      {label}
-    </a>
   );
 }
 

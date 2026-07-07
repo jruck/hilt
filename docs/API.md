@@ -1167,6 +1167,38 @@ managed via the verdict flow, not PUT); an unknown id gets `404`.
 
 ---
 
+## Object Resolution
+
+### GET /api/objects/resolve
+
+**File**: `src/app/api/objects/resolve/route.ts` (dispatch: `src/lib/objects/resolvers.ts`)
+
+Universal object-reference resolver (v3 unit B5) — turns an `ObjectRef` (see DATA-MODELS.md)
+into the card view-model + nav target the ObjectPill popover renders. **Pure read, zero side
+effects**: the library resolver goes through `getLibraryArtifact()` directly, deliberately
+bypassing `GET /api/library/[id]` because that route stamps an `opened` read-state event and a
+popover preview must not count as a read. The client fetches lazily (SWR via `useObjectCard`,
+keyed on popover OPEN) — rendering pills costs zero network.
+
+**Query params**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `kind` | string | `meeting` \| `task` \| `person` \| `project` \| `library` |
+| `id` | string | The kind's native id (meeting/project ids are vault-relative paths) |
+
+**Response**: `ResolvedObject` — `{ kind, card: ObjectCardData, nav: { view, scope } | null }`.
+`nav: null` means the card renders but there is no click-through (e.g. a meeting note without a
+`granola_id`). Meeting nav targets People's meeting inbox
+(`/__inbox__/meeting/<granolaId>`); task/project nav targets Bridge; person `/<slug>` in
+People; library `/item/<id>` in Library.
+
+**Errors**: `400` unknown kind / missing id; `404` unresolvable ref (missing file, invalid task
+id, path outside the vault — the pill degrades gracefully). Traversal ids are rejected before
+any filesystem access.
+
+---
+
 ## Docs Routes
 
 Routes for the Docs view, which provides a file browser and editor for project files.

@@ -83,9 +83,12 @@ export interface TaskCardProps {
   showStatus?: boolean;
   /** Hide the meeting attribution line — for surfaces already scoped to that meeting. */
   hideMeeting?: boolean;
+  /** In-briefing rendering (B3 canvas): drop the hilt-card hover chrome/shadow for a quiet
+   *  bordered block that sits in the reading flow instead of popping out of it. */
+  flush?: boolean;
 }
 
-export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting }: TaskCardProps) {
+export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, flush }: TaskCardProps) {
   const [busyVerdict, setBusyVerdict] = useState<Verdict | null>(null);
   const [localVerdict, setLocalVerdict] = useState<Verdict | null>(verdict ?? null);
   const [verdictError, setVerdictError] = useState<string | null>(null);
@@ -121,7 +124,9 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting }: 
   }
 
   return (
-    <div className="group/taskcard hilt-card">
+    <div className={flush
+      ? "group/taskcard rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)]"
+      : "group/taskcard hilt-card"}>
       <div className="px-3 py-2.5">
         <div className="flex items-start gap-2">
           <span className="min-w-0 flex-1 text-sm leading-relaxed text-[var(--text-primary)]">

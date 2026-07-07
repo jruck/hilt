@@ -200,6 +200,8 @@ interface LoopEscalationsResponse {
     loop_phase: "live" | "shadow";
     artifact_date: string;
     verdict?: Verdict;     // Latest existing ask verdict, when present
+    // LoopItem also carries task_id?: string (B3) — the proposal task file this ask minted
+    // (the A6 ledger stamp), exposed so the briefing editor/canvas can join item ↔ task.
   }>;
   errors: Array<{
     loop?: string;

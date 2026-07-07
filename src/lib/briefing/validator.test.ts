@@ -110,6 +110,43 @@ test("a Sources section is forbidden", () => {
   assert.ok(r.failures.some((f) => f.includes("Sources")));
 });
 
+// ── B3 canvas: the ⏭ Next steps section ────────────────────────────────────────────────────
+
+test("a daily with ⏭ Next steps between 🧠 and 💼 passes (B3 spine)", () => {
+  const md = validDaily().replace(
+    "## 💼 Work & product",
+    "## ⏭ Next steps\n- **OC planning (6/30)** — Phase 2 verbally approved; campaign outline is the deliverable\n  - *meetings/2026-06-30/OC planning-2026-06-30.md, 2026-06-30*\n  - `t-20260707-001`\n  - `t-20260707-002`\n\n## 💼 Work & product",
+  );
+  const r = validateBriefing(md, "daily");
+  assert.equal(r.pass, true, `unexpected failures: ${r.failures.join(" | ")}`);
+  assert.ok(!r.warnings.some((w) => w.includes("⏭")), `⏭ must be canonical, not unknown: ${r.warnings.join(" | ")}`);
+});
+
+test("a VS16 ⏭️ Next steps heading is also canonical", () => {
+  const md = validDaily().replace(
+    "## 💼 Work & product",
+    "## ⏭️ Next steps\n- **OC planning (6/30)** — outline due\n  - `t-20260707-001`\n\n## 💼 Work & product",
+  );
+  const r = validateBriefing(md, "daily");
+  assert.equal(r.pass, true, `unexpected failures: ${r.failures.join(" | ")}`);
+  assert.ok(!r.warnings.some((w) => w.includes("⏭")), r.warnings.join(" | "));
+});
+
+test("⏭ Next steps AFTER 💼 is out of canonical order", () => {
+  const md = validDaily().replace(
+    "## 📚 Library & knowledge",
+    "## ⏭ Next steps\n- entry\n  - `t-20260707-001`\n\n## 📚 Library & knowledge",
+  );
+  const r = validateBriefing(md, "daily");
+  assert.ok(r.failures.some((f) => f.includes("order")), r.failures.join(" | "));
+});
+
+test("a pre-B3 daily (no ⏭ section) still validates unchanged", () => {
+  // validDaily() has no ⏭ section — the canonical spine only constrains PRESENT sections.
+  const r = validateBriefing(validDaily(), "daily");
+  assert.equal(r.pass, true, `unexpected failures: ${r.failures.join(" | ")}`);
+});
+
 test("out-of-order sections fail", () => {
   const md = validDaily().replace("## 📈 System", "## 📅 System"); // a second 📅 after 📚 → order break
   const r = validateBriefing(md, "daily");

@@ -247,8 +247,11 @@ export function renderEscalationsSection(items: LoopItem[]): string {
   const lines = ["## Escalations", ""];
   for (const item of escalated) {
     // The id rides in the view: the briefing model must be able to cite it in its own lines,
-    // because the reader UI attaches verdict controls to id-carrying briefing bullets.
-    lines.push(`- **${item.title}** — ${item.escalated!.reason} \`${item.id}\``);
+    // because the reader UI attaches verdict controls to id-carrying briefing bullets. When the
+    // ask has minted a proposal task file (A6 `task_id` stamp), the TASK id rides too — the B3
+    // canvas contract: the editor places `t-…` and the reader UI hydrates a live TaskCard there.
+    const taskRef = item.task_id ? ` → task \`${item.task_id}\`` : "";
+    lines.push(`- **${item.title}** — ${item.escalated!.reason} \`${item.id}\`${taskRef}`);
     const citation = item.citations[0];
     if (citation) {
       const citationText = citation.date ? `${citation.source}, ${citation.date}` : citation.source;

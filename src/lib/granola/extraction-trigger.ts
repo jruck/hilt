@@ -281,9 +281,16 @@ export async function runMeetingActionsBatch(meetingPaths: string[]): Promise<vo
       // the wrapper, leaving the real worker running AND holding the stdio pipes open, which
       // wedged the serial queue forever (adversarial finding, 2026-07-07). detached gives the
       // tree its own process group so the timeout can kill ALL of it.
+      // PATH discipline from scripts/hilt-launchd-npm.sh: the supervised ws-server's PATH
+      // resolves the FOSSIL /usr/local/bin/claude (npm-era v1.x) ahead of the real
+      // ~/.local/bin/claude — the loop's extraction then dies in ~1s on an unknown flag
+      // (first live trigger fire, 2026-07-07: exited 0, failures:1). Same fix as the
+      // launchd jobs got on 2026-07-02.
+      const home = process.env.HOME || os.homedir();
+      const PATH = `${home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH || ""}`;
       const child = spawn("npx", ["tsx", "scripts/loop-meeting-actions.ts", "--meetings-file", meetingsFile], {
         cwd,
-        env: { ...process.env },
+        env: { ...process.env, PATH },
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,
       });

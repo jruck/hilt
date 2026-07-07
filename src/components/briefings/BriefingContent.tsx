@@ -13,9 +13,26 @@ import {
   EscalationsBlock,
   FloatingAskControls,
   EscalationsFallbackFold,
-  loopMatchesSection,
+  sectionIndexForLoop,
   type EscalatedLoopItem,
 } from "./EscalationsPanel";
+import {
+  cleanLoopTokens,
+  extractMeetingRelPath,
+  extractTaskIds,
+  isNextStepsHeading,
+  isTaskIdOnlyLine,
+  meetingLabelFromRelPath,
+  parseBriefing,
+  stripTaskTokens,
+  type BriefingItem,
+} from "@/lib/briefing/canvas";
+import { MeetingCard } from "./MeetingCard";
+import { TaskCard } from "@/components/tasks/TaskCard";
+import { useTasksList } from "@/hooks/useTaskFile";
+import { askToTaskFile, joinMeetingNextSteps } from "@/lib/tasks/meeting-next-steps";
+import type { TaskFile } from "@/lib/tasks/types";
+import type { Verdict } from "@/lib/loops/types";
 interface BriefingContentProps {
   content: string;
   date?: string;
@@ -27,126 +44,6 @@ interface BriefingContentProps {
    * runtime → System, …). Loops with no matching section render in a fallback fold above. */
   escalations?: EscalatedLoopItem[];
   onEscalationsChanged?: () => void;
-}
-
-interface BriefingItem {
-  headline: string; // top-level bullet text (markdown)
-  details: string; // sub-bullets as markdown
-  /** True when this "item" is a paragraph/standalone-link line, not a bullet (renders unmarked). */
-  prose?: boolean;
-}
-
-interface BriefingSection {
-  heading: string; // ## heading text
-  items: BriefingItem[];
-}
-
-/**
- * Parse briefing markdown into a lede + sections with collapsible items.
- * Handles the briefing shape:
- *   **Day-thesis lede paragraph.**
- *   ## Section Heading
- *   - Top-level headline
- *     - Detail sub-bullet
- *   Prose paragraph (sections may be prose-styled — e.g. Library)
- *   [Full library report](/api/reports/morning)
- * Paragraph lines and standalone link lines are PRESERVED as unmarked items — the first
- * renderer dropped every non-bullet line, which silently emptied prose-styled sections and
- * hid the lede entirely. Parsing stops at a `---` horizontal rule (the generation footer).
- */
-function parseBriefing(content: string): { lede: string; sections: BriefingSection[] } {
-  // Strip leading h1
-  const body = content.replace(/^\s*#\s+.+\n*/, "");
-  const lines = body.split("\n");
-
-  const sections: BriefingSection[] = [];
-  const ledeLines: string[] = [];
-  let currentSection: BriefingSection | null = null;
-  let currentItem: BriefingItem | null = null;
-
-  const flushItem = () => {
-    if (currentItem && currentSection) currentSection.items.push(currentItem);
-    currentItem = null;
-  };
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    // Horizontal rule — everything after it is the generation footer; stop.
-    if (line.match(/^\s*(-{3,}|\*{3,})\s*$/)) break;
-
-    // Footnote definition lines — treat as top-level items in current section
-    const footnoteMatch = line.match(/^\[\^(\d+)\]:\s*(.*)/);
-    if (footnoteMatch) {
-      flushItem();
-      currentItem = {
-        headline: `[${footnoteMatch[1]}] ${footnoteMatch[2]}`,
-        details: "",
-      };
-      continue;
-    }
-
-    // ## Section heading
-    if (line.match(/^##\s+/)) {
-      flushItem();
-      if (currentSection) sections.push(currentSection);
-      currentSection = {
-        heading: line.replace(/^##\s+/, "").trim(),
-        items: [],
-      };
-      continue;
-    }
-
-    // Top-level bullet: "- " at start (no indent)
-    if (line.match(/^- /)) {
-      flushItem();
-      currentItem = {
-        headline: line.replace(/^- /, "").trim(),
-        details: "",
-      };
-      continue;
-    }
-
-    // Indented line (sub-bullet or continuation) — belongs to current item. Prose items absorb
-    // them too: a paragraph-styled meeting entry with indented ask sub-bullets must keep its
-    // asks as details, not have them smashed into the paragraph text.
-    if (currentItem && line.match(/^\s{2,}/)) {
-      currentItem.details += (currentItem.details ? "\n" : "") + line;
-      continue;
-    }
-
-    // Paragraph / standalone-link line (unindented, non-bullet, non-heading)
-    if (line.trim() !== "") {
-      if (!currentSection) {
-        // Before the first section heading = the day-thesis lede.
-        ledeLines.push(line.trim());
-        continue;
-      }
-      // Merge consecutive paragraph lines into one prose item.
-      if (currentItem?.prose) {
-        currentItem.headline += ` ${line.trim()}`;
-      } else {
-        flushItem();
-        currentItem = { headline: line.trim(), details: "", prose: true };
-      }
-      continue;
-    }
-
-    // Empty line — paragraph boundary for prose; spacing for bullet details.
-    if (currentItem?.prose) {
-      flushItem();
-    } else if (currentItem && currentItem.details) {
-      currentItem.details += "\n";
-    }
-  }
-
-  // Save final item and section
-  flushItem();
-  if (currentSection) {
-    sections.push(currentSection);
-  }
-
-  return { lede: ledeLines.join(" "), sections };
 }
 
 /** Replace [^N] citation markers with superscript HTML */
@@ -305,28 +202,78 @@ function ItemFeedbackButton({ section, headline }: { section: string; headline: 
   );
 }
 
-/** Join keys are not reading material: strip loop item ids + loop citations from display text. */
-function cleanLoopTokens(text: string): string {
-  return text
-    .replace(/`[a-z]{2,8}-\d{4}-\d{2}-\d{2}-\d{3}`/g, "")
-    .replace(/\b[a-z]{2,8}-\d{4}-\d{2}-\d{2}-\d{3}\b/g, "")
-    .replace(/\*loop:[^*]+\*/g, "")
-    .replace(/[ \t]+$/gm, "")
-    .replace(/ {2,}/g, " ");
+/**
+ * The B3 canvas context — the live task stores + the verdict wire, threaded down to every
+ * bullet so a `t-…` id anywhere hydrates into a TaskCard. Proposals and accepted tasks share
+ * one lookup (approve moves the file between stores; the id is stable across the move).
+ */
+interface CanvasContext {
+  taskById: Map<string, TaskFile>;
+  tasks: TaskFile[];
+  proposals: TaskFile[];
+  escalations: EscalatedLoopItem[];
+  /** POSTs to the SAME /api/loops/verdicts endpoint every other surface uses (file effect +
+   * ledger effect ride the task's origin). Undefined when the task has no verdict join. */
+  makeVerdictHandler: (loop?: string, itemId?: string) => ((verdict: Verdict, note?: string) => Promise<void>) | undefined;
 }
 
-function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoopItems = [], onLoopItemsChanged = () => {} }: { item: BriefingItem; section: string; date?: string; absPath?: string; feedbackable?: boolean; boundLoopItems?: EscalatedLoopItem[]; onLoopItemsChanged?: () => void }) {
+/** Display-text cleaning: join keys are not reading material. Loop tokens strip only when the
+ * bullet has bound ask affordances (pre-B3 behavior, unchanged); task tokens strip only when
+ * they hydrated into cards — an unresolved id stays visible as an honest inert chip. */
+function stripDisplayTokens(text: string, stripLoop: boolean, stripTasks: boolean): string {
+  let out = text;
+  if (stripLoop) out = cleanLoopTokens(out);
+  if (stripTasks) out = stripTaskTokens(out);
+  return out;
+}
+
+/** One hydrated task card inside the briefing: proposals stay decidable, everything else is a
+ * read-only card with its status badge (an id the editor stamped at 6:00 that got approved by
+ * 8:00 shows "Accepted" — the canvas reflects the live object, not the morning snapshot). */
+function CanvasTaskCard({ task, canvas }: { task: TaskFile; canvas: CanvasContext }) {
+  const pending = task.status === "proposed";
+  return (
+    <TaskCard
+      flush
+      task={task}
+      showStatus={!pending}
+      onVerdict={pending ? canvas.makeVerdictHandler(task.origin?.loop, task.origin?.item_id) : undefined}
+    />
+  );
+}
+
+function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoopItems = [], onLoopItemsChanged = () => {}, canvas }: { item: BriefingItem; section: string; date?: string; absPath?: string; feedbackable?: boolean; boundLoopItems?: EscalatedLoopItem[]; onLoopItemsChanged?: () => void; canvas: CanvasContext }) {
   const haptics = useHaptics();
   const [expanded, setExpanded] = useState(false);
+  // B3 canvas join: task ids in this bullet hydrate into TaskCards. Headline-bound cards render
+  // under the headline (the bullet IS the object); detail-bound cards render inside the
+  // expansion, replacing their id-only lines — same progressive disclosure as ask lists.
+  const headlineTasks = extractTaskIds(item.headline)
+    .map((id) => canvas.taskById.get(id))
+    .filter((task): task is TaskFile => Boolean(task));
+  const detailTaskIds = extractTaskIds(item.details);
+  const hasDetailTasks = detailTaskIds.some((id) => canvas.taskById.has(id));
+  // A loop item whose ask already renders as a task card must not ALSO bind ask controls —
+  // one affordance per object (the card wins; it is the richer surface).
+  const cardOriginIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const id of [...extractTaskIds(item.headline), ...detailTaskIds]) {
+      const originId = canvas.taskById.get(id)?.origin?.item_id;
+      if (originId) ids.add(originId);
+    }
+    return ids;
+  }, [item.headline, detailTaskIds, canvas.taskById]);
   // Asks bound to this bullet: headline-bound get floating controls on the headline's line;
   // detail-bound render each ask's controls on ITS OWN sub-bullet line — never a parallel
   // control stack repeating the editor's list (rejected 2026-07-03). Ask lists expand/collapse
   // like any other briefing item — actions don't force visibility, the reader chooses.
-  const headlineBound = boundLoopItems.filter((loopItem) => item.headline.includes(loopItem.id));
-  const detailBound = boundLoopItems.filter((loopItem) => item.details.includes(loopItem.id));
-  const hasAskList = detailBound.length > 0;
+  const headlineBound = boundLoopItems.filter((loopItem) => item.headline.includes(loopItem.id) && !cardOriginIds.has(loopItem.id));
+  const detailBound = boundLoopItems.filter((loopItem) => item.details.includes(loopItem.id) && !cardOriginIds.has(loopItem.id));
+  const hasAskList = detailBound.length > 0 || hasDetailTasks;
   const hasDetails = item.details.trim().length > 0;
-  const escalatedHere = boundLoopItems.some((loopItem) => loopItem.escalated);
+  const escalatedHere = boundLoopItems.some((loopItem) => loopItem.escalated)
+    || headlineTasks.some((task) => task.status === "proposed")
+    || detailTaskIds.some((id) => canvas.taskById.get(id)?.status === "proposed");
 
   // Detect footnote items like "[1] Some text" and add anchor id
   const footnoteMatch = item.headline.match(/^\[(\d+)\]\s/);
@@ -354,7 +301,7 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
               a: ({ href, children, className }) => <BriefingLink href={href} className={className} date={date}>{children}</BriefingLink>,
             }}
           >
-            {renderCitations(hasAskList || headlineBound.length ? cleanLoopTokens(item.headline) : item.headline)}
+            {renderCitations(stripDisplayTokens(item.headline, hasAskList || headlineBound.length > 0, headlineTasks.length > 0))}
           </ReactMarkdown>
         </span>
         <span onClick={(e) => e.stopPropagation()} className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
@@ -368,11 +315,51 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
       {headlineBound.map((loopItem) => (
         <FloatingAskControls key={loopItem.id} item={loopItem} onChanged={onLoopItemsChanged} />
       ))}
-      {/* Detail-bound asks: the editor's sub-bullets ARE the ask list — one structure. Expands
-          and collapses like any briefing item; each ask's controls float on its own line. */}
+      {/* Headline-bound task cards (B3): the bullet IS the object — its live card renders right
+          under the editor's line, always visible like the headline ask controls. */}
+      {headlineTasks.length > 0 && (
+        <div className="space-y-1.5 pb-1">
+          {headlineTasks.map((task) => (
+            <CanvasTaskCard key={task.id} task={task} canvas={canvas} />
+          ))}
+        </div>
+      )}
+      {/* Detail-bound asks + task cards: the editor's sub-bullets ARE the list — one structure.
+          Expands and collapses like any briefing item; each ask's controls float on its own
+          line; a `t-…` id line hydrates into its TaskCard in place (B3 canvas contract). */}
       {expanded && hasAskList && (
         <ul className="briefing-list pl-5 space-y-0.5 pb-1">
           {item.details.split("\n").map((line, li) => {
+            const lineTasks = extractTaskIds(line)
+              .map((id) => canvas.taskById.get(id))
+              .filter((task): task is TaskFile => Boolean(task));
+            if (lineTasks.length > 0) {
+              const residue = isTaskIdOnlyLine(line)
+                ? ""
+                : stripTaskTokens(cleanLoopTokens(line)).replace(/^\s*-\s*/, "").trim();
+              return (
+                <li key={li} className="list-none -ml-4 space-y-1.5 py-0.5">
+                  {residue && (
+                    <span className="leading-relaxed briefing-inline-md">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeRaw]}
+                        components={{
+                          p: ({ children }) => <>{children}</>,
+                          strong: ({ children }) => <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>,
+                          a: ({ href, children, className }) => <BriefingLink href={href} className={className} date={date}>{children}</BriefingLink>,
+                        }}
+                      >
+                        {residue}
+                      </ReactMarkdown>
+                    </span>
+                  )}
+                  {lineTasks.map((task) => (
+                    <CanvasTaskCard key={task.id} task={task} canvas={canvas} />
+                  ))}
+                </li>
+              );
+            }
             const bound = detailBound.find((loopItem) => line.includes(loopItem.id));
             const text = cleanLoopTokens(line).replace(/^\s*-\s*/, "").trim();
             if (!text) return null;
@@ -417,8 +404,177 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
   );
 }
 
+/**
+ * A "⏭ Next steps" meeting entry (B3): the editor's substance lead becomes a MeetingCard that
+ * expands into the meeting's LIVE task cards — the same joinMeetingNextSteps join the meeting
+ * view (B2) uses, so a verdict given in either place is reflected in both. The editor's id-only
+ * sub-bullet lines are consumed by their cards; every other sub-line renders above the cards.
+ */
+function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedbackable, canvas, boundLoopItems = [], defaultOpen }: {
+  item: BriefingItem;
+  meetingRel: string;
+  section: string;
+  date?: string;
+  absPath?: string;
+  feedbackable?: boolean;
+  canvas: CanvasContext;
+  boundLoopItems?: EscalatedLoopItem[];
+  defaultOpen?: boolean;
+}) {
+  const { title, date: meetingDate } = meetingLabelFromRelPath(meetingRel);
+  const join = useMemo(
+    () => joinMeetingNextSteps({
+      meetingRelPath: meetingRel,
+      tasks: canvas.tasks,
+      proposals: canvas.proposals,
+      escalations: canvas.escalations,
+    }),
+    [meetingRel, canvas.tasks, canvas.proposals, canvas.escalations],
+  );
+  const stampedIds = useMemo(
+    () => extractTaskIds(`${item.headline}\n${item.details}`),
+    [item.headline, item.details],
+  );
+  // Landed lane: ONLY ids the editor stamped this morning — an id approved between 6:00 and
+  // reading shows as a read-only "Accepted" card (live feedback), but the meeting's whole
+  // historical task list stays in the meeting view, not the briefing.
+  const landedStamped = join.tasks.filter((task) => stampedIds.includes(task.id));
+  // Never-drop insurance: an ask the editor bound to THIS bullet that the citation join missed
+  // still renders (shaped as a card like the meeting view's unminted lane).
+  const joined = new Set([
+    ...join.unmintedAsks.map((ask) => `${ask.loop}:${ask.id}`),
+    ...[...join.proposals, ...join.tasks].map((task) => `${task.origin?.loop ?? ""}:${task.origin?.item_id ?? ""}`),
+  ]);
+  const extraBoundAsks = boundLoopItems.filter(
+    (loopItem) => (loopItem.kind === "action" || loopItem.kind === "proposal") && !joined.has(`${loopItem.loop}:${loopItem.id}`),
+  );
+  const pendingCount = join.proposals.length
+    + join.unmintedAsks.filter((ask) => !ask.verdict).length
+    + extraBoundAsks.filter((ask) => !ask.verdict).length;
+
+  // Sub-lines that survive hydration: id-only lines whose ids are known objects are consumed by
+  // their cards; everything else (the meeting citation, editorial sub-bullets, unknown ids)
+  // stays visible — nothing silently disappears.
+  const knownTaskIds = useMemo(() => {
+    const ids = new Set(canvas.taskById.keys());
+    for (const escalation of canvas.escalations) {
+      if (escalation.task_id) ids.add(escalation.task_id);
+    }
+    return ids;
+  }, [canvas.taskById, canvas.escalations]);
+  const leftoverLines = item.details
+    .split("\n")
+    .map((line) => {
+      const ids = extractTaskIds(line);
+      if (isTaskIdOnlyLine(line) && ids.every((id) => knownTaskIds.has(id))) return null;
+      // A line whose id is UNKNOWN (task file deleted out-of-band) keeps its raw token as an
+      // inert chip — stripping it left an empty residue that vanished, violating never-drop.
+      const keepTokens = ids.some((id) => !knownTaskIds.has(id));
+      const cleaned = keepTokens ? cleanLoopTokens(line) : stripTaskTokens(cleanLoopTokens(line));
+      const text = cleaned.replace(/^\s*-\s*/, "").trim();
+      return text || null;
+    })
+    .filter((text): text is string => Boolean(text));
+
+  const markdownComponents = {
+    p: ({ children }: { children?: ReactNode }) => <>{children}</>,
+    strong: ({ children }: { children?: ReactNode }) => <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>,
+    a: ({ href, children, className }: { href?: string; children?: ReactNode; className?: string }) => (
+      <BriefingLink href={href} className={className} date={date}>{children}</BriefingLink>
+    ),
+  };
+
+  return (
+    <MeetingCard
+      title={title}
+      date={meetingDate}
+      pendingCount={pendingCount}
+      defaultOpen={defaultOpen}
+      actions={(
+        <>
+          {feedbackable && <ItemFeedbackButton section={section} headline={item.headline} />}
+          {absPath && (
+            <CopyReferenceButton variant="icon" reference={{ kind: "briefing-item", absPath, headline: item.headline }} />
+          )}
+        </>
+      )}
+      summary={(
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
+          {renderCitations(stripTaskTokens(cleanLoopTokens(item.headline)))}
+        </ReactMarkdown>
+      )}
+    >
+      {leftoverLines.map((line, index) => (
+        <div key={`line-${index}`} className="leading-relaxed briefing-inline-md text-[var(--text-secondary)]">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
+            {line}
+          </ReactMarkdown>
+        </div>
+      ))}
+      {join.proposals.map((task) => (
+        <TaskCard
+          key={task.id}
+          flush
+          hideMeeting
+          task={task}
+          onVerdict={canvas.makeVerdictHandler(task.origin?.loop, task.origin?.item_id)}
+        />
+      ))}
+      {[...join.unmintedAsks, ...extraBoundAsks].map((ask) => (
+        <TaskCard
+          key={`${ask.loop}:${ask.id}`}
+          flush
+          hideMeeting
+          task={askToTaskFile(ask, meetingRel)}
+          verdict={ask.verdict}
+          onVerdict={ask.verdict ? undefined : canvas.makeVerdictHandler(ask.loop, ask.id)}
+        />
+      ))}
+      {landedStamped.map((task) => (
+        <TaskCard key={task.id} flush hideMeeting showStatus task={task} />
+      ))}
+    </MeetingCard>
+  );
+}
+
 export function BriefingContent({ content, date, absPath, feedbackable = true, escalations = [], onEscalationsChanged = () => {} }: BriefingContentProps) {
   const { lede, sections } = useMemo(() => parseBriefing(content), [content]);
+
+  // ── B3 canvas: the live task stores + the shared verdict wire ────────────────────────────
+  // useTasksList revalidates on the `tasks-changed` WS event; POSTing a verdict goes to the
+  // SAME /api/loops/verdicts endpoint as ProposalsSection and the meeting view — the route
+  // applies the file effect synchronously, the ledger effect lands at the loop's next run.
+  const { tasks, proposals, mutate: mutateTasks } = useTasksList();
+  const taskById = useMemo(() => {
+    const map = new Map<string, TaskFile>();
+    for (const task of [...tasks, ...proposals]) map.set(task.id, task);
+    return map;
+  }, [tasks, proposals]);
+  const makeVerdictHandler = useCallback(
+    (loop?: string, itemId?: string) => {
+      // Only loop-minted objects carry the verdict join — anything else is read-only rather
+      // than posting a broken verdict (the A6 guard, carried over).
+      if (!loop || !itemId) return undefined;
+      return async (verdict: Verdict, note?: string) => {
+        const response = await fetch(withBasePath("/api/loops/verdicts"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ loop, item_id: itemId, verdict, ...(note ? { note } : {}) }),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null) as { error?: string } | null;
+          throw new Error(payload?.error || `Request failed: ${response.status}`);
+        }
+        mutateTasks();
+        onEscalationsChanged();
+      };
+    },
+    [mutateTasks, onEscalationsChanged],
+  );
+  const canvas = useMemo<CanvasContext>(
+    () => ({ taskById, tasks, proposals, escalations, makeVerdictHandler }),
+    [taskById, tasks, proposals, escalations, makeVerdictHandler],
+  );
 
   // Nest each loop's escalations inside its owning section. The join key is the briefing's OWN
   // loop citations (`*loop:<id>, <date>*` — the generator stamps which section drew from which
@@ -441,7 +597,12 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
         if (!sectionTexts[si]) continue;
         for (let ii = 0; ii < sections[si].items.length; ii++) {
           const bullet = sections[si].items[ii];
-          if (`${bullet.headline}\n${bullet.details}`.includes(item.id)) {
+          // Featured = the editor placed EITHER id form: the ma- ledger id (pre-B3 contract) or
+          // the minted t- task id (B3 ⏭ contract). Binding only on ma- classified every
+          // ⏭-featured proposal as unfeatured — the whole meeting group re-rendered below the
+          // MeetingCard that already carried its TaskCards (adversarial finding, 2026-07-07).
+          const boundText = `${bullet.headline}\n${bullet.details}`;
+          if (boundText.includes(item.id) || (item.task_id && boundText.includes(item.task_id))) {
             const key = `${si}:${ii}`;
             const bucket = perBullet.get(key);
             if (bucket) bucket.push(item);
@@ -452,10 +613,12 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
         }
       }
       if (bound) continue;
-      // Next: the section that cites the loop; then the heading name-map; then the fallback fold.
+      // Next: the section that cites the loop; then the heading name-map (priority-ordered —
+      // unfeatured meeting asks prefer ⏭ Next steps, falling back to 🧠 for pre-B3 briefings);
+      // then the fallback fold.
       let sectionIndex = sectionTexts.findIndex((text) => text.includes(`loop:${item.loop}`));
       if (sectionIndex === -1) {
-        sectionIndex = sections.findIndex((section) => loopMatchesSection(item.loop, section.heading));
+        sectionIndex = sectionIndexForLoop(item.loop, sections.map((section) => section.heading));
       }
       if (sectionIndex === -1) {
         leftovers.push(item);
@@ -515,6 +678,13 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
       {sections.map((section, si) => {
         const isSourcesSection = /sources/i.test(section.heading);
         const sectionEscalations = bySection.get(si) || [];
+        // B3: inside ⏭ Next steps, a bullet carrying a meeting citation renders as a
+        // MeetingCard (expandable to that meeting's live task cards). Keyed on the ⏭ marker +
+        // the citation — pre-B3 briefings have neither, so they render exactly as before.
+        const isNextSteps = isNextStepsHeading(section.heading);
+        const meetingRels = section.items.map((item) =>
+          isNextSteps && !item.prose ? extractMeetingRelPath(`${item.headline}\n${item.details}`) : null);
+        const meetingEntryCount = meetingRels.filter(Boolean).length;
         return (
           <div key={si} className="hilt-card hilt-card-static overflow-visible">
             <div className="rounded-t-lg px-4 py-3 border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">
@@ -544,9 +714,28 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
               </div>
             ) : (
               <ul className="briefing-list pl-9 pr-4 py-2 space-y-0 !m-0">
-                {section.items.map((item, ii) => (
-                  <CollapsibleItem key={ii} item={item} section={section.heading} date={date} absPath={absPath} feedbackable={feedbackable} boundLoopItems={byBullet.get(`${si}:${ii}`)} onLoopItemsChanged={onEscalationsChanged} />
-                ))}
+                {section.items.map((item, ii) => {
+                  const meetingRel = meetingRels[ii];
+                  if (meetingRel) {
+                    return (
+                      <NextStepsMeetingItem
+                        key={ii}
+                        item={item}
+                        meetingRel={meetingRel}
+                        section={section.heading}
+                        date={date}
+                        absPath={absPath}
+                        feedbackable={feedbackable}
+                        canvas={canvas}
+                        boundLoopItems={byBullet.get(`${si}:${ii}`)}
+                        defaultOpen={meetingEntryCount === 1}
+                      />
+                    );
+                  }
+                  return (
+                    <CollapsibleItem key={ii} item={item} section={section.heading} date={date} absPath={absPath} feedbackable={feedbackable} boundLoopItems={byBullet.get(`${si}:${ii}`)} onLoopItemsChanged={onEscalationsChanged} canvas={canvas} />
+                  );
+                })}
                 {/* Loop items the editor did NOT feature: bullets in the SAME list — urgency is
                     a flag, verdicts follow ask-ness (one item model). */}
                 <EscalationsBlock items={sectionEscalations} onChanged={onEscalationsChanged} />

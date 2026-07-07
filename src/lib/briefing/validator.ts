@@ -17,15 +17,21 @@ export interface ValidationResult {
 }
 
 // Canonical section spine per mode (heading text after the emoji is matched loosely on the keyword).
-const DAILY_SECTIONS = ["📅", "🧠", "💼", "📚", "🌱", "📈"];
+// "⏭ Next steps" added at the B3 canvas restructure (2026-07-07): daily-only, sits between
+// 🧠 (now pure forward-looking) and 💼; older briefings simply omit it (present-in-order check —
+// absent sections are always fine, so pre-B3 briefings still validate unchanged). NOTE the emoji
+// is matched by startsWith, so both "⏭" and "⏭️" (VS16) headings pass.
+const DAILY_SECTIONS = ["📅", "🧠", "⏭", "💼", "📚", "🌱", "📈"];
 const WEEKEND_SECTIONS = ["🧭", "✅", "💼", "📚", "🌱", "📈"];
 // Gold-derived byte bands (daily gold 4073–4528; weekend gold 7045). Generous floors/ceilings.
 // Floors lowered 2026-07-02: the first live week (holiday, thin inputs) produced legitimate
 // 2.9–3.1KB dailies that hugged the old 2800B floor — a thin news day is a short briefing, not a
 // failure. The floor's job is catching truncation/lazy output (typically <2KB or structurally
 // broken, which the spine checks catch); it must not force padding on quiet days.
+// Daily ceiling 6000 → 7000 at B3: the ⏭ Next steps section adds one id line per pending
+// proposal (24 pending at cutover) — legitimate structure, not dumping. Ceiling stays a warning.
 const BANDS: Record<BriefingMode, { min: number; max: number }> = {
-  daily: { min: 2200, max: 6000 },
+  daily: { min: 2200, max: 7000 },
   // Weekend floor was 4000 (gold weekend = 7045B) until 2026-07-04: a holiday weekend produced
   // two honest ~3.5KB drafts and the floor rejected both — the floor's job is catching
   // truncation/derailment (<2KB), not arguing with CALIBRATION's "thin day = short briefing".

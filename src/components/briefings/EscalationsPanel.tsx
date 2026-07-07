@@ -22,17 +22,26 @@ interface EscalationsResponse {
 
 /** Which briefing section owns each loop's escalations — FALLBACK ONLY. The primary join is the
  * briefing's own `loop:<id>` citations (see BriefingContent); this map covers briefings that
- * don't cite an escalating loop. */
+ * don't cite an escalating loop. Entries may repeat per loop in PRIORITY order: since B3,
+ * unfeatured meeting asks prefer the ⏭ Next steps section (the canvas home for pending meeting
+ * proposals) and fall back to 🧠 for pre-B3 briefings that have no ⏭ section. */
 const LOOP_SECTION_PATTERNS: Array<{ loop: string; pattern: RegExp }> = [
+  { loop: "meeting-actions", pattern: /⏭/ },
   { loop: "meeting-actions", pattern: /don.?t\s+drop/i },
   { loop: "runtime", pattern: /system/i },
   { loop: "goals-areas", pattern: /work|goal/i },
   { loop: "library", pattern: /library/i },
 ];
 
-export function loopMatchesSection(loopId: string, heading: string): boolean {
-  const entry = LOOP_SECTION_PATTERNS.find((candidate) => candidate.loop === loopId);
-  return entry ? entry.pattern.test(heading) : false;
+/** First section (by the loop's pattern priority, then section order) that owns this loop's
+ * unfeatured escalations. -1 = none → the fallback fold. */
+export function sectionIndexForLoop(loopId: string, headings: string[]): number {
+  for (const entry of LOOP_SECTION_PATTERNS) {
+    if (entry.loop !== loopId) continue;
+    const index = headings.findIndex((heading) => entry.pattern.test(heading));
+    if (index !== -1) return index;
+  }
+  return -1;
 }
 
 export function useEscalations(): { items: EscalatedLoopItem[]; mutate: () => void } {

@@ -58,6 +58,10 @@ export interface LoopItem {
   /** Allowed verdicts for asks. Omitted for insights. Loops may narrow (e.g. proposals don't
    *  offer assign_*), never widen beyond the Verdict union. */
   allowed_verdicts?: Verdict[];
+  /** The proposal task file this ask minted (the A6 ledger stamp, e.g. `t-20260707-004`). Rides
+   *  into the artifact's Escalations view so the briefing editor can place the TASK id — the
+   *  reader UI hydrates a live TaskCard where that id sits (the B3 canvas id contract). */
+  task_id?: string;
 }
 
 // ── Loop health (scope §3.2 — the REQUIRED self-eval dimension) ──────────────────────────────

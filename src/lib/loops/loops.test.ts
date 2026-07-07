@@ -164,6 +164,20 @@ test("renderEscalationsSection: only escalated items, with reason + citation; as
   const withAsk = renderEscalationsSection([escalatedAsk]);
   assert.ok(withAsk.includes("approve"), "ask escalation names its verdicts");
   assert.ok(withAsk.includes(`\`${ACTION.id}\``), "item id rides in the view — the briefing model cites it so the reader UI can attach verdict controls to the briefing's own lines");
+  assert.ok(!withAsk.includes("→ task"), "no task reference when the ask has not minted a proposal");
+});
+
+test("renderEscalationsSection: a minted ask exposes its task id (B3 canvas contract)", () => {
+  const minted: LoopItem = {
+    ...ACTION,
+    escalated: { reason: "new commitment awaiting your verdict" },
+    task_id: "t-20260707-004",
+  };
+  const section = renderEscalationsSection([minted]);
+  assert.ok(
+    section.includes(`\`${ACTION.id}\` → task \`t-20260707-004\``),
+    `the task id must ride next to the item id so the briefing editor can place it: ${section}`,
+  );
 });
 
 test("renderEscalationsSection returns empty string when nothing is escalated", () => {

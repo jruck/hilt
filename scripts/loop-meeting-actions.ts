@@ -376,6 +376,9 @@ async function main(): Promise<void> {
       owner: e.owner,
       escalated: { reason: "new commitment awaiting your verdict" },
       allowed_verdicts: ["approve", "dismiss", "assign_to_me", "assign_to_agent", "revise"],
+      // B3 canvas contract: expose the minted proposal's task id so the briefing editor can
+      // place it — the reader UI renders a live TaskCard where the id sits.
+      ...(e.task_id ? { task_id: e.task_id } : {}),
     });
   }
   // Aging = ACCEPTED commitments that are slipping. Only entries Justin approved can age-escalate

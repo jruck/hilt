@@ -186,14 +186,32 @@ is the loops. Today it runs as two jobs rather than a full node (it has a `feedb
 no artifact/health drawers of its own — a known gap in the pattern):
 
 1. **Gather** (per run): calendar, tasks, git, prior briefings, **plus every enabled node's
-   latest artifact** (trimmed; escalations and health always whole).
-2. **Write**: one AI pass, newspaper-editor style — day-thesis lede, sections, one entry per
-   noteworthy meeting leading with its substance, asks nested and stamped with ledger IDs. The
-   writing pass has **no file access**; it can only hand text back.
-3. **Validate**: length floors, required links, structure. Rejects are kept as `.invalid-draft`.
-4. **Render**: the Briefings view matches currently-escalated items to the editor's lines by
-   those IDs — that's how verdict buttons attach to exactly the right sentences (amber marker =
-   escalated).
+   latest artifact** (trimmed; escalations and health always whole). Since B3, a meeting ask
+   that minted a proposal shows its task id in the artifact (`` `ma-…` → task `t-…` ``), so the
+   editor can place the task itself.
+2. **Write**: one AI pass, newspaper-editor style — day-thesis lede, sections, and light prose
+   over object IDs (**the briefing is a canvas**: the editor summarizes and places ids; the app
+   renders the live objects where the ids sit). Daily sections since B3: 🧠 *Don't drop this* is
+   pure forward-looking (deadlines, commitments coming due — never a pile of meeting asks), and
+   a new **⏭ Next steps** section owns looking backward: one entry per recent meeting with
+   pending proposals — a substance lead, the meeting citation, then that meeting's pending
+   proposal task ids, one per line. The writing pass has **no file access**; it can only hand
+   text back.
+3. **Validate**: length floors, required links, structure (the spine now accepts ⏭ between 🧠
+   and 💼; older briefings without it validate unchanged). Rejects are kept as `.invalid-draft`.
+4. **Render** (the canvas): the Briefings view hydrates the ids in the editor's lines —
+   - a **task id** (`t-…`) becomes the live task card: title, verbatim quote, due date, and the
+     same Approve / Assign to agent / Dismiss / Revise buttons as everywhere else while it's a
+     proposal; once accepted it shows read-only with its status badge (approve something at
+     8 AM and the 6 AM briefing already reflects it).
+   - a **⏭ meeting entry** becomes an expandable meeting card showing that meeting's live
+     pending cards — the same join the meeting view's "Next steps" accordion uses, so deciding
+     in either place updates both.
+   - a **ledger item id** with no task file (older asks, signals, insights) keeps the original
+     treatment: verdict buttons attach to exactly the editor's sentence (amber marker =
+     escalated). Old briefings carry no task ids and render exactly as they always did.
+   - **library items** stay prose + the report link — deliberately not hydrated into cards yet
+     (the by-id fetch records an "opened" event, which passive rendering would pollute).
 
 Its files:
 - [$VAULT/briefings/]($VAULT/briefings) — THE briefing, 6:00 AM daily (weekends under

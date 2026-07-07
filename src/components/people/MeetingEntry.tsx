@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, type ReactNode } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect, type ReactNode } from "react";
 import {
   AlertTriangle,
   CalendarClock,
@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Copy,
   FolderOpen,
+  ListTodo,
   Loader2,
   Lock,
   MoreVertical,
@@ -20,15 +21,24 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import type { PersonCalendarCandidate, PersonMeeting } from "@/lib/types";
+import type { Verdict } from "@/lib/loops/types";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { TranscriptView } from "./TranscriptView";
+import { TaskCard } from "@/components/tasks/TaskCard";
+import { useEscalations } from "@/components/briefings/EscalationsPanel";
 import { useHaptics } from "@/hooks/useHaptics";
+import { useTasksList } from "@/hooks/useTaskFile";
 import { useScope } from "@/contexts/ScopeContext";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
 import { withBasePath } from "@/lib/base-path";
 import { formatHiltMonthDay } from "@/lib/display-date";
 import { buildReference } from "@/lib/references/build";
 import { copyToClipboard } from "@/lib/references/clipboard";
+import {
+  askToTaskFile,
+  joinMeetingNextSteps,
+  meetingVaultRelPath,
+} from "@/lib/tasks/meeting-next-steps";
 
 const BridgeTaskEditor = dynamic(
   () => import("../bridge/BridgeTaskEditor").then((mod) => mod.BridgeTaskEditor),
@@ -61,7 +71,7 @@ function formatDate(isoDate: string, isoTime?: string): string {
 }
 
 type Tab = "notes" | "transcript";
-type NotesSectionKey = "myNotes" | "aiNotes";
+type NotesSectionKey = "myNotes" | "aiNotes" | "nextSteps";
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 
 const SAVE_DEBOUNCE_MS = 700;
@@ -166,12 +176,14 @@ function SummaryContent({ summary, vaultPath }: { summary: string; vaultPath?: s
 function NotesAccordionSection({
   title,
   icon: Icon,
+  count,
   open,
   onToggle,
   children,
 }: {
   title: string;
   icon: React.ComponentType<{ className?: string }>;
+  count?: number;
   open: boolean;
   onToggle: () => void;
   children: ReactNode;
@@ -188,7 +200,12 @@ function NotesAccordionSection({
       >
         <Chevron className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
         <Icon className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
-        <span className="flex-1">{title}</span>
+        <span className="flex-1">
+          {title}
+          {typeof count === "number" && (
+            <span className="ml-1.5 font-normal text-[var(--text-tertiary)]">{count}</span>
+          )}
+        </span>
       </button>
       {open && (
         <div className="pb-5 pt-3">
@@ -361,7 +378,45 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
   const [openNoteSections, setOpenNoteSections] = useState<Record<NotesSectionKey, boolean>>({
     myNotes: true,
     aiNotes: true,
+    nextSteps: false,
   });
+
+  // ── "Next steps" (v3 unit B2): this meeting's task proposals + accepted tasks (join on
+  // origin.meeting == vault-relative meeting path) + escalated-but-unminted ledger asks
+  // (pre-Phase-A history; deduped by loop+item_id against both task stores). useTasksList
+  // revalidates on the tasks-changed WS event; escalations refresh on their own SWR interval.
+  const { tasks: allTasks, proposals: allProposals, mutate: mutateTasks } = useTasksList();
+  const { items: escalations, mutate: mutateEscalations } = useEscalations();
+  const meetingRel = meetingVaultRelPath(meeting.filePath, vaultPath);
+  const nextSteps = useMemo(
+    () => joinMeetingNextSteps({
+      meetingRelPath: meetingRel,
+      tasks: allTasks,
+      proposals: allProposals,
+      escalations,
+    }),
+    [meetingRel, allTasks, allProposals, escalations],
+  );
+
+  // Same POST body as the Priorities Proposals section — the route applies the file effect
+  // synchronously; the ledger effect lands at the loop's next run (fine for unminted asks).
+  const makeNextStepVerdictHandler = useCallback(
+    (loop: string | undefined, itemId: string | undefined) =>
+      async (verdict: Verdict, note?: string) => {
+        const response = await fetch(withBasePath("/api/loops/verdicts"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ loop, item_id: itemId, verdict, ...(note ? { note } : {}) }),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null) as { error?: string } | null;
+          throw new Error(payload?.error || `Request failed: ${response.status}`);
+        }
+        mutateTasks();
+        mutateEscalations();
+      },
+    [mutateTasks, mutateEscalations],
+  );
 
   // Reset transcript state when meeting changes
   useEffect(() => {
@@ -377,7 +432,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
   }, [defaultTab, meeting.date, meeting.source, meeting.time, meeting.title]);
 
   useEffect(() => {
-    setOpenNoteSections({ myNotes: true, aiNotes: true });
+    setOpenNoteSections({ myNotes: true, aiNotes: true, nextSteps: false });
   }, [meeting.date, meeting.source, meeting.time, meeting.title]);
 
   const toggleNoteSection = useCallback((section: NotesSectionKey) => {
@@ -908,6 +963,46 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
                   summary={meeting.summary!}
                   vaultPath={vaultPath}
                 />
+              </NotesAccordionSection>
+            )}
+
+            {/* Next steps — ONLY when this meeting produced something (no empty shell). */}
+            {meetingRel && nextSteps.total > 0 && (
+              <NotesAccordionSection
+                title="Next steps"
+                icon={ListTodo}
+                count={nextSteps.total}
+                open={openNoteSections.nextSteps}
+                onToggle={() => toggleNoteSection("nextSteps")}
+              >
+                <div className="space-y-1">
+                  {nextSteps.proposals.map((task) => (
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      hideMeeting
+                      // Only loop-minted proposals carry the verdict join (origin.loop +
+                      // item_id); anything else renders read-only (same guard as A6).
+                      onVerdict={task.origin?.loop && task.origin?.item_id
+                        ? makeNextStepVerdictHandler(task.origin.loop, task.origin.item_id)
+                        : undefined}
+                    />
+                  ))}
+                  {nextSteps.unmintedAsks.map((item) => (
+                    <TaskCard
+                      key={`${item.loop}:${item.id}`}
+                      task={askToTaskFile(item, meetingRel)}
+                      hideMeeting
+                      verdict={item.verdict}
+                      // Escalated-undecided asks are decidable here too; decided ones show
+                      // their verdict badge read-only.
+                      onVerdict={item.verdict ? undefined : makeNextStepVerdictHandler(item.loop, item.id)}
+                    />
+                  ))}
+                  {nextSteps.tasks.map((task) => (
+                    <TaskCard key={task.id} task={task} hideMeeting showStatus />
+                  ))}
+                </div>
               </NotesAccordionSection>
             )}
           </div>

@@ -8,7 +8,7 @@
  * Verdict controls follow the EscalationsPanel idiom (hover-reveal buttons, inline revise form,
  * badge once decided) but are props-driven — the POSTing lives in the surface, not the card.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { TaskFile } from "@/lib/tasks/types";
 import type { Verdict } from "@/lib/loops/types";
 import { formatHiltMonthDay } from "@/lib/display-date";
@@ -66,20 +66,40 @@ function DueBadge({ due }: { due: string }) {
   );
 }
 
+const STATUS_BADGES: Partial<Record<TaskFile["status"], { label: string; className: string }>> = {
+  "accepted-me": { label: "Accepted", className: "bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]" },
+  "accepted-agent": { label: "Agent", className: "bg-blue-500/10 text-blue-600 dark:text-blue-300" },
+  "in-progress": { label: "In progress", className: "bg-blue-500/10 text-blue-600 dark:text-blue-300" },
+  done: { label: "Done", className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300" },
+};
+
 export interface TaskCardProps {
   task: TaskFile;
   /** Present when this surface can decide the proposal; absent renders a read-only card. */
   onVerdict?: (verdict: Verdict, note?: string) => Promise<void> | void;
+  /** Already-decided verdict (ledger asks) — seeds the decided badge instead of controls. */
+  verdict?: Verdict;
+  /** Subtle status badge for accepted/in-progress/done cards (meeting Next steps, B2). */
+  showStatus?: boolean;
+  /** Hide the meeting attribution line — for surfaces already scoped to that meeting. */
+  hideMeeting?: boolean;
 }
 
-export function TaskCard({ task, onVerdict }: TaskCardProps) {
+export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting }: TaskCardProps) {
   const [busyVerdict, setBusyVerdict] = useState<Verdict | null>(null);
-  const [localVerdict, setLocalVerdict] = useState<Verdict | null>(null);
+  const [localVerdict, setLocalVerdict] = useState<Verdict | null>(verdict ?? null);
   const [verdictError, setVerdictError] = useState<string | null>(null);
   const [reviseOpen, setReviseOpen] = useState(false);
   const [reviseNote, setReviseNote] = useState("");
 
-  const meeting = task.origin?.meeting ? meetingLabel(task.origin.meeting) : null;
+  // Follow a decided verdict arriving from the server (SWR refresh) — but never CLEAR a
+  // just-clicked local badge when the prop is still undefined.
+  useEffect(() => {
+    if (verdict) setLocalVerdict(verdict);
+  }, [verdict]);
+
+  const meeting = !hideMeeting && task.origin?.meeting ? meetingLabel(task.origin.meeting) : null;
+  const statusBadge = showStatus ? STATUS_BADGES[task.status] : undefined;
 
   async function submitVerdict(verdict: Verdict, note?: string) {
     if (!onVerdict) return;
@@ -107,6 +127,11 @@ export function TaskCard({ task, onVerdict }: TaskCardProps) {
           <span className="min-w-0 flex-1 text-sm leading-relaxed text-[var(--text-primary)]">
             {task.title}
           </span>
+          {statusBadge && (
+            <span className={`flex-shrink-0 px-1.5 py-0.5 rounded text-xs font-medium ${statusBadge.className}`}>
+              {statusBadge.label}
+            </span>
+          )}
           {task.due && <DueBadge due={task.due} />}
         </div>
 

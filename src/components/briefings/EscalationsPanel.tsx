@@ -36,11 +36,14 @@ export function loopMatchesSection(loopId: string, heading: string): boolean {
 }
 
 export function useEscalations(): { items: EscalatedLoopItem[]; mutate: () => void } {
-  const { data, error, mutate } = useSWR<EscalationsResponse>("/api/loops/escalations", fetcher, {
+  const { data, mutate } = useSWR<EscalationsResponse>("/api/loops/escalations", fetcher, {
     refreshInterval: 60_000,
     revalidateOnFocus: true,
   });
-  return { items: error ? [] : (data?.items || []), mutate: () => void mutate() };
+  // SWR keeps `data` from the last good fetch on error — use it. Discarding to [] on a
+  // transient poll failure made whole sections vanish for a refresh interval (the B2 meeting
+  // Next-steps accordion flickered out for 60s on one failed poll) and re-appear.
+  return { items: data?.items || [], mutate: () => void mutate() };
 }
 
 const visibleVerdicts: Array<{ verdict: Verdict; label: string }> = [

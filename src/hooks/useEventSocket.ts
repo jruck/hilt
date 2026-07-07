@@ -51,6 +51,7 @@ export function useEventSocket() {
   const pendingSubscriptions = useRef<Array<{ channel: string; params: Record<string, unknown> }>>(
     []
   );
+  const subscriptionCounts = useRef<Map<string, number>>(new Map());
   const mountedRef = useRef(true);
 
   const connect = useCallback(() => {
@@ -143,9 +144,18 @@ export function useEventSocket() {
   }, [connect]);
 
   /**
-   * Subscribe to a channel with optional params for filtering
+   * Subscribe to a channel with optional params for filtering.
+   *
+   * Channels are REFCOUNTED: the socket is shared app-wide (EventSocketContext), so several
+   * hooks/components subscribe to the same channel independently — e.g. the People sidebar
+   * and a MeetingEntry's task list both ride "bridge". Without the count, the FIRST consumer
+   * to unmount silently killed the channel for everyone still mounted (B2 adversarial
+   * finding, 2026-07-07: closing a meeting stopped the sidebar's people-changed pushes).
    */
   const subscribe = useCallback((channel: string, params: Record<string, unknown> = {}) => {
+    const count = subscriptionCounts.current.get(channel) ?? 0;
+    subscriptionCounts.current.set(channel, count + 1);
+
     // Track subscription for reconnection
     const existing = pendingSubscriptions.current.find((s) => s.channel === channel);
     if (existing) {
@@ -154,15 +164,23 @@ export function useEventSocket() {
       pendingSubscriptions.current.push({ channel, params });
     }
 
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    if (count === 0 && wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: "subscribe", channel, params }));
     }
   }, []);
 
   /**
-   * Unsubscribe from a channel
+   * Release one subscription to a channel; the server unsubscribe happens only when the last
+   * consumer lets go.
    */
   const unsubscribe = useCallback((channel: string) => {
+    const count = subscriptionCounts.current.get(channel) ?? 0;
+    if (count > 1) {
+      subscriptionCounts.current.set(channel, count - 1);
+      return;
+    }
+    subscriptionCounts.current.delete(channel);
+
     // Remove from pending subscriptions
     pendingSubscriptions.current = pendingSubscriptions.current.filter(
       (s) => s.channel !== channel

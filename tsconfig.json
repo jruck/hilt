@@ -45,6 +45,7 @@
     ".next-prod/dev/types/**/*.ts"
   ],
   "exclude": [
+    "scripts/tmp-*.ts",
     "node_modules",
     "dist",
     "vitest.config.ts"

@@ -5,17 +5,20 @@
  * a verdict callback come in, nothing is fetched here, so the same card can render in Priorities'
  * Proposals section today and in the meeting view / briefing canvas in Phase B.
  *
- * Verdict controls follow the EscalationsPanel idiom (hover-reveal buttons, inline revise form,
- * badge once decided) but are props-driven — the POSTing lives in the surface, not the card.
+ * Verdict controls (proposal-card cleanup, 2026-07-07): a decidable card leads with a
+ * DOTTED-SQUARE checkbox — the bridge-checkbox position/size, but dashed + amber, echoing the
+ * Library candidate CircleDashed as a square ("not yet a real task"). Clicking it opens the
+ * house dropdown (BridgeTaskPanel's three-dot menu styling) with icon+label verdict actions;
+ * the POSTing still lives in the surface, not the card. Badge once decided, as before.
  */
-import { useEffect, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Bot, Check, ChevronRight, MessageSquare, MoreVertical, SquareDashed, X, type LucideIcon } from "lucide-react";
 import type { TaskFile } from "@/lib/tasks/types";
 import type { Verdict } from "@/lib/loops/types";
 import type { ObjectRef } from "@/lib/objects/types";
 import type { ImplementedCommentTarget } from "@/lib/comments/types";
 import { ObjectPill } from "@/components/objects/ObjectPill";
-import { useVerdictNote, VerdictNoteField, VerdictNoteTrigger } from "@/components/comments/VerdictNoteField";
+import { useVerdictNote, VerdictNoteField } from "@/components/comments/VerdictNoteField";
 import { formatHiltMonthDay } from "@/lib/display-date";
 import { parseLifecycle } from "@/lib/attribution";
 import { ownerChip, parseOwnerPrefix, type OwnerTag } from "@/lib/tasks/owner";
@@ -30,6 +33,128 @@ export const VERDICT_BUTTONS: Array<{ verdict: Verdict; label: string; title: st
 
 function verdictLabel(verdict: Verdict): string {
   return VERDICT_BUTTONS.find((entry) => entry.verdict === verdict)?.label ?? verdict.replace(/_/g, " ");
+}
+
+/** Icon per verdict action — the dropdown items carry icon + label (menu idiom, not bare text). */
+const VERDICT_MENU_ICONS: Partial<Record<Verdict, LucideIcon>> = {
+  approve: Check,
+  assign_to_agent: Bot,
+  dismiss: X,
+};
+
+/**
+ * VerdictActionMenu — the ONE proposal-decision dropdown, shared by TaskCard (dotted-square
+ * checkbox trigger, leading position) and TaskFilePanel (three-dot header trigger). Menu
+ * styling/positioning/dismissal copied from BridgeTaskPanel's three-dot menu (outside-mousedown
+ * close + Escape); items are the VERDICT_BUTTONS with icons, plus "Add note" which opens the
+ * surface's VerdictNoteField (a typed note still rides the next verdict pick — one gesture).
+ */
+export function VerdictActionMenu({
+  variant,
+  onVerdict,
+  onAddNote,
+  busy = false,
+  align = variant === "kebab" ? "right" : "left",
+}: {
+  /** "checkbox" = the dotted-square proposal checkbox (card); "kebab" = MoreVertical (pane). */
+  variant: "checkbox" | "kebab";
+  onVerdict: (verdict: Verdict) => void;
+  onAddNote: () => void;
+  busy?: boolean;
+  align?: "left" | "right";
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Dismissal — BridgeTaskPanel's outside-mousedown idiom, plus Escape.
+  useEffect(() => {
+    if (!open) return;
+    function handleMousedown(event: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    }
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", handleMousedown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleMousedown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [open]);
+
+  const itemClass = "w-full flex items-center gap-2.5 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors disabled:cursor-default disabled:opacity-60";
+
+  return (
+    // stopPropagation: the trigger sits inside clickable containers (the card's onOpen).
+    <div ref={rootRef} className="relative flex-shrink-0" onClick={(event) => event.stopPropagation()}>
+      {variant === "checkbox" ? (
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          title="Proposed — not yet a task. Approve, assign to an agent, or dismiss"
+          className="mt-0.5 flex h-4 w-4 items-center justify-center rounded-[3px] text-amber-500 transition-colors hover:text-amber-600 dark:hover:text-amber-400"
+        >
+          <SquareDashed className="h-4 w-4" strokeWidth={1.75} />
+        </button>
+      ) : (
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          title="Proposal actions"
+          className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors rounded"
+        >
+          <MoreVertical className="w-4 h-4" />
+        </button>
+      )}
+
+      {open && (
+        <div
+          role="menu"
+          className={`absolute ${align === "right" ? "right-0" : "left-0"} top-full mt-1 w-56 z-50 rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] shadow-lg overflow-hidden py-1`}
+        >
+          {VERDICT_BUTTONS.map((entry) => {
+            const Icon = VERDICT_MENU_ICONS[entry.verdict] ?? Check;
+            return (
+              <button
+                key={entry.verdict}
+                type="button"
+                role="menuitem"
+                title={entry.title}
+                disabled={busy}
+                onClick={() => {
+                  setOpen(false);
+                  onVerdict(entry.verdict);
+                }}
+                className={itemClass}
+              >
+                <Icon className="w-4 h-4 text-[var(--text-tertiary)]" />
+                {entry.label}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            role="menuitem"
+            title="Add a note — it rides your next verdict, or Send posts it as a comment"
+            disabled={busy}
+            onClick={() => {
+              setOpen(false);
+              onAddNote();
+            }}
+            className={itemClass}
+          >
+            <MessageSquare className="w-4 h-4 text-[var(--text-tertiary)]" />
+            Add note
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** Decided-state badge text — past tense. The imperative button labels ("Dismiss") on a badge
@@ -128,9 +253,9 @@ export interface TaskCardProps {
   /** In-briefing rendering (B3 canvas): drop the hilt-card hover chrome/shadow for a quiet
    *  bordered block that sits in the reading flow instead of popping out of it. */
   flush?: boolean;
-  /** Clicking the card body opens the task's detail pane (verdict buttons, the revise form,
-   *  and the meeting pill stay independent — they stop propagation). Purity kept: the card
-   *  only calls back; the surface decides what "open" means. */
+  /** Clicking the card body opens the task's detail pane (the proposal checkbox/menu, the
+   *  note field, and the meeting pill stay independent — they stop propagation). Purity kept:
+   *  the card only calls back; the surface decides what "open" means. */
   onOpen?: () => void;
 }
 
@@ -189,6 +314,18 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
     >
       <div className="px-3 py-2.5">
         <div className="flex items-start gap-2">
+          {/* Dotted-square proposal checkbox — the task-row checkbox position, dashed border
+              signalling "not yet a real task"; clicking opens the verdict dropdown. */}
+          {onVerdict && !localVerdict && (
+            <VerdictActionMenu
+              variant="checkbox"
+              busy={Boolean(busyVerdict)}
+              onVerdict={(entry) => void submitVerdict(entry, noteControl.noteText)}
+              onAddNote={() => {
+                if (!noteControl.open) noteControl.toggle();
+              }}
+            />
+          )}
           <span className="min-w-0 flex-1 text-sm leading-relaxed text-[var(--text-primary)]">
             {displayTitle}
           </span>
@@ -205,11 +342,8 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
           )}
         </div>
 
-        {task.provenance?.quote && (
-          <p className="mt-1 truncate text-xs italic text-[var(--text-tertiary)]" title={task.provenance.quote}>
-            &ldquo;{task.provenance.quote}&rdquo;
-          </p>
-        )}
+        {/* Provenance quote moved OFF the card — it renders as a blockquote in the task pane
+            (TaskFilePanel) where there's room to read it at full size. */}
 
         {meeting && (
           <p className="mt-0.5 text-xs text-[var(--text-tertiary)]" title={task.origin?.meeting}>
@@ -224,29 +358,6 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
               </>
             )}
           </p>
-        )}
-
-        {onVerdict && !localVerdict && (
-          <div
-            onClick={(event) => event.stopPropagation()}
-            className="mt-1.5 flex flex-wrap items-center gap-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/taskcard:opacity-100"
-          >
-            {VERDICT_BUTTONS.map((entry) => (
-              <button
-                key={entry.verdict}
-                type="button"
-                title={entry.title}
-                // Any verdict carries whatever note is typed (Revise retired: a note IS the
-                // correction — post it as a comment, or attach it to a real decision).
-                onClick={() => void submitVerdict(entry.verdict, noteControl.noteText)}
-                disabled={Boolean(busyVerdict)}
-                className="inline-flex min-h-6 items-center rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2 py-0.5 text-xs font-medium text-[var(--text-secondary)] shadow-sm transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-60"
-              >
-                {entry.label}
-              </button>
-            ))}
-            <VerdictNoteTrigger control={noteControl} />
-          </div>
         )}
 
         {localVerdict && (

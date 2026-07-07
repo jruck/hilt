@@ -9,28 +9,37 @@
  * Editability follows the store's own rules:
  * - accepted/in-progress → title + body editable (PUT /api/tasks/[id]; body edits preserve
  *   the `## History` audit section, which renders read-only below the editor).
- * - proposed → read-only fields + the SAME verdict buttons as ProposalsSection/TaskCard
- *   (POST /api/loops/verdicts via origin). The pane stays open after a verdict showing the
- *   new state (approve → Accepted; dismiss → Dismissed badge over the last-known content —
- *   the file is deleted, SWR's stale data is the memory).
+ * - proposed → read-only fields + the SAME verdict actions as TaskCard, now in the house
+ *   three-dot header menu (VerdictActionMenu; POST /api/loops/verdicts via origin). The pane
+ *   stays open after a verdict showing the new state (approve → Accepted; dismiss → Dismissed
+ *   badge over the last-known content — the file is deleted, SWR's stale data is the memory).
  * - done/dropped → read-only.
+ *
+ * Proposal layout (proposal-card cleanup, 2026-07-07): the provenance quote renders in the
+ * BODY as a full-size blockquote (house .bridge-task-editor blockquote styling), and the
+ * meeting linkage is a full MeetingObjectCard in the same slot BridgeTaskPanel gives its
+ * pinned project cards — resolved via useObjectCard so it matches the pill popover exactly.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { History } from "lucide-react";
 import dynamic from "next/dynamic";
 import type { TaskFile } from "@/lib/tasks/types";
 import type { Verdict } from "@/lib/loops/types";
+import type { ObjectRef } from "@/lib/objects/types";
 import { useTaskFile } from "@/hooks/useTaskFile";
+import { useObjectCard } from "@/hooks/useObjectCard";
+import { useScope } from "@/contexts/ScopeContext";
 import { withBasePath } from "@/lib/base-path";
 import { parseLifecycle } from "@/lib/attribution";
 import { historyEntries, joinTaskBody, splitTaskBody } from "@/lib/tasks/task-body";
 import type { ImplementedCommentTarget } from "@/lib/comments/types";
+import { ObjectCard } from "@/components/objects/ObjectCard";
 import { ObjectPill } from "@/components/objects/ObjectPill";
-import { useVerdictNote, VerdictNoteField, VerdictNoteTrigger } from "@/components/comments/VerdictNoteField";
+import { useVerdictNote, VerdictNoteField } from "@/components/comments/VerdictNoteField";
 import {
   DueBadge,
   STATUS_BADGES,
-  VERDICT_BUTTONS,
+  VerdictActionMenu,
   verdictBadgeClass,
   verdictBadgeLabel,
 } from "@/components/tasks/TaskCard";
@@ -53,6 +62,38 @@ const PANE_STATUS_BADGES: typeof STATUS_BADGES = {
   proposed: { label: "Proposed", className: "bg-amber-500/10 text-amber-700 dark:text-amber-300" },
   dropped: { label: "Dropped", className: "bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]" },
 };
+
+/**
+ * The pane's meeting linkage — a FULL MeetingObjectCard (the same card the pill popover
+ * shows), resolved through the same useObjectCard hook so the data can't drift from the
+ * popover. Occupies the pinned-attachment slot BridgeTaskPanel gives its project cards.
+ * Title click navigates to the meeting (the resolver nav, as the popover does); a failed
+ * resolve degrades to the meeting pill so the linkage never disappears.
+ */
+function MeetingLinkageCard({ meetingId }: { meetingId: string }) {
+  const refr: ObjectRef = { kind: "meeting", id: meetingId };
+  // Eager (enabled: true): the pane is open and the card IS the linkage UI — one cached fetch.
+  const { resolved, error } = useObjectCard(refr, true);
+  const { navigateTo } = useScope();
+  const nav = resolved?.nav ?? null;
+
+  return (
+    <div className="flex-shrink-0 px-6 py-3 border-b border-[var(--border-default)]">
+      {resolved ? (
+        <ObjectCard card={resolved.card} onOpen={nav ? () => navigateTo(nav.view, nav.scope) : undefined} />
+      ) : error ? (
+        <span className="text-xs text-[var(--text-tertiary)]">
+          <ObjectPill refr={refr} />
+        </span>
+      ) : (
+        <div className="space-y-2 rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-2.5" aria-hidden>
+          <div className="h-3.5 w-2/3 animate-pulse rounded bg-[var(--bg-tertiary)]" />
+          <div className="h-3 w-1/2 animate-pulse rounded bg-[var(--bg-tertiary)]" />
+        </div>
+      )}
+    </div>
+  );
+}
 
 async function postVerdict(body: unknown): Promise<void> {
   const response = await fetch(withBasePath("/api/loops/verdicts"), {
@@ -218,6 +259,19 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
             {task ? displayTitle : notFound ? "Task not found" : ""}
           </div>
         )}
+
+        {/* Verdict actions — proposals only; the house three-dot menu (BridgeTaskPanel slot),
+            items shared with TaskCard's proposal checkbox via VerdictActionMenu. */}
+        {proposed && task?.origin?.loop && task.origin.item_id && (
+          <VerdictActionMenu
+            variant="kebab"
+            busy={Boolean(busyVerdict)}
+            onVerdict={(entry) => void submitVerdict(entry, noteControl.noteText)}
+            onAddNote={() => {
+              if (!noteControl.open) noteControl.toggle();
+            }}
+          />
+        )}
       </div>
 
       {task ? (
@@ -234,46 +288,21 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
               </span>
             ) : null}
             {task.due && <DueBadge due={task.due} />}
-            {task.origin?.meeting && (
-              <span className="text-xs text-[var(--text-tertiary)]">
-                <ObjectPill refr={{ kind: "meeting", id: task.origin.meeting }} />
-              </span>
-            )}
           </div>
 
-          {/* Provenance — the verbatim quote this task was minted from */}
-          {task.provenance?.quote && (
-            <div className="flex-shrink-0 px-6 py-3 border-b border-[var(--border-default)]">
-              <p className="text-xs italic text-[var(--text-tertiary)]" title={task.provenance.source}>
-                &ldquo;{task.provenance.quote}&rdquo;
-              </p>
-            </div>
-          )}
+          {/* Meeting linkage — the full meeting card in the pinned-attachment slot (mirrors
+              BridgeTaskPanel's project cards; the popover-identical card, resolver-fed). */}
+          {task.origin?.meeting && !dismissed && <MeetingLinkageCard meetingId={task.origin.meeting} />}
 
-          {/* Verdict controls — proposals only; same buttons/wire as ProposalsSection */}
-          {proposed && task.origin?.loop && task.origin?.item_id && (
+          {/* The verdict note — reachable from the menu's "Add note"; a typed note rides the
+              next verdict pick, or its own Send posts a pure comment. */}
+          {proposed && task.origin?.loop && task.origin?.item_id && (noteControl.open || verdictError) && (
             <div className="flex-shrink-0 px-6 py-3 border-b border-[var(--border-default)]">
-              <div className="flex flex-wrap items-center gap-1.5">
-                {VERDICT_BUTTONS.map((entry) => (
-                  <button
-                    key={entry.verdict}
-                    type="button"
-                    title={entry.title}
-                    // Any verdict carries whatever note is typed (Revise retired at the
-                    // comment-primitive consolidation).
-                    onClick={() => void submitVerdict(entry.verdict, noteControl.noteText)}
-                    disabled={Boolean(busyVerdict)}
-                    className="inline-flex min-h-6 items-center rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2 py-0.5 text-xs font-medium text-[var(--text-secondary)] shadow-sm transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-60"
-                  >
-                    {entry.label}
-                  </button>
-                ))}
-                <VerdictNoteTrigger control={noteControl} />
-              </div>
               <VerdictNoteField
                 control={noteControl}
                 target={commentTarget}
                 busy={Boolean(busyVerdict)}
+                className="flex items-center gap-2"
               />
               {verdictError && <p className="mt-1 text-xs text-red-500">{verdictError}</p>}
             </div>
@@ -286,14 +315,26 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
                 Dismissed — the proposal file was removed; the loop remembers and won&apos;t re-propose it.
               </div>
             ) : (
-              <BridgeTaskEditor
-                key={`${taskId}:${editable ? "rw" : "ro"}`}
-                markdown={split?.content ?? ""}
-                onChange={handleBodyChange}
-                readOnly={!editable}
-                vaultPath={vaultPath}
-                filePath={vaultPath ? `${vaultPath}/tasks/${store === "proposals" ? ".proposals/" : ""}${taskId}.md` : undefined}
-              />
+              <>
+                {/* Provenance — the verbatim quote this task was minted from, at body size
+                    (the house .bridge-task-editor blockquote styling, not tiny italic). */}
+                {task.provenance?.quote && (
+                  <blockquote
+                    className="mb-4 border-l-[3px] border-[var(--border-strong)] pl-4 text-sm leading-[1.6] text-[var(--text-tertiary)]"
+                    title={task.provenance.source}
+                  >
+                    &ldquo;{task.provenance.quote}&rdquo;
+                  </blockquote>
+                )}
+                <BridgeTaskEditor
+                  key={`${taskId}:${editable ? "rw" : "ro"}`}
+                  markdown={split?.content ?? ""}
+                  onChange={handleBodyChange}
+                  readOnly={!editable}
+                  vaultPath={vaultPath}
+                  filePath={vaultPath ? `${vaultPath}/tasks/${store === "proposals" ? ".proposals/" : ""}${taskId}.md` : undefined}
+                />
+              </>
             )}
             {history.length > 0 && !dismissed && (
               <div className="mt-6 border-t border-[var(--border-default)] pt-3">

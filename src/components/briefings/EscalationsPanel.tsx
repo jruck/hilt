@@ -133,10 +133,10 @@ function firstMeetingCitationSource(citations: Citation[]): string | null {
   return cite?.source ?? null;
 }
 
-/** "meetings/2026-07-05/Floyds sync-….md" → "Floyds sync · 2026-07-05" (the pill's label). */
+/** "meetings/2026-07-05/Floyds sync-….md" → "Floyds sync" (the pill's label). The DATED pill
+ * renders its own integrated "· Jul 5" segment now — an ISO date in the label would double it. */
 function meetingCitationLabel(rel: string): string {
-  const { title, date } = meetingLabelFromRelPath(rel);
-  return date ? `${title} · ${date}` : title;
+  return meetingLabelFromRelPath(rel).title;
 }
 
 function DetailMarkdown({ markdown }: { markdown: string }) {

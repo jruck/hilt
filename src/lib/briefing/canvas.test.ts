@@ -7,8 +7,10 @@ import {
   isNextStepsHeading,
   isRedundantMeetingCitationLine,
   isTaskIdOnlyLine,
+  meetingDateSegment,
   meetingLabelFromRelPath,
   parseBriefing,
+  stripDateAfterMeetingPill,
   stripTaskTokens,
   normalizeHiltLinks,
 } from "./canvas";
@@ -141,6 +143,61 @@ test("meetingLabelFromRelPath derives title + date", () => {
     meetingLabelFromRelPath("meetings/2026-06-30/Owens Corning (Just Keep Swimming)-2026-06-30 @ 14-00-25.md"),
     { title: "Owens Corning (Just Keep Swimming)", date: "2026-06-30" },
   );
+});
+
+// ── dated pill: integrated date segment ───────────────────────────────────────────────────────
+
+test("meetingDateSegment: house 'Jul 7' form; year only when not the current year; null without a date", () => {
+  const now = new Date(2026, 6, 7, 12); // Jul 7, 2026
+  assert.equal(meetingDateSegment("meetings/2026-07-07/Standup-2026-07-07 @ 09-00-00.md", now), "Jul 7");
+  assert.equal(meetingDateSegment("meetings/2026-12-12/Planning.md", now), "Dec 12");
+  assert.equal(meetingDateSegment("meetings/2025-12-12/Planning.md", now), "Dec 12, 2025");
+  assert.equal(meetingDateSegment("meetings/2026-06-30/Owens Corning (Just Keep Swimming)-2026-06-30 @ 14-00-25.md", now), "Jun 30");
+  assert.equal(meetingDateSegment("not-a-meeting-path.md", now), null);
+});
+
+// ── dated pill: redundant trailing date-token suppression ─────────────────────────────────────
+
+const PILL = "[Survey UX](<hilt:meeting/meetings/2026-07-07/Discuss survey cadence UX-2026-07-07 @ 09-57-15.md>)";
+
+test("stripDateAfterMeetingPill: each literal form directly after a meeting pill is stripped", () => {
+  // Today's exact briefing form: the token inside the bold, right after the link close.
+  assert.equal(
+    stripDateAfterMeetingPill(`- **${PILL} (7/7)** — MVP scoped`),
+    `- **${PILL}** — MVP scoped`,
+  );
+  // Plain, ISO, and house forms after a bare pill.
+  assert.equal(stripDateAfterMeetingPill(`${PILL} (7/7) next`), `${PILL} next`);
+  assert.equal(stripDateAfterMeetingPill(`${PILL} (2026-07-07) next`), `${PILL} next`);
+  assert.equal(stripDateAfterMeetingPill(`${PILL} (Jul 7) next`), `${PILL} next`);
+  assert.equal(stripDateAfterMeetingPill(`${PILL} (Jul 7, 2026) next`), `${PILL} next`);
+  // Bold-wrapped token after the pill.
+  assert.equal(stripDateAfterMeetingPill(`${PILL} **(7/7)** next`), `${PILL} next`);
+  // Token after the pill's closing bold wrapper — the ** stays.
+  assert.equal(stripDateAfterMeetingPill(`**${PILL}** (7/7) next`), `**${PILL}** next`);
+  // Bare (un-normalized) destination form, interior parens in the filename.
+  const bare = "[OC](hilt:meeting/meetings/2026-06-30/Owens Corning (Just Keep Swimming)-2026-06-30 @ 14-00-25.md)";
+  assert.equal(stripDateAfterMeetingPill(`${bare} (6/30) lead`), `${bare} lead`);
+});
+
+test("stripDateAfterMeetingPill: dates NOT following a meeting pill are untouched", () => {
+  assert.equal(stripDateAfterMeetingPill("deadline (7/7) stands"), "deadline (7/7) stands");
+  assert.equal(stripDateAfterMeetingPill("- **OC planning (6/30)** — lead"), "- **OC planning (6/30)** — lead");
+  // A date on the NEXT line never joins the pill above it.
+  assert.equal(stripDateAfterMeetingPill(`${PILL}\n(7/7)`), `${PILL}\n(7/7)`);
+  // Intervening prose breaks the adjacency.
+  assert.equal(stripDateAfterMeetingPill(`${PILL} on (7/7)`), `${PILL} on (7/7)`);
+  // Non-date parentheticals after a pill stay.
+  assert.equal(stripDateAfterMeetingPill(`${PILL} (recap)`), `${PILL} (recap)`);
+});
+
+test("stripDateAfterMeetingPill: a date after a NON-meeting hilt link is untouched", () => {
+  const task = "[t](hilt:task/t-20260707-001) (7/7)";
+  assert.equal(stripDateAfterMeetingPill(task), task);
+  const person = "[Jason](<hilt:person/jason>) (7/7)";
+  assert.equal(stripDateAfterMeetingPill(person), person);
+  const external = "[report](https://example.com/x.md) (7/7)";
+  assert.equal(stripDateAfterMeetingPill(external), external);
 });
 
 // ── section marker ────────────────────────────────────────────────────────────────────────────

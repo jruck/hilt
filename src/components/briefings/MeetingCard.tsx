@@ -61,8 +61,12 @@ export function MeetingCard({ title, date, summary, pendingCount, defaultOpen = 
           {summary ?? <strong className="font-semibold text-[var(--text-primary)]">{title}</strong>}
           {meetingRel && !suppressHeaderPill ? (
             // stopPropagation: the pill toggles its own popover, never the row's expansion.
+            // showDate={false}: this structural pill renders ONLY when the editor did NOT put a
+            // pill in the headline — i.e. the lead uses the old "meeting (date)" house form and
+            // already carries the date in prose (every pre-B5 briefing does). A dated pill here
+            // would double the date; the tooltip keeps the ISO date as metadata either way.
             <span className="ml-1.5" onClick={(e) => e.stopPropagation()}>
-              <ObjectPill refr={{ kind: "meeting", id: meetingRel }}>{title}</ObjectPill>
+              <ObjectPill refr={{ kind: "meeting", id: meetingRel }} showDate={false}>{title}</ObjectPill>
             </span>
           ) : null}
         </span>

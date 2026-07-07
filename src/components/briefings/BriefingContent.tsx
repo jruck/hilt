@@ -26,6 +26,7 @@ import {
   meetingLabelFromRelPath,
   normalizeHiltLinks,
   parseBriefing,
+  stripDateAfterMeetingPill,
   stripTaskTokens,
   type BriefingItem,
 } from "@/lib/briefing/canvas";
@@ -628,8 +629,13 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
 
 export function BriefingContent({ content, date, absPath, feedbackable = true, escalations = [], onEscalationsChanged = () => {} }: BriefingContentProps) {
   // Repair bare hilt: destinations (spaces/parens break CommonMark link parsing) BEFORE parse
-  // so every downstream render site sees pill-able links.
-  const { lede, sections } = useMemo(() => parseBriefing(normalizeHiltLinks(content)), [content]);
+  // so every downstream render site sees pill-able links — then strip any literal date token
+  // bolted on after a meeting pill (the DATED pill carries the date inside the chip now; this
+  // covers already-written briefings and model slips).
+  const { lede, sections } = useMemo(
+    () => parseBriefing(stripDateAfterMeetingPill(normalizeHiltLinks(content))),
+    [content],
+  );
 
   // ── B3 canvas: the live task stores + the shared verdict wire ────────────────────────────
   // useTasksList revalidates on the `tasks-changed` WS event; POSTing a verdict goes to the

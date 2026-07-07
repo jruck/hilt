@@ -2202,6 +2202,14 @@ body [data-radix-popper-content-wrapper]::after {
   text-overflow: ellipsis;
 }
 
+/* The dated meeting pill's integrated date segment ("· Jul 7") — muted vs the label, same
+   baseline, never truncated (the label ellipsizes first). Parent gap provides the spacing. */
+.hilt-object-pill-date {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
 .dark .hilt-object-pill {
   border-color: rgba(255, 255, 255, 0.1);
   background: rgba(0, 0, 0, 0.35);

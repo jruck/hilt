@@ -19,6 +19,7 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import { BookMarked, CalendarClock, FolderOpen, SquareCheck, UserRound, type LucideIcon } from "lucide-react";
 import { useScope } from "@/contexts/ScopeContext";
 import type { ObjectKind, ObjectNavTarget, ObjectRef, ResolvedObject } from "@/lib/objects/types";
+import { meetingDateSegment } from "@/lib/briefing/canvas";
 import { resolveObject, useObjectCard } from "@/hooks/useObjectCard";
 import { ObjectPopover } from "./ObjectPopover";
 import { ObjectCard } from "./ObjectCard";
@@ -36,15 +37,25 @@ export interface ObjectPillProps {
   /** Display label — the markdown link text. Falls back to the id's last segment. */
   children?: ReactNode;
   className?: string;
+  /**
+   * DATED vs DATELESS meeting pill (pill feedback, 2026-07-07): a meeting pill carries its
+   * instance date INSIDE the chip ("Standup · Jul 7"; year appended when not the current year)
+   * — an instance reference is the norm, so this defaults TRUE. Pass false for a series-level
+   * reference (the meeting as a recurring thing, no specific note). Ignored for other kinds.
+   * Derivation is pure + zero-fetch: the date comes from the ref id's `meetings/YYYY-MM-DD/…`
+   * path segment (`meetingDateSegment`).
+   */
+  showDate?: boolean;
 }
 
-export function ObjectPill({ refr, children, className }: ObjectPillProps) {
+export function ObjectPill({ refr, children, className, showDate = true }: ObjectPillProps) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const anchorRef = useRef<HTMLButtonElement>(null);
   const { navigateTo } = useScope();
   const { resolved, error, isLoading } = useObjectCard(refr, open);
   const Icon = KIND_ICONS[refr.kind];
+  const dateSegment = refr.kind === "meeting" && showDate ? meetingDateSegment(refr.id) : null;
 
   const navigate = useCallback((nav: ObjectNavTarget) => {
     navigateTo(nav.view, nav.scope);
@@ -91,6 +102,9 @@ export function ObjectPill({ refr, children, className }: ObjectPillProps) {
       >
         <Icon className="hilt-object-pill-icon" aria-hidden />
         <span className="hilt-object-pill-label">{children ?? fallbackLabel(refr)}</span>
+        {dateSegment ? (
+          <span className="hilt-object-pill-date" data-testid="object-pill-date">· {dateSegment}</span>
+        ) : null}
       </button>
       {open ? (
         <ObjectPopover anchorRef={anchorRef} onClose={() => setOpen(false)}>

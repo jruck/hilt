@@ -23,6 +23,8 @@
  *      per call, so passive hydration would corrupt read-state. No new API surface was built.
  */
 
+import { formatHiltMonthDay } from "../display-date";
+
 export interface BriefingItem {
   headline: string; // top-level bullet text (markdown)
   details: string; // sub-bullets as markdown
@@ -250,6 +252,50 @@ export function meetingLabelFromRelPath(rel: string): { title: string; date: str
     .replace(/-\d{4}-\d{2}-\d{2}[^/]*\.md$/, "")
     .replace(/\.md$/, "");
   return { title, date };
+}
+
+/**
+ * The DATED meeting pill's integrated date segment (pill feedback, 2026-07-07): a meeting rel
+ * path's YYYY-MM-DD rendered in the house date form — "Jul 7", with the year appended only when
+ * it isn't the current year ("Dec 12, 2025"). Null when the path carries no date (the pill just
+ * shows its label). Timezone-safe: UTC noon lands 07:00/08:00 in the formatter's pinned ET for
+ * EVERY viewer zone — local-noon construction drifted a day for browsers ≥ ~UTC+9 (Tokyo,
+ * Sydney, Kiritimati; adversarial finding, the suite failed under TZ=Pacific/Kiritimati).
+ * The includeYear comparison uses the ET display year for the same reason.
+ */
+export function meetingDateSegment(rel: string, now: Date = new Date()): string | null {
+  const iso = meetingLabelFromRelPath(rel).date;
+  if (!iso) return null;
+  const [year, month, day] = iso.split("-").map(Number);
+  const displayYear = Number(
+    new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric" }).format(now),
+  );
+  return formatHiltMonthDay(new Date(Date.UTC(year, month - 1, day, 12)), { includeYear: year !== displayYear });
+}
+
+/** A closed `[label](hilt:meeting/…)` link — angle-bracket destination (the generator's required
+ * form / normalizeHiltLinks output) or the bare `.md` form, matched tolerantly. */
+const MEETING_PILL_LINK = String.raw`\]\((?:<hilt:meeting\/[^>\n]*>|hilt:meeting\/[^\n<>]*?\.md)\)`;
+
+/** A parenthesized literal date token: "(7/7)", "(2026-07-07)", "(Jul 7)" / "(Jul 7, 2026)". */
+const TRAILING_DATE_TOKEN = String.raw`\((?:\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} \d{1,2}(?:, \d{4})?)\)`;
+
+/**
+ * Redundant date-token suppression (pill feedback, 2026-07-07): the DATED meeting pill carries
+ * its instance date INSIDE the chip, so a literal date token bolted on right after the pill —
+ * the editor's old "meeting (7/7)" house form leaking past a pill — is stripped at render.
+ * Defensive renderer-side cover for already-written briefings and model slips; the generator
+ * contract (prompt PILL CITATIONS + SKILL pill guidance) says never to write one.
+ *
+ * Deliberately narrow: the token must DIRECTLY follow a `hilt:meeting` link's closing `)` (or
+ * that link's closing `**` bold wrapper), same line, with only spaces between — optionally
+ * bold-wrapped itself. Dates anywhere else, and dates after non-meeting links, are untouched.
+ */
+export function stripDateAfterMeetingPill(markdown: string): string {
+  const anchor = `(${MEETING_PILL_LINK}(?:\\*\\*)?)`;
+  return markdown
+    .replace(new RegExp(`${anchor}[ \\t]*\\*\\*[ \\t]*${TRAILING_DATE_TOKEN}[ \\t]*\\*\\*`, "g"), "$1")
+    .replace(new RegExp(`${anchor}[ \\t]*${TRAILING_DATE_TOKEN}`, "g"), "$1");
 }
 
 /** The ⏭ Next steps section — the B3 marker heading (old briefings never carry the emoji, so

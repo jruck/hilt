@@ -195,10 +195,9 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
         {meeting && (
           <p className="mt-0.5 text-xs text-[var(--text-tertiary)]" title={task.origin?.meeting}>
             {meetingRef ? (
-              <ObjectPill refr={meetingRef}>
-                {meeting.title}
-                {meeting.date ? ` · ${meeting.date}` : ""}
-              </ObjectPill>
+              // The pill's own date segment renders the instance date ("· Jul 7") — repeating
+              // the ISO date in the label doubled it (pill-date adversarial finding).
+              <ObjectPill refr={meetingRef}>{meeting.title}</ObjectPill>
             ) : (
               <>
                 {meeting.title}

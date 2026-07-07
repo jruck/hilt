@@ -622,6 +622,31 @@ test("readTaskDir warns and skips corrupt + mismatched-id files, ignores dot-fil
   assert.ok(warns.some((w) => w.includes("t-20260707-050.md") && w.includes("does not match filename")));
 });
 
+test("readTask/readProposal degrade a corrupt file to null with a warn (never throw)", () => {
+  // A7 degradation sweep: "reads degrade to missing, mutations throw" is the store contract —
+  // a corrupt file addressed by id must answer like a missing one (the [id] route then 404s
+  // instead of 500ing), and the warn keeps the corruption visible in logs.
+  const dir = tmpdir();
+  const task = createTask(dir, { title: "Soon corrupt", created_at: "2026-07-07T09:00:00.000Z" });
+  const proposal = createTask(dir, { title: "Soon corrupt too", status: "proposed", created_at: "2026-07-07T09:00:00.000Z" });
+  fs.writeFileSync(taskPath(dir, task.id), "not a task file at all", "utf-8");
+  fs.writeFileSync(proposalPath(dir, proposal.id), "---\nbroken: [unclosed\n---\n", "utf-8");
+  const warns: string[] = [];
+  const realWarn = console.warn;
+  console.warn = (...args: unknown[]) => warns.push(args.map(String).join(" "));
+  try {
+    assert.equal(readTask(dir, task.id), null);
+    assert.equal(readProposal(dir, proposal.id), null);
+    // Mutations on the bricked file throw the missing-file error, they do not crash-parse.
+    assert.throws(() => updateTask(dir, task.id, { title: "nope" }), /task not found/);
+    assert.throws(() => transitionTask(dir, task.id, "done", "test"), /task not found/);
+  } finally {
+    console.warn = realWarn;
+  }
+  assert.ok(warns.some((w) => w.includes(task.id) && w.includes("unparseable")));
+  assert.ok(warns.some((w) => w.includes(proposal.id) && w.includes("unparseable")));
+});
+
 test("weekly v2 hostile titles survive render → parse (taskPath from the LAST link)", () => {
   const p = "tasks/t-20260707-001.md";
   const mk = (title: string): TaskFile => ({

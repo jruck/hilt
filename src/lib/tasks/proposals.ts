@@ -15,11 +15,18 @@ export function listProposals(baseDir: string): TaskFile[] {
   return readTaskDir(proposalsDir(baseDir));
 }
 
-/** Read one proposal by id. Missing file → null. */
+/** Read one proposal by id. Missing OR unparseable file → null — same degrade-with-a-warn
+ * contract as store.readTask (A7 degradation sweep: a corrupt proposal must not 500 the
+ * `/api/tasks/[id]` probe or flip notFoundResponse's 409 into a crash). */
 export function readProposal(baseDir: string, id: string): TaskFile | null {
   const filePath = proposalPath(baseDir, id);
   if (!fs.existsSync(filePath)) return null;
-  return parseTaskFile(fs.readFileSync(filePath, "utf-8"));
+  try {
+    return parseTaskFile(fs.readFileSync(filePath, "utf-8"));
+  } catch (err) {
+    console.warn(`[tasks] treating unparseable proposal as missing ${filePath}: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
 }
 
 export interface ApproveOptions {

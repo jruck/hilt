@@ -8,8 +8,9 @@ import { loadRegistry, loopHome } from "../src/lib/loops/registry";
 import { emitLoopArtifact, defaultSandboxDir } from "../src/lib/loops/emit";
 import { readUnactedVerdicts, markVerdictsActed, readUnprocessedFeedback, markFeedbackProcessed } from "../src/lib/loops/stores";
 import {
-  catchPhraseSpans, mintEntryId, nextSeq, openEntries, openLedgerDigest,
-  readLedger, transition, writeLedger, type Ledger, type LedgerEntry,
+  catchPhraseSpans, dismissedLedgerDigest, mintEntryId, nextSeq, normalizeActionText,
+  openEntries, openLedgerDigest, readLedger, recentlyDismissedByAction, transition,
+  writeLedger, type Ledger, type LedgerEntry,
 } from "../src/lib/loops/meeting-ledger";
 import { EXTRACTOR_SYSTEM, buildExtractorTask } from "../src/lib/loops/meeting-extractor-prompt";
 import { mintProposalFromLedgerEntry, resolveProposalSink } from "../src/lib/loops/proposal-mint";
@@ -125,16 +126,34 @@ function meetingTitleFromRel(rel: string): string {
 
 async function extractMeeting(rel: string, ledger: Ledger): Promise<ExtractionResult | "rate_limited" | null> {
   const noteAbs = path.join(vaultPath, rel);
-  const parsed = matter(fs.readFileSync(noteAbs, "utf-8"));
-  const transcriptAbs = resolveTranscript(parsed.data as Record<string, unknown>);
-  const transcript = transcriptAbs ? fs.readFileSync(transcriptAbs, "utf-8") : "(no transcript available)";
-  const spans = transcriptAbs ? catchPhraseSpans(transcript) : [];
+  // A malformed note (broken frontmatter, unreadable file) must degrade to a per-meeting
+  // failure — an uncaught throw here killed the whole run AND left the bad meeting unprocessed,
+  // wedging every subsequent run behind it (adversarial finding, 2026-07-07).
+  let parsed: ReturnType<typeof matter>;
+  let transcript = "(no transcript available)";
+  let spans: ReturnType<typeof catchPhraseSpans> = [];
+  try {
+    parsed = matter(fs.readFileSync(noteAbs, "utf-8"));
+    const transcriptAbs = resolveTranscript(parsed.data as Record<string, unknown>);
+    if (transcriptAbs) {
+      transcript = fs.readFileSync(transcriptAbs, "utf-8");
+      spans = catchPhraseSpans(transcript);
+    }
+  } catch (err) {
+    console.warn(`[loop-meeting-actions] skipping unreadable meeting ${rel}: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
 
+  // Dismissed-immunity (v3 unit A7): the extractor also sees recently-DISMISSED entries, so a
+  // meeting restating declined work resolves to the dismissed id (a sighting) instead of
+  // minting a fresh entry — and hence a fresh proposal for something Justin already said no to.
+  const dismissedDigest = dismissedLedgerDigest(ledger, isoNow());
   const task = buildExtractorTask({
     meetingPath: rel,
     noteContent: parsed.content.slice(0, 20_000),
     transcriptContent: transcript.slice(0, 120_000),
     openLedgerDigest: openLedgerDigest(ledger, isoNow()),
+    ...(dismissedDigest ? { dismissedLedgerDigest: dismissedDigest } : {}),
     catchPhraseSpans: spans,
   }) + feedbackGuidanceRef.value;
 
@@ -232,6 +251,14 @@ async function main(): Promise<void> {
   let rateLimited = false;
   let failures = 0;
 
+  // Dismissed-immunity backstop (v3 unit A7, belt-and-suspenders under the prompt rule): if the
+  // extractor emits as NEW a commitment whose action exactly matches a recently-dismissed entry,
+  // fold it as a SIGHTING of that entry instead of minting. Exact normalized-text match only —
+  // fuzzy identity is the extractor's job; this catches the literal-restatement miss. The set is
+  // stable across the queue: dismiss-verdict drops land only in pass 0 above (mid-queue closure
+  // drops carry no dismiss verdict).
+  const dismissedByAction = recentlyDismissedByAction(ledger, now);
+
   // 2-3 · Extract + apply, meeting by meeting (sequential: the ledger digest must reflect
   // earlier meetings' entries for identity resolution across the queue).
   for (const rel of queue) {
@@ -240,6 +267,12 @@ async function main(): Promise<void> {
     if (!result) { failures += 1; continue; }
     const meetingDate = rel.match(/meetings\/(\d{4}-\d{2}-\d{2})\//)?.[1] || today;
     for (const c of result.new_commitments) {
+      const dismissedTwin = dismissedByAction.get(normalizeActionText(c.action || ""));
+      if (dismissedTwin) {
+        dismissedTwin.sightings.push({ at: now, meeting: rel, ...(c.quote ? { quote: c.quote.slice(0, 200) } : {}) });
+        sighted.push(dismissedTwin.id);
+        continue;
+      }
       const id = mintEntryId(meetingDate, nextSeq(ledger, meetingDate));
       const entry: LedgerEntry = {
         id,
@@ -258,6 +291,11 @@ async function main(): Promise<void> {
       ledger.entries[id] = entry;
       opened.push(entry);
     }
+    // Sightings record EVIDENCE only — never a status change. A sighting on a dropped/resolved
+    // entry (the dismissed-immunity path routes restatements of declined work here) appends to
+    // the entry's receipts and nothing else: dropped entries never reopen, never re-escalate
+    // (escalation + aging iterate openEntries, which excludes them), never re-mint (task_id
+    // stamp + verdict both persist).
     for (const s of result.sightings) {
       const entry = ledger.entries[s.ledger_id];
       if (!entry) continue;

@@ -8,6 +8,12 @@
 // over-anchored on the note (Next Steps recall 0.789) and under-mined the transcript
 // (transcript-only recall 0.377). v2 adds the two-pass sweep + reframes conservatism so
 // uncertainty lowers the confidence score instead of suppressing extraction.
+// v2.1 (2026-07-07, v3 unit A7 — dismissed-immunity, behavioral rule not extraction tuning):
+// the extractor previously saw only the OPEN ledger, so a meeting restating a DISMISSED
+// commitment minted a brand-new entry (and a new proposal for work Justin already declined).
+// A RECENTLY DISMISSED section now rides in the task alongside the open ledger, with the rule
+// that matches resolve to the dismissed id as sightings — never new entries. Gold-set
+// extraction behavior is unchanged (the gold set has no dismissed-restatement cases).
 export const EXTRACTOR_SYSTEM = `You extract COMMITMENTS from one meeting into Justin's action
 ledger. You are precise and evidence-bound. Conservative means: EXCLUDE aspirations, options, and
 process narration — it does NOT mean skipping real commitments you are less sure about. Extract
@@ -40,6 +46,12 @@ RESTATEMENT or update of an existing entry must be reported as a SIGHTING of tha
 never a new entry. Same underlying work restated in different words = same entry. New scope or a
 genuinely different deliverable = new entry.
 
+DISMISSED entries: you may also be given a RECENTLY DISMISSED list — commitments Justin explicitly
+declined. A commitment matching one of those entries is a SIGHTING of that entry's id — NEVER a
+new entry, no matter how it is restated or who restates it. Dismissal is durable: do not resurrect
+declined work as a new commitment. (Genuinely NEW scope beyond the dismissed ask is still a new
+entry — the immunity covers the same work, not the topic.)
+
 CLOSURES: when the meeting shows an open ledger entry is DONE ("we shipped that", "I sent it") or
 ABANDONED ("we're not doing that"), report a closure with the verbatim evidence quote.
 
@@ -71,6 +83,8 @@ export function buildExtractorTask(opts: {
   noteContent: string;
   transcriptContent: string;
   openLedgerDigest: string;
+  /** Recently-dismissed entries (dismissedLedgerDigest) — section omitted when empty. */
+  dismissedLedgerDigest?: string;
   catchPhraseSpans: string[];
 }): string {
   return [
@@ -79,6 +93,13 @@ export function buildExtractorTask(opts: {
     "=== CURRENT OPEN LEDGER (for identity resolution — match before minting) ===",
     opts.openLedgerDigest,
     "",
+    ...(opts.dismissedLedgerDigest
+      ? [
+          "=== RECENTLY DISMISSED (Justin declined these — a match is a SIGHTING of that id, never a new entry) ===",
+          opts.dismissedLedgerDigest,
+          "",
+        ]
+      : []),
     ...(opts.catchPhraseSpans.length
       ? ["=== CATCH-PHRASE SPANS (deliberate captures — near-certain) ===", ...opts.catchPhraseSpans.map((s, i) => `${i + 1}. ${s}`), ""]
       : []),

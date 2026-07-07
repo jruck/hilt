@@ -53,10 +53,18 @@ export function ledgerPath(home: string): string {
 }
 
 export function readLedger(home: string): Ledger {
+  const filePath = ledgerPath(home);
+  // Missing = first run, start empty. CORRUPT must fail LOUD: swallowing a parse error here
+  // returned an empty ledger that the run then unconditionally persisted — one torn write
+  // silently wiped every dismiss verdict, task_id idempotency stamp, and first_escalated_at
+  // (adversarial finding, 2026-07-07). A crash is recoverable; a persisted wipe is not.
+  if (!fs.existsSync(filePath)) return { version: 1, entries: {} };
   try {
-    return JSON.parse(fs.readFileSync(ledgerPath(home), "utf-8")) as Ledger;
-  } catch {
-    return { version: 1, entries: {} };
+    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as Ledger;
+  } catch (err) {
+    throw new Error(
+      `ledger unreadable at ${filePath} — refusing to continue (an empty-ledger fallback would persist as a wipe): ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -101,6 +109,55 @@ export function openLedgerDigest(ledger: Ledger, nowIso: string): string {
   return open
     .map((e) => `${e.id} · ${e.owner} · ${e.action.slice(0, 120)} · opened ${e.opened_at.slice(0, 10)} (${entryAgeDays(e, nowIso)}d)`)
     .join("\n");
+}
+
+/** How long a dismissal stays in the extractor's "recently dismissed" digest (v3 unit A7).
+ * Matches the meeting backfill window: a restatement can only come from a meeting the loop
+ * still parses, so 30 days of immunity covers every meeting that can re-surface the ask. */
+export const DISMISSED_IMMUNITY_DAYS = 30;
+
+/**
+ * Entries dropped via a DISMISS VERDICT within the last `windowDays` (v3 unit A7:
+ * dismissed-immunity). Dismissal must be durable: the extractor sees only the OPEN ledger for
+ * identity resolution, so a meeting restating a dismissed commitment would otherwise mint a
+ * brand-new entry — and a brand-new proposal for something Justin already declined. Closure
+ * drops (extractor-evidenced "we're not doing that") are NOT included: those carry no verdict
+ * and re-extraction of them is an identity question, not a decision override.
+ */
+export function recentlyDismissedEntries(ledger: Ledger, nowIso: string, windowDays = DISMISSED_IMMUNITY_DAYS): LedgerEntry[] {
+  return Object.values(ledger.entries).filter((e) => {
+    if (e.status !== "dropped" || e.verdict?.verdict !== "dismiss") return false;
+    // The drop transition's timestamp is when the dismissal landed (transition() appends it).
+    const dropped = [...e.status_history].reverse().find((h) => h.to === "dropped");
+    if (!dropped) return false;
+    return (Date.parse(nowIso) - Date.parse(dropped.at)) / 86_400_000 <= windowDays;
+  });
+}
+
+/**
+ * The compact recently-dismissed digest for the extractor prompt (id, owner, action) — the
+ * companion to openLedgerDigest. Empty string when nothing is recently dismissed, so the
+ * prompt builder can omit the section entirely.
+ */
+export function dismissedLedgerDigest(ledger: Ledger, nowIso: string): string {
+  return recentlyDismissedEntries(ledger, nowIso)
+    .map((e) => `${e.id} · ${e.owner} · ${e.action.slice(0, 120)}`)
+    .join("\n");
+}
+
+/** Whitespace/case-insensitive action-text normalization — the exact-match key for the
+ * ledger-apply dismissed backstop (deterministic only; fuzzy matching is the extractor's job). */
+export function normalizeActionText(action: string): string {
+  return action.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/** Normalized action text → recently-dismissed entry: the belt-and-suspenders index the
+ * ledger-apply pass uses to fold an extractor-emitted "new" commitment that exactly restates
+ * a dismissed one into a SIGHTING instead of minting (prompt rule enforcement at apply time). */
+export function recentlyDismissedByAction(ledger: Ledger, nowIso: string): Map<string, LedgerEntry> {
+  const map = new Map<string, LedgerEntry>();
+  for (const e of recentlyDismissedEntries(ledger, nowIso)) map.set(normalizeActionText(e.action), e);
+  return map;
 }
 
 /**

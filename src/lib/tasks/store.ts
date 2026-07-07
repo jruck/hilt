@@ -70,11 +70,19 @@ export function listTasks(baseDir: string): TaskFile[] {
   return readTaskDir(tasksDir(baseDir));
 }
 
-/** Read one accepted task by id. Missing file → null (proposals live in proposals.ts). */
+/** Read one accepted task by id. Missing OR unparseable file → null (proposals live in
+ * proposals.ts). Corrupt degrades like the list path (readTaskDir) — "reads degrade to
+ * missing, mutations throw" is the store contract; a bricked file must answer 404, not 500 —
+ * but never silently: the warn makes corruption visible in logs (A7 degradation sweep). */
 export function readTask(baseDir: string, id: string): TaskFile | null {
   const filePath = taskPath(baseDir, id);
   if (!fs.existsSync(filePath)) return null;
-  return parseTaskFile(fs.readFileSync(filePath, "utf-8"));
+  try {
+    return parseTaskFile(fs.readFileSync(filePath, "utf-8"));
+  } catch (err) {
+    console.warn(`[tasks] treating unparseable file as missing ${filePath}: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
 }
 
 export function writeTask(baseDir: string, task: TaskFile): void {

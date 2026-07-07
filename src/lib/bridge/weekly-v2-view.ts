@@ -95,6 +95,50 @@ export function insertWeeklyV2Line(content: string, line: string): string | null
 }
 
 /**
+ * Insert a new task line at the top of a `### <heading>` SECTION inside the Tasks region —
+ * the "Ready for agents" splice (accepted-agent verdicts join the week toward the bottom, not
+ * the top-of-Tasks spot Justin's own tasks take). Heading text matches case-insensitively.
+ * Missing section → it is CREATED at the bottom of the Tasks region (before the next `## `
+ * heading or EOF); content with no `## Tasks` at all degrades to appending the section at the
+ * end of the body — degrade, never corrupt, so this always returns content (no null case).
+ */
+export function insertWeeklyV2LineInSection(content: string, line: string, heading: string): string {
+  const lines = content.split("\n");
+  let bodyStart = 0;
+  if (lines[0]?.trim() === "---") {
+    const end = lines.findIndex((l, i) => i > 0 && l.trim() === "---");
+    if (end !== -1) bodyStart = end + 1;
+  }
+  const tasksHeading = lines.findIndex((l, i) => i >= bodyStart && l.trim() === "## Tasks");
+  const regionStart = tasksHeading !== -1 ? tasksHeading + 1 : bodyStart;
+  // The Tasks region ends at the next `## ` heading; without a `## Tasks` anchor the whole
+  // remaining body is the region (the fallback appends the section at the end of it).
+  let regionEnd = lines.length;
+  if (tasksHeading !== -1) {
+    const next = lines.findIndex((l, i) => i >= regionStart && /^##\s+/.test(l) && !/^###/.test(l));
+    if (next !== -1) regionEnd = next;
+  }
+  const wanted = heading.trim().toLowerCase();
+  for (let i = regionStart; i < regionEnd; i++) {
+    const match = lines[i].match(/^###\s+(.*?)\s*$/);
+    if (match && match[1].toLowerCase() === wanted) {
+      // Section exists: splice at its top, skipping blank lines under the heading (same
+      // no-orphaned-gap convention as insertWeeklyV2Line).
+      let at = i + 1;
+      while (at < regionEnd && lines[at].trim() === "") at++;
+      lines.splice(at, 0, line);
+      return lines.join("\n");
+    }
+  }
+  // Section missing: create it at the bottom of the region, before any trailing blank lines
+  // (so the file's trailing newline convention survives untouched).
+  let insertAt = regionEnd;
+  while (insertAt > regionStart && lines[insertAt - 1].trim() === "") insertAt--;
+  lines.splice(insertAt, 0, "", `### ${heading}`, line);
+  return lines.join("\n");
+}
+
+/**
  * Remove a task's lines from the weekly content (v2 delete: the list is a view; the task file
  * keeps the record). Same locate-and-verify contract as replaceWeeklyLine; removes the task
  * line plus any CONSECUTIVE following lines that match the task's remaining rawLines (hand-added

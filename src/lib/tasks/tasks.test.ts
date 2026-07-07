@@ -364,6 +364,19 @@ test("renderWeeklyV2Line ↔ parseWeeklyV2Line round-trip", () => {
   assert.equal(open, "- [ ] [Round trip](tasks/t-20260707-007.md)");
 });
 
+test("a 🆕-prefixed title (verdict lifecycle marker) rides the line render/parse verbatim", () => {
+  const task: TaskFile = {
+    id: "t-20260707-008",
+    title: "🆕 Freshly promoted task",
+    status: "accepted-agent",
+    created_at: "2026-07-07T09:00:00.000Z",
+    body: "",
+  };
+  const rendered = renderWeeklyV2Line(task, "tasks/t-20260707-008.md");
+  assert.equal(rendered, "- [ ] [🆕 Freshly promoted task](tasks/t-20260707-008.md)");
+  assert.equal(parseWeeklyV2Line(rendered)!.title, "🆕 Freshly promoted task");
+});
+
 test("mirrorCheckbox flips only the checkbox", () => {
   const line = "- [ ] [Ship it](tasks/t-20260707-001.md) [due:: 2026-07-10]";
   assert.equal(mirrorCheckbox(line, true), "- [x] [Ship it](tasks/t-20260707-001.md) [due:: 2026-07-10]");

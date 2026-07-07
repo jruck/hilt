@@ -225,8 +225,12 @@ no artifact/health drawers of its own — a known gap in the pattern):
      object itself (a meeting opens in People, a task in Bridge). On a phone, tapping the chip
      jumps straight there. The same chips appear outside the briefing too: a task card's
      "which meeting did this come from" line, and the meeting citation inside an expanded ask
-     row. The editor is told to cite this way and to keep sub-bullets for *evidence* — a
-     sub-bullet that is nothing but a citation now draws a soft validator warning (never a
+     row. A meeting chip carries its **date inside the chip** ("Standup · Jul 7"; the year is
+     added when it isn't this year) — that's how you tell which instance of a recurring
+     meeting it points at. A chip without a date refers to the meeting series as a whole. The
+     editor is told never to write a date after a meeting chip (the chip already carries it —
+     and if one slips through, the reader strips it), and to keep sub-bullets for *evidence* —
+     a sub-bullet that is nothing but a citation now draws a soft validator warning (never a
      failure, so old briefings are untouched).
 
 Its files:
@@ -255,19 +259,24 @@ run (for meeting asks: the next post-meeting trigger run or the 7:30 PM sweep, w
 comes first). Since A6 there is ALSO an instant file effect: when the ask has
 a proposal file in `$VAULT/tasks/.proposals/`, Approve/Assign moves it into `$VAULT/tasks/` as a
 real task right away, Dismiss deletes the file (the ledger still remembers), and Revise appends
-your note to it. And since the gate-B round, an Approve (or Assign to me) whose file effect
-lands ALSO adds the task's line to this week's list — same spot the + button puts a new task —
-so an approved proposal is visible in your week immediately, not just in the task store. (Only
-when the current list is the new v2 format; agent assignments never join your list; if the
-list write ever fails, the task file still exists and the verdict still counts.) Today the
+your note to it. And since the gate-B round, a verdict whose file effect lands ALSO adds the
+task's line to this week's list — **both kinds now**: Approve / Assign to me splice at the top
+of Tasks (same spot the + button puts a new task), and Assign to agent joins a
+**"Ready for agents"** section toward the bottom of the week (scoped and ready for an agent to
+process, just not run yet — created automatically the first time it's needed), so no accepted
+task is ever invisible. Every promoted task arrives with the **🆕 marker** in its title — the
+same amber left-accent convention new tasks have always used — and viewing the task strips it
+(the read receipt), so you can see at a glance what the loops added since you last looked.
+(Only when the current list is the new v2 format; if the list write ever fails, the task file
+still exists and the verdict still counts.) Today the
 meetings node still mints proposals into its shadow drawer (see its inventory above), so the
 instant effect starts mattering when its `proposal_sink` graduates to the vault; pre-A6 asks
 never had files, and that's fine — the response just says so.
 
 Every verdict button explains itself on hover: Approve = "take this on — becomes your task and
-joins this week's list"; Assign to agent = "mark as agent work (agent execution arrives in
-Phase C)"; Dismiss = "decline — removed; the loop remembers and won't re-propose it"; Revise =
-"send a correction — returns for a fresh verdict".
+joins this week's list"; Assign to agent = "mark as agent work — joins this week's Ready for
+agents section (agent execution arrives in Phase C)"; Dismiss = "decline — removed; the loop
+remembers and won't re-propose it"; Revise = "send a correction — returns for a fresh verdict".
 
 Proposals also have their own surface now: the **Proposals** section in the Priorities view
 (collapsed behind a count; only appears when something is waiting) shows each proposal as a card

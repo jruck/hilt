@@ -14,12 +14,13 @@ import type { Verdict } from "@/lib/loops/types";
 import type { ObjectRef } from "@/lib/objects/types";
 import { ObjectPill } from "@/components/objects/ObjectPill";
 import { formatHiltMonthDay } from "@/lib/display-date";
+import { parseLifecycle } from "@/lib/attribution";
 import { ownerChip, parseOwnerPrefix, type OwnerTag } from "@/lib/tasks/owner";
 
 // Each button carries a plain-language tooltip of its EFFECT (gate-B: verdict clarity).
 const VERDICT_BUTTONS: Array<{ verdict: Verdict; label: string; title: string }> = [
   { verdict: "approve", label: "Approve", title: "Take this on — becomes your task and joins this week's list" },
-  { verdict: "assign_to_agent", label: "Assign to agent", title: "Mark as agent work (agent execution arrives in Phase C)" },
+  { verdict: "assign_to_agent", label: "Assign to agent", title: "Mark as agent work — joins this week's Ready for agents section (agent execution arrives in Phase C)" },
   { verdict: "dismiss", label: "Dismiss", title: "Decline — removed; the loop remembers and won't re-propose it" },
   { verdict: "revise", label: "Revise", title: "Send a correction — returns for a fresh verdict" },
 ];
@@ -140,8 +141,13 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
 
   const meeting = !hideMeeting && task.origin?.meeting ? meetingLabel(task.origin.meeting) : null;
   const statusBadge = showStatus ? STATUS_BADGES[task.status] : undefined;
-  // Render-level only: the file/markdown keeps the bracket prefix; the card shows a chip.
-  const { title: displayTitle, owner } = parseOwnerPrefix(task.title);
+  // Render-level only: the file/markdown keeps its markers; the card shows clean text.
+  // Order matters: lifecycle strip FIRST (verdict-promoted task files carry a leading "🆕 "
+  // until viewed — never show it raw), then the owner-prefix chip parse (task-file titles
+  // shouldn't carry owner prefixes, but be defensive about the combination).
+  const { title: displayTitle, owner } = parseOwnerPrefix(
+    parseLifecycle(task.title, task.status === "done").displayTitle,
+  );
 
   async function submitVerdict(verdict: Verdict, note?: string) {
     if (!onVerdict) return;

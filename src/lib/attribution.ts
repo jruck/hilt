@@ -86,6 +86,12 @@ export function parseLifecycle(title: string, done: boolean): TaskLifecycle {
         displayTitle: trimmed.slice(REVIEW_MARKER.length).trim(),
       };
     }
+    // A task checked off BEFORE being viewed still carries 🆕 — the read-receipt only fires
+    // for state "new", so without stripping here the raw emoji shows on done rows/cards
+    // forever (agent-home adversarial finding, 2026-07-07).
+    if (trimmed.startsWith(NEW_MARKER)) {
+      return { state: "done", displayTitle: trimmed.slice(NEW_MARKER.length).trim() };
+    }
     return { state: "done", displayTitle: title };
   }
 

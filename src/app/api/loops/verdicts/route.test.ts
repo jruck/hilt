@@ -4,8 +4,10 @@
  * audit trail; these tests pin the ADDITIVE synchronous proposal-file effect: each verdict
  * kind's file semantics, repeat = already-applied, no-file = missing (pre-A6 items and
  * non-vault sinks), and unknown items absorbed exactly as before — plus the gate-B weekly
- * mirror (approve/assign_to_me splice a v2 line into the current weekly list; v1 lists and
- * agent assignments never do; mirror failure is cosmetic).
+ * mirror (approve/assign_to_me splice a v2 line at the top of the current weekly list's Tasks;
+ * assign_to_agent splices into the "### Ready for agents" section, created when missing; every
+ * promotion stamps the 🆕 lifecycle marker into the task FILE title exactly once; v1 lists
+ * never splice; mirror failure is cosmetic).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
@@ -21,7 +23,7 @@ vi.mock("@/lib/bridge/vault", () => ({
 }));
 
 import { POST } from "./route";
-import { createTask, proposalPath, readTask, taskPath } from "@/lib/tasks/store";
+import { createTask, proposalPath, readTask, taskPath, updateTask as updateTaskFile } from "@/lib/tasks/store";
 import { listProposals, readProposal } from "@/lib/tasks/proposals";
 import { readVerdicts } from "@/lib/loops/stores";
 import type { TaskFile } from "@/lib/tasks/types";
@@ -215,7 +217,7 @@ describe("POST /api/loops/verdicts — weekly-list mirror (gate-B: approve gains
     expect((await res.json()).file_effect).toBe("applied");
 
     const content = fs.readFileSync(listPath, "utf-8");
-    const line = `- [ ] [Proposal for ma-2026-07-05-101](tasks/${proposal.id}.md)`;
+    const line = `- [ ] [🆕 Proposal for ma-2026-07-05-101](tasks/${proposal.id}.md)`;
     expect(content).toContain(line);
     // A4's insertion convention: top of the task section, before existing tasks.
     expect(content.indexOf(line)).toBeLessThan(content.indexOf("Existing task"));
@@ -223,7 +225,7 @@ describe("POST /api/loops/verdicts — weekly-list mirror (gate-B: approve gains
     expect(fs.readFileSync(path.join(vault, "lists", "now", "2026-06-29.md"), "utf-8")).toBe(V1_LIST);
   });
 
-  it("assign_to_me splices too; assign_to_agent does NOT (agent work is not Justin's list)", async () => {
+  it("assign_to_me splices at the top; assign_to_agent lands in a created 'Ready for agents' section", async () => {
     const listPath = seedWeekly(V2_LIST);
     const mine = mintProposal("ma-2026-07-05-102");
     const agents = mintProposal("ma-2026-07-05-103");
@@ -233,7 +235,99 @@ describe("POST /api/loops/verdicts — weekly-list mirror (gate-B: approve gains
 
     const content = fs.readFileSync(listPath, "utf-8");
     expect(content).toContain(`tasks/${mine.id}.md`);
-    expect(content).not.toContain(`tasks/${agents.id}.md`);
+    // Agent tasks get a home: the section is created at the bottom of the Tasks region and
+    // holds the agent line — below Justin's own tasks, never mixed in at the top.
+    expect(content).toContain(`### Ready for agents\n- [ ] [🆕 Proposal for ma-2026-07-05-103](tasks/${agents.id}.md)`);
+    expect(content.indexOf(`tasks/${mine.id}.md`)).toBeLessThan(content.indexOf("### Ready for agents"));
+  });
+
+  it("assign_to_agent reuses an existing section (case-insensitive), splicing at its top", async () => {
+    const listWithSection = [
+      "---",
+      "week: 2026-07-06",
+      "list_format: 2",
+      "---",
+      "",
+      "## Tasks",
+      "",
+      "- [ ] [Existing task](tasks/t-20260706-001.md)",
+      "",
+      "### ready FOR agents",
+      "",
+      "- [ ] [Queued agent task](tasks/t-20260706-002.md)",
+      "",
+    ].join("\n");
+    const listPath = seedWeekly(listWithSection);
+    const agents = mintProposal("ma-2026-07-05-110");
+
+    await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-110", verdict: "assign_to_agent" });
+
+    const content = fs.readFileSync(listPath, "utf-8");
+    // No second section minted; the new line sits at the top of the existing one.
+    expect(content.match(/###\s+ready for agents/gi)).toHaveLength(1);
+    expect(content).toContain(
+      `### ready FOR agents\n\n- [ ] [🆕 Proposal for ma-2026-07-05-110](tasks/${agents.id}.md)\n- [ ] [Queued agent task]`,
+    );
+  });
+
+  it("both promotion kinds stamp 🆕 into the task FILE title (and the line agrees)", async () => {
+    const listPath = seedWeekly(V2_LIST);
+    const mine = mintProposal("ma-2026-07-05-111");
+    const agents = mintProposal("ma-2026-07-05-112");
+
+    await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-111", verdict: "approve" });
+    await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-112", verdict: "assign_to_agent" });
+
+    expect(readTask(vault, mine.id)?.title).toBe("🆕 Proposal for ma-2026-07-05-111");
+    expect(readTask(vault, agents.id)?.title).toBe("🆕 Proposal for ma-2026-07-05-112");
+    const content = fs.readFileSync(listPath, "utf-8");
+    expect(content).toContain(`[🆕 Proposal for ma-2026-07-05-111](tasks/${mine.id}.md)`);
+    expect(content).toContain(`[🆕 Proposal for ma-2026-07-05-112](tasks/${agents.id}.md)`);
+  });
+
+  it("approve twice never double-prefixes the marker; a viewed (stripped) task is not re-marked", async () => {
+    seedWeekly(V2_LIST);
+    const proposal = mintProposal("ma-2026-07-05-113");
+
+    await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-113", verdict: "approve" });
+    expect(readTask(vault, proposal.id)?.title).toBe("🆕 Proposal for ma-2026-07-05-113");
+
+    // Repeat verdict against the already-accepted file: still exactly one marker.
+    await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-113", verdict: "approve" });
+    expect(readTask(vault, proposal.id)?.title).toBe("🆕 Proposal for ma-2026-07-05-113");
+
+    // Justin viewed the task → the Bridge read-receipt stripped the marker from the file.
+    // A later repeat verdict (self-heal probe) must NOT re-mark it.
+    updateTaskFile(vault, proposal.id, { title: "Proposal for ma-2026-07-05-113" });
+    await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-113", verdict: "approve" });
+    expect(readTask(vault, proposal.id)?.title).toBe("Proposal for ma-2026-07-05-113");
+  });
+
+  it("repeat assign_to_agent self-heals a missed section splice without re-marking", async () => {
+    // First verdict lands with NO weekly list present (mirror is a cosmetic no-op)…
+    const proposal = mintProposal("ma-2026-07-05-114");
+    await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-114", verdict: "assign_to_agent" });
+    // …the marker is stripped by viewing, then a list appears and the verdict repeats.
+    updateTaskFile(vault, proposal.id, { title: "Proposal for ma-2026-07-05-114" });
+    const listPath = seedWeekly(V2_LIST);
+    const res = await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-114", verdict: "assign_to_agent" });
+    expect((await res.json()).file_effect).toBe("already-applied");
+
+    const content = fs.readFileSync(listPath, "utf-8");
+    expect(content).toContain(`### Ready for agents\n- [ ] [Proposal for ma-2026-07-05-114](tasks/${proposal.id}.md)`);
+    expect(readTask(vault, proposal.id)?.title).toBe("Proposal for ma-2026-07-05-114"); // no re-mark
+  });
+
+  it("a v1 current list stays byte-untouched for assign_to_agent too", async () => {
+    const listPath = seedWeekly(V1_LIST);
+    const proposal = mintProposal("ma-2026-07-05-115");
+
+    const res = await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-115", verdict: "assign_to_agent" });
+    expect((await res.json()).file_effect).toBe("applied");
+    expect(readTask(vault, proposal.id)?.status).toBe("accepted-agent");
+    expect(fs.readFileSync(listPath, "utf-8")).toBe(V1_LIST);
+    // No v2 line will ever exist to strip a marker — so the file must not be marked at all.
+    expect(readTask(vault, proposal.id)?.title.includes("🆕")).toBe(false);
   });
 
   it("approve twice → no duplicate line (already-linked check)", async () => {
@@ -273,7 +367,7 @@ describe("POST /api/loops/verdicts — weekly-list mirror (gate-B: approve gains
 
     await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-107", verdict: "approve" });
     expect(fs.readFileSync(listPath, "utf-8")).toContain(
-      `- [ ] [Proposal for ma-2026-07-05-107](tasks/${proposal.id}.md) [due:: 2026-07-10]`,
+      `- [ ] [🆕 Proposal for ma-2026-07-05-107](tasks/${proposal.id}.md) [due:: 2026-07-10]`,
     );
   });
 });

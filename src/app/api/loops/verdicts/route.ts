@@ -2,12 +2,12 @@ import fs from "fs";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { parseWeeklyFile } from "@/lib/bridge/weekly-parser";
-import { insertWeeklyV2Line } from "@/lib/bridge/weekly-v2-view";
+import { insertWeeklyV2Line, insertWeeklyV2LineInSection } from "@/lib/bridge/weekly-v2-view";
 import { atomicWriteFile } from "@/lib/library/utils";
 import { appendVerdict } from "@/lib/loops/stores";
 import type { Verdict, VerdictRecord } from "@/lib/loops/types";
 import { approveProposal, dismissProposal, listProposals, reviseProposal } from "@/lib/tasks/proposals";
-import { listTasks, transitionTask } from "@/lib/tasks/store";
+import { listTasks, transitionTask, updateTask } from "@/lib/tasks/store";
 import { canTransition } from "@/lib/tasks/status";
 import type { TaskFile } from "@/lib/tasks/types";
 import { renderWeeklyV2Line } from "@/lib/tasks/weekly-v2";
@@ -40,12 +40,17 @@ function isVerdict(value: unknown): value is Verdict {
  * whose proposal sink is not the vault (shadow sinks live outside `tasks/.proposals/`). */
 export type VerdictFileEffect = "applied" | "already-applied" | "missing";
 
+/** The weekly section accepted-agent tasks land in: scoped and ready for an agent to process,
+ * just not run yet — toward the bottom of the list, not mixed into Justin's own tasks. */
+const AGENT_SECTION_HEADING = "Ready for agents";
+
 /**
- * Weekly-list visibility for approve/assign_to_me (gate-B feedback): once the proposal lands
- * in `tasks/` as accepted-me, splice its v2 line into the CURRENT weekly list — the exact A4
- * machinery the manual add uses (renderWeeklyV2Line + insertWeeklyV2Line; surgical splice,
- * never the v1 serializer). Direct fs against the resolved vaultPath, matching the store's
- * style (the bridge vault helpers resolve the same root via getVaultPath).
+ * Weekly-list visibility for verdict-promoted tasks (gate-B feedback + the "agent tasks get a
+ * home" round): once the proposal lands in `tasks/`, splice its v2 line into the CURRENT
+ * weekly list — the exact A4 machinery the manual add uses (renderWeeklyV2Line +
+ * insertWeeklyV2Line; surgical splice, never the v1 serializer). Direct fs against the
+ * resolved vaultPath, matching the store's style (the bridge vault helpers resolve the same
+ * root via getVaultPath).
  *
  * Contract:
  * - v2 lists only (`list_format: 2` in the latest lists/now file) — a side effect must never
@@ -54,9 +59,11 @@ export type VerdictFileEffect = "applied" | "already-applied" | "missing";
  *   a line something else already mirrored).
  * - Mirror-failure = cosmetic: every failure here warns and returns — the task file is the
  *   truth and the verdict still succeeds; the weekly view self-heals from the file store.
- * - assign_to_agent never calls this: agent work is not Justin's weekly list.
+ * - approve/assign_to_me splice at the top of Tasks (no `section`); assign_to_agent passes
+ *   `section` and lands at the top of that `###` section, created at the bottom of the Tasks
+ *   region when missing.
  */
-function mirrorAcceptedTaskIntoWeekly(vaultPath: string, task: TaskFile): void {
+function mirrorAcceptedTaskIntoWeekly(vaultPath: string, task: TaskFile, options?: { section?: string; mark?: boolean }): void {
   try {
     const listsDir = path.join(vaultPath, "lists", "now");
     if (!fs.existsSync(listsDir)) return; // no weekly lists at all — nothing to mirror into
@@ -70,7 +77,15 @@ function mirrorAcceptedTaskIntoWeekly(vaultPath: string, task: TaskFile): void {
     if (parseWeeklyFile(content, filename).listFormat !== 2) return; // v1 stays byte-untouched
     const relTaskPath = `tasks/${task.id}.md`;
     if (content.includes(`](${relTaskPath})`)) return; // already linked — idempotent
-    const inserted = insertWeeklyV2Line(content, renderWeeklyV2Line(task, relTaskPath));
+    // Mark 🆕 only NOW — past every gate — so a v1/absent week never strands a marker in the
+    // file with no v2 line (and hence no read-receipt) to ever strip it. Fresh promotions
+    // mark; the repeat-verdict self-heal passes mark:false so a viewed task's stripped title
+    // is never re-marked (both adversarial findings, 2026-07-07).
+    const marked = options?.mark ? markTaskFileNew(vaultPath, task) : task;
+    const line = renderWeeklyV2Line(marked, relTaskPath);
+    const inserted = options?.section !== undefined
+      ? insertWeeklyV2LineInSection(content, line, options.section) // never null — creates the section
+      : insertWeeklyV2Line(content, line);
     if (inserted === null) {
       console.warn(
         `[loops/verdicts] weekly mirror skipped: no task-section anchor in ${filename} (task file ${task.id} is the truth)`,
@@ -83,6 +98,29 @@ function mirrorAcceptedTaskIntoWeekly(vaultPath: string, task: TaskFile): void {
       `[loops/verdicts] weekly mirror failed for ${task.id} (task file is the truth):`,
       error,
     );
+  }
+}
+
+/** Title prefix for the 🆕 lifecycle marker (parseLifecycle in src/lib/attribution.ts: a title
+ * starting "🆕 " renders the amber "new" accent until Justin views the task, which strips it —
+ * the read receipt). */
+const NEW_MARKER_PREFIX = "🆕 ";
+
+/**
+ * Stamp the 🆕 marker into the task FILE title at verdict-apply time — BEFORE the weekly line
+ * is rendered, so file and line agree (v2 hydration overlays the file title anyway; a
+ * line-only marker would vanish on the first hydrated read). Idempotent: never double-prefixes.
+ * Only fresh promotions call this — the repeat-verdict self-heal path must NOT re-mark a task
+ * whose marker was already stripped by viewing. Failure degrades to the unmarked task (the
+ * marker is cosmetic; the verdict and the accepted file are the truth).
+ */
+function markTaskFileNew(vaultPath: string, task: TaskFile): TaskFile {
+  if (task.title.trimStart().startsWith("🆕")) return task; // already marked — never double-prefix
+  try {
+    return updateTask(vaultPath, task.id, { title: `${NEW_MARKER_PREFIX}${task.title}` });
+  } catch (error) {
+    console.warn(`[loops/verdicts] 🆕 marker write failed for ${task.id} (cosmetic):`, error);
+    return task;
   }
 }
 
@@ -120,23 +158,32 @@ function applyProposalFileEffect(
       transitionTask(vaultPath, accepted.id, "dropped", "verdict:dismiss");
       return "applied";
     }
-    // Repeat approve/assign_to_me re-runs the weekly mirror: the already-linked check makes it
-    // a no-op normally, and a first-attempt mirror failure self-heals here. Only tasks that are
-    // still Justin's active work mirror (an accepted-agent or dropped file must not get a line).
+    // Repeat verdicts re-run the weekly mirror: the already-linked check makes it a no-op
+    // normally, and a first-attempt mirror failure self-heals here. Only status-matching tasks
+    // mirror (a dropped file must not get a line; an accepted-agent file only mirrors into the
+    // agent section, and vice versa). Deliberately NO markTaskFileNew here: a repeat verdict
+    // must not re-mark a task whose 🆕 was already stripped by viewing (the read receipt).
     if (
       (verdict === "approve" || verdict === "assign_to_me") &&
       (accepted.status === "accepted-me" || accepted.status === "in-progress")
     ) {
-      mirrorAcceptedTaskIntoWeekly(vaultPath, accepted);
+      mirrorAcceptedTaskIntoWeekly(vaultPath, accepted); // self-heal: mark stays off
+    } else if (verdict === "assign_to_agent" && accepted.status === "accepted-agent") {
+      mirrorAcceptedTaskIntoWeekly(vaultPath, accepted, { section: AGENT_SECTION_HEADING });
     }
     return "already-applied";
   }
   try {
     if (verdict === "approve" || verdict === "assign_to_me") {
       const approved = approveProposal(vaultPath, proposal.id, { status: "accepted-me", via: `verdict:${verdict}` });
-      mirrorAcceptedTaskIntoWeekly(vaultPath, approved);
+      // The mirror marks 🆕 itself (only when a v2 line will exist to carry + strip it) and
+      // renders the line from the marked task — file and list agree, amber accent survives.
+      mirrorAcceptedTaskIntoWeekly(vaultPath, approved, { mark: true });
     } else if (verdict === "assign_to_agent") {
-      approveProposal(vaultPath, proposal.id, { status: "accepted-agent", via: "verdict:assign_to_agent" });
+      const approved = approveProposal(vaultPath, proposal.id, { status: "accepted-agent", via: "verdict:assign_to_agent" });
+      // Agent tasks get a home: same 🆕 convention, but the line joins the week's
+      // "Ready for agents" section instead of the top of Tasks.
+      mirrorAcceptedTaskIntoWeekly(vaultPath, approved, { section: AGENT_SECTION_HEADING, mark: true });
     } else if (verdict === "dismiss") {
       // false = the file vanished between the list and the unlink — someone already applied it.
       if (!dismissProposal(vaultPath, proposal.id)) return "already-applied";

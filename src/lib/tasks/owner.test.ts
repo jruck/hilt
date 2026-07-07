@@ -43,3 +43,10 @@ test("ownerChip copy: unclear teaches, other informs, null renders nothing", () 
   assert.equal(other?.label, "owner: Ana");
   assert.match(other?.title ?? "", /Someone else/);
 });
+
+test("parseLifecycle strips 🆕 from DONE titles too (check-off-before-view)", () => {
+  const { parseLifecycle } = require("../attribution") as typeof import("../attribution");
+  const done = parseLifecycle("🆕 Ship the thing", true);
+  assert.equal(done.state, "done");
+  assert.equal(done.displayTitle, "Ship the thing");
+});

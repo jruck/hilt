@@ -18,6 +18,11 @@ import type { BridgeTask } from "../types";
 // re-exported so server-side consumers keep importing it from the view lib.
 export { taskIdFromTaskPath };
 
+/** The weekly section accepted-agent tasks land in: scoped and ready for an agent to process,
+ * just not run yet — toward the bottom of the list, not mixed into Justin's own tasks. Shared
+ * by the verdict mirror and the recycle orphan sweep so both write into the SAME section. */
+export const AGENT_SECTION_HEADING = "Ready for agents";
+
 /**
  * Join parsed v2 weekly tasks with their task files. File wins for title/done/due/projects;
  * per-line degradation (missing/unreadable/linkless line) keeps the parser's own line data

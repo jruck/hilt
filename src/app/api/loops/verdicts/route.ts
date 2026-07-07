@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { parseWeeklyFile } from "@/lib/bridge/weekly-parser";
-import { insertWeeklyV2Line, insertWeeklyV2LineInSection } from "@/lib/bridge/weekly-v2-view";
+import { AGENT_SECTION_HEADING, insertWeeklyV2Line, insertWeeklyV2LineInSection } from "@/lib/bridge/weekly-v2-view";
 import { atomicWriteFile } from "@/lib/library/utils";
 import { appendVerdict } from "@/lib/loops/stores";
 import type { Verdict, VerdictRecord } from "@/lib/loops/types";
@@ -40,9 +40,8 @@ function isVerdict(value: unknown): value is Verdict {
  * whose proposal sink is not the vault (shadow sinks live outside `tasks/.proposals/`). */
 export type VerdictFileEffect = "applied" | "already-applied" | "missing";
 
-/** The weekly section accepted-agent tasks land in: scoped and ready for an agent to process,
- * just not run yet — toward the bottom of the list, not mixed into Justin's own tasks. */
-const AGENT_SECTION_HEADING = "Ready for agents";
+// AGENT_SECTION_HEADING moved to @/lib/bridge/weekly-v2-view — the recycle orphan sweep
+// writes into the same "Ready for agents" section this route's mirror does.
 
 /**
  * Weekly-list visibility for verdict-promoted tasks (gate-B feedback + the "agent tasks get a

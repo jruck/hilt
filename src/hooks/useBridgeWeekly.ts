@@ -274,11 +274,19 @@ export function useBridgeWeekly() {
     mutate();
   }
 
-  async function recycle(carry: string[], newWeek: string, notes?: string, accomplishments?: string) {
+  async function recycle(
+    carry: string[],
+    newWeek: string,
+    notes?: string,
+    accomplishments?: string,
+    // Orphan sweep: ACTIVE task-file ids with no line on the outgoing list — the modal
+    // computes them; the route validates each one again and renders v2 lines from the files.
+    carryUnlisted?: string[],
+  ) {
     const res = await fetch(withBasePath("/api/bridge/recycle"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ carry, newWeek, notes, accomplishments }),
+      body: JSON.stringify({ carry, newWeek, notes, accomplishments, carryUnlisted }),
     });
     if (!res.ok) {
       let detail = `HTTP ${res.status}`;
@@ -291,6 +299,14 @@ export function useBridgeWeekly() {
       }
       throw new Error(detail);
     }
+    // Surface server-side orphan skips (vanished files, stale ids) — silently dropping a
+    // checked "unlisted task" gave zero feedback (adversarial finding, UX-severity).
+    try {
+      const body = await res.json();
+      if (Array.isArray(body?.skippedUnlisted) && body.skippedUnlisted.length > 0) {
+        console.warn("[recycle] unlisted tasks skipped by the server:", body.skippedUnlisted);
+      }
+    } catch { /* body optional */ }
     mutate();
   }
 

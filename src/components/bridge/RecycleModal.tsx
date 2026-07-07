@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useTasksList } from "@/hooks/useTaskFile";
+import { taskIdFromTaskPath } from "@/lib/tasks/weekly-v2";
 import type { BridgeTask } from "@/lib/types";
 import { X, RefreshCw } from "lucide-react";
 
@@ -8,8 +10,18 @@ interface RecycleModalProps {
   tasks: BridgeTask[];
   notes: string;
   onClose: () => void;
-  onRecycle: (carry: string[], newWeek: string, notes?: string, accomplishments?: string) => Promise<void>;
+  onRecycle: (
+    carry: string[],
+    newWeek: string,
+    notes?: string,
+    accomplishments?: string,
+    carryUnlisted?: string[],
+  ) => Promise<void>;
 }
+
+/** Task-file statuses that mean "still live work" — the orphan-detection statuses (mirrors
+ * ACTIVE_ORPHAN_STATUSES in the recycle route, which re-validates server-side). */
+const ACTIVE_STATUSES = new Set(["accepted-me", "accepted-agent", "in-progress"]);
 
 function getNextMonday(): string {
   const now = new Date();
@@ -24,10 +36,24 @@ export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalP
   const incompleteTasks = tasks.filter(t => !t.done);
   const completedTasks = tasks.filter(t => t.done);
 
+  // Orphan sweep: ACTIVE task files with no line on this week's list are invisible everywhere
+  // except their origin — and since the carry walks lines, they'd never ride into future weeks.
+  const { tasks: taskFiles, isLoading: taskFilesLoading } = useTasksList();
+  const unlistedTasks = useMemo(() => {
+    const linkedIds = new Set<string>();
+    for (const t of tasks) {
+      const id = taskIdFromTaskPath(t.taskPath);
+      if (id) linkedIds.add(id);
+    }
+    return taskFiles.filter(t => ACTIVE_STATUSES.has(t.status) && !linkedIds.has(t.id));
+  }, [tasks, taskFiles]);
+
   // Pre-select all incomplete tasks to carry forward
   const [selected, setSelected] = useState<Set<string>>(
     new Set(incompleteTasks.map(t => t.id))
   );
+  // Orphans default CHECKED; track exclusions so late-arriving list data stays pre-selected.
+  const [excludedUnlisted, setExcludedUnlisted] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasNotes = notes.trim().length > 0;
@@ -47,17 +73,33 @@ export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalP
     });
   }
 
+  function toggleUnlisted(id: string) {
+    setExcludedUnlisted(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
   async function handleRecycle() {
     setIsSubmitting(true);
     setError(null);
     try {
       // Always create for next Monday (end-of-week retrospective)
       const newWeek = getNextMonday();
+      const carryUnlisted = unlistedTasks
+        .filter(t => !excludedUnlisted.has(t.id))
+        .map(t => t.id);
       await onRecycle(
         Array.from(selected),
         newWeek,
         carryNotes ? notesText.trim() : undefined,
-        accomplishmentsText.trim() || undefined
+        accomplishmentsText.trim() || undefined,
+        carryUnlisted.length > 0 ? carryUnlisted : undefined
       );
       onClose();
     } catch (e) {
@@ -115,6 +157,32 @@ export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalP
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {unlistedTasks.length > 0 && (
+            <div className="mb-4">
+              <p className="text-sm text-[var(--text-secondary)] mb-1">
+                Unlisted tasks:
+              </p>
+              <p className="text-xs text-[var(--text-tertiary)] mb-3">
+                Active tasks not on this week&apos;s list.
+              </p>
+              <div className="space-y-2">
+                {unlistedTasks.map(task => (
+                  <label key={task.id} className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!excludedUnlisted.has(task.id)}
+                      onChange={() => toggleUnlisted(task.id)}
+                      className="w-4 h-4 rounded border-[var(--border-default)] text-[var(--interactive-default)] focus:ring-[var(--interactive-default)]"
+                    />
+                    <span className="text-sm text-[var(--text-primary)]">
+                      {task.title}
+                    </span>
+                  </label>
+                ))}
               </div>
             </div>
           )}
@@ -199,7 +267,10 @@ export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalP
           </button>
           <button
             onClick={handleRecycle}
-            disabled={isSubmitting}
+            // Recycling is one-shot (the 409 existing-week guard): confirming before the
+            // task-file fetch settles would silently drop the unlisted-orphans sweep for the
+            // whole week (adversarial finding) — hold the button for the (sub-second) load.
+            disabled={isSubmitting || taskFilesLoading}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md bg-[var(--interactive-default)] text-white hover:bg-[var(--interactive-hover)] disabled:opacity-50 transition-colors"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isSubmitting ? "animate-spin" : ""}`} />

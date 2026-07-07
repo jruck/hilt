@@ -344,6 +344,230 @@ describe("POST /api/bridge/recycle — template anchors are not trusted", () => 
   });
 });
 
+describe("POST /api/bridge/recycle — unlisted-orphan sweep (carryUnlisted)", () => {
+  function seedV2Vault(): string {
+    const content = seedList(path.join(V2_FIXTURE_DIR, "2026-07-06.md"));
+    fs.cpSync(path.join(V2_FIXTURE_DIR, "tasks"), path.join(state.baseDir, "tasks"), {
+      recursive: true,
+    });
+    return content;
+  }
+
+  /** Hand-write one task file (orphans are files FIRST — no weekly line anywhere). */
+  function writeOrphan(id: string, title: string, status: string, dir = "tasks"): void {
+    const full = path.join(state.baseDir, dir);
+    fs.mkdirSync(full, { recursive: true });
+    fs.writeFileSync(
+      path.join(full, `${id}.md`),
+      `---\nid: ${id}\ntitle: ${title}\nstatus: ${status}\ncreated_at: '2026-07-01T09:00:00.000Z'\n---\norphan body\n`,
+      "utf-8",
+    );
+  }
+
+  function linkCount(content: string, id: string): number {
+    return (content.match(new RegExp(`\\]\\(tasks/${id}\\.md\\)`, "g")) ?? []).length;
+  }
+
+  it("carries orphans: me/in-progress after the task block, agent into Ready for agents", async () => {
+    seedV2Vault();
+    writeOrphan("t-20260701-101", "Orphan me task", "accepted-me");
+    writeOrphan("t-20260701-102", "Orphan agent task", "accepted-agent");
+    writeOrphan("t-20260701-103", "Orphan in-progress task", "in-progress");
+    const before = taskFiles();
+
+    const res = await recycle({
+      carry: ["task-0"],
+      newWeek: NEW_WEEK,
+      carryUnlisted: ["t-20260701-101", "t-20260701-102", "t-20260701-103"],
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.carriedUnlisted).toBe(3);
+    expect(json.skippedUnlisted).toEqual([]);
+    expect(json.tasksCreated).toBe(0); // orphan carry is a RELINK — nothing minted
+    expect(taskFiles().sort()).toEqual(before.sort());
+
+    const content = newListContent();
+    // me/in-progress lines land in ## Tasks, AFTER the carried block; unchecked (not done).
+    expect(content).toContain("- [ ] [Orphan me task](tasks/t-20260701-101.md)");
+    expect(content).toContain("- [ ] [Orphan in-progress task](tasks/t-20260701-103.md)");
+    const carriedIdx = content.indexOf("](tasks/t-20260706-001.md)");
+    expect(carriedIdx).toBeGreaterThan(-1);
+    expect(content.indexOf("Orphan me task")).toBeGreaterThan(carriedIdx);
+    // agent orphan lands under a created "Ready for agents" section.
+    const agentHeadingIdx = content.indexOf("### Ready for agents");
+    expect(agentHeadingIdx).toBeGreaterThan(content.indexOf("Orphan me task"));
+    expect(content.indexOf("[Orphan agent task](tasks/t-20260701-102.md)")).toBeGreaterThan(
+      agentHeadingIdx,
+    );
+    // Everything stays inside the Tasks region (no later ## section in this template, but the
+    // lines must be parseable as tasks of the new list).
+    const newParsed = parseWeeklyFile(content, `${NEW_WEEK}.md`);
+    const titles = newParsed.tasks.map((t) => t.title);
+    expect(titles).toContain("Orphan me task");
+    expect(titles).toContain("Orphan agent task");
+    expect(titles).toContain("Orphan in-progress task");
+  });
+
+  it("me-orphans land TOP-LEVEL, never inside the trailing carried group (worst case: Ready for agents)", async () => {
+    seedV2Vault();
+    // Carry the GROUPED fixture task (### Later) so the carried block ends inside a group.
+    writeOrphan("t-20260701-104", "Orphan me task", "accepted-me");
+    const res = await recycle({
+      carry: ["task-4"], // the "Grouped task in progress" under ### Later
+      newWeek: NEW_WEEK,
+      carryUnlisted: ["t-20260701-104"],
+    });
+    expect(res.status).toBe(200);
+    const parsed = parseWeeklyFile(newListContent(), `${NEW_WEEK}.md`);
+    const orphan = parsed.tasks.find((task) => task.taskPath === "tasks/t-20260701-104.md");
+    expect(orphan).toBeTruthy();
+    expect(orphan!.group ?? null).toBeNull(); // top-level, not absorbed into "Later"
+  });
+
+  it("excludes orphans not named in carryUnlisted (and defaults to none when absent)", async () => {
+    seedV2Vault();
+    writeOrphan("t-20260701-101", "Orphan me task", "accepted-me");
+    writeOrphan("t-20260701-102", "Orphan agent task", "accepted-agent");
+
+    const res = await recycle({
+      carry: ["task-0"],
+      newWeek: NEW_WEEK,
+      carryUnlisted: ["t-20260701-101"], // 102 deliberately unchecked
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.carriedUnlisted).toBe(1);
+    const content = newListContent();
+    expect(content).toContain("](tasks/t-20260701-101.md)");
+    expect(content).not.toContain("t-20260701-102");
+    expect(content).not.toContain("### Ready for agents");
+  });
+
+  it("no carryUnlisted param → no orphan lines, zero counts (v2 and v1 outgoing unchanged)", async () => {
+    seedV2Vault();
+    writeOrphan("t-20260701-101", "Orphan me task", "accepted-me");
+    const res = await recycle({ carry: ["task-0"], newWeek: NEW_WEEK });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.carriedUnlisted).toBe(0);
+    expect(json.skippedUnlisted).toEqual([]);
+    expect(newListContent()).not.toContain("t-20260701-101");
+  });
+
+  it("skips + reports dropped/done/proposed/missing ids without failing the recycle", async () => {
+    seedV2Vault();
+    writeOrphan("t-20260701-101", "Orphan me task", "accepted-me");
+    writeOrphan("t-20260701-104", "Dropped orphan", "dropped");
+    writeOrphan("t-20260701-105", "Done orphan", "done");
+    writeOrphan("t-20260701-106", "Proposal file", "proposed", path.join("tasks", ".proposals"));
+
+    const res = await recycle({
+      carry: ["task-0"],
+      newWeek: NEW_WEEK,
+      carryUnlisted: [
+        "t-20260701-101",
+        "t-20260701-104",
+        "t-20260701-105",
+        "t-20260701-106", // exists ONLY in .proposals — must not resolve
+        "t-20260701-107", // no file at all
+      ],
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.carriedUnlisted).toBe(1);
+    expect(json.skippedUnlisted).toEqual([
+      { id: "t-20260701-104", reason: 'status "dropped" is not active' },
+      { id: "t-20260701-105", reason: 'status "done" is not active' },
+      { id: "t-20260701-106", reason: "no task file in tasks/" },
+      { id: "t-20260701-107", reason: "no task file in tasks/" },
+    ]);
+    const content = newListContent();
+    expect(content).toContain("](tasks/t-20260701-101.md)");
+    for (const id of ["t-20260701-104", "t-20260701-105", "t-20260701-106", "t-20260701-107"]) {
+      expect(content).not.toContain(id);
+    }
+  });
+
+  it("never duplicates an id already linked in the outgoing list / normal carry", async () => {
+    seedV2Vault();
+    // t-20260706-001 is LINKED on the outgoing list and carried normally as task-0.
+    const res = await recycle({
+      carry: ["task-0"],
+      newWeek: NEW_WEEK,
+      carryUnlisted: ["t-20260706-001"],
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.carriedUnlisted).toBe(0);
+    expect(json.skippedUnlisted).toEqual([
+      { id: "t-20260706-001", reason: "already linked in the outgoing list — not an orphan" },
+    ]);
+    expect(linkCount(newListContent(), "t-20260706-001")).toBe(1);
+  });
+
+  it("never duplicates a prior-mint orphan the retry guard already relinked (v1 outgoing)", async () => {
+    // v1 outgoing + failed new-list write: files minted, list write died — the mint IS an
+    // orphan (active file, no line anywhere). The retry's priorMints reuse relinks it via the
+    // normal carry; naming it in carryUnlisted too must not produce a second line.
+    seedList(path.join(FIXTURE_DIR, REAL_WEEK));
+    state.failNextWriteOf = `${NEW_WEEK}.md`;
+    const failed = await recycle({ carry: ["task-0"], newWeek: NEW_WEEK });
+    expect(failed.status).toBe(500);
+    const orphanIds = taskFiles().map((f) => f.replace(/\.md$/, ""));
+    expect(orphanIds).toHaveLength(1);
+
+    const retry = await recycle({
+      carry: ["task-0"],
+      newWeek: NEW_WEEK,
+      carryUnlisted: orphanIds,
+    });
+    expect(retry.status).toBe(200);
+    const json = await retry.json();
+    expect(json.carriedUnlisted).toBe(0);
+    expect(json.skippedUnlisted).toEqual([
+      { id: orphanIds[0], reason: "already carried by the normal carry set" },
+    ]);
+    expect(linkCount(newListContent(), orphanIds[0])).toBe(1);
+  });
+
+  it("rejects traversal and malformed ids (reported, never thrown)", async () => {
+    seedV2Vault();
+    const res = await recycle({
+      carry: ["task-0"],
+      newWeek: NEW_WEEK,
+      carryUnlisted: ["../../../etc/passwd", "t-20260706-001/../002", "not-an-id", 42],
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.carriedUnlisted).toBe(0);
+    expect(json.skippedUnlisted).toHaveLength(4);
+    for (const skipped of json.skippedUnlisted) {
+      expect(skipped.reason).toBe("invalid task id");
+    }
+    expect(newListContent()).not.toContain("passwd");
+  });
+
+  it("carries an orphan even when the OUTGOING list is v1 (mirror-failure adds)", async () => {
+    // The v1 real week never links task files, so ANY active file is unlisted — the exact
+    // pre-splice-era / mirror-failure orphan class this sweep exists for.
+    seedList(path.join(FIXTURE_DIR, REAL_WEEK));
+    writeOrphan("t-20260701-102", "Orphan agent task", "accepted-agent");
+    const parsed = parseWeeklyFile(outgoingContent(), REAL_WEEK);
+    const carry = parsed.tasks.filter((t) => !t.done).map((t) => t.id);
+
+    const res = await recycle({ carry, newWeek: NEW_WEEK, carryUnlisted: ["t-20260701-102"] });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.carriedUnlisted).toBe(1);
+    expect(json.tasksCreated).toBe(carry.length); // v1 conversion untouched by the sweep
+    const content = newListContent();
+    const headingIdx = content.indexOf("### Ready for agents");
+    expect(headingIdx).toBeGreaterThan(-1);
+    expect(content.indexOf("[Orphan agent task](tasks/t-20260701-102.md)")).toBeGreaterThan(headingIdx);
+  });
+});
+
 describe("POST /api/bridge/recycle — rerun guards (adversarial findings)", () => {
   it("refuses to recycle into an existing week (409, nothing written)", async () => {
     seedList(path.join(FIXTURE_DIR, REAL_WEEK));

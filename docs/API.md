@@ -1069,6 +1069,18 @@ preservation: before any write the route snapshots `lists/now/*.md` to
 `$DATA_DIR/backups/<date>-recycle-v2/` (best-effort, logged; existing snapshot files are never
 overwritten, so the first copy of the day — the pre-recycle state — wins).
 
+**Orphan sweep (`carryUnlisted`)**: an ACTIVE task file with no line on the outgoing list would
+never ride into future weeks (the carry walks lines). The RecycleModal computes those file ids
+client-side and sends them; the route re-validates each id (defense-in-depth): `isValidTaskId`,
+file exists in `tasks/` (never `.proposals/`), status ∈ {`accepted-me`, `accepted-agent`,
+`in-progress`}, not already linked in the outgoing list, not already carried by the normal carry
+set. Valid orphans are RELINKED — a v2 line rendered from the existing file, never a re-mint:
+`accepted-me`/`in-progress` lines append after the carried task block in `## Tasks`;
+`accepted-agent` lines splice into the "Ready for agents" section (`AGENT_SECTION_HEADING` +
+`insertWeeklyV2LineInSection` from `src/lib/bridge/weekly-v2-view.ts` — created when missing;
+the same section the verdict mirror uses). Invalid/stale ids are skipped with a warn and
+reported in the response — an orphan never fails the recycle.
+
 **Request Body**
 
 ```typescript
@@ -1077,6 +1089,7 @@ overwritten, so the first copy of the day — the pre-recycle state — wins).
   newWeek: string;          // ISO date string for the new week
   notes?: string;           // Carried notes text
   accomplishments?: string; // Written to the OUTGOING week's ## Accomplishments
+  carryUnlisted?: string[]; // Task FILE ids: active tasks with no line on the outgoing list
 }
 ```
 
@@ -1089,6 +1102,8 @@ overwritten, so the first copy of the day — the pre-recycle state — wins).
   tasksCreated: number;  // task files minted from v1 lines
   tasksRelinked: number; // existing task files relinked (v2→v2 recycle)
   verbatimLines: number; // lines carried verbatim (unresolvable content)
+  carriedUnlisted: number;                          // orphan files relinked into the new list
+  skippedUnlisted: { id: string; reason: string }[]; // invalid/stale carryUnlisted ids (warned, never fatal)
 }
 ```
 

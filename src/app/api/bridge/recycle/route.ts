@@ -5,6 +5,12 @@
  * carried task into a task file + rendered v2 line via buildV2CarrySection (unresolvable
  * content carries verbatim, never skipped). The OUTGOING file is untouched except for the
  * accomplishments write the recycle has always done.
+ *
+ * Orphan sweep (`carryUnlisted`): an ACTIVE task file with no line in the outgoing list is
+ * invisible everywhere except its origin meeting — and because the carry walks LINES, it would
+ * never ride into future weeks. The client sends those file ids explicitly; each valid one gets
+ * a v2 line rendered from its FILE (a relink/line-render, never a re-mint). Invalid/stale ids
+ * are skipped with a warn and reported — an orphan never fails the recycle.
  */
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
@@ -12,9 +18,15 @@ import path from "path";
 import { parseWeeklyFile, updateAccomplishments } from "@/lib/bridge/weekly-parser";
 import { getVaultPath, listVaultDir, readVaultFile, writeVaultFileAtomic } from "@/lib/bridge/vault";
 import { buildV2CarrySection, injectListFormat2 } from "@/lib/bridge/recycle-v2";
-import { createTask, listTasks } from "@/lib/tasks/store";
+import { AGENT_SECTION_HEADING, insertWeeklyV2LineInSection } from "@/lib/bridge/weekly-v2-view";
+import { createTask, isValidTaskId, listTasks, readTask } from "@/lib/tasks/store";
 import { parseTaskFile } from "@/lib/tasks/task-file";
+import { renderWeeklyV2Line } from "@/lib/tasks/weekly-v2";
 import type { TaskFile } from "@/lib/tasks/types";
+
+/** Orphan-carry eligibility: the statuses that mean "this task is still live work". Done and
+ * dropped files stay behind by definition; proposals live in `.proposals/` and never orphan. */
+const ACTIVE_ORPHAN_STATUSES = new Set(["accepted-me", "accepted-agent", "in-progress"]);
 
 /**
  * Data-preservation rule (v3 plan): snapshot lists/now/ to $DATA_DIR/backups/<date>-recycle-v2/
@@ -45,7 +57,7 @@ function snapshotListsNow(vaultPath: string): void {
 
 export async function POST(request: NextRequest) {
   try {
-    const { carry, newWeek, notes, accomplishments } = await request.json();
+    const { carry, newWeek, notes, accomplishments, carryUnlisted } = await request.json();
 
     if (!Array.isArray(carry) || typeof newWeek !== "string") {
       return NextResponse.json(
@@ -128,13 +140,75 @@ export async function POST(request: NextRequest) {
       },
     );
 
+    // Orphan sweep: carryUnlisted holds task FILE ids the client found active-but-unlisted.
+    // Server-side validation is defense-in-depth (the client computed the same set); every
+    // valid orphan is a RELINK — its line renders from the existing file, nothing is minted.
+    // Invalid/stale ids skip with a warn and are reported; they never fail the recycle.
+    const unlistedMeLines: string[] = [];
+    const unlistedAgentLines: string[] = [];
+    const skippedUnlisted: { id: string; reason: string }[] = [];
+    if (Array.isArray(carryUnlisted)) {
+      const seen = new Set<string>();
+      for (const raw of carryUnlisted) {
+        const id = typeof raw === "string" ? raw : String(raw);
+        const skip = (reason: string) => {
+          console.warn(`[bridge/recycle] skipping unlisted carry ${JSON.stringify(id).slice(0, 80)}: ${reason}`);
+          skippedUnlisted.push({ id: id.slice(0, 80), reason });
+        };
+        if (!isValidTaskId(id)) {
+          // Ids arrive from the request body — a permissive id is a path-traversal vector.
+          skip("invalid task id");
+          continue;
+        }
+        if (seen.has(id)) continue; // duplicate within the request — first occurrence wins
+        seen.add(id);
+        const task = readTask(vaultPath, id); // tasks/ only — .proposals/ files never orphan
+        if (!task) {
+          skip("no task file in tasks/");
+          continue;
+        }
+        if (!ACTIVE_ORPHAN_STATUSES.has(task.status)) {
+          skip(`status "${task.status}" is not active`);
+          continue;
+        }
+        const link = `](tasks/${id}.md)`;
+        if (currentContent.includes(link)) {
+          skip("already linked in the outgoing list — not an orphan");
+          continue;
+        }
+        if (carried.lines.some((l) => l.includes(link))) {
+          // e.g. the retry path just relinked a prior mint of this same file.
+          skip("already carried by the normal carry set");
+          continue;
+        }
+        const line = renderWeeklyV2Line(task, `tasks/${id}.md`);
+        if (task.status === "accepted-agent") unlistedAgentLines.push(line);
+        else unlistedMeLines.push(line);
+      }
+    }
+
     let finalContent = newContent;
-    if (carried.lines.length > 0) {
-      const block = carried.lines.join("\n") + "\n";
+    // Orphaned me/in-progress tasks land in the TOP-LEVEL region of the carried block —
+    // BEFORE the first `###` group heading. Appending after the whole block absorbed them
+    // into the trailing carried group, worst case `### Ready for agents` (a me-task presented
+    // as agent work; adversarial finding, 2026-07-07).
+    const firstGroupIdx = carried.lines.findIndex((l) => l.startsWith("### "));
+    const tasksBlock = firstGroupIdx === -1
+      ? [...carried.lines, ...unlistedMeLines]
+      : [...carried.lines.slice(0, firstGroupIdx), ...unlistedMeLines, ...carried.lines.slice(firstGroupIdx)];
+    if (tasksBlock.length > 0) {
+      const block = tasksBlock.join("\n") + "\n";
       // Do NOT trust the template to provide the anchor — append the section when missing.
       finalContent = finalContent.includes("## Tasks\n")
         ? finalContent.replace("## Tasks\n", "## Tasks\n" + block)
         : finalContent.trimEnd() + "\n\n## Tasks\n" + block;
+    }
+
+    // Agent orphans get the same home the verdict mirror gives accepted-agent tasks: the
+    // "Ready for agents" section, created at the bottom of the Tasks region when missing.
+    // Each insert splices at the section top, so reverse iteration preserves request order.
+    for (const line of [...unlistedAgentLines].reverse()) {
+      finalContent = insertWeeklyV2LineInSection(finalContent, line, AGENT_SECTION_HEADING);
     }
 
     // Insert carried notes if provided
@@ -159,6 +233,8 @@ export async function POST(request: NextRequest) {
       tasksCreated: carried.created,
       tasksRelinked: carried.relinked,
       verbatimLines: carried.verbatim,
+      carriedUnlisted: unlistedMeLines.length + unlistedAgentLines.length,
+      skippedUnlisted,
     });
   } catch (err) {
     console.error("[bridge/recycle] Error:", err);

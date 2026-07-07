@@ -94,6 +94,20 @@ export function joinMeetingNextSteps(input: {
   return { proposals, unmintedAsks, tasks, total: proposals.length + unmintedAsks.length + tasks.length };
 }
 
+/**
+ * Dismissed ledger records opened FROM this meeting (the gate-B "Dismissed · N" tail).
+ * `opened_from` is the same vault-relative meeting path the loop stamps into `origin.meeting`,
+ * so this is exact equality on the join key — same discipline as the proposals/tasks lanes.
+ * Structural type keeps this file IO-free (no import from the API route or the hook).
+ */
+export function filterMeetingDismissed<T extends { opened_from: string }>(
+  items: T[],
+  meetingRelPath: string | null,
+): T[] {
+  if (!meetingRelPath) return [];
+  return items.filter((item) => item.opened_from === meetingRelPath);
+}
+
 /** Shape a ledger ask as a TaskFile so the shared TaskCard renders it uniformly. */
 export function askToTaskFile(item: MeetingAsk, meetingRelPath: string): TaskFile {
   const citation = item.citations?.[0];

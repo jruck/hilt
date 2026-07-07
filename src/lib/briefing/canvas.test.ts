@@ -5,6 +5,7 @@ import {
   extractMeetingRelPath,
   extractTaskIds,
   isNextStepsHeading,
+  isRedundantMeetingCitationLine,
   isTaskIdOnlyLine,
   meetingLabelFromRelPath,
   parseBriefing,
@@ -104,6 +105,34 @@ test("extractMeetingRelPath handles spaces/@/unicode filenames and citation wrap
   const emoji = "*meetings/2026-07-06/📐 Insights Architecture-2026-07-06 @ 11-01-51.md, 2026-07-06*";
   assert.equal(extractMeetingRelPath(emoji), "meetings/2026-07-06/📐 Insights Architecture-2026-07-06 @ 11-01-51.md");
   assert.equal(extractMeetingRelPath("no meeting cited"), null);
+});
+
+test("isRedundantMeetingCitationLine: suppresses ONLY the card's own bare citation", () => {
+  const rel = "meetings/2026-07-06/Justin__Jason 1_1-2026-07-06 @ 13-00-34.md";
+  // The canonical SKILL citation form for the card's own meeting — redundant, suppressed.
+  assert.equal(
+    isRedundantMeetingCitationLine(`  - *${rel}, 2026-07-06*`, rel),
+    true,
+  );
+  assert.equal(isRedundantMeetingCitationLine(`- *${rel}*`, rel), true);
+  // Same citation but for a DIFFERENT meeting's card — different source, keep.
+  assert.equal(
+    isRedundantMeetingCitationLine(`  - *${rel}, 2026-07-06*`, "meetings/2026-06-30/Owens Corning (Just Keep Swimming)-2026-06-30 @ 14-00-25.md"),
+    false,
+  );
+  // Citation with an ADDITIONAL source in the same span — adds information, keep.
+  assert.equal(
+    isRedundantMeetingCitationLine(`  - *${rel}, 2026-07-06; lists/now/2026-06-29.md*`, rel),
+    false,
+  );
+  // Real prose alongside the citation — keep.
+  assert.equal(
+    isRedundantMeetingCitationLine(`  - Alamo trend context. *${rel}, 2026-07-06*`, rel),
+    false,
+  );
+  // No meeting citation at all — not this rule's business.
+  assert.equal(isRedundantMeetingCitationLine("  - plain sub-bullet", rel), false);
+  assert.equal(isRedundantMeetingCitationLine("  - *lists/now/2026-06-29.md*", rel), false);
 });
 
 test("meetingLabelFromRelPath derives title + date", () => {

@@ -7,6 +7,13 @@
  * `children`. Follows the MeetingGroupRow idiom exactly (amber marker while something is
  * pending, click-to-expand chevron row, nested list) so canvas cards sit quietly in the
  * reading flow — no extra chrome, no parallel structure.
+ *
+ * The header IS the meeting reference (title + date, via the summary lead + tooltip) — the
+ * expansion suppresses the editor's own-meeting citation line as redundant (see
+ * `isRedundantMeetingCitationLine`). Navigating the header to the meeting in People is
+ * DEFERRED: People addresses meetings by granola id (`/{slug}/meeting/{granolaId}`) and no
+ * resolver exists from a vault meeting rel-path to that target; it belongs to the upcoming
+ * universal object-pill unit, not a bespoke one-off here.
  */
 import { useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";

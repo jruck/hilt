@@ -769,6 +769,8 @@ List escalated Briefings v2 loop items from enabled loops. Live loops read from 
 
 Append a verdict record for an ask item, then (v3 unit A6) apply the proposal FILE effect synchronously when the item has a proposal file in the vault sink (`tasks/.proposals/`, matched by `origin.item_id` + `origin.loop`): approve/assign_to_me → move into `tasks/` as `accepted-me`; assign_to_agent → `accepted-agent`; dismiss → file deleted (the loop's ledger remembers); revise → note appended, file stays `proposed`. The jsonl append is the unchanged audit trail and the loop's ledger-effect queue; the record is written FIRST, so a file-effect failure never loses the decision.
 
+Gate-B addition: a successful approve/assign_to_me file effect ALSO splices the accepted task's v2 line into the top of the CURRENT weekly list (latest `lists/now/*.md`) — the A4 add machinery (`renderWeeklyV2Line` + `insertWeeklyV2Line`). v2 lists only (v1 stays byte-untouched); idempotent (a list already linking `tasks/<id>.md` is skipped; a repeat approve re-runs the mirror, self-healing an earlier mirror failure); assign_to_agent never mirrors; any mirror failure warns and the verdict still succeeds (the task file is the truth).
+
 **Request Body**
 
 ```typescript
@@ -791,6 +793,35 @@ VerdictRecord & {
   file_effect: "applied" | "already-applied" | "missing";
 }
 ```
+
+### GET /api/loops/dismissed
+
+**File**: `src/app/api/loops/dismissed/route.ts`
+
+Dismissed-but-never-gone (gate-B): a loop's dismissed record, read from its LEDGER (`<loopHome>/state/ledger.json`, home resolved through the registry exactly like the escalations route — live → vault, shadow → `${DATA_DIR}/loops-shadow`). Returns entries whose status is `dropped` via a DISMISS verdict, newest first; closure drops (extractor-evidenced, no verdict) are excluded. `dismissed_at` comes from the drop transition's `status_history` stamp, falling back to the verdict stamp. Backs the Proposals section's "Dismissed · N" tail. Note the deliberate lag: a dismiss verdict deletes the proposal file instantly, but the ledger stamp lands at the loop's next run, so a just-dismissed item appears here after that run.
+
+**Query Parameters**
+
+- `loop` (required): loop id; must be enabled in the registry (else `404`)
+- `days` (optional, default `30`): recall window in days; must be positive (else `400`)
+
+**Response**
+
+```typescript
+{
+  loop: string;
+  days: number;
+  items: Array<{
+    id: string;           // ledger entry id (ma-…)
+    action: string;
+    dismissed_at: string; // ISO — when the dismissal landed
+    opened_from: string;  // meeting that first opened it (vault-relative)
+    task_id?: string;     // the proposal file minted from it (deleted on dismiss; the id remains)
+  }>;
+}
+```
+
+Missing ledger → `200` with empty `items` (first-run store); corrupt ledger → `500` (readLedger fails loud).
 
 ### POST /api/loops/feedback
 

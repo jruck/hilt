@@ -5,8 +5,9 @@
  *
  * useTaskFile(taskId)  — one task by id (probes tasks/ then .proposals/ server-side).
  * useTasksList()       — both stores at once (Priorities' Proposals section, task panes).
+ * useDismissed(loop)   — a loop's dismissed LEDGER record (gate-B: dismissed are never gone).
  *
- * Both revalidate on the `tasks-changed` bridge event — the only push path (API routes
+ * All revalidate on the `tasks-changed` bridge event — the only push path (API routes
  * never broadcast; the file write reaches us via BridgeWatcher → EventServer).
  */
 import { useEffect, useRef } from "react";
@@ -114,6 +115,52 @@ export function useTasksList() {
   return {
     tasks: data?.tasks ?? [],
     proposals: data?.proposals ?? [],
+    isLoading,
+    error,
+    mutate,
+  };
+}
+
+/** One dismissed ledger record from GET /api/loops/dismissed — a RECORD, not a task file
+ * (dismiss deletes the proposal file; the loop's ledger is the memory). */
+export interface DismissedLoopItem {
+  id: string;
+  action: string;
+  dismissed_at: string;
+  opened_from: string;
+  task_id?: string;
+}
+
+interface DismissedResponse {
+  loop: string;
+  days: number;
+  items: DismissedLoopItem[];
+}
+
+/**
+ * A loop's recently dismissed items (default window 30 days). A dismiss verdict deletes the
+ * proposal FILE immediately (→ `tasks-changed` revalidates us), but the LEDGER stamp lands at
+ * the loop's next run — so a just-dismissed item appears here after that run, not instantly.
+ * Errors (registry missing, loop disabled) degrade to an empty list.
+ */
+export function useDismissed(loop: string, days = 30) {
+  const { connected } = useEventSocketContext();
+  const refreshInterval = connected ? 0 : 5000;
+
+  const { data, error, isLoading, mutate } = useSWR<DismissedResponse>(
+    `/api/loops/dismissed?loop=${encodeURIComponent(loop)}&days=${days}`,
+    fetcher,
+    {
+      refreshInterval,
+      revalidateOnFocus: true,
+      keepPreviousData: true,
+    },
+  );
+
+  useTasksChanged(connected, mutate);
+
+  return {
+    dismissed: data?.items ?? [],
     isLoading,
     error,
     mutate,

@@ -8,6 +8,7 @@ import type { TaskFile } from "./types";
 import {
   askMatchesMeeting,
   askToTaskFile,
+  filterMeetingDismissed,
   joinMeetingNextSteps,
   meetingVaultRelPath,
   type MeetingAsk,
@@ -144,6 +145,24 @@ test("join with a null meeting path yields nothing (inline notes, unresolvable p
     escalations: [makeAsk({})],
   });
   assert.equal(result.total, 0);
+});
+
+// ── filterMeetingDismissed ────────────────────────────────────────────────────────────────────
+
+test("filterMeetingDismissed keeps only records opened FROM this meeting (exact join key)", () => {
+  const here = { id: "ma-1", opened_from: REL };
+  const elsewhere = { id: "ma-2", opened_from: "meetings/2026-07-05/Other.md" };
+  // Exact equality, not containment — a locator-suffixed path is NOT this meeting's key.
+  const suffixed = { id: "ma-3", opened_from: `${REL} L42` };
+
+  assert.deepEqual(
+    filterMeetingDismissed([here, elsewhere, suffixed], REL).map((x) => x.id),
+    ["ma-1"],
+  );
+});
+
+test("filterMeetingDismissed yields nothing for a null meeting path", () => {
+  assert.deepEqual(filterMeetingDismissed([{ id: "ma-1", opened_from: REL }], null), []);
 });
 
 // ── askToTaskFile ─────────────────────────────────────────────────────────────────────────────

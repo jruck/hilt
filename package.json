@@ -73,7 +73,7 @@
     "metrics:import": "tsx scripts/metrics-import.ts",
     "metrics:collect-once": "tsx scripts/metrics-collect-once.ts",
     "test:metrics": "tsx --test src/lib/system/telemetry/telemetry.test.ts",
-    "test:vitest": "vitest run src/hooks/__tests__/useEventSocket.test.ts src/app/api/reveal/route.test.ts \"src/app/api/tasks/[id]/route.test.ts\" src/app/api/loops/verdicts/route.test.ts src/lib/db.test.ts src/lib/landing-view.test.ts",
+    "test:vitest": "vitest run src/hooks/__tests__/useEventSocket.test.ts src/app/api/reveal/route.test.ts \"src/app/api/tasks/[id]/route.test.ts\" src/app/api/loops/verdicts/route.test.ts src/app/api/loops/dismissed/route.test.ts src/lib/db.test.ts src/lib/landing-view.test.ts",
     "test:unit": "npm run test:map && npm run test:bridge && npm run test:calendar && npm run test:granola && npm run test:graph && npm run test:semantic && npm run test:weather && npm run test:system && npm run test:local-apps && npm run test:library && npm run test:loops && npm run test:tasks && npm run test:server-mode && npm run test:system-agent && npm run test:vitest",
     "test": "npm run test:unit && npx tsc --noEmit",
     "test:local-apps:parity": "tsx scripts/local-apps-parity.ts",

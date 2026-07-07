@@ -21,6 +21,7 @@ import {
   extractMeetingRelPath,
   extractTaskIds,
   isNextStepsHeading,
+  isRedundantMeetingCitationLine,
   isTaskIdOnlyLine,
   meetingLabelFromRelPath,
   parseBriefing,
@@ -465,6 +466,10 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
   const leftoverLines = item.details
     .split("\n")
     .map((line) => {
+      // The card's own citation is a join key, not reading material: the header already names
+      // and dates this meeting, so a sub-line that is JUST that citation is suppressed. Lines
+      // citing a different source (or carrying any other prose) still render below.
+      if (isRedundantMeetingCitationLine(line, meetingRel)) return null;
       const ids = extractTaskIds(line);
       if (isTaskIdOnlyLine(line) && ids.every((id) => knownTaskIds.has(id))) return null;
       // A line whose id is UNKNOWN (task file deleted out-of-band) keeps its raw token as an

@@ -195,8 +195,11 @@ no artifact/health drawers of its own — a known gap in the pattern):
    pure forward-looking (deadlines, commitments coming due — never a pile of meeting asks), and
    a new **⏭ Next steps** section owns looking backward: one entry per recent meeting with
    pending proposals — a substance lead, the meeting citation, then that meeting's pending
-   proposal task ids, one per line. The writing pass has **no file access**; it can only hand
-   text back.
+   proposal task ids, one per line. 📅 *Today* is the day's **shape**, not its inventory (gate-B
+   feedback): the editor groups blocks into arcs, names the day's pivot, flags conflicts and
+   prep needs, and compresses routine events into a clause — the calendar and HUD already list
+   every event, so a flat enumeration is a regression. The writing pass has **no file access**;
+   it can only hand text back.
 3. **Validate**: length floors, required links, structure (the spine now accepts ⏭ between 🧠
    and 💼; older briefings without it validate unchanged). Rejects are kept as `.invalid-draft`.
 4. **Render** (the canvas): the Briefings view hydrates the ids in the editor's lines —
@@ -206,7 +209,9 @@ no artifact/health drawers of its own — a known gap in the pattern):
      8 AM and the 6 AM briefing already reflects it).
    - a **⏭ meeting entry** becomes an expandable meeting card showing that meeting's live
      pending cards — the same join the meeting view's "Next steps" accordion uses, so deciding
-     in either place updates both.
+     in either place updates both. The card's header IS the meeting reference (title + date),
+     so the editor's own-meeting citation line is suppressed inside the expansion as redundant;
+     citations pointing at any *other* source still render.
    - a **ledger item id** with no task file (older asks, signals, insights) keeps the original
      treatment: verdict buttons attach to exactly the editor's sentence (amber marker =
      escalated). Old briefings carry no task ids and render exactly as they always did.
@@ -239,14 +244,28 @@ run (for meeting asks: the next post-meeting trigger run or the 7:30 PM sweep, w
 comes first). Since A6 there is ALSO an instant file effect: when the ask has
 a proposal file in `$VAULT/tasks/.proposals/`, Approve/Assign moves it into `$VAULT/tasks/` as a
 real task right away, Dismiss deletes the file (the ledger still remembers), and Revise appends
-your note to it. Today the meetings node still mints proposals into its shadow drawer (see its
-inventory above), so the instant effect starts mattering when its `proposal_sink` graduates to
-the vault; pre-A6 asks never had files, and that's fine — the response just says so.
+your note to it. And since the gate-B round, an Approve (or Assign to me) whose file effect
+lands ALSO adds the task's line to this week's list — same spot the + button puts a new task —
+so an approved proposal is visible in your week immediately, not just in the task store. (Only
+when the current list is the new v2 format; agent assignments never join your list; if the
+list write ever fails, the task file still exists and the verdict still counts.) Today the
+meetings node still mints proposals into its shadow drawer (see its inventory above), so the
+instant effect starts mattering when its `proposal_sink` graduates to the vault; pre-A6 asks
+never had files, and that's fine — the response just says so.
+
+Every verdict button explains itself on hover: Approve = "take this on — becomes your task and
+joins this week's list"; Assign to agent = "mark as agent work (agent execution arrives in
+Phase C)"; Dismiss = "decline — removed; the loop remembers and won't re-propose it"; Revise =
+"send a correction — returns for a fresh verdict".
 
 Proposals also have their own surface now: the **Proposals** section in the Priorities view
 (collapsed behind a count; only appears when something is waiting) shows each proposal as a card
 — title, the verbatim quote it came from, the meeting, the due date — with the same
-Approve / Assign to agent / Dismiss / Revise buttons as the briefing.
+Approve / Assign to agent / Dismiss / Revise buttons as the briefing. Dismissed proposals are
+never gone from the UI: a quiet "Dismissed · N" divider at the tail of the section expands into
+the record of what you declined in the last 30 days (title + when) — read from the meetings
+node's ledger, so a fresh dismiss shows up there after the node's next run. It's a record, not
+cards: the files are deleted, the ledger remembers.
 
 ## The daily rhythm
 

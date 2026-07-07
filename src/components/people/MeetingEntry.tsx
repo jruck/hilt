@@ -25,9 +25,10 @@ import type { Verdict } from "@/lib/loops/types";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { TranscriptView } from "./TranscriptView";
 import { TaskCard } from "@/components/tasks/TaskCard";
+import { PROPOSAL_LOOP, formatRelativeDate } from "@/components/tasks/ProposalsSection";
 import { useEscalations } from "@/components/briefings/EscalationsPanel";
 import { useHaptics } from "@/hooks/useHaptics";
-import { useTasksList } from "@/hooks/useTaskFile";
+import { useDismissed, useTasksList } from "@/hooks/useTaskFile";
 import { useScope } from "@/contexts/ScopeContext";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
 import { withBasePath } from "@/lib/base-path";
@@ -36,6 +37,7 @@ import { buildReference } from "@/lib/references/build";
 import { copyToClipboard } from "@/lib/references/clipboard";
 import {
   askToTaskFile,
+  filterMeetingDismissed,
   joinMeetingNextSteps,
   meetingVaultRelPath,
 } from "@/lib/tasks/meeting-next-steps";
@@ -375,10 +377,12 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
   // Default to the combined notes view whenever notes or a summary exists.
   const defaultTab: Tab = hasNotesTab ? "notes" : "transcript";
   const [activeTab, setActiveTab] = useState<Tab>(defaultTab);
+  // All three note sections open by default — nextSteps included (gate-B: "at the very top …
+  // and expanded by default"). Still collapsible; reset per meeting below.
   const [openNoteSections, setOpenNoteSections] = useState<Record<NotesSectionKey, boolean>>({
     myNotes: true,
     aiNotes: true,
-    nextSteps: false,
+    nextSteps: true,
   });
 
   // ── "Next steps" (v3 unit B2): this meeting's task proposals + accepted tasks (join on
@@ -397,6 +401,23 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
     }),
     [meetingRel, allTasks, allProposals, escalations],
   );
+
+  // Dismissed-but-never-gone (gate-B), scoped to THIS meeting: the loop ledger's dismissed
+  // records whose `opened_from` IS this meeting's vault-relative path — the same join key as
+  // the lanes above. Renders as the quiet "Dismissed · N" tail inside Next steps.
+  const { dismissed } = useDismissed(PROPOSAL_LOOP);
+  const meetingDismissed = useMemo(
+    () => filterMeetingDismissed(dismissed, meetingRel),
+    [dismissed, meetingRel],
+  );
+  const [dismissedExpanded, setDismissedExpanded] = useState(false);
+  const toggleDismissed = useCallback(() => {
+    setDismissedExpanded((prev) => {
+      const next = !prev;
+      next ? haptics.soft() : haptics.rigid();
+      return next;
+    });
+  }, [haptics]);
 
   // Same POST body as the Priorities Proposals section — the route applies the file effect
   // synchronously; the ledger effect lands at the loop's next run (fine for unminted asks).
@@ -432,7 +453,8 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
   }, [defaultTab, meeting.date, meeting.source, meeting.time, meeting.title]);
 
   useEffect(() => {
-    setOpenNoteSections({ myNotes: true, aiNotes: true, nextSteps: false });
+    setOpenNoteSections({ myNotes: true, aiNotes: true, nextSteps: true });
+    setDismissedExpanded(false);
   }, [meeting.date, meeting.source, meeting.time, meeting.title]);
 
   const toggleNoteSection = useCallback((section: NotesSectionKey) => {
@@ -934,6 +956,83 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
       <div ref={editorAreaRef} className="px-4 py-3">
         {activeTab === "notes" && hasNotesTab && (
           <div>
+            {/* Next steps — FIRST, above both note sections (gate-B: "at the very top … and
+                expanded by default"). Renders when this meeting produced something OR has
+                dismissed history to reveal (no fully-empty shell). */}
+            {meetingRel && (nextSteps.total > 0 || meetingDismissed.length > 0) && (
+              <NotesAccordionSection
+                title="Next steps"
+                icon={ListTodo}
+                count={nextSteps.total > 0 ? nextSteps.total : undefined}
+                open={openNoteSections.nextSteps}
+                onToggle={() => toggleNoteSection("nextSteps")}
+              >
+                {nextSteps.total > 0 && (
+                  <div className="space-y-1">
+                    {nextSteps.proposals.map((task) => (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        hideMeeting
+                        // Only loop-minted proposals carry the verdict join (origin.loop +
+                        // item_id); anything else renders read-only (same guard as A6).
+                        onVerdict={task.origin?.loop && task.origin?.item_id
+                          ? makeNextStepVerdictHandler(task.origin.loop, task.origin.item_id)
+                          : undefined}
+                      />
+                    ))}
+                    {nextSteps.unmintedAsks.map((item) => (
+                      <TaskCard
+                        key={`${item.loop}:${item.id}`}
+                        task={askToTaskFile(item, meetingRel)}
+                        hideMeeting
+                        verdict={item.verdict}
+                        // Escalated-undecided asks are decidable here too; decided ones show
+                        // their verdict badge read-only.
+                        onVerdict={item.verdict ? undefined : makeNextStepVerdictHandler(item.loop, item.id)}
+                      />
+                    ))}
+                    {nextSteps.tasks.map((task) => (
+                      <TaskCard key={task.id} task={task} hideMeeting showStatus />
+                    ))}
+                  </div>
+                )}
+                {/* Dismissed asks FROM THIS MEETING — the Proposals section's quiet
+                    reveal-tail idiom, classes copied exactly. Stands alone when everything
+                    from the meeting was decided + dismissed. */}
+                {meetingDismissed.length > 0 && (
+                  <div className={nextSteps.total > 0 ? "mt-3" : ""}>
+                    <div className="flex items-center gap-3">
+                      <div className="h-px flex-1 bg-[var(--border-default)]" />
+                      <button
+                        onClick={toggleDismissed}
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+                        title={dismissedExpanded ? "Hide dismissed items" : "View dismissed items"}
+                      >
+                        <ChevronRight className={`w-3.5 h-3.5 transition-transform ${dismissedExpanded ? "rotate-90" : ""}`} />
+                        Dismissed · {meetingDismissed.length}
+                      </button>
+                      <div className="h-px flex-1 bg-[var(--border-default)]" />
+                    </div>
+                    {dismissedExpanded && (
+                      <div className="mt-3 space-y-0.5">
+                        {meetingDismissed.map((item) => (
+                          <div key={item.id} className="flex items-baseline gap-2 px-3 py-1">
+                            <span className="min-w-0 flex-1 truncate text-xs text-[var(--text-tertiary)]" title={item.action}>
+                              {item.action}
+                            </span>
+                            <span className="flex-shrink-0 text-xs text-[var(--text-quaternary)]">
+                              {formatRelativeDate(item.dismissed_at)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </NotesAccordionSection>
+            )}
+
             {hasNotes && (
               <NotesAccordionSection
                 title="My Notes"
@@ -963,46 +1062,6 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
                   summary={meeting.summary!}
                   vaultPath={vaultPath}
                 />
-              </NotesAccordionSection>
-            )}
-
-            {/* Next steps — ONLY when this meeting produced something (no empty shell). */}
-            {meetingRel && nextSteps.total > 0 && (
-              <NotesAccordionSection
-                title="Next steps"
-                icon={ListTodo}
-                count={nextSteps.total}
-                open={openNoteSections.nextSteps}
-                onToggle={() => toggleNoteSection("nextSteps")}
-              >
-                <div className="space-y-1">
-                  {nextSteps.proposals.map((task) => (
-                    <TaskCard
-                      key={task.id}
-                      task={task}
-                      hideMeeting
-                      // Only loop-minted proposals carry the verdict join (origin.loop +
-                      // item_id); anything else renders read-only (same guard as A6).
-                      onVerdict={task.origin?.loop && task.origin?.item_id
-                        ? makeNextStepVerdictHandler(task.origin.loop, task.origin.item_id)
-                        : undefined}
-                    />
-                  ))}
-                  {nextSteps.unmintedAsks.map((item) => (
-                    <TaskCard
-                      key={`${item.loop}:${item.id}`}
-                      task={askToTaskFile(item, meetingRel)}
-                      hideMeeting
-                      verdict={item.verdict}
-                      // Escalated-undecided asks are decidable here too; decided ones show
-                      // their verdict badge read-only.
-                      onVerdict={item.verdict ? undefined : makeNextStepVerdictHandler(item.loop, item.id)}
-                    />
-                  ))}
-                  {nextSteps.tasks.map((task) => (
-                    <TaskCard key={task.id} task={task} hideMeeting showStatus />
-                  ))}
-                </div>
               </NotesAccordionSection>
             )}
           </div>

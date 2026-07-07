@@ -13,11 +13,12 @@ import type { TaskFile } from "@/lib/tasks/types";
 import type { Verdict } from "@/lib/loops/types";
 import { formatHiltMonthDay } from "@/lib/display-date";
 
-const VERDICT_BUTTONS: Array<{ verdict: Verdict; label: string }> = [
-  { verdict: "approve", label: "Approve" },
-  { verdict: "assign_to_agent", label: "Assign to agent" },
-  { verdict: "dismiss", label: "Dismiss" },
-  { verdict: "revise", label: "Revise" },
+// Each button carries a plain-language tooltip of its EFFECT (gate-B: verdict clarity).
+const VERDICT_BUTTONS: Array<{ verdict: Verdict; label: string; title: string }> = [
+  { verdict: "approve", label: "Approve", title: "Take this on — becomes your task and joins this week's list" },
+  { verdict: "assign_to_agent", label: "Assign to agent", title: "Mark as agent work (agent execution arrives in Phase C)" },
+  { verdict: "dismiss", label: "Dismiss", title: "Decline — removed; the loop remembers and won't re-propose it" },
+  { verdict: "revise", label: "Revise", title: "Send a correction — returns for a fresh verdict" },
 ];
 
 function verdictLabel(verdict: Verdict): string {
@@ -159,6 +160,7 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, fl
               <button
                 key={entry.verdict}
                 type="button"
+                title={entry.title}
                 onClick={() => entry.verdict === "revise" ? setReviseOpen((value) => !value) : void submitVerdict(entry.verdict)}
                 disabled={Boolean(busyVerdict)}
                 className="inline-flex min-h-6 items-center rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2 py-0.5 text-xs font-medium text-[var(--text-secondary)] shadow-sm transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-60"

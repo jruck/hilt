@@ -3,7 +3,9 @@
  * (precedent: src/app/api/tasks/[id]/route.test.ts). The verdict jsonl append is the unchanged
  * audit trail; these tests pin the ADDITIVE synchronous proposal-file effect: each verdict
  * kind's file semantics, repeat = already-applied, no-file = missing (pre-A6 items and
- * non-vault sinks), and unknown items absorbed exactly as before.
+ * non-vault sinks), and unknown items absorbed exactly as before — plus the gate-B weekly
+ * mirror (approve/assign_to_me splice a v2 line into the current weekly list; v1 lists and
+ * agent assignments never do; mirror failure is cosmetic).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
@@ -70,6 +72,38 @@ afterEach(() => {
 });
 
 const meetingsHome = () => path.join(vault, "meta", "loops", "meetings");
+
+/** Seed a current weekly list (the recycle test's seeding style: direct fs into lists/now/). */
+function seedWeekly(content: string, name = "2026-07-06.md"): string {
+  const dir = path.join(vault, "lists", "now");
+  fs.mkdirSync(dir, { recursive: true });
+  const listPath = path.join(dir, name);
+  fs.writeFileSync(listPath, content, "utf-8");
+  return listPath;
+}
+
+const V2_LIST = [
+  "---",
+  "week: 2026-07-06",
+  "list_format: 2",
+  "---",
+  "",
+  "## Tasks",
+  "",
+  "- [ ] [Existing task](tasks/t-20260706-001.md)",
+  "",
+].join("\n");
+
+const V1_LIST = [
+  "---",
+  "week: 2026-07-06",
+  "---",
+  "",
+  "## Tasks",
+  "",
+  "- [ ] Legacy v1 task",
+  "",
+].join("\n");
 
 describe("POST /api/loops/verdicts — proposal file effects", () => {
   it("approve moves the file into tasks/ as accepted-me and reports applied", async () => {
@@ -167,6 +201,80 @@ describe("POST /api/loops/verdicts — proposal file effects", () => {
 
     const unknownLoop = await postVerdict({ loop: "nope", item_id: "x", verdict: "approve" });
     expect(unknownLoop.status).toBe(404);
+  });
+});
+
+describe("POST /api/loops/verdicts — weekly-list mirror (gate-B: approve gains weekly visibility)", () => {
+  it("approve splices the accepted task's v2 line into the top of the current weekly list", async () => {
+    // An older v1 week alongside pins "current = lexicographically latest".
+    seedWeekly(V1_LIST, "2026-06-29.md");
+    const listPath = seedWeekly(V2_LIST);
+    const proposal = mintProposal("ma-2026-07-05-101");
+
+    const res = await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-101", verdict: "approve" });
+    expect((await res.json()).file_effect).toBe("applied");
+
+    const content = fs.readFileSync(listPath, "utf-8");
+    const line = `- [ ] [Proposal for ma-2026-07-05-101](tasks/${proposal.id}.md)`;
+    expect(content).toContain(line);
+    // A4's insertion convention: top of the task section, before existing tasks.
+    expect(content.indexOf(line)).toBeLessThan(content.indexOf("Existing task"));
+    // The older week is untouched.
+    expect(fs.readFileSync(path.join(vault, "lists", "now", "2026-06-29.md"), "utf-8")).toBe(V1_LIST);
+  });
+
+  it("assign_to_me splices too; assign_to_agent does NOT (agent work is not Justin's list)", async () => {
+    const listPath = seedWeekly(V2_LIST);
+    const mine = mintProposal("ma-2026-07-05-102");
+    const agents = mintProposal("ma-2026-07-05-103");
+
+    await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-102", verdict: "assign_to_me" });
+    await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-103", verdict: "assign_to_agent" });
+
+    const content = fs.readFileSync(listPath, "utf-8");
+    expect(content).toContain(`tasks/${mine.id}.md`);
+    expect(content).not.toContain(`tasks/${agents.id}.md`);
+  });
+
+  it("approve twice → no duplicate line (already-linked check)", async () => {
+    const listPath = seedWeekly(V2_LIST);
+    const proposal = mintProposal("ma-2026-07-05-104");
+
+    await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-104", verdict: "approve" });
+    const second = await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-104", verdict: "approve" });
+    expect((await second.json()).file_effect).toBe("already-applied");
+
+    const content = fs.readFileSync(listPath, "utf-8");
+    const occurrences = content.split(`tasks/${proposal.id}.md`).length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  it("a v1 current list stays byte-untouched (no format upgrade from a side effect)", async () => {
+    const listPath = seedWeekly(V1_LIST);
+    const proposal = mintProposal("ma-2026-07-05-105");
+
+    const res = await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-105", verdict: "approve" });
+    expect((await res.json()).file_effect).toBe("applied");
+    expect(readTask(vault, proposal.id)?.status).toBe("accepted-me");
+    expect(fs.readFileSync(listPath, "utf-8")).toBe(V1_LIST);
+  });
+
+  it("no weekly list at all → the verdict still succeeds (mirror failure is cosmetic)", async () => {
+    const proposal = mintProposal("ma-2026-07-05-106");
+    const res = await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-106", verdict: "approve" });
+    expect(res.status).toBe(201);
+    expect((await res.json()).file_effect).toBe("applied");
+    expect(readTask(vault, proposal.id)?.status).toBe("accepted-me");
+  });
+
+  it("a due date rides into the spliced line", async () => {
+    const listPath = seedWeekly(V2_LIST);
+    const proposal = mintProposal("ma-2026-07-05-107", { due: "2026-07-10" });
+
+    await postVerdict({ loop: "meeting-actions", item_id: "ma-2026-07-05-107", verdict: "approve" });
+    expect(fs.readFileSync(listPath, "utf-8")).toContain(
+      `- [ ] [Proposal for ma-2026-07-05-107](tasks/${proposal.id}.md) [due:: 2026-07-10]`,
+    );
   });
 });
 

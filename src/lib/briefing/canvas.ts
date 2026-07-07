@@ -205,6 +205,27 @@ export function extractMeetingRelPath(text: string): string | null {
   return match ? match[0] : null;
 }
 
+/**
+ * Is this detail line JUST the card's own meeting citation (`*meetings/….md, <date>*` pointing at
+ * the SAME meeting the MeetingCard is for)? That citation is the join key that CREATED the card —
+ * the header already names and dates the meeting — so re-printing the path inside the expansion is
+ * redundant reading material and is suppressed (gate-B feedback, 2026-07-07). A citation pointing
+ * at a DIFFERENT meeting, or a line carrying any other prose or additional sources, adds
+ * information and stays. ⏭/MeetingCard path only — the general bullet renderer keeps citations.
+ */
+export function isRedundantMeetingCitationLine(line: string, meetingRel: string): boolean {
+  const cited = extractMeetingRelPath(line);
+  if (!cited || cited !== meetingRel) return false;
+  // Remove the cited path itself, bare dates, and citation dressing (list marker, asterisks,
+  // backticks, punctuation). Anything left is real content — another source, prose — so keep it.
+  const residue = line
+    .split(cited).join("")
+    .replace(/\d{4}-\d{2}-\d{2}/g, "")
+    .replace(/^\s*-\s*/, "")
+    .replace(/[*`—–\-·,.;:()\s]/g, "");
+  return residue.length === 0;
+}
+
 /** "meetings/2026-07-05/Floyds sync-2026-07-05….md" → { title: "Floyds sync", date: "2026-07-05" } */
 export function meetingLabelFromRelPath(rel: string): { title: string; date: string | null } {
   const date = rel.match(/meetings\/(\d{4}-\d{2}-\d{2})\//)?.[1] ?? null;

@@ -2,20 +2,48 @@
 
 /**
  * The Proposals section in Priorities (v3 unit A6) — the ONE new surface for proposal task
- * files (`tasks/.proposals/`). Renders ONLY when proposals exist (no empty shell — house rule);
- * collapsed by default behind a count header matching the task list's Done accordion. Verdicts
- * POST /api/loops/verdicts (the same body the briefing uses), which applies BOTH the file effect
- * (this route) and the ledger effect (the loop's next run); the list then re-fetches — and the
- * file write itself also comes back around via BridgeWatcher's `tasks-changed`.
+ * files (`tasks/.proposals/`). Renders when proposals exist OR dismissed records do (gate-B:
+ * a week where everything was dismissed still shows the tail; a fully-empty section stays
+ * hidden — house rule). Collapsed by default behind a count header matching the task list's
+ * Done accordion. Verdicts POST /api/loops/verdicts (the same body the briefing uses), which
+ * applies BOTH the file effect (this route) and the ledger effect (the loop's next run); the
+ * list then re-fetches — and the file write itself also comes back around via BridgeWatcher's
+ * `tasks-changed`. Dismissed proposals are never gone from the UI: a quiet divider tail
+ * ("Dismissed · N", the ProjectBoard reveal-row idiom) expands into the loop-ledger RECORD —
+ * muted action + relative date, not TaskCards (the files are deleted; this is memory).
  */
 import { useMemo, useState } from "react";
 import { ChevronRight } from "lucide-react";
-import { useTasksList } from "@/hooks/useTaskFile";
+import { useDismissed, useTasksList } from "@/hooks/useTaskFile";
 import { useHaptics } from "@/hooks/useHaptics";
 import { withBasePath } from "@/lib/base-path";
 import type { TaskFile } from "@/lib/tasks/types";
 import type { Verdict } from "@/lib/loops/types";
 import { TaskCard } from "./TaskCard";
+
+/** The one proposal-minting loop today; generalize when a second loop mints proposals.
+ * Exported so the meeting view's Next steps section queries the same dismissed ledger. */
+export const PROPOSAL_LOOP = "meeting-actions";
+
+/** Same buckets as PersonCard's relative date — the house recency voice. Exported for the
+ * meeting view's dismissed tail so both surfaces speak identical recency. */
+export function formatRelativeDate(isoDate: string): string {
+  const now = new Date();
+  const date = new Date(isoDate);
+  const diffMs = now.getTime() - date.getTime();
+  const hours = Math.floor(diffMs / (1000 * 60 * 60));
+
+  if (hours < 1) return "just now";
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "1 day ago";
+  if (days < 14) return `${days} days ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 8) return `${weeks} weeks ago`;
+  const months = Math.floor(days / 30);
+  if (months === 1) return "1 month ago";
+  return `${months} months ago`;
+}
 
 async function postVerdict(body: unknown): Promise<void> {
   const response = await fetch(withBasePath("/api/loops/verdicts"), {
@@ -31,6 +59,7 @@ async function postVerdict(body: unknown): Promise<void> {
 
 export function ProposalsSection({ searchQuery = "" }: { searchQuery?: string }) {
   const { proposals, mutate } = useTasksList();
+  const { dismissed } = useDismissed(PROPOSAL_LOOP);
   const haptics = useHaptics();
   const [expanded, setExpanded] = useState(() => {
     try { return sessionStorage.getItem("bridge-proposals-expanded") === "true"; } catch { return false; }
@@ -39,6 +68,15 @@ export function ProposalsSection({ searchQuery = "" }: { searchQuery?: string })
     const next = !prev;
     next ? haptics.soft() : haptics.rigid();
     try { sessionStorage.setItem("bridge-proposals-expanded", String(next)); } catch { /* private mode */ }
+    return next;
+  });
+  const [dismissedExpanded, setDismissedExpanded] = useState(() => {
+    try { return sessionStorage.getItem("bridge-proposals-dismissed-expanded") === "true"; } catch { return false; }
+  });
+  const toggleDismissed = () => setDismissedExpanded((prev) => {
+    const next = !prev;
+    next ? haptics.soft() : haptics.rigid();
+    try { sessionStorage.setItem("bridge-proposals-dismissed-expanded", String(next)); } catch { /* private mode */ }
     return next;
   });
 
@@ -52,8 +90,9 @@ export function ProposalsSection({ searchQuery = "" }: { searchQuery?: string })
     );
   }, [proposals, q]);
 
-  // No empty shell: the section exists only when there is something to decide.
-  if (filtered.length === 0) return null;
+  // No empty shell: the section exists only when there is something to decide — or a dismissed
+  // record to reveal (gate-B: a week where everything was dismissed still shows the tail).
+  if (filtered.length === 0 && dismissed.length === 0) return null;
 
   const handleVerdict = (task: TaskFile) => async (verdict: Verdict, note?: string) => {
     await postVerdict({
@@ -91,6 +130,38 @@ export function ProposalsSection({ searchQuery = "" }: { searchQuery?: string })
               onVerdict={task.origin?.loop && task.origin?.item_id ? handleVerdict(task) : undefined}
             />
           ))}
+        </div>
+      )}
+      {/* The dismissed tail sits after the cards (or stands alone when nothing is pending) —
+          the ProjectBoard DividerToggle idiom, classes copied exactly. */}
+      {dismissed.length > 0 && (expanded || filtered.length === 0) && (
+        <div className={filtered.length > 0 ? "mt-3" : ""}>
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-[var(--border-default)]" />
+            <button
+              onClick={toggleDismissed}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+              title={dismissedExpanded ? "Hide dismissed proposals" : "View dismissed proposals"}
+            >
+              <ChevronRight className={`w-3.5 h-3.5 transition-transform ${dismissedExpanded ? "rotate-90" : ""}`} />
+              Dismissed · {dismissed.length}
+            </button>
+            <div className="h-px flex-1 bg-[var(--border-default)]" />
+          </div>
+          {dismissedExpanded && (
+            <div className="mt-3 space-y-0.5">
+              {dismissed.map((item) => (
+                <div key={item.id} className="flex items-baseline gap-2 px-3 py-1">
+                  <span className="min-w-0 flex-1 truncate text-xs text-[var(--text-tertiary)]" title={item.action}>
+                    {item.action}
+                  </span>
+                  <span className="flex-shrink-0 text-xs text-[var(--text-quaternary)]">
+                    {formatRelativeDate(item.dismissed_at)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

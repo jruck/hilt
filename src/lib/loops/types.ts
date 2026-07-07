@@ -122,6 +122,11 @@ export interface RegistryLoop {
   /** Which loop writes this domain's artifacts when it isn't the domain's own loop — e.g. the
    *  people projections are written by meeting-actions ("home follows domain, not generator"). */
   writer?: string;
+  /** Where the loop's escalation-time task PROPOSALS land (v3 unit A6). `"vault"` = the vault's
+   *  canonical `tasks/.proposals/` — the auditable graduation of just this one write. Absent =
+   *  shadow default (`<loopHome>/proposals/`). CLI flags (`--proposals-dir`, `--ledger-home`)
+   *  override the registry; see resolveProposalSink in proposal-mint.ts. */
+  proposal_sink?: "vault";
   /** Adaptive budget envelope, recorded per interview decision: model tier + rough token/wall
    *  expectations, tuned during the launchpad. Advisory, not enforced. */
   budget?: { model?: string; notes?: string };

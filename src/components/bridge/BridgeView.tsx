@@ -15,6 +15,7 @@ import { ProjectBoard } from "./ProjectBoard";
 import { ThoughtBoard } from "./ThoughtBoard";
 import { RecycleModal } from "./RecycleModal";
 import { BridgeTaskPanel } from "./BridgeTaskPanel";
+import { ProposalsSection } from "@/components/tasks/ProposalsSection";
 import { AppHud, AppHudCollapsedBar } from "@/components/AppHud";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { SecondaryInlineContent } from "@/components/layout/SecondaryToolbar";
@@ -426,6 +427,9 @@ export function BridgeView({
 
           <SecondaryInlineContent className="space-y-8">
             {weeklySectionOrder.map(renderWeeklySection)}
+
+            {/* A6: loop-minted task proposals awaiting a verdict — renders only when any exist */}
+            <ProposalsSection searchQuery={q} />
 
             {filteredAreas && hasFilteredAreas && (
               <AreaBoard

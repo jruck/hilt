@@ -12,6 +12,7 @@ import {
   readLedger, transition, writeLedger, type Ledger, type LedgerEntry,
 } from "../src/lib/loops/meeting-ledger";
 import { EXTRACTOR_SYSTEM, buildExtractorTask } from "../src/lib/loops/meeting-extractor-prompt";
+import { mintProposalFromLedgerEntry, resolveProposalSink } from "../src/lib/loops/proposal-mint";
 import type { LoopItem } from "../src/lib/loops/types";
 
 loadEnvConfig(process.cwd());
@@ -29,6 +30,13 @@ loadEnvConfig(process.cwd());
  *       [--meetings-file <json array of vault-relative paths>] # explicit set (eval harness)
  *       [--ledger-home <dir>]                                 # override state home (eval sandboxes)
  *       [--max-meetings N]
+ *       [--proposals-dir <dir>] [--no-proposals]              # proposal sink override / kill switch
+ *
+ * Proposal files (v3 unit A6): every ask that ESCALATES also mints a task proposal file (status
+ * `proposed`) into the resolved sink — precedence: --proposals-dir → <ledger-home>/proposals/ →
+ * registry proposal_sink:"vault" → <loopHome>/proposals/. The ledger entry is stamped `task_id`
+ * so re-runs never re-mint (and a dismissed proposal's deleted file never resurrects). This run
+ * owns the LEDGER; the verdict API route owns the proposal FILE effects (approve/dismiss/revise).
  */
 const args = process.argv.slice(2);
 const argValue = (name: string): string | null => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] || null : null; };
@@ -168,6 +176,16 @@ async function main(): Promise<void> {
     || (loop.phase === "live" ? loopHome(vaultPath, loop) : loopHome(defaultSandboxDir(), loop));
   fs.mkdirSync(path.join(home, "state"), { recursive: true });
 
+  // Proposal sink (A6): flags beat registry beats shadow default — see resolveProposalSink.
+  const noProposals = args.includes("--no-proposals");
+  const proposalSink = resolveProposalSink({
+    proposalsDirFlag: argValue("--proposals-dir"),
+    ledgerHomeFlag: argValue("--ledger-home"),
+    ...(loop.proposal_sink ? { registryProposalSink: loop.proposal_sink } : {}),
+    vaultPath,
+    loopHome: home,
+  });
+
   const ledger = readLedger(home);
   const now = isoNow();
 
@@ -277,7 +295,9 @@ async function main(): Promise<void> {
   // accepts the work as his. Other attendees' commitments stay in the ledger as observations
   // (closure detection, future waiting-on projections) but never demand his morning verdict.
   // `unclear` still escalates: it may be his, and correcting it doubles as extractor feedback.
-  let stampedFirstEscalation = false;
+  let ledgerDirty = false;
+  const proposalsMinted: string[] = [];
+  let proposalFailures = 0;
   for (const e of openEntries(ledger)) {
     if (e.verdict) continue;
     if (e.owner.startsWith("other:")) continue;
@@ -286,7 +306,29 @@ async function main(): Promise<void> {
     // 2026-07-06: a holiday weekend aged 15 undecided asks out of the panel silently. Backfill
     // entries that never met the recency bar stay latent (the flood-gate holds).
     if (!isRecentDate(meetingDate) && !e.first_escalated_at) continue;
-    if (!e.first_escalated_at) { e.first_escalated_at = now; stampedFirstEscalation = true; }
+    if (!e.first_escalated_at) { e.first_escalated_at = now; ledgerDirty = true; }
+    // A6: an escalated ask ALSO becomes a proposal task file in the resolved sink (the volume
+    // gates above carry over for free — only entries that reach this line ever mint). Entries
+    // with a task_id stamp never re-mint, even when the file is gone (dismiss deleted it
+    // deliberately; a revise re-escalation reuses the same file). A mint failure must not sink
+    // the run — the ask still escalates; the file catches up next run.
+    if (!noProposals && !e.task_id) {
+      try {
+        const minted = mintProposalFromLedgerEntry(e, { sink: proposalSink, loopId: loop.id, vaultPath, now });
+        if (minted) {
+          proposalsMinted.push(minted.id);
+          ledgerDirty = true;
+          // Persist the task_id stamp IMMEDIATELY (same crash-safety discipline as the
+          // per-meeting extraction saves): a crash between mint and the end-of-pass save
+          // would lose the stamps while the files remain — the next run then re-mints the
+          // whole set as duplicates (adversarial finding, 2026-07-07).
+          writeLedger(home, ledger);
+        }
+      } catch (error) {
+        proposalFailures += 1;
+        console.error(`[loop-meeting-actions] proposal mint failed for ${e.id}:`, error);
+      }
+    }
     items.push({
       id: e.id, loop: loop.id, kind: "action",
       title: `${e.owner === "justin" ? "" : `[${e.owner}] `}${e.action.slice(0, 140)}`,
@@ -318,7 +360,7 @@ async function main(): Promise<void> {
     });
   }
 
-  if (stampedFirstEscalation) writeLedger(home, ledger);
+  if (ledgerDirty) writeLedger(home, ledger);
 
   const open = openEntries(ledger);
   // Recent-meeting summaries ride as content: the briefing editor needs each meeting's substance
@@ -367,6 +409,8 @@ async function main(): Promise<void> {
         failures ? `${failures} extraction failure(s)` : "",
         `${verdicts.length} verdict(s) applied`,
         feedback.length ? `${feedback.length} feedback item(s) consumed` : "",
+        proposalsMinted.length ? `${proposalsMinted.length} proposal file(s) minted (${proposalSink.kind} sink)` : "",
+        proposalFailures ? `${proposalFailures} proposal mint failure(s)` : "",
       ].filter(Boolean).join(" · ") || "clean run",
     },
     contentBody,
@@ -382,6 +426,9 @@ async function main(): Promise<void> {
     open_total: open.length,
     rate_limited: rateLimited,
     failures,
+    proposal_sink: noProposals ? null : { dir: proposalSink.dir, kind: proposalSink.kind },
+    proposals_minted: proposalsMinted.length,
+    proposal_failures: proposalFailures,
   }, null, 2));
 }
 

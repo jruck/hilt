@@ -99,6 +99,13 @@ unclear-owner) commitments from the last 3 days as asks.
   — the per-meeting context sentences the briefing leads with
 - [$VAULT/meta/loops-shadow/meta/loops/meetings/state/processed-meetings.json]($VAULT/meta/loops-shadow/meta/loops/meetings/state/processed-meetings.json)
   — read-tracking so no meeting is parsed twice
+- [$VAULT/meta/loops-shadow/meta/loops/meetings/proposals/]($VAULT/meta/loops-shadow/meta/loops/meetings/proposals)
+  — the proposals drawer: every ask that escalates to you ALSO becomes a task proposal file
+  here (full task-file format, status `proposed`). While the node is in shadow this drawer is
+  its sink; when the registry's `proposal_sink: vault` flips at the gate, new proposals land in
+  `$VAULT/tasks/.proposals/` instead — where the Priorities view's Proposals section and the
+  verdict buttons' instant file effects pick them up. A ledger entry mints its proposal exactly
+  once (`task_id` stamp), so re-runs never duplicate and a dismissed proposal can't come back.
 - [$VAULT/meta/loops-shadow/meta/loops/meetings/verdicts/records.jsonl]($VAULT/meta/loops-shadow/meta/loops/meetings/verdicts/records.jsonl)
   — every Approve / Dismiss / Revise you click
 - [$VAULT/meta/loops-shadow/meta/loops/meetings/feedback/records.jsonl]($VAULT/meta/loops-shadow/meta/loops/meetings/feedback/records.jsonl)
@@ -194,8 +201,18 @@ Its files:
 - **Revise** — a correction, not a decision: text updates, item returns revised for a real verdict.
 - **Feedback (💬 on any bullet)** — free-form; rides into the owning node's next run.
 
-Nothing executes on click — a verdict is a recorded decision, applied at the owning node's next
-run (7:30 PM for meeting asks).
+A verdict is a recorded decision first — the owning node applies it to its ledger at its next
+run (7:30 PM for meeting asks). Since A6 there is ALSO an instant file effect: when the ask has
+a proposal file in `$VAULT/tasks/.proposals/`, Approve/Assign moves it into `$VAULT/tasks/` as a
+real task right away, Dismiss deletes the file (the ledger still remembers), and Revise appends
+your note to it. Today the meetings node still mints proposals into its shadow drawer (see its
+inventory above), so the instant effect starts mattering when its `proposal_sink` graduates to
+the vault; pre-A6 asks never had files, and that's fine — the response just says so.
+
+Proposals also have their own surface now: the **Proposals** section in the Priorities view
+(collapsed behind a count; only appears when something is waiting) shows each proposal as a card
+— title, the verbatim quote it came from, the meeting, the due date — with the same
+Approve / Assign to agent / Dismiss / Revise buttons as the briefing.
 
 ## The daily rhythm
 

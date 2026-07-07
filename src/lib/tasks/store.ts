@@ -6,7 +6,7 @@
 import fs from "fs";
 import path from "path";
 import { atomicWriteFile, ensureDir } from "../library/utils";
-import { mintTaskId } from "./ids";
+import { mintTaskId, mintTaskIdAcross } from "./ids";
 import { applyStatusTransition } from "./status";
 import { parseTaskFile, serializeTaskFile } from "./task-file";
 import type { TaskFile, TaskOrigin, TaskProvenance, TaskStatus } from "./types";
@@ -140,6 +140,56 @@ export function createTask(baseDir: string, input: CreateTaskInput): TaskFile {
     }
   }
   throw new Error(`could not mint a free task id in ${baseDir} after 10 attempts`);
+}
+
+/** A proposal is born `proposed` by definition — the input shape drops the status choice. */
+export type CreateProposalInput = Omit<CreateTaskInput, "status">;
+
+/**
+ * Mint a proposal task file into an ARBITRARY sink dir (v3 unit A6): loop scripts write
+ * proposals into shadow/eval sinks that are not the vault's canonical layout. The id is
+ * collision-checked against the sink dir itself AND — when `collisionBaseDir` is given —
+ * that base dir's canonical `tasks/` + `tasks/.proposals/`, so an id minted outside the
+ * vault stays free inside it (graduation/approve never collides). Same exclusive-create
+ * (`wx` + re-mint on EEXIST) discipline as createTask. Always status `proposed`.
+ *
+ * `createTask(baseDir, { status: "proposed", … })` remains the way to mint into the vault's
+ * own `.proposals/`; this primitive exists for every OTHER sink.
+ */
+export function createProposalIn(
+  dir: string,
+  input: CreateProposalInput,
+  options: { collisionBaseDir?: string } = {},
+): TaskFile {
+  if (typeof input.title !== "string" || !input.title.trim()) {
+    throw new Error("task title must be a non-empty string");
+  }
+  const created_at = input.created_at ?? new Date().toISOString();
+  const collisionDirs = [dir];
+  if (options.collisionBaseDir) {
+    collisionDirs.push(tasksDir(options.collisionBaseDir), proposalsDir(options.collisionBaseDir));
+  }
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const task: TaskFile = {
+      id: mintTaskIdAcross(collisionDirs, created_at.slice(0, 10)),
+      title: input.title,
+      status: "proposed",
+      created_at,
+      body: normalizeBody(input.body ?? ""),
+    };
+    if (input.due !== undefined) task.due = input.due;
+    if (input.projects !== undefined) task.projects = input.projects;
+    if (input.origin !== undefined) task.origin = input.origin;
+    if (input.provenance !== undefined) task.provenance = input.provenance;
+    ensureDir(dir);
+    try {
+      fs.writeFileSync(path.join(dir, `${task.id}.md`), serializeTaskFile(task), { encoding: "utf-8", flag: "wx" });
+      return task;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    }
+  }
+  throw new Error(`could not mint a free proposal id in ${dir} after 10 attempts`);
 }
 
 /** Status changes must go through applyStatusTransition (history discipline), so `status` is

@@ -719,6 +719,30 @@ interface HydratedWeeklyV2Line {
 
 Weekly lists opt in via frontmatter `list_format: 2` (`listFormatFromFrontmatter`); the v1 parser (`src/lib/bridge/weekly-parser.ts`) is untouched.
 
+### Proposal minting from loop ledgers (v3 unit A6)
+
+Meeting-loop asks become proposal task files at ESCALATION time (`src/lib/loops/proposal-mint.ts`). Mapping — LedgerEntry → TaskFile: `action` → `title`; first citation's `anchor`+`source` → `provenance { quote, source }`; meeting path + ledger id + loop id → `origin { loop, meeting, item_id }`; `due` carries. The verdict item id IS the ledger id IS `origin.item_id` — that triple join is how the verdict route finds the file.
+
+```typescript
+// LedgerEntry (src/lib/loops/meeting-ledger.ts) gains:
+interface LedgerEntry {
+  // …
+  task_id?: string;   // proposal file minted from this entry — the idempotency stamp:
+                      // a stamped entry NEVER re-mints (survives re-runs AND the deliberate
+                      // file deletion of a dismiss)
+}
+
+// RegistryLoop (src/lib/loops/types.ts, meta/loops/registry.yml) gains:
+interface RegistryLoop {
+  // …
+  proposal_sink?: "vault";  // where escalation-time proposals land; "vault" = tasks/.proposals/
+                            // (the auditable graduation of just this one write). Absent = shadow
+                            // default <loopHome>/proposals/.
+}
+```
+
+Sink precedence (`resolveProposalSink`, exact order): `--proposals-dir` flag → that dir; `--ledger-home` flag → `<home>/proposals/` (eval isolation); registry `proposal_sink: "vault"` → `<vault>/tasks/.proposals/`; else `<loopHome>/proposals/`. Ids are minted by `createProposalIn` (store.ts): collision-checked against the sink dir AND the vault's canonical `tasks/` + `.proposals/`, so a shadow-minted id never collides in the vault.
+
 ## Reference Library Models
 
 The Reference Library is file-native first. Durable references live under `references/` in the bridge vault, while discovery candidates live under `references/.cache/library-candidates/`. Source definitions live in bridge-owned YAML files under `meta/sources/`.

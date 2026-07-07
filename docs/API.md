@@ -767,7 +767,7 @@ List escalated Briefings v2 loop items from enabled loops. Live loops read from 
 
 **File**: `src/app/api/loops/verdicts/route.ts`
 
-Append a verdict record for an ask item.
+Append a verdict record for an ask item, then (v3 unit A6) apply the proposal FILE effect synchronously when the item has a proposal file in the vault sink (`tasks/.proposals/`, matched by `origin.item_id` + `origin.loop`): approve/assign_to_me → move into `tasks/` as `accepted-me`; assign_to_agent → `accepted-agent`; dismiss → file deleted (the loop's ledger remembers); revise → note appended, file stays `proposed`. The jsonl append is the unchanged audit trail and the loop's ledger-effect queue; the record is written FIRST, so a file-effect failure never loses the decision.
 
 **Request Body**
 
@@ -783,7 +783,13 @@ Append a verdict record for an ask item.
 **Response**
 
 ```typescript
-VerdictRecord
+VerdictRecord & {
+  // "applied"         — the proposal file effect ran now
+  // "already-applied" — repeat verdict: the file already moved/vanished (idempotent)
+  // "missing"         — no vault proposal file for this item (normal for pre-A6 items
+  //                     and loops whose proposal sink is not the vault)
+  file_effect: "applied" | "already-applied" | "missing";
+}
 ```
 
 ### POST /api/loops/feedback

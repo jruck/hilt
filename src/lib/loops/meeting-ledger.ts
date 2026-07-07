@@ -34,6 +34,10 @@ export interface LedgerEntry {
    * queue it STAYS there until decided — a pending decision must not expire because a long
    * weekend pushed its meeting outside the recency window (caught 2026-07-06). */
   first_escalated_at?: string;
+  /** The proposal task file minted from this entry at escalation time (v3 unit A6). The stamp IS
+   * the idempotency guard: an entry with task_id NEVER re-mints — even after the file is gone
+   * (dismiss deletes the file deliberately; the ledger remembers). */
+  task_id?: string;
   status_history: Array<{ at: string; from: LedgerStatus | null; to: LedgerStatus; evidence?: string }>;
   /** Additional sightings (restatements) — the identity test's receipts. */
   sightings: Array<{ at: string; meeting: string; quote?: string }>;

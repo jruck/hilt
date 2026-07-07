@@ -93,6 +93,9 @@ export function parseRegistry(yamlText: string): LoopsRegistry {
       if (loop.writer !== undefined && !isNonEmptyString(loop.writer)) {
         problems.push(`${label}.writer must be a non-empty string when present`);
       }
+      if (loop.proposal_sink !== undefined && loop.proposal_sink !== "vault") {
+        problems.push(`${label}.proposal_sink must be "vault" when present, got ${String(loop.proposal_sink)}`);
+      }
       if (loop.budget !== undefined) {
         if (!isRecord(loop.budget)) {
           problems.push(`${label}.budget must be an object when present`);

@@ -278,26 +278,44 @@ test("latestArtifactPath: greatest date wins; asOf bounds it; none → null", ()
 
 // ── Stores ───────────────────────────────────────────────────────────────────────────────────
 
+// C2 amendment to this normative file (the ONLY sanctioned edit — v3 unit C2 rearchitected the
+// feedback store to threads under DATA_DIR/threads/ while pinning these exact function
+// signatures as adapters): the home must now RESOLVE to its loop via a registry
+// (<base>/meta/loops/<domain> + sibling registry.yml), records are per-target threads (so the
+// two records target distinct items — same-target comments merge into one open thread by
+// design), and DATA_DIR is pinned to a temp dir for isolation. Assertion intent is unchanged:
+// append two, read two, unprocessed filter, selective processed stamping.
 test("feedback store: append, read, unprocessed filter, processed stamping", () => {
-  const home = tmpdir();
-  assert.deepEqual(readFeedback(home), []);
-  appendFeedback(home, {
-    id: "fb-1", author: "justin", created_at: "2026-07-06T12:00:00Z",
-    target: { loop: "meeting-actions", level: "item", item_id: "ma-2026-07-06-002" },
-    text: "this action is scoped badly",
-  });
-  appendFeedback(home, {
-    id: "fb-2", author: "claude-sim", created_at: "2026-07-06T12:01:00Z",
-    target: { loop: "meeting-actions", level: "section" },
-    text: "section is bloated",
-  });
-  assert.equal(readFeedback(home).length, 2);
-  assert.equal(readUnprocessedFeedback(home).length, 2);
-  markFeedbackProcessed(home, ["fb-1"], { at: "2026-07-07T05:15:00Z", run_at: "2026-07-07T05:15:00Z" });
-  const un = readUnprocessedFeedback(home);
-  assert.equal(un.length, 1);
-  assert.equal(un[0].id, "fb-2");
-  assert.equal(readFeedback(home).find((r) => r.id === "fb-1")!.processed!.at, "2026-07-07T05:15:00Z");
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = tmpdir();
+  try {
+    const base = tmpdir();
+    fs.mkdirSync(path.join(base, "meta/loops"), { recursive: true });
+    fs.writeFileSync(path.join(base, "meta/loops/registry.yml"),
+      "loops:\n  - id: meeting-actions\n    domain: meetings\n    cadence: daily\n    enabled: true\n    phase: shadow\n", "utf-8");
+    const home = path.join(base, "meta/loops/meetings");
+    assert.deepEqual(readFeedback(home), []);
+    appendFeedback(home, {
+      id: "fb-1", author: "justin", created_at: "2026-07-06T12:00:00Z",
+      target: { loop: "meeting-actions", level: "item", item_id: "ma-2026-07-06-002" },
+      text: "this action is scoped badly",
+    });
+    appendFeedback(home, {
+      id: "fb-2", author: "claude-sim", created_at: "2026-07-06T12:01:00Z",
+      target: { loop: "meeting-actions", level: "item", item_id: "ma-2026-07-06-003" },
+      text: "this one is bloated",
+    });
+    assert.equal(readFeedback(home).length, 2);
+    assert.equal(readUnprocessedFeedback(home).length, 2);
+    markFeedbackProcessed(home, ["fb-1"], { at: "2026-07-07T05:15:00Z", run_at: "2026-07-07T05:15:00Z" });
+    const un = readUnprocessedFeedback(home);
+    assert.equal(un.length, 1);
+    assert.equal(un[0].id, "fb-2");
+    assert.equal(readFeedback(home).find((r) => r.id === "fb-1")!.processed!.at, "2026-07-07T05:15:00Z");
+  } finally {
+    if (prevDataDir === undefined) delete process.env.DATA_DIR;
+    else process.env.DATA_DIR = prevDataDir;
+  }
 });
 
 test("verdict store: append, unacted filter, acted stamping; author preserved", () => {

@@ -2119,6 +2119,53 @@ useEffect(() => {
 
 ---
 
+## Threads (v3 unit C2)
+
+**Files**: `src/app/api/threads/route.ts`, `src/app/api/threads/[id]/route.ts`, `src/app/api/threads/[id]/messages/[messageId]/route.ts`
+
+The ONE comment write API. Every `postComment` kind lands here; threads persist at `DATA_DIR/threads/<uuid>.json`. See DATA-MODELS "Thread Models".
+
+### POST /api/threads
+
+Create-or-append: an OPEN thread on the target gains the message (200); otherwise a fresh thread is created (201). Library targets also emit the `feedback_left` library event.
+
+**Request Body**
+
+```typescript
+{
+  target: CommentTarget;   // validated; 400 on malformed targets
+  text: string;            // required, trimmed
+  author?: string;         // default "justin"
+}
+```
+
+**Response**: `{ thread: Thread }`
+
+### GET /api/threads
+
+- No params → `{ threads: ThreadSummary[] }` (all threads, updated_at desc — summaries carry counts + a ≤120-char snippet, no transcript).
+- `?target=<JSON-encoded CommentTarget>` → `{ threads: Thread[] }` (full transcripts for that anchor, oldest first). 400 on unparseable/malformed targets.
+
+### PATCH /api/threads/[id]
+
+```typescript
+{ resolveAction: string; by?: string }   // resolve: status "resolved" + resolution record
+// or
+{ messageId: string; text: string }      // edit one message (stamps edited_at)
+```
+
+**Response**: `{ thread: Thread }`. 400 invalid id/body, 404 missing thread or message.
+
+### DELETE /api/threads/[id]/messages/[messageId]
+
+Remove one message; deleting the last message deletes the thread.
+
+**Response**: `{ ok: true, thread: Thread | null, threadDeleted: boolean }`
+
+### Adapter note (C2)
+
+`POST /api/loops/feedback` and the library feedback routes (`POST/PATCH/DELETE /api/library/[id]/feedback`, `GET/POST /api/library/feedback`) keep their exact request/response contracts but are thread-backed internally — the route handlers are unchanged; the store functions they call (`src/lib/loops/stores.ts` feedback fns, `src/lib/library/library-feedback.ts`) adapt over threads. The legacy `records.jsonl` / `library-feedback/*.json` files are frozen history (`scripts/threads-migrate.ts`).
+
 ## Error Responses
 
 All routes return errors in this format:

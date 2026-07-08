@@ -803,6 +803,42 @@ Verdict notes are the SIBLING path, not postComment: `useVerdictNote` + `Verdict
 
 Supporting type change: `FeedbackTarget` (`src/lib/loops/types.ts`) gains `section?: string` — valid ONLY at `level: "section"`, carrying the briefing section heading for the `briefing-section` kind.
 
+## Thread Models (v3 unit C2)
+
+**File**: `src/lib/threads/types.ts` (models), `src/lib/threads/store.ts` (store), `src/lib/threads/feedback-bridge.ts` (FeedbackTarget↔CommentTarget), `src/lib/threads/migrate.ts` + `scripts/threads-migrate.ts` (one-shot migration)
+
+Comments are THREADS: one store, one write API (`POST /api/threads`). A thread anchors to a `CommentTarget` (the union above, adopted verbatim). The two legacy stores migrated in; their function signatures survive as thin adapters — `appendFeedback`/`readFeedback`/`readUnprocessedFeedback`/`markFeedbackProcessed` (`src/lib/loops/stores.ts`) still speak `FeedbackRecord`, and the library feedback functions (`src/lib/library/library-feedback.ts`) still speak `LibraryComment`, both thread-backed.
+
+```typescript
+interface ThreadMessage {
+  id: string;
+  author: string;          // "justin" | "claude-sim" | "agent:<loop>"
+  text: string;
+  created_at: string;
+  edited_at?: string;
+}
+
+interface Thread {
+  id: string;              // crypto.randomUUID(), validated before every path join
+  target: CommentTarget;
+  status: "open" | "resolved";
+  created_at: string;
+  updated_at: string;
+  messages: ThreadMessage[];                              // ≥1 — last delete removes the file
+  processed?: { at: string; run_at: string };             // loop-consumption stamp; implies resolved
+  resolution?: { action: string; at: string; run_at?: string; by: string };
+  source_ref?: string;     // migration provenance: the original record/comment id (idempotency key)
+}
+```
+
+**Persistence**: one JSON file per thread at `DATA_DIR/threads/<uuid>.json` (app state, never the vault) — atomic temp+rename, normalize-on-read never throws (chat-store contract: reads degrade to missing, mutations throw).
+
+**Append-to-open semantics**: a new comment on a target with an OPEN thread appends to it; a resolved/processed target starts a fresh thread. Target identity = `targetKey` (kind + naming ids; `loop-item.artifactDate` and `briefing-anchor.anchor.citation` are deliberately NOT identity).
+
+**FeedbackTarget → CommentTarget mapping** (migration + live adapter, `feedback-bridge.ts`): level `item`+anchor → `briefing-anchor`; level `item`+item_id → `loop-item {loop, itemId, artifactDate?}`; level `section` → `briefing-section`; level `briefing` → `briefing {date}` (dateless legacy records borrow the record's created_at day). Reading back, a home (`<base>/meta/loops/<domain>`) resolves to its loop ids via the registry (`loopIdsForHome` — domain "briefings" ↔ loop id "briefing"), and each human message maps to one `FeedbackRecord` (message id = record id; `agent:*` consumption messages are excluded).
+
+**C2 amendments to the Comment Primitive section above**: `ImplementedCommentTarget` now equals `CommentTarget` (library and meeting kinds are live); `postComment` routes EVERY kind to `POST /api/threads` (task-with-origin still lands on the origin loop-item; origin-less tasks thread under the task id — the pre-C2 note-line body write is retired, existing note lines untouched). The old stores (`<loopHome>/feedback/records.jsonl`, `DATA_DIR/library-feedback/*.json`) are frozen history after `scripts/threads-migrate.ts --write`.
+
 ## Object Reference Models (v3 unit B5)
 
 **File**: `src/lib/objects/types.ts` (the shared contract), `src/lib/objects/uri.ts` (grammar)

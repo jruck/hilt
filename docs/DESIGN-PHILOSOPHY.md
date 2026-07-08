@@ -177,6 +177,20 @@ Every action should have visible feedback:
 
 This section tracks design decisions and refinements over time. Each entry should note what was tried, what was rejected, and why.
 
+### 2026-07-08: Thread-Under-Object — Conversations Live Below the Body
+
+**Principle**: A comment thread on a system object (task, meeting, loop ask) renders as a quiet section UNDER the object's body, inside the object's own detail surface — not in a drawer, modal, or separate comments destination. The conversation is part of the object's record, at History-section weight (uppercase 11px tertiary mini-header, dense rows).
+
+**UI rule**:
+- The section renders NOTHING when empty — no header, no placeholder, no empty shell. The first comment creates the surface (`ThreadView` returns null on empty/loading/error).
+- Message rows are dense: a quiet zinc author chip ("You" for justin, the loop name for `agent:<loop>`), the text, tertiary time-ago in the house recency voice (`formatRelativeDate`). Resolution/processed stamps are tertiary metadata lines, not badges.
+- Edit/delete are hover-revealed on the user's own messages (TaskCard's `opacity-0 group-hover:opacity-100` reveal idiom); edit is inline in the row; deleting a single comment gets no confirmation dialog.
+- Post → refresh is SWR key discipline: the target-serialized GET URL is the shared key (`threadsUrlForTarget`); posting affordances call the global mutate helper (`mutateThreadsForTarget`) instead of prop-threading refresh callbacks between components.
+- The comment affordance keeps the established CommentBox idiom split: compact icon form for per-row targets (briefing bullets), labeled button for whole-object targets (a meeting's "Comment").
+- Briefing bullets get no inline thread rendering — the reading canvas stays clean; cross-system thread discovery belongs to a System index, not per-bullet chrome.
+
+**Rationale**: A comment is the first message of a deferred agent conversation, and the object's detail surface is where the user decides and acts — so the conversation belongs where the object is read. A separate comments inbox would split attention and make small threads feel like a product surface; under-the-body placement keeps them evidence, like History.
+
 ### 2026-07-02: Briefing Shadow Review — Compare Without New Chrome
 
 **Principle**: Shadow briefing review belongs inside the normal Briefing reading surface. The user should be able to switch between live, v2 shadow, and comparison modes without leaving the date context or opening a separate review dashboard.

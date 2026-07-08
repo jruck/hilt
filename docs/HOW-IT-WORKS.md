@@ -15,8 +15,10 @@ The whole system is **one node design, repeated**. A node ("loop"):
    fractal.
 2. **produces one dated synthesis of its scope per run** — the *artifact*, in its `reports/`
    drawer.
-3. **keeps its memory** in a `state/` drawer, and **receives your judgment** in `verdicts/` and
-   `feedback/` drawers, which it reads at its next run.
+3. **keeps its memory** in a `state/` drawer, and **receives your judgment** in a `verdicts/`
+   drawer plus your written **feedback**, which it reads at its next run. Feedback lives as
+   comment THREADS in `$DATA/threads/` (one JSON per conversation, shared by every node and
+   the library) — the old per-node `feedback/records.jsonl` drawers are frozen history.
 4. **escalates upward** only what deserves your attention, in two flavors: **know this** (an
    urgent insight — disk full) and **decide this** (an *ask* — a commitment awaiting your
    verdict). Everything else stays in the artifact for whoever reads it.
@@ -124,7 +126,8 @@ unclear-owner) commitments from the last 3 days as asks.
 - [$VAULT/meta/loops-shadow/meta/loops/meetings/verdicts/records.jsonl]($VAULT/meta/loops-shadow/meta/loops/meetings/verdicts/records.jsonl)
   — every Approve / Dismiss / Revise you click
 - [$VAULT/meta/loops-shadow/meta/loops/meetings/feedback/records.jsonl]($VAULT/meta/loops-shadow/meta/loops/meetings/feedback/records.jsonl)
-  — your written feedback on its items
+  — your written feedback on its items **before the threads cutover** (frozen history; new
+  feedback lands as threads in `$DATA/threads/` and the node reads it from there)
 - One vault outpost:
   [$VAULT/meta/loops/meetings/state/gold-set.json]($VAULT/meta/loops/meetings/state/gold-set.json)
   — the frozen 36-meeting evaluation truth-set (deliberately vault-proper; it's evidence, not
@@ -240,7 +243,8 @@ Its files:
   2026-07-06 (8 wins, 1 loss); the shadow copies from that period sit read-only in
   `$DATA/briefing-shadow/`.
 - [$VAULT/meta/loops-shadow/meta/loops/briefings/feedback/records.jsonl]($VAULT/meta/loops-shadow/meta/loops/briefings/feedback/records.jsonl)
-  — your per-item and whole-briefing critique, awaiting the node's future health pass
+  — your per-item and whole-briefing critique **before the threads cutover** (frozen history;
+  new critique lands as threads in `$DATA/threads/`, awaiting the node's future health pass)
 
 ## Your part — what the buttons do
 

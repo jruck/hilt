@@ -36,6 +36,7 @@ import type { ImplementedCommentTarget } from "@/lib/comments/types";
 import { ObjectCard } from "@/components/objects/ObjectCard";
 import { ObjectPill } from "@/components/objects/ObjectPill";
 import { useVerdictNote, VerdictNoteField } from "@/components/comments/VerdictNoteField";
+import { mutateThreadsForTarget, ThreadView } from "@/components/threads/ThreadView";
 import {
   DueBadge,
   STATUS_BADGES,
@@ -216,6 +217,8 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
       if (verdict !== "revise") setLocalVerdict(verdict);
       resetNote();
       mutate();
+      // A note riding the verdict lands in the thread store (feedback adapter) — refresh the pane's thread section.
+      void mutateThreadsForTarget(commentTarget);
     } catch (err) {
       setVerdictError(err instanceof Error ? err.message : "Failed to save verdict");
     } finally {
@@ -303,6 +306,7 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
                 target={commentTarget}
                 busy={Boolean(busyVerdict)}
                 className="flex items-center gap-2"
+                onPosted={() => void mutateThreadsForTarget(commentTarget)}
               />
               {verdictError && <p className="mt-1 text-xs text-red-500">{verdictError}</p>}
             </div>
@@ -350,6 +354,15 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
                   ))}
                 </ul>
               </div>
+            )}
+            {/* Comments — the task's thread(s) on its origin ask (or the task itself when
+                origin-less): the thread-under-object section. Renders nothing when empty. */}
+            {!dismissed && (
+              <ThreadView
+                target={commentTarget}
+                title="Comments"
+                className="mt-6 border-t border-[var(--border-default)] pt-3"
+              />
             )}
           </div>
         </>

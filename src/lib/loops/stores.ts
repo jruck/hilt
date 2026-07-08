@@ -1,23 +1,40 @@
 /**
  * Response stores — feedback records, verdict records, and the briefing's surfacing state
- * (scope §6). Simple file-backed stores under a loop's home:
+ * (scope §6). Verdicts and surfacing state are file-backed under a loop's home:
  *
- *   <home>/feedback/records.jsonl   — append-only, one FeedbackRecord per line
  *   <home>/verdicts/records.jsonl   — append-only, one VerdictRecord per line
  *   <home>/state/surfacing.json     — SurfacingState (briefing loop only)
+ *
+ * FEEDBACK is thread-backed (v3 unit C2): the four feedback functions keep their
+ * FeedbackRecord signatures but adapt over the thread store (DATA_DIR/threads/ — see
+ * src/lib/threads/). The old `<home>/feedback/records.jsonl` files are migration history
+ * (scripts/threads-migrate.ts); nothing reads or writes them anymore. `home` still selects
+ * WHICH loop's feedback is read: `<base>/meta/loops/<domain>` resolves to the domain's loop
+ * ids via the registry (domain ≠ loop id — e.g. domain "briefings" ↔ loop "briefing").
  *
  * Append-only + stamp-in-place-by-rewrite is fine at this scale (tens of records/week). All
  * readers tolerate a missing file (empty store). Writes are atomic (temp + rename).
  */
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { atomicWriteFile } from "../library/utils";
 import { LoopContractError } from "./artifacts";
-import type { FeedbackRecord, SurfacingState, VerdictRecord } from "./types";
-
-function feedbackPath(home: string): string {
-  return path.join(home, "feedback", "records.jsonl");
-}
+import {
+  commentTargetToFeedback,
+  feedbackTargetToComment,
+  threadToFeedbackRecords,
+} from "../threads/feedback-bridge";
+import {
+  appendToThread,
+  createThread,
+  listThreads,
+  markProcessed,
+  openThreadForTarget,
+} from "../threads/store";
+import type { Thread } from "../threads/types";
+import { parseRegistry } from "./registry";
+import type { FeedbackRecord, FeedbackTarget, LoopsRegistry, SurfacingState, VerdictRecord } from "./types";
 
 function verdictPath(home: string): string {
   return path.join(home, "verdicts", "records.jsonl");
@@ -54,14 +71,80 @@ function writeJsonl(filePath: string, records: unknown[]): void {
   atomicWriteFile(filePath, content);
 }
 
-/** Append a feedback record to <home>/feedback/records.jsonl (mkdir -p as needed). */
-export function appendFeedback(home: string, record: FeedbackRecord): void {
-  appendJsonl(feedbackPath(home), record);
+/**
+ * The registry that names `home`'s loop: sibling `<base>/meta/loops/registry.yml` first (vault
+ * homes), then the vault by env (shadow homes — the sandbox carries no registry copy). Any
+ * unreadable candidate falls through; null = no registry reachable.
+ */
+function registryForHome(home: string): LoopsRegistry | null {
+  const vaultGuess = process.env.BRIDGE_VAULT_PATH
+    || process.env.HILT_WORKING_FOLDER
+    || path.join(os.homedir(), "work/bridge");
+  const candidates = [
+    path.join(path.dirname(home), "registry.yml"),
+    path.join(vaultGuess, "meta", "loops", "registry.yml"),
+  ];
+  for (const candidate of candidates) {
+    if (!fs.existsSync(candidate)) continue;
+    try {
+      return parseRegistry(fs.readFileSync(candidate, "utf-8"));
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
-/** All feedback records, oldest first. Missing file → []. Malformed lines throw (fail-loud). */
+/**
+ * Loop ids whose feedback belongs to `home` (`<base>/meta/loops/<domain>`). Registry-resolved —
+ * a domain may host several loop ids; without any reachable registry the domain itself is the
+ * best guess, with the one known-permanent alias pinned (domain "briefings" ↔ loop "briefing").
+ */
+export function loopIdsForHome(home: string): string[] {
+  const domain = path.basename(home);
+  const registry = registryForHome(home);
+  if (registry) {
+    const ids = registry.loops.filter((loop) => loop.domain === domain).map((loop) => loop.id);
+    if (ids.length > 0) return ids;
+  }
+  return domain === "briefings" ? ["briefing"] : [domain];
+}
+
+function feedbackThreadsForHome(home: string): Array<{ thread: Thread; target: FeedbackTarget }> {
+  const loopIds = new Set(loopIdsForHome(home));
+  const matches: Array<{ thread: Thread; target: FeedbackTarget }> = [];
+  for (const thread of listThreads()) {
+    const target = commentTargetToFeedback(thread.target);
+    if (target && loopIds.has(target.loop)) matches.push({ thread, target });
+  }
+  return matches;
+}
+
+/**
+ * Append one feedback record — thread-backed: an open thread on the record's target gains the
+ * comment; otherwise a fresh thread starts. The message id IS the record id, so processed
+ * stamping by record id keeps working. `home` no longer places the write (the target's loop
+ * id does) but stays in the signature for the route/script call sites.
+ */
+export function appendFeedback(home: string, record: FeedbackRecord): void {
+  void home;
+  const target = feedbackTargetToComment(record.target, {
+    fallbackDate: (record.created_at || "").slice(0, 10),
+  });
+  const message = { id: record.id, author: record.author, text: record.text, created_at: record.created_at };
+  const open = openThreadForTarget(target);
+  const thread = open ? appendToThread(open.id, message) : createThread(target, message, { source_ref: record.id });
+  if (record.processed) markProcessed(thread.id, record.processed);
+}
+
+/** All feedback records for this home's loop, oldest first — FeedbackRecord-shaped (one per
+ *  human thread message; agent consumption notes are excluded). No threads → []. */
 export function readFeedback(home: string): FeedbackRecord[] {
-  return readJsonl<FeedbackRecord>(feedbackPath(home), "feedback");
+  const records: FeedbackRecord[] = [];
+  for (const { thread } of feedbackThreadsForHome(home)) {
+    records.push(...threadToFeedbackRecords(thread));
+  }
+  return records.sort((a, b) => a.created_at.localeCompare(b.created_at));
 }
 
 /** Feedback not yet consumed by a health pass (no `processed` stamp). */
@@ -69,16 +152,17 @@ export function readUnprocessedFeedback(home: string): FeedbackRecord[] {
   return readFeedback(home).filter((record) => !record.processed);
 }
 
-/** Stamp the given feedback ids as processed (rewrites the file atomically). Unknown ids ignored. */
+/** Stamp the threads carrying the given record ids as processed (message id = record id;
+ *  source_ref covers migrated records). Unknown ids ignored. Thread-granular: every message
+ *  in a stamped thread reads back processed. */
 export function markFeedbackProcessed(home: string, ids: string[], stamp: { at: string; run_at: string }): void {
   const idSet = new Set(ids);
-  let changed = false;
-  const records = readFeedback(home).map((record) => {
-    if (!idSet.has(record.id)) return record;
-    changed = true;
-    return { ...record, processed: stamp };
-  });
-  if (changed) writeJsonl(feedbackPath(home), records);
+  for (const { thread } of feedbackThreadsForHome(home)) {
+    if (thread.processed) continue;
+    const hit = thread.messages.some((message) => idSet.has(message.id))
+      || (thread.source_ref !== undefined && idSet.has(thread.source_ref));
+    if (hit) markProcessed(thread.id, stamp);
+  }
 }
 
 /** Append a verdict record to <home>/verdicts/records.jsonl. */

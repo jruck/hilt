@@ -20,33 +20,13 @@ import Typography from "@tiptap/extension-typography";
 import { FileHandler } from "@tiptap/extension-file-handler";
 import { Markdown } from "tiptap-markdown";
 import { getBasePath, withBasePath } from "@/lib/base-path";
-
-// Client-safe path utilities (no Node.js path module)
-function dirname(p: string): string {
-  const i = p.lastIndexOf("/");
-  return i <= 0 ? "/" : p.slice(0, i);
-}
-
-function resolvePath(base: string, rel: string): string {
-  if (rel.startsWith("/")) return rel;
-  const parts = base.split("/").filter(Boolean);
-  for (const seg of rel.split("/")) {
-    if (seg === "..") parts.pop();
-    else if (seg !== ".") parts.push(seg);
-  }
-  return "/" + parts.join("/");
-}
-
-function relativePath(from: string, to: string): string {
-  const fromParts = from.split("/").filter(Boolean);
-  const toParts = to.split("/").filter(Boolean);
-  let i = 0;
-  while (i < fromParts.length && i < toParts.length && fromParts[i] === toParts[i]) i++;
-  const ups = fromParts.length - i;
-  const rest = toParts.slice(i);
-  if (ups === 0) return rest.join("/") || ".";
-  return [...Array(ups).fill(".."), ...rest].join("/");
-}
+import {
+  formatTaskEditorWikilinkTarget,
+  relativeTaskEditorPath,
+  resolveTaskEditorPath,
+  resolveTaskEditorReferencePath,
+  taskEditorDirname,
+} from "@/lib/tasks/task-editor-links";
 
 /** Undo tiptap-markdown's bracket escaping for wikilinks: !\[\[x\]\] → ![[x]] */
 function unescapeWikilinks(md: string): string {
@@ -66,17 +46,15 @@ function preprocessMarkdown(
 ): string {
   if (!vaultPath || !filePath) return md;
 
-  const fileDir = dirname(filePath);
-
   // 1. Convert wikilink image embeds: ![[file.ext]] or !\[\[file.ext\]\]
   let result = md.replace(
     /!\\?\[\\?\[([^\]|]+)(?:\|([^\]]+))?\\?\]\]/g,
     (_match, target: string, alt?: string) => {
       const trimmed = target.trim();
       const altText = alt?.trim() || trimmed;
-      const absPath = trimmed.includes("/")
-        ? resolvePath(fileDir, trimmed)
-        : resolvePath(fileDir, "media/" + trimmed);
+      const absPath = resolveTaskEditorReferencePath(trimmed, vaultPath, filePath, {
+        plainFileUsesMediaDir: true,
+      });
       const url = withBasePath(`/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(vaultPath)}`);
       return `![${altText}](${url})`;
     }
@@ -89,9 +67,7 @@ function preprocessMarkdown(
       const trimmed = target.trim();
       const label = display?.trim() || trimmed;
       // Resolve to absolute path, append .md if no extension
-      let absPath = trimmed.startsWith("/")
-        ? trimmed
-        : resolvePath(fileDir, trimmed);
+      let absPath = resolveTaskEditorReferencePath(trimmed, vaultPath, filePath);
       if (!/\.\w+$/.test(absPath)) absPath += ".md";
       return `[${label}](#wikilink:${encodeURIComponent(absPath)})`;
     }
@@ -107,7 +83,7 @@ function preprocessMarkdown(
       if (trimmedSrc.startsWith("http://") || trimmedSrc.startsWith("https://") || trimmedSrc.startsWith("/api/") || trimmedSrc.startsWith(withBasePath("/api/"))) {
         return match;
       }
-      const absPath = resolvePath(fileDir, trimmedSrc);
+      const absPath = resolveTaskEditorReferencePath(trimmedSrc, vaultPath, filePath);
       const url = withBasePath(`/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(vaultPath)}`);
       return `![${alt}](${url})`;
     }
@@ -123,7 +99,7 @@ function preprocessMarkdown(
       }
       // Only convert paths that look like local file references (have an extension)
       if (!/\.\w+$/.test(trimmedHref)) return match;
-      const absPath = resolvePath(fileDir, trimmedHref);
+      const absPath = resolveTaskEditorReferencePath(trimmedHref, vaultPath, filePath);
       const url = withBasePath(`/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(vaultPath)}`);
       return `[${text}](${url})`;
     }
@@ -143,7 +119,7 @@ function postprocessMarkdown(
 ): string {
   if (!vaultPath || !filePath) return md;
 
-  const fileDir = dirname(filePath);
+  const fileDir = taskEditorDirname(filePath);
 
   // Strip the gateway base path so the /api/docs/raw conversions below match.
   const base = getBasePath();
@@ -158,8 +134,7 @@ function postprocessMarkdown(
       let absPath = decodeURIComponent(encodedPath);
       // Strip .md extension for clean wikilinks
       absPath = absPath.replace(/\.md$/, "");
-      // Make relative to file dir
-      const rel = relativePath(fileDir, absPath);
+      const rel = formatTaskEditorWikilinkTarget(absPath, vaultPath, filePath);
       return display === rel ? `[[${rel}]]` : `[[${rel}|${display}]]`;
     }
   );
@@ -169,7 +144,7 @@ function postprocessMarkdown(
     /!\\?\[([^\]]*?)\\?\]\(\/api\/docs\/raw\?path=([^&]+)&scope=[^)]+\)/g,
     (_match, alt: string, encodedPath: string) => {
       const absPath = decodeURIComponent(encodedPath);
-      const relPath = relativePath(fileDir, absPath);
+      const relPath = relativeTaskEditorPath(fileDir, absPath);
       return `![${alt}](${relPath})`;
     }
   );
@@ -179,7 +154,7 @@ function postprocessMarkdown(
     /(?<!!)\[([^\]]*?)\]\(\/api\/docs\/raw\?path=([^&]+)&scope=[^)]+\)/g,
     (_match, text: string, encodedPath: string) => {
       const absPath = decodeURIComponent(encodedPath);
-      const relPath = relativePath(fileDir, absPath);
+      const relPath = relativeTaskEditorPath(fileDir, absPath);
       return `[${text}](${relPath})`;
     }
   );
@@ -252,7 +227,7 @@ async function uploadFile(
   vaultPath: string,
   filePath: string
 ): Promise<{ url: string; relPath: string } | null> {
-  const fileDir = dirname(filePath);
+  const fileDir = taskEditorDirname(filePath);
   const form = new FormData();
   form.append("file", file);
   form.append("scope", vaultPath);
@@ -262,7 +237,7 @@ async function uploadFile(
   if (!res.ok) return null;
   const { relativePath: relPath } = await res.json();
 
-  const absPath = resolvePath(fileDir, relPath);
+  const absPath = resolveTaskEditorPath(fileDir, relPath);
   const url = withBasePath(`/api/docs/raw?path=${encodeURIComponent(absPath)}&scope=${encodeURIComponent(vaultPath)}`);
   return { url, relPath };
 }

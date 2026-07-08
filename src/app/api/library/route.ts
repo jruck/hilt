@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
       source: params.get("source"),
       channel: params.get("channel"),
       tag: params.get("tag"),
+      series: params.get("series"),
       mode: params.get("mode") as LibraryModeFilter | null,
       status,
       unread: params.get("unread") === "true",

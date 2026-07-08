@@ -42,6 +42,12 @@ export async function promoteCandidate(vaultPath: string, candidate: ReferenceCa
       source_collection_id: candidate.source_collection_id || undefined,
       source_folder: candidate.source_folder || undefined,
       source_folder_id: candidate.source_folder_id || undefined,
+      series_id: candidate.series?.id,
+      series_title: candidate.series?.title,
+      series_url: candidate.series?.url || undefined,
+      series_index: candidate.series?.index || undefined,
+      series_total: candidate.series?.total || undefined,
+      series_parent: candidate.series?.parent_path || undefined,
       library_mode: candidate.library_mode,
     },
   };
@@ -57,6 +63,7 @@ export async function promoteCandidate(vaultPath: string, candidate: ReferenceCa
   processed.source_collection_id = candidate.source_collection_id;
   processed.source_folder = candidate.source_folder;
   processed.source_folder_id = candidate.source_folder_id;
+  processed.series = candidate.series;
   processed.library_mode = candidate.library_mode;
   processed.cited_from = candidate.cited_from;  // carry merged citations across promotion
   const durablePath = writeDurableReference(vaultPath, processed, reason);

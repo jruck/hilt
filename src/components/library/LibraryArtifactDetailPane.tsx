@@ -20,6 +20,7 @@ import { withBasePath } from "@/lib/base-path";
 import { EvalMetricPill, evalMetricTitle, formatEvalScore } from "./EvalMetricPills";
 import { LibraryMarkdown } from "./LibraryMarkdown";
 import { LibraryLifecycleMenu } from "./LibraryLifecycleMenu";
+import { LibrarySeriesPanel } from "./LibrarySeriesPanel";
 import { VideoTranscript } from "./VideoTranscript";
 import { YouTubeEmbed, type YouTubeSeekRequest } from "./YouTubeEmbed";
 
@@ -463,6 +464,7 @@ export function LibraryArtifactDetailPane({
           </div>
         </div>
         <h1 className="text-xl font-semibold leading-tight text-[var(--text-primary)] sm:text-2xl">{artifact.title}</h1>
+        <LibrarySeriesPanel artifact={artifact} />
 
         {(() => {
           const meta = artifact.raw_frontmatter || {};

@@ -74,7 +74,17 @@ function processedYouTubeArtifact(): ProcessedArtifact {
     backfill: { enabled: true, mode: "checkpointed" },
     tags: ["youtube"],
     filters: { include_topics: [], exclude_topics: [] },
-    metadata: { playlist_id: "PL123" },
+    metadata: {
+      playlist_id: "PL123",
+      playlist_title: "Reference Playlist",
+      playlist_url: "https://www.youtube.com/playlist?list=PL123",
+      playlist_total: 13,
+      series_id: "reference-playlist",
+      series_title: "Reference Playlist",
+      series_url: "https://www.youtube.com/playlist?list=PL123",
+      series_total: 13,
+      series_parent: "references/series/reference-playlist.md",
+    },
     path: "",
   };
   return {
@@ -908,7 +918,17 @@ test("fetches YouTube playlist videos as candidate artifacts", async () => {
     backfill: { enabled: true, mode: "checkpointed" },
     tags: ["youtube"],
     filters: { include_topics: [], exclude_topics: [] },
-    metadata: { playlist_id: "PL123" },
+    metadata: {
+      playlist_id: "PL123",
+      playlist_title: "Reference Playlist",
+      playlist_url: "https://www.youtube.com/playlist?list=PL123",
+      playlist_total: 13,
+      series_id: "reference-playlist",
+      series_title: "Reference Playlist",
+      series_url: "https://www.youtube.com/playlist?list=PL123",
+      series_total: 13,
+      series_parent: "references/series/reference-playlist.md",
+    },
     path: "",
   };
 
@@ -926,6 +946,7 @@ test("fetches YouTube playlist videos as candidate artifacts", async () => {
           description: "A video saved to a normal YouTube playlist.",
           thumbnails: { high: { url: "https://img.example/video.jpg" } },
           resourceId: { videoId: "abc123def45" },
+          position: 4,
         },
         contentDetails: {
           videoId: "abc123def45",
@@ -942,6 +963,12 @@ test("fetches YouTube playlist videos as candidate artifacts", async () => {
     assert.equal(batch.artifacts[0].url, "https://www.youtube.com/watch?v=abc123def45");
     assert.equal(batch.artifacts[0].metadata.signal, "youtube_playlist");
     assert.equal(batch.artifacts[0].metadata.playlist_id, "PL123");
+    assert.equal(batch.artifacts[0].metadata.playlist_title, "Reference Playlist");
+    assert.equal(batch.artifacts[0].metadata.playlist_index, 5);
+    assert.equal(batch.artifacts[0].metadata.playlist_total, 13);
+    assert.equal(batch.artifacts[0].metadata.series_id, "reference-playlist");
+    assert.equal(batch.artifacts[0].metadata.series_index, 5);
+    assert.equal(batch.artifacts[0].metadata.series_parent, "references/series/reference-playlist.md");
   } finally {
     globalThis.fetch = originalFetch;
     if (originalToken === undefined) delete process.env.YOUTUBE_OAUTH_ACCESS_TOKEN;
@@ -1386,6 +1413,42 @@ test("candidate markdown preserves media, thumbnails, and cached source text", (
 
   const [artifact] = listLibraryArtifactDetails(vault, { includeCandidates: true }).artifacts;
   assert.equal(artifact.thumbnail, "https://img.example/video.jpg");
+});
+
+test("series metadata round-trips through candidates and saved references", () => {
+  const vault = tempVault();
+  const processed = processedYouTubeArtifact();
+  processed.series = {
+    id: "reference-playlist",
+    title: "Reference Playlist",
+    url: "https://www.youtube.com/playlist?list=PL123",
+    index: 2,
+    total: 13,
+    parent_path: "references/series/reference-playlist.md",
+  };
+
+  const cacheDir = path.join(vault, "references", ".cache", "library-candidates");
+  fs.mkdirSync(cacheDir, { recursive: true });
+  fs.writeFileSync(path.join(cacheDir, "candidate.md"), buildCandidateMarkdown(processed), "utf-8");
+  const [candidate] = listCandidates(vault);
+  assert.deepEqual(candidate.series, processed.series);
+
+  const candidateArtifact = listLibraryArtifactDetails(vault, {
+    includeCandidates: true,
+    series: "reference-playlist",
+  }).artifacts[0];
+  assert.ok(candidateArtifact);
+  assert.equal(candidateArtifact.series?.title, "Reference Playlist");
+
+  const referencePath = path.join(vault, "references", "saved.md");
+  fs.writeFileSync(referencePath, buildDurableReferenceMarkdown(processed, "manual_save"), "utf-8");
+  const parsed = parseReferenceFile(vault, referencePath);
+  assert.ok(parsed);
+  assert.deepEqual(parsed.series, processed.series);
+  assert.equal(listLibraryArtifactDetails(vault, {
+    includeCandidates: false,
+    series: "reference-playlist",
+  }).artifacts.length, 1);
 });
 
 test("durable reference markdown includes media and cached source contract", () => {

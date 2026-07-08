@@ -204,6 +204,17 @@ This section tracks design decisions and refinements over time. Each entry shoul
 
 **Rationale**: A comment is the first message of a deferred agent conversation, and the object's detail surface is where the user decides and acts — so the conversation belongs where the object is read. A separate comments inbox would split attention and make small threads feel like a product surface; under-the-body placement keeps them evidence, like History.
 
+### 2026-07-03: Library Series — Native Reader, Not Docs Detour
+
+**Principle**: A Library item that belongs to a playlist/course/series should disclose that relationship in normal Library browsing and let the user inspect the parent synthesis without leaving the Library reader.
+
+**UI rule**:
+- Show compact series membership on feed cards and dense list rows so series context is discoverable before opening an item.
+- Put the series panel inside the Library detail pane under the title: current position, parent overview action, source playlist link, and bounded sibling list.
+- Opening the parent overview or another episode should navigate to another Library item route, not to Docs. The markdown file remains the source of truth, but Library owns the reading/navigation experience.
+
+**Rationale**: Series parent notes are reference artifacts, not documentation. The user is studying the collection and the individual items together; forcing a tab switch to Docs breaks that context and hides the parent-child relationship from normal Library workflows.
+
 ### 2026-07-02: Briefing Shadow Review — Compare Without New Chrome
 
 **Principle**: Shadow briefing review belongs inside the normal Briefing reading surface. The user should be able to switch between live, v2 shadow, and comparison modes without leaving the date context or opening a separate review dashboard.

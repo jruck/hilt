@@ -20,6 +20,7 @@ export interface LibraryListOptions {
   source?: string | null;
   channel?: string | null;
   tag?: string | null;
+  series?: string | null;
   mode?: LibraryModeFilter | null;
   status?: LibraryLifecycleStatus | "all" | null;
   unread?: boolean;
@@ -104,6 +105,7 @@ function candidateToArtifact(vaultPath: string, candidate: ReferenceCandidate): 
     source_collection_id: candidate.source_collection_id,
     source_folder: candidate.source_folder,
     source_folder_id: candidate.source_folder_id,
+    series: candidate.series,
     library_mode: candidate.library_mode,
     format: candidate.format || null,
     thumbnail: candidate.thumbnail,
@@ -145,6 +147,8 @@ function matchesText(artifact: LibraryArtifactDetail, q: string): boolean {
     artifact.source_tags.join(" "),
     artifact.source_collection,
     artifact.source_folder,
+    artifact.series?.id,
+    artifact.series?.title,
     artifact.content,
   ].join(" ").toLowerCase();
   return haystack.includes(q.toLowerCase());
@@ -203,6 +207,7 @@ function filterArtifacts(artifacts: LibraryArtifactDetail[], options: LibraryLis
     if (options.source && artifact.source_id !== options.source) return false;
     if (options.channel && artifact.channel !== options.channel) return false;
     if (options.tag && !artifactDisplayTags(artifact).some((tag) => tag.toLowerCase() === options.tag?.toLowerCase())) return false;
+    if (options.series && artifact.series?.id !== options.series) return false;
     if (mode !== "all" && artifact.library_mode !== mode) return false;
     if (options.status && options.status !== "all" && artifact.lifecycle_status !== options.status) return false;
     if (options.unread && !artifact.is_unread) return false;

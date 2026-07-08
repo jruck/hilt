@@ -48,6 +48,14 @@
     "scripts/tmp-*.ts",
     "node_modules",
     "dist",
+    ".next/standalone",
+    ".next-prod/standalone",
+    ".next-gateway/standalone",
+    ".next-devtest/standalone",
+    ".next-prod-test/standalone",
+    ".next-graph-dev",
+    ".next-graph-live",
+    "release",
     "vitest.config.ts"
   ]
 }

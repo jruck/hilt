@@ -36,6 +36,8 @@ export function searchLibrary(vaultPath: string, query: string, options: Library
         artifact.source_tags.join(" "),
         artifact.source_collection,
         artifact.source_folder,
+        artifact.series?.id,
+        artifact.series?.title,
         artifact.content,
       ].filter(Boolean).join("\n");
       const matchScore = score(content, normalized);

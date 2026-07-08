@@ -13,20 +13,59 @@ const basePath =
     ? `/${rawBasePath.replace(/^\/+|\/+$/g, "")}`
     : "";
 
+const distDir = process.env.HILT_DIST_DIR || ".next";
+const standaloneBuild =
+  process.env.HILT_STANDALONE_BUILD === "1" ||
+  process.env.HILT_STANDALONE_BUILD === "true";
+
+const generatedBuildDirs = [
+  ".next",
+  ".next-prod",
+  ".next-gateway",
+  ".next-devtest",
+  ".next-prod-test",
+  ".next-graph-dev",
+  ".next-graph-live",
+];
+
+const traceExcludes = generatedBuildDirs.flatMap((dir) =>
+  dir === distDir
+    ? [`./${dir}/standalone/**/*`, `./${dir}/dev/cache/**/*`, `./${dir}/cache/**/*`]
+    : [`./${dir}/**/*`]
+);
+
 const nextConfig: NextConfig = {
   ...(basePath ? { basePath } : {}),
 
   // Dev indicators render in DOM but hidden by CSS.
   // Revealed via double-Command dev mode toggle.
 
-  // Enable standalone output for Electron builds
-  // This creates a minimal server that can run without node_modules
-  output: "standalone",
+  // Standalone output is only for rare distribution-style builds. The daily
+  // source-launcher app serves a normal production build from .next-prod.
+  ...(standaloneBuild
+    ? {
+        output: "standalone" as const,
+        outputFileTracingExcludes: {
+          "/*": [
+            ...traceExcludes,
+            "./dist/**/*",
+            "./release/**/*",
+            "./data/**/*",
+            "./docs/demo/.hilt-data/**/*",
+            "./worktrees/**/*",
+            "./worktree-*/*",
+            "./.git/**/*",
+            "./.claude/**/*",
+            "./.obsidian/**/*",
+          ],
+        },
+      }
+    : {}),
 
   // Allow an isolated build/dist directory (e.g. a parallel `next dev` for graph
   // visual iteration) so it never fights the live :3000 server over `.next`.
   // Unset => ".next" => live server unaffected.
-  distDir: process.env.HILT_DIST_DIR || ".next",
+  distDir,
 
   // Enable Turbopack (Next.js 16 default)
   turbopack: {},

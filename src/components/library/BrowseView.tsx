@@ -26,6 +26,7 @@ import { Bookmark, Check, CircleDot, FileText } from "lucide-react";
 import { SECONDARY_TOOLBAR_BODY_GUTTER_CLASS } from "@/components/layout/SecondaryToolbar";
 import { EvalMetricPills, formatEvalScore } from "./EvalMetricPills";
 import { LibraryArtifactDetailPane } from "./LibraryArtifactDetailPane";
+import { SeriesBadge } from "./SeriesBadge";
 
 const SOURCE_WIDTH_KEY = "hilt-library-source-width";
 const LIST_WIDTH_KEY = "hilt-library-list-width";
@@ -617,6 +618,7 @@ export function ArtifactList({
                   <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-tertiary)]">
                     <span className="truncate">{artifact.source_name || artifact.channel}</span>
                     <span>{artifact.created_at?.slice(0, 10)}</span>
+                    {artifact.series && <SeriesBadge artifact={artifact} compact />}
                     <EvalMetricPills
                       evalAttrs={artifact.eval_attrs}
                       breakdown={showEvalBreakdown}

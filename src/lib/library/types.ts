@@ -5,6 +5,15 @@ export type CandidateStatus = "candidate" | "promoted" | "skipped" | "expired";
 export type LibraryLifecycleStatus = "candidate" | "saved" | "skipped" | "expired" | "promoted";
 export type LibraryMode = "study" | "keep";
 export type LibraryModeFilter = LibraryMode | "all";
+
+export interface LibrarySeriesMetadata {
+  id: string;
+  title: string;
+  url?: string | null;
+  index?: number | null;
+  total?: number | null;
+  parent_path?: string | null;
+}
 /**
  * Lifecycle state — orthogonal to disposition (`library_mode`). `active` = normal circulation;
  * `to_archive` = the eval flagged it as probably-not-worth-your-time, a non-destructive review bucket
@@ -147,6 +156,8 @@ export interface ProcessedArtifact {
   description?: string;
   video_duration_seconds?: number;
   youtube_clip?: YouTubeClipReviewAttrs;
+  /** Series/playlist/course membership. Children remain first-class items; this links them together. */
+  series?: LibrarySeriesMetadata;
   /** A study item that got only the L1 digest (reweave couldn't run) — flagged for re-upgrade. */
   reweave_pending?: boolean;
   /** The capture is a login/auth wall with no real article under it — held for authenticated
@@ -218,6 +229,7 @@ export interface ReferenceCandidate {
   source_collection_id: string | null;
   source_folder: string | null;
   source_folder_id: string | null;
+  series?: LibrarySeriesMetadata;
   library_mode: LibraryMode;
   promotion: {
     promoted_to?: string | null;
@@ -267,6 +279,7 @@ export interface LibraryArtifact {
   source_collection_id: string | null;
   source_folder: string | null;
   source_folder_id: string | null;
+  series?: LibrarySeriesMetadata;
   library_mode: LibraryMode;
   /** Content format stamped at ingest (video/tweet/newsletter/code/…) — drives the content-type icon. */
   format?: string | null;

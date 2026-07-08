@@ -11,6 +11,7 @@ import { contentTypeForArtifact } from "@/lib/library/content-type";
 import { ContentTypeIcon } from "./ContentTypeIcon";
 import { EvalMetricPills } from "./EvalMetricPills";
 import { LibraryLifecycleMenu } from "./LibraryLifecycleMenu";
+import { SeriesBadge } from "./SeriesBadge";
 
 function clipPolicyLabel(policy: string): string {
   if (policy === "label_review") return "Clip review";
@@ -132,6 +133,11 @@ export function FeedCard({
         </div>
 
         <h3 className="line-clamp-2 text-base font-semibold leading-snug text-[var(--text-primary)]">{artifact.title}</h3>
+        {artifact.series && (
+          <div className="min-w-0">
+            <SeriesBadge artifact={artifact} />
+          </div>
+        )}
         {reason && (
           <p className="text-[13px] italic leading-5 text-[var(--text-tertiary)]">
             {reason}

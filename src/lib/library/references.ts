@@ -8,6 +8,7 @@ import { buildMediaMarkdown, cachedSourceContent, stripDetailsWrapper } from "./
 import { PIPELINE_VERSION } from "./pipeline";
 import { friendlyNewsletterSender, semanticTags, uniqueTags, validLibraryMode } from "./taxonomy";
 import { youtubeFrontmatter } from "./youtube-frontmatter";
+import { seriesFromFrontmatter, seriesFrontmatter } from "./series";
 
 const REFERENCES_DIR = "references";
 export const MANUAL_SOURCE_ID = "manual";
@@ -121,6 +122,7 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
       ? author.toLowerCase()
       : null;
   const tags = semanticTags(frontmatterTags(data));
+  const series = seriesFromFrontmatter(data);
 
   const detail: LibraryArtifactDetail = {
     id: hashId(relPath),
@@ -139,6 +141,7 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
     source_collection_id: sourceCollectionId,
     source_folder: sourceFolder,
     source_folder_id: sourceFolderId,
+    series,
     library_mode: validLibraryMode(data.library_mode),
     format: typeof data.format === "string" ? data.format : null,
     thumbnail: typeof data.thumbnail === "string" ? data.thumbnail : null,
@@ -277,6 +280,7 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
     source_collection_id: processed.source_collection_id || undefined,
     source_folder: processed.source_folder || undefined,
     source_folder_id: processed.source_folder_id || undefined,
+    ...seriesFrontmatter(processed.series),
     library_mode: processed.library_mode,
     connected_projects: processed.connected_projects.length ? processed.connected_projects : undefined,
     connection_suggestions: processed.connection_suggestions?.length ? processed.connection_suggestions : undefined,

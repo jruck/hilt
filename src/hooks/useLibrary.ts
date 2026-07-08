@@ -24,6 +24,7 @@ export interface UseLibraryOptions {
   source?: string | null;
   channel?: string | null;
   tag?: string | null;
+  series?: string | null;
   mode?: string | null;
   status?: string | null;
   unread?: boolean | null;
@@ -63,6 +64,7 @@ function libraryParams(options: UseLibraryOptions, offset?: number, limit?: numb
   if (options.source) params.set("source", options.source);
   if (options.channel) params.set("channel", options.channel);
   if (options.tag) params.set("tag", options.tag);
+  if (options.series) params.set("series", options.series);
   if (options.mode) params.set("mode", options.mode);
   if (options.status) params.set("status", options.status);
   if (options.unread) params.set("unread", "true");

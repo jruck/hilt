@@ -8,6 +8,7 @@ import { readCitations } from "./citations";
 import { PIPELINE_VERSION } from "./pipeline";
 import { friendlyNewsletterSender, semanticTags, uniqueTags, validLibraryMode } from "./taxonomy";
 import { youtubeFrontmatter } from "./youtube-frontmatter";
+import { seriesFromFrontmatter, seriesFrontmatter } from "./series";
 
 export const CANDIDATE_CACHE_DIR = path.join("references", ".cache", "library-candidates");
 const NEWSLETTERS_SOURCE_ID = "superhuman-news";
@@ -61,6 +62,7 @@ export function parseCandidateFile(vaultPath: string, filePath: string): Referen
       ? author.toLowerCase()
       : null;
   const sourceId = String(data.source_id || "");
+  const series = seriesFromFrontmatter(data);
   const sourceName = sourceId === NEWSLETTERS_SOURCE_ID
     ? NEWSLETTERS_SOURCE_NAME
     : sourceId === BOOK_CAPTURE_SOURCE_ID
@@ -100,6 +102,7 @@ export function parseCandidateFile(vaultPath: string, filePath: string): Referen
     source_collection_id: typeof data.source_collection_id === "string" || typeof data.source_collection_id === "number" ? String(data.source_collection_id) : null,
     source_folder: sourceFolder,
     source_folder_id: sourceFolderId,
+    series,
     library_mode: validLibraryMode(data.library_mode),
     promotion: {
       promoted_to: typeof promotion.promoted_to === "string" ? promotion.promoted_to : null,
@@ -199,6 +202,7 @@ export function buildCandidateMarkdown(processed: ProcessedArtifact): string {
     source_collection_id: processed.source_collection_id || undefined,
     source_folder: processed.source_folder || undefined,
     source_folder_id: processed.source_folder_id || undefined,
+    ...seriesFrontmatter(processed.series),
     library_mode: processed.library_mode,
     status: "candidate",
     expires: addDays(now, processed.source.retention.candidate_ttl_days),

@@ -54,6 +54,11 @@ export function youtubeFrontmatter(processed: ProcessedArtifact): Record<string,
   const metadata = processed.raw.metadata || {};
   return {
     youtube_video_id: stringField(metadata.video_id) || stringField(metadata.youtube_video_id),
+    youtube_playlist_id: stringField(metadata.playlist_id) || stringField(metadata.youtube_playlist_id),
+    youtube_playlist_title: stringField(metadata.playlist_title) || stringField(metadata.youtube_playlist_title),
+    youtube_playlist_url: stringField(metadata.playlist_url) || stringField(metadata.youtube_playlist_url),
+    youtube_playlist_index: numberField(metadata.playlist_index) || numberField(metadata.youtube_playlist_index),
+    youtube_playlist_total: numberField(metadata.playlist_total) || numberField(metadata.youtube_playlist_total),
     youtube_metadata_at: stringField(metadata.youtube_metadata_at),
     youtube_title: stringField(metadata.youtube_title),
     youtube_channel_id: stringField(metadata.youtube_channel_id),

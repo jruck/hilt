@@ -85,6 +85,20 @@ function youtubeThumbnail(thumbnails: unknown): string | undefined {
   return typed?.maxres?.url || typed?.high?.url || typed?.medium?.url || typed?.default?.url;
 }
 
+function metadataString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function metadataPositiveInteger(value: unknown): number | undefined {
+  const parsed = typeof value === "number"
+    ? value
+    : typeof value === "string" && value.trim()
+      ? Number(value)
+      : NaN;
+  if (!Number.isFinite(parsed) || parsed < 1) return undefined;
+  return Math.floor(parsed);
+}
+
 async function youtubeAccessToken(): Promise<string | null> {
   return process.env.YOUTUBE_OAUTH_ACCESS_TOKEN || await refreshGoogleAccessToken();
 }
@@ -141,7 +155,7 @@ async function fetchChannelVideosFromDataApiWithToken(
   const cutoff = backfillAfter(source);
   const json = await response.json() as {
     items?: Array<{
-      snippet?: Record<string, unknown> & { resourceId?: { videoId?: string } };
+      snippet?: Record<string, unknown> & { resourceId?: { videoId?: string }; position?: number };
       contentDetails?: { videoId?: string; videoPublishedAt?: string };
     }>;
     nextPageToken?: string;
@@ -207,10 +221,23 @@ async function fetchPlaylistVideosWithToken(
     ? items.some((item) => !isOnOrAfter(item.contentDetails?.videoPublishedAt || String(item.snippet?.publishedAt || ""), cutoff))
     : false;
   const signal = source.signal || String(source.metadata.signal || "youtube_playlist");
+  const playlistTitle = metadataString(source.metadata.playlist_title) || metadataString(source.metadata.series_title);
+  const playlistUrl = metadataString(source.metadata.playlist_url)
+    || metadataString(source.metadata.series_url)
+    || `https://www.youtube.com/playlist?list=${encodeURIComponent(playlistId)}`;
+  const playlistTotal = metadataPositiveInteger(source.metadata.playlist_total)
+    || metadataPositiveInteger(source.metadata.series_total);
+  const seriesId = metadataString(source.metadata.series_id);
+  const seriesTitle = metadataString(source.metadata.series_title) || playlistTitle;
+  const seriesUrl = metadataString(source.metadata.series_url) || playlistUrl;
+  const seriesParent = metadataString(source.metadata.series_parent) || metadataString(source.metadata.series_parent_path);
   const artifacts: RawArtifact[] = items.map((item) => {
     const snippet = item.snippet || {};
     const videoId = item.contentDetails?.videoId || snippet.resourceId?.videoId || "";
     const publishedAt = item.contentDetails?.videoPublishedAt || (typeof snippet.publishedAt === "string" ? snippet.publishedAt : new Date().toISOString());
+    const position = typeof snippet.position === "number" && Number.isFinite(snippet.position)
+      ? Math.max(1, Math.floor(snippet.position) + 1)
+      : undefined;
     return {
       url: `https://www.youtube.com/watch?v=${videoId}`,
       title: String(snippet.title || videoId || "Untitled YouTube video"),
@@ -220,7 +247,22 @@ async function fetchPlaylistVideosWithToken(
       date: publishedAt,
       thumbnail: youtubeThumbnail(snippet.thumbnails),
       content: typeof snippet.description === "string" ? snippet.description : undefined,
-      metadata: { video_id: videoId, playlist_id: playlistId, format: "video", signal },
+      metadata: {
+        video_id: videoId,
+        playlist_id: playlistId,
+        playlist_title: playlistTitle,
+        playlist_url: playlistUrl,
+        playlist_index: position,
+        playlist_total: playlistTotal,
+        series_id: seriesId,
+        series_title: seriesTitle,
+        series_url: seriesUrl,
+        series_index: position,
+        series_total: playlistTotal,
+        series_parent: seriesParent,
+        format: "video",
+        signal,
+      },
     };
   }).filter((artifact) => Boolean(extractVideoId(artifact.url)) && isOnOrAfter(artifact.date, cutoff));
 

@@ -17,6 +17,7 @@ import { extractXVideoTranscript } from "./x-video-transcript";
 import { detectYouTubeContentForm } from "./youtube-clip-detector";
 import { loginWallVerdict, looksLikeBinaryGarbage } from "./capture-health";
 import { extractPdfText, isPdfUrl, looksLikePdf } from "./pdf";
+import { seriesFromRaw } from "./series";
 
 const execFileAsync = promisify(execFile);
 
@@ -915,6 +916,7 @@ export async function digestArtifact(
   const score = scoreArtifact(raw, source, summary);
   const saveRecommendation = recommendation(score, source);
   const taxonomy = artifactTaxonomy(raw, source);
+  const series = seriesFromRaw(raw, source);
   const tags = taxonomy.semantic_tags;
   const proposedDestination = typeof raw.metadata.proposed_destination === "string"
     ? raw.metadata.proposed_destination
@@ -1034,6 +1036,7 @@ export async function digestArtifact(
     summary,
     video_duration_seconds: videoDurationSeconds,
     youtube_clip: youtubeClip,
+    series,
     key_points: keyPoints.length ? keyPoints : [raw.title],
     digest_markdown: digestMarkdown,
     description,

@@ -336,6 +336,7 @@ export function BridgeTaskEditor({
       Link.configure({
         openOnClick: false, // We handle clicks manually for wikilinks + external
         HTMLAttributes: {
+          target: null,
           rel: "noopener noreferrer",
         },
       }),
@@ -501,10 +502,11 @@ export function BridgeTaskEditor({
       if (href.startsWith("#wikilink:")) {
         e.preventDefault();
         e.stopPropagation();
+        if (e.type !== "click") return;
         haptics.selection(); // whisper when following a link to another doc
         const filePath = decodeURIComponent(href.replace("#wikilink:", ""));
         navigateTo("docs", filePath);
-      } else if (href.startsWith("http://") || href.startsWith("https://")) {
+      } else if (e.type === "click" && (href.startsWith("http://") || href.startsWith("https://"))) {
         // Open external links in new tab
         e.preventDefault();
         haptics.light(); // gentle for opening external link
@@ -512,8 +514,12 @@ export function BridgeTaskEditor({
       }
     }
 
-    el.addEventListener("click", handleClick);
-    return () => el.removeEventListener("click", handleClick);
+    el.addEventListener("mousedown", handleClick, true);
+    el.addEventListener("click", handleClick, true);
+    return () => {
+      el.removeEventListener("mousedown", handleClick, true);
+      el.removeEventListener("click", handleClick, true);
+    };
   }, [navigateTo, haptics]);
 
   return (

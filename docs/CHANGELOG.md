@@ -15,6 +15,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
+- **Task-body wikilinks no longer open a second Electron window** — Following the same `[[projects/...]]` task-body wikilink now stays in the current Hilt window. Tiptap's link extension defaulted rendered anchors to `target="_blank"`, so Electron could open an extra internal BrowserWindow even while the task editor's click handler navigated the existing app to Docs. `BridgeTaskEditor` now removes the default target from task links and intercepts wikilinks during capture (`mousedown` + `click`) before native new-window handling can run; external HTTP(S) links still open externally via the existing click path.
 - **Task-body wikilinks to Bridge root folders open the real file from task panes** — The task editor previously resolved every slash-bearing wikilink relative to the task file, so `[[projects/seb-1on1-strategy/...]]` inside `tasks/t-20260707-026.md` opened Docs on the nonexistent `tasks/projects/...` path and showed "File not found." `BridgeTaskEditor` now routes known Bridge root folders (`projects/`, `meetings/`, `areas/`, `tasks/`, etc.) through the vault root while keeping explicit `./` / `../` links and task-local `media/` attachments relative to the task file. The save path keeps root-relative wikilinks as `projects/...` instead of rewriting them to `../projects/...`; covered by `task-editor-links.test.ts`.
 
 ### Added

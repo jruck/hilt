@@ -22,6 +22,7 @@ import {
   listThreads,
   markProcessed,
   openThreadForTarget,
+  resolveThread,
   saveThread,
   threadsForTarget,
 } from "../threads/store";
@@ -41,10 +42,16 @@ function toComment(thread: Thread, message: ThreadMessage): LibraryComment {
   };
 }
 
+function isFeedbackMessage(message: ThreadMessage): boolean {
+  // Without this filter, the agent's own "Clustered into..." reply reads back as new unprocessed feedback and steering re-clusters its own note.
+  return message.author === "justin" || message.author === "claude-sim";
+}
+
 function commentsForTarget(id: string): Array<{ thread: Thread; message: ThreadMessage }> {
   const entries: Array<{ thread: Thread; message: ThreadMessage }> = [];
   for (const thread of threadsForTarget(libraryTarget(id))) {
     for (const message of thread.messages) {
+      if (!isFeedbackMessage(message)) continue;
       entries.push({ thread, message });
     }
   }
@@ -107,12 +114,41 @@ export function markStoredCommentsProcessed(vaultPath: string, refs: Array<{ id:
   return { processed };
 }
 
+/**
+ * Record the steering loop's consumption receipt for clustered library feedback threads.
+ * Does not stamp `processed`: `processed_at` remains owned by markStoredCommentsProcessed
+ * and the /process-library-feedback flow.
+ */
+export function recordClusteredFeedback(
+  vaultPath: string,
+  refs: Array<{ id: string; commentIds: string[] }>,
+  reportDate: string,
+): { replied: number } {
+  void vaultPath;
+  let replied = 0;
+  for (const ref of refs) {
+    const commentIds = new Set(ref.commentIds);
+    for (const thread of threadsForTarget(libraryTarget(ref.id))) {
+      if (thread.status === "resolved") continue;
+      if (!thread.messages.some((message) => commentIds.has(message.id))) continue;
+      appendToThread(thread.id, {
+        author: "agent:library",
+        text: `Clustered into the steering report ${reportDate}.`,
+      });
+      resolveThread(thread.id, { action: "clustered", by: "agent:library" });
+      replied += 1;
+    }
+  }
+  return { replied };
+}
+
 export function listStoredFeedback(vaultPath: string): Array<{ id: string; comments: LibraryComment[] }> {
   void vaultPath;
   const byId = new Map<string, LibraryComment[]>();
   for (const thread of listLibraryThreads()) {
     const comments = byId.get(thread.target.id) || [];
     for (const message of thread.messages) {
+      if (!isFeedbackMessage(message)) continue;
       comments.push(toComment(thread, message));
     }
     byId.set(thread.target.id, comments);

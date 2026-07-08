@@ -1,9 +1,9 @@
 import type { ViewPrefix } from "@/lib/url-utils";
 
-export type SystemMode = "sessions" | "apps" | "stack" | "sync" | "graph" | "performance";
+export type SystemMode = "sessions" | "apps" | "stack" | "sync" | "graph" | "performance" | "threads";
 
 export function isSystemMode(value: string | null | undefined): value is SystemMode {
-  return value === "apps" || value === "stack" || value === "sessions" || value === "sync" || value === "graph" || value === "performance";
+  return value === "apps" || value === "stack" || value === "sessions" || value === "sync" || value === "graph" || value === "performance" || value === "threads";
 }
 
 export function systemScopeForMode(mode: SystemMode, stackScope = ""): string {

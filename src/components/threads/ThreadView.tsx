@@ -17,13 +17,14 @@
  *   {messageId, text}; trash → DELETE /api/threads/[id]/messages/[messageId] (deleting the
  *   last message deletes the thread — the section simply disappears).
  * - Resolution/processed stamps render as quiet tertiary metadata lines per thread.
- * - NO Process-now affordance here (next unit owns it).
+ * - Open threads carry a quiet Process affordance for running the active processor.
  */
 import { useState, type FormEvent } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
-import { Check, MessageSquare, Pencil, Trash2, X } from "lucide-react";
+import { Check, MessageSquare, Pencil, Play, Trash2, X } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import type { CommentTarget } from "@/lib/comments/types";
+import { runThreadProcess } from "@/lib/threads/process-client";
 import type { Thread, ThreadMessage } from "@/lib/threads/types";
 import { formatRelativeDate } from "@/components/tasks/ProposalsSection";
 
@@ -98,6 +99,7 @@ function ThreadBlock({ thread, onChanged }: { thread: Thread; onChanged: () => v
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function run(action: () => Promise<void>) {
@@ -128,6 +130,19 @@ function ThreadBlock({ thread, onChanged }: { thread: Thread; onChanged: () => v
     void run(() => requestJson(`/api/threads/${thread.id}/messages/${messageId}`, { method: "DELETE" }));
   }
 
+  async function processThread() {
+    setProcessing(true);
+    setError(null);
+    try {
+      await runThreadProcess(thread.id);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Thread processing failed");
+    } finally {
+      setProcessing(false);
+    }
+  }
+
   return (
     <div className="py-1.5 first:pt-1 last:pb-0">
       {thread.messages.map((message) => (
@@ -156,6 +171,23 @@ function ThreadBlock({ thread, onChanged }: { thread: Thread; onChanged: () => v
       )}
       {thread.status === "resolved" && !thread.resolution && !thread.processed && (
         <div className="py-0.5 text-[11px] text-[var(--text-tertiary)]">Resolved</div>
+      )}
+      {thread.status === "open" && (
+        <div className="py-0.5">
+          <button
+            type="button"
+            onClick={() => void processThread()}
+            disabled={processing || busy}
+            className={`inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] font-medium transition-colors disabled:cursor-default disabled:opacity-60 ${
+              processing
+                ? "text-emerald-600"
+                : "text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+            }`}
+          >
+            <Play className={`h-3 w-3 ${processing ? "animate-pulse" : ""}`} />
+            {processing ? "Processing" : "Process"}
+          </button>
+        </div>
       )}
       {error && <p className="py-0.5 text-xs text-red-500">{error}</p>}
     </div>

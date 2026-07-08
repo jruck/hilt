@@ -177,6 +177,19 @@ Every action should have visible feedback:
 
 This section tracks design decisions and refinements over time. Each entry should note what was tried, what was rejected, and why.
 
+### 2026-07-08: System Threads Index — Cross-System Discovery + Process In Place
+
+**Principle**: Thread discovery across the whole system is a System inspection mode, not per-object chrome. The under-object `ThreadView` keeps individual conversations where the object is read (the 2026-07-08 Thread-Under-Object entry); the System → Threads index is the complementary bird's-eye — every feedback thread in one dense, filterable list — so a comment left anywhere is findable without hunting through objects.
+
+**UI rule**:
+- Threads live inside the shared System secondary-toolbar/scrollable-list idiom (same chrome as Sync/Stack), NOT a new destination or a modal. Mode switcher left; Open/Resolved/All filter (Open default), quiet open/resolved counts, Process all, and refresh right-aligned on the one 44px row.
+- Rows are dense and divided (not cards): target-kind icon, human target label + last-message snippet, quiet tertiary status (`Open` / `Resolved · <action>` / a `processed` tag — metadata weight, never loud badges), message count, time-ago.
+- **Process is a state machine, not a button that just fires.** idle = quiet hover-revealed `Process` (Play icon) on open rows only → streaming = emerald pulse + disabled + "Processing" (and `Process all` shows `Processing n/total`) → done = the SWR list refreshes and the row leaves the Open filter as it resolves. Failure is a quiet red text line under the row; the button returns. No confirmation dialog (Process all drains up to 10, confirm-free, but shows live progress).
+- Only cheaply-navigable targets link in v1 (task → `requestTaskOpen`, library → `navigateTo`); meeting/loop-item/briefing rows render unlinked rather than inventing fragile deep-links. Unlinked is an acceptable first pass.
+- The same quiet `Process` affordance appears at the bottom of open under-object `ThreadView` blocks, so a thread can be acted on from either surface with one shared NDJSON-draining client.
+
+**Rationale**: A comment is a lever (it steers a node or gets processed into an edit/proposal), so the system needs both the in-context conversation AND a cross-cutting queue to drain. Reusing the System list idiom keeps the queue feeling like inspection chrome, not a new product surface; the explicit idle→streaming→done state machine gives the long-running Claude turn honest, non-blocking feedback.
+
 ### 2026-07-08: Thread-Under-Object — Conversations Live Below the Body
 
 **Principle**: A comment thread on a system object (task, meeting, loop ask) renders as a quiet section UNDER the object's body, inside the object's own detail surface — not in a drawer, modal, or separate comments destination. The conversation is part of the object's record, at History-section weight (uppercase 11px tertiary mini-header, dense rows).

@@ -288,6 +288,41 @@ joins this week's list"; Assign to agent = "mark as agent work — joins this we
 agents section (agent execution arrives in Phase C)"; Dismiss = "decline — removed; the loop
 remembers and won't re-propose it"; Revise = "send a correction — returns for a fresh verdict".
 
+## The feedback flywheel — what happens to a comment you leave
+
+A comment is never a dead end. Leave one on any object (a briefing bullet, a task, a meeting, a
+library item) and it becomes a **thread** in `$DATA/threads/`, open and waiting. From there it
+travels one of two roads:
+
+- **Calibration (the passive road).** Every node, on its next run, sweeps up the open comment
+  threads that belong to it and rides them into its work as *calibration guidance* — the same
+  "here's what Justin told you last time" nudge nodes have always used. What's new: instead of
+  silently marking the thread "handled," the node now **replies in the thread** ("Consumed as
+  calibration guidance for the `<node>` run `<date>`.") and resolves it. You can see it was read.
+  This is automatic — the meetings, goals, system, and library nodes all do it at their scheduled
+  runs; the library node's version says "Clustered into the steering report `<date>`."
+- **Processing (the active road).** Sometimes a comment is a *request*, not just calibration —
+  "fix the owner on this," "this summary is wrong." Hit **Process** on the thread (or **Process
+  all** to drain the queue, up to 10 at a time) and a Claude turn opens the object, reads your
+  thread, and acts within its tools (Read/Edit/Write — no shell). Two outcomes:
+  - **Small enough to do now** → it makes the surgical edit and replies with what it changed.
+  - **Bigger than a local edit** → it does NOT attempt it; instead it **mints a proposal task**
+    into `$VAULT/tasks/.proposals/` (carrying a link back to the thread) and replies telling you
+    it filed one. That proposal then flows through the normal Approve / Dismiss verdict path like
+    any other.
+
+  Either way the thread is resolved with the reply, and the whole exchange is saved as an ordinary
+  chat you can reopen later. If the Claude turn fails, the thread stays open — nothing is lost,
+  just try again.
+
+The point: a comment is a lever, not a note. It either steers a node's next run (with a receipt)
+or gets acted on directly (with an edit or a proposal). Nothing you write just sits there unseen.
+
+Every thread is also visible in one place: **System → Threads** lists every feedback thread across
+the system (filterable Open / Resolved / All), with the same **Process** button on each open row and a
+**Process all** action to drain the open queue. The **Process** affordance also sits under each object's
+own thread, so you can act on a comment from wherever you find it.
+
 Proposals also have their own surface now: the **Proposals** section in the Priorities view
 (collapsed behind a count; only appears when something is waiting) shows each proposal as a card
 — title, the verbatim quote it came from, the meeting, the due date — with the same

@@ -3,9 +3,10 @@ import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { loadEnvConfig } from "@next/env";
-import { loadRegistry } from "../src/lib/loops/registry";
+import { loadRegistry, loopHome } from "../src/lib/loops/registry";
 import { absenceItems, healthDigestItems, substrateItems, type SubstrateInputs } from "../src/lib/loops/runtime";
 import { emitLoopArtifact, defaultSandboxDir } from "../src/lib/loops/emit";
+import { runThreadHealthPass, renderFeedbackHandledSection } from "../src/lib/loops/health-pass";
 import { isoNow } from "../src/lib/library/utils";
 
 loadEnvConfig(process.cwd());
@@ -205,6 +206,10 @@ async function main(): Promise<void> {
 
   const escalated = items.filter((i) => i.escalated);
   const checksAttempted = 7; // absence, digest, launchd, cli, token, disk, supervisor/briefing
+  // C3: consume this loop's calibration threads (record of consumption on each) — runtime had no
+  // feedback pass before; its domain's threads now ride the same flywheel.
+  const runNow = isoNow();
+  const feedbackHandled = runThreadHealthPass({ loopId: loop.id, home: loopHome(bases.live, loop), now: runNow, runAt: runNow });
   const contentBody = [
     `# Runtime Loop — ${today}`,
     "",
@@ -224,20 +229,21 @@ async function main(): Promise<void> {
       ? items.map((i) => `- ${i.escalated ? "🔴 " : ""}${i.title}`).join("\n")
       : "- All clear: every enabled loop fresh, substrate healthy.",
     "",
+    ...(feedbackHandled.consumed ? [renderFeedbackHandledSection(feedbackHandled).trimEnd(), ""] : []),
   ].join("\n");
 
   const written = emitLoopArtifact({
     vaultPath,
     loop,
     date: today,
-    runAt: isoNow(),
+    runAt: runNow,
     items,
     health: {
       ok: true, // the runtime loop itself ran; its findings are about OTHERS
       attempted: checksAttempted,
       succeeded: checksAttempted,
       coverage: 1,
-      notes: `${items.length} findings, ${escalated.length} escalated`,
+      notes: `${items.length} findings, ${escalated.length} escalated${feedbackHandled.consumed ? `, ${feedbackHandled.consumed} feedback thread(s) consumed` : ""}`,
     },
     contentBody,
   });

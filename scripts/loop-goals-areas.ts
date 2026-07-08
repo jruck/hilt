@@ -7,6 +7,7 @@ import { detectRateLimitInEnvelope, extractModelText, resolveClaudeBin, runClaud
 import { isoNow } from "../src/lib/library/utils";
 import { loadRegistry, loopHome } from "../src/lib/loops/registry";
 import { emitLoopArtifact, defaultSandboxDir } from "../src/lib/loops/emit";
+import { runThreadHealthPass, renderFeedbackHandledSection } from "../src/lib/loops/health-pass";
 import { openEntries, readLedger } from "../src/lib/loops/meeting-ledger";
 import type { LoopItem } from "../src/lib/loops/types";
 
@@ -203,6 +204,13 @@ async function main(): Promise<void> {
     });
   }
 
+  // C3: consume this loop's calibration threads (record of consumption on each) — goals-areas had
+  // no feedback pass before; its domain's threads now ride the same flywheel.
+  const runNow = isoNow();
+  const feedbackHandled = runThreadHealthPass({
+    loopId: loop.id, home: loopHome(loop.phase === "live" ? vaultPath : defaultSandboxDir(), loop), now: runNow, runAt: runNow,
+  });
+
   const contentBody = [
     `# Goals / Areas Alignment — ${until}`,
     "",
@@ -219,16 +227,17 @@ async function main(): Promise<void> {
       ? parsed.alignment.map((a: any) => `- **${a.priority}** — ${a.read}${a.evidence?.length ? ` · ${a.evidence[0]}` : ""}`)
       : ["_(none)_"]),
     "",
+    ...(feedbackHandled.consumed ? [renderFeedbackHandledSection(feedbackHandled).trimEnd(), ""] : []),
   ].join("\n");
 
   const artifact = emitLoopArtifact({
-    vaultPath, loop, date: until, runAt: isoNow(),
+    vaultPath, loop, date: until, runAt: runNow,
     ...(asOf ? { asOf } : {}),
     items,
     health: {
       ok: Boolean(parsed),
       coverage: parsed ? 1 : 0,
-      notes: rateLimited ? "rate-limited" : parsed ? `${(parsed.alignment || []).length} priorities read, ${items.length} findings` : "analysis call failed",
+      notes: rateLimited ? "rate-limited" : parsed ? `${(parsed.alignment || []).length} priorities read, ${items.length} findings${feedbackHandled.consumed ? `, ${feedbackHandled.consumed} feedback thread(s) consumed` : ""}` : "analysis call failed",
     },
     contentBody,
   });

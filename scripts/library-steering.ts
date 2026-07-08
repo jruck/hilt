@@ -4,7 +4,7 @@ import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { loadEnvConfig } from "@next/env";
-import { listStoredFeedback } from "../src/lib/library/library-feedback";
+import { listStoredFeedback, recordClusteredFeedback } from "../src/lib/library/library-feedback";
 import { getLibraryArtifact } from "../src/lib/library/library";
 import { evalAttrsForArtifact } from "../src/lib/library/recommendations";
 import { buildKbIndex } from "../src/lib/library/kb-index";
@@ -180,6 +180,18 @@ async function main(): Promise<void> {
       const now = isoNow();
       for (const comment of unprocessed) stamps[comment.comment_id] = now;
       writeClusteredStamps(stamps);
+      // Thread receipt (v3 unit C3): each clustered thread gets a visible agent reply +
+      // "clustered" resolution; processed_at stays owned by /process-library-feedback.
+      // Best-effort — a receipt failure must never fail the steering run.
+      try {
+        const byArtifact = new Map<string, string[]>();
+        for (const comment of unprocessed) {
+          byArtifact.set(comment.id, [...(byArtifact.get(comment.id) || []), comment.comment_id]);
+        }
+        recordClusteredFeedback(vaultPath, Array.from(byArtifact, ([id, commentIds]) => ({ id, commentIds })), today);
+      } catch (error) {
+        console.error("[steering] clustered-thread receipt failed:", error instanceof Error ? error.message.slice(0, 200) : error);
+      }
     }
   }
 

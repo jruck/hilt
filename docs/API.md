@@ -2166,6 +2166,24 @@ Remove one message; deleting the last message deletes the thread.
 
 `POST /api/loops/feedback` and the library feedback routes (`POST/PATCH/DELETE /api/library/[id]/feedback`, `GET/POST /api/library/feedback`) keep their exact request/response contracts but are thread-backed internally — the route handlers are unchanged; the store functions they call (`src/lib/loops/stores.ts` feedback fns, `src/lib/library/library-feedback.ts`) adapt over threads. The legacy `records.jsonl` / `library-feedback/*.json` files are frozen history (`scripts/threads-migrate.ts`).
 
+### POST /api/threads/[id]/process (v3 unit C3)
+
+**File**: `src/app/api/threads/[id]/process/route.ts`
+
+Run the on-demand processor over ONE open thread. Validates before streaming: `400` invalid thread-id shape, `404` unknown thread, `409` thread already resolved. On success returns an **NDJSON stream** (`application/x-ndjson`) whose events are the SAME shapes as `POST /api/chat/message` (`session` → `trace`/`message` → `complete`|`error`) so a client renders progress identically.
+
+The processor (`src/lib/threads/processor.ts`) creates a normal chat session (context from the thread's target via the C1 `buildFirstTurnPrompt` builders; label from the thread's first human message), runs one Claude turn (Read/Edit/Write/Grep/Glob/LS — no Bash) over a preamble carrying the thread's target + messages, then:
+- posts the assistant's final text back to the thread as an agent reply (`agent:<loop>` when the target maps to a loop, else `agent:processor`) and resolves it `{ action: "processed" }`;
+- if the reply's last non-empty line matches `/^PROPOSAL: (.+)$/`, mints a proposal task file into `$VAULT/tasks/.proposals/` with `origin.thread = <threadId>`, strips the marker line, appends `Minted proposal <task-id>.`, and resolves `{ action: "proposal-minted" }`.
+
+The chat session persists (visible in ChatsView — intended). A failed Claude turn emits `{ type: "error" }` and leaves the thread OPEN for retry.
+
+### POST /api/threads/process-all (v3 unit C3)
+
+**File**: `src/app/api/threads/process-all/route.ts`
+
+Body: `{ status?: "open" }` (only `"open"` accepted; other values → `400`). Iterates open **unreplied** threads (no `agent:*` message) oldest-first, **serialized**, hard cap **10** per invocation — no parallel Claude spawns. NDJSON stream: per thread a `{ type: "thread-start", threadId, index, total }`, the processor's own events, then `{ type: "thread-complete", threadId, ok, action?, proposalTaskId? }`; a final `{ type: "summary", attempted, processed, minted, failed, threads: [...] }`. A failed thread does not stop the batch; an abort between threads stops starting new ones.
+
 ## Error Responses
 
 All routes return errors in this format:

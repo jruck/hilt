@@ -6,7 +6,8 @@ import { detectRateLimitInEnvelope, extractModelText, resolveClaudeBin, runClaud
 import { atomicWriteFile, isoNow } from "../src/lib/library/utils";
 import { loadRegistry, loopHome } from "../src/lib/loops/registry";
 import { emitLoopArtifact, defaultSandboxDir } from "../src/lib/loops/emit";
-import { readUnactedVerdicts, markVerdictsActed, readUnprocessedFeedback, markFeedbackProcessed } from "../src/lib/loops/stores";
+import { readUnactedVerdicts, markVerdictsActed, readUnprocessedFeedback } from "../src/lib/loops/stores";
+import { runThreadHealthPass, renderFeedbackHandledSection } from "../src/lib/loops/health-pass";
 import {
   catchPhraseSpans, cleanExtractedContext, dismissedLedgerDigest, fillContextIfEmpty,
   mintEntryId, nextSeq, normalizeActionText, openEntries, openLedgerDigest, readLedger,
@@ -237,7 +238,9 @@ async function main(): Promise<void> {
       + feedback.map((f) => `- [${f.created_at.slice(0, 10)}${f.target.item_id ? ` on ${f.target.item_id}` : ""}] ${f.text}`).join("\n")
     : "";
   feedbackGuidanceRef.value = feedbackGuidance;
-  if (feedback.length) markFeedbackProcessed(home, feedback.map((f) => f.id), { at: now, run_at: now });
+  // C3: the health pass replaces the bare markFeedbackProcessed stamp — every consumed thread
+  // also gets a visible agent reply + "calibrated" resolution (the record of consumption).
+  const feedbackHandled = runThreadHealthPass({ loopId: loop.id, home, now, runAt: now });
 
   // 1 · Unprocessed meetings (explicit set wins — the eval harness path). NB: meeting
   // filenames contain commas/emoji — the explicit list is a JSON file, never comma-split argv.
@@ -439,6 +442,7 @@ async function main(): Promise<void> {
     "",
     ...(opened.length ? ["### Opened", ...opened.map((e) => `- **${e.id}** (${e.owner}, conf ${e.confidence}): ${e.action}`), ""] : []),
     ...(closed.length ? ["### Closed", ...closed.map((id) => `- ${id}: ${ledger.entries[id].action.slice(0, 100)}`), ""] : []),
+    ...(feedbackHandled.consumed ? [renderFeedbackHandledSection(feedbackHandled).trimEnd(), ""] : []),
   ].join("\n");
 
   const artifact = emitLoopArtifact({
@@ -457,7 +461,7 @@ async function main(): Promise<void> {
         rateLimited ? "rate-limited mid-queue" : "",
         failures ? `${failures} extraction failure(s)` : "",
         `${verdicts.length} verdict(s) applied`,
-        feedback.length ? `${feedback.length} feedback item(s) consumed` : "",
+        feedbackHandled.consumed ? `${feedbackHandled.consumed} feedback thread(s) consumed` : "",
         proposalsMinted.length ? `${proposalsMinted.length} proposal file(s) minted (${proposalSink.kind} sink)` : "",
         proposalFailures ? `${proposalFailures} proposal mint failure(s)` : "",
       ].filter(Boolean).join(" · ") || "clean run",

@@ -1455,6 +1455,68 @@ Get OpenClaw gateway configuration for the chat interface. Reads from environmen
 
 ---
 
+## Chat Sessions (Chat v1)
+
+Content-anchored Claude CLI chats — plan: `docs/plans/chat-v1-implementation-plan.md` (Workstream 1). Sessions persist under `DATA_DIR/chat-sessions/<chatId>.json`; the CLI runs with `cwd` = vault root, `--model sonnet`, `--allowedTools Read,Edit,Write,Grep,Glob,LS`, `--permission-mode bypassPermissions`.
+
+### POST /api/chat/message
+
+**File**: `src/app/api/chat/message/route.ts`
+
+Run one chat turn: spawns `claude -p` (resuming via the stored `claudeSessionId`), streams NDJSON, persists the transcript server-side as the run progresses.
+
+**Request**
+
+```typescript
+{
+  chatId?: string;          // omit on first turn
+  context?: ChatContextRef; // first turn only; defaults to { kind: "none" }
+  prompt: string;
+}
+```
+
+**Response**: `Content-Type: application/x-ndjson` — one `ChatStreamEvent` JSON object per line:
+`{type:"session", chatId}` (always first), then `{type:"trace", trace}` / `{type:"message", content}` events, then `{type:"complete", claudeSessionId}` or `{type:"error", error}` (stderr tail).
+
+Behavior notes:
+- Turn 1 composes context block + user prompt for the CLI (`buildFirstTurnPrompt`), but stores the user's prompt alone; title set via `deterministicTitle`.
+- Resume failure (non-zero exit, no text, had a resume id) → warning trace + one fresh rerun.
+- Client abort → child SIGTERM; partial transcript persisted; no `error` event.
+- Empty-output success persists a "Claude returned no text." assistant message.
+- `unreadCount` bumps on turn completion (panel PATCHes it back to 0).
+
+**Errors**: `400` invalid body/prompt/chatId, `404` unknown chatId.
+
+### GET /api/chat/sessions
+
+**File**: `src/app/api/chat/sessions/route.ts`
+
+List chat summaries, `updatedAt` desc. Corrupt session files are skipped, never fatal.
+
+**Response**: `{ sessions: ChatSessionSummary[] }` (see DATA-MODELS.md — includes `messageCount` and ≤120-char `lastMessageSnippet`).
+
+### GET /api/chat/sessions/[id]
+
+**File**: `src/app/api/chat/sessions/[id]/route.ts`
+
+Full `ChatSession` including transcript. `400` invalid id (UUID-gated before any path build), `404` missing.
+
+### PATCH /api/chat/sessions/[id]
+
+Archive/unarchive, mark read/unread, rename:
+
+```typescript
+{
+  archivedAt?: number | null;
+  unreadCount?: number;   // ≥ 0
+  title?: string;         // non-empty
+}
+```
+
+Returns the updated `ChatSession`. `400` when no patchable field is present or a field is mistyped. Transcript and identity fields are not patchable.
+
+---
+
 ## Utility Routes
 
 ### GET /api/cwd

@@ -1,10 +1,16 @@
 // Chat v1 — content-anchored Claude CLI chats.
-// See docs/plans/chat-v1-implementation-plan.md.
+// See docs/plans/chat-v1-implementation-plan.md. Sessions are app state under
+// DATA_DIR/chat-sessions/, never vault markdown; the Claude CLI owns conversational
+// memory via --resume, Hilt only persists the transcript it rendered.
 
 export type ChatContextRef =
   | { kind: "library"; id: string }
   | { kind: "doc"; path: string } // absolute path
   | { kind: "person"; slug: string }
+  | { kind: "task"; id: string } // v3 task file id (t-...)
+  | { kind: "meeting"; path: string } // vault-relative meeting note path
+  | { kind: "loop-item"; loop: string; itemId: string }
+  | { kind: "briefing-line"; date: string; anchor: string }
   | { kind: "none" };
 
 export type ChatContextKind = ChatContextRef["kind"];
@@ -19,6 +25,7 @@ export interface ChatTraceEvent {
   label: string;
   detail?: string | null;
   toolName?: string | null;
+  /** Summarized via summarizeToolInput — full tool inputs are never persisted. */
   input?: Record<string, unknown> | null;
   outputSummary?: string | null;
   timestamp: number;
@@ -62,7 +69,7 @@ export interface ChatSessionSummary {
   createdAt: number;
   updatedAt: number;
   messageCount: number;
-  lastMessageSnippet: string | null;
+  lastMessageSnippet: string | null; // ≤120 chars
 }
 
 /** NDJSON events streamed by POST /api/chat/message. */
@@ -81,11 +88,8 @@ export interface ChatMessageRequest {
 
 /** Title from the first prompt: first 7 words, max 58 chars (Loft deterministicTitle). */
 export function deterministicTitle(prompt: string): string {
-  const normalized = prompt
-    .replace(/[`*_#>\[\]()]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const normalized = prompt.replace(/\s+/g, " ").replace(/[^\w\s/.-]/g, "").trim();
   if (!normalized) return "New chat";
-  const words = normalized.split(" ").slice(0, 7).join(" ");
-  return words.length > 58 ? `${words.slice(0, 55)}...` : words;
+  const title = normalized.split(" ").slice(0, 7).join(" ");
+  return title.length > 58 ? `${title.slice(0, 55).trim()}...` : title;
 }

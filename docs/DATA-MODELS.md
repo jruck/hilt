@@ -1378,4 +1378,81 @@ Browser-side persistence (limited -- most preferences now server-side).
 
 ---
 
+## Chat Models (Chat v1 — Workstream 1)
+
+**File**: `src/lib/chat/types.ts`. Sessions are app state under `DATA_DIR/chat-sessions/<chatId>.json` (never the vault); the Claude CLI owns conversational memory via `--resume`, Hilt persists only the rendered transcript. Store I/O in `src/lib/chat/store.ts` (atomic temp+rename writes, normalize-on-read).
+
+```typescript
+type ChatContextRef =
+  | { kind: "library"; id: string }
+  | { kind: "doc"; path: string }                 // absolute path
+  | { kind: "person"; slug: string }
+  | { kind: "task"; id: string }                  // v3 task file id (t-...)
+  | { kind: "meeting"; path: string }             // vault-relative meeting note path
+  | { kind: "loop-item"; loop: string; itemId: string }
+  | { kind: "briefing-line"; date: string; anchor: string }
+  | { kind: "none" };
+
+interface ChatTraceEvent {
+  id: string;
+  type: "step" | "tool_call" | "tool_result" | "warning";
+  status: "running" | "complete" | "warning" | "error";
+  label: string;
+  detail?: string | null;
+  toolName?: string | null;
+  input?: Record<string, unknown> | null;  // summarized — full tool inputs never persisted
+  outputSummary?: string | null;
+  timestamp: number;
+  durationMs?: number | null;
+}
+
+interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;                // markdown
+  timestamp: number;
+  trace?: ChatTraceEvent[];       // on assistant messages
+  filesTouched?: string[];        // vault-relative, from Edit/Write/MultiEdit calls
+}
+
+interface ChatSession {
+  id: string;                     // crypto.randomUUID(); doubles as the filename stem
+  context: ChatContextRef;
+  contextLabel: string;           // e.g. artifact title — shown as subtitle
+  title: string;                  // deterministicTitle(first prompt); renamable via PATCH
+  claudeSessionId: string | null; // CLI --resume id; Hilt never writes ~/.claude/projects/
+  messages: ChatMessage[];
+  status: "idle" | "sending";     // no 'pending' — no approval state in Hilt
+  archivedAt: number | null;
+  unreadCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// GET /api/chat/sessions row shape
+interface ChatSessionSummary {
+  id: string;
+  context: ChatContextRef;
+  contextLabel: string;
+  title: string;
+  status: "idle" | "sending";
+  archivedAt: number | null;
+  unreadCount: number;
+  createdAt: number;
+  updatedAt: number;
+  messageCount: number;
+  lastMessageSnippet: string | null;  // ≤120 chars, whitespace-flattened
+}
+
+// NDJSON events streamed by POST /api/chat/message (session is always first)
+type ChatStreamEvent =
+  | { type: "session"; chatId: string }
+  | { type: "trace"; trace: ChatTraceEvent }
+  | { type: "message"; content: string }          // per assistant text block, as parsed
+  | { type: "complete"; claudeSessionId: string | null }
+  | { type: "error"; error: string };
+```
+
+---
+
 *Last updated: 2026-06-01*

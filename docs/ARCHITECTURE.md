@@ -1042,6 +1042,16 @@ those in `.env*` requires a rebuild, not just an app relaunch.
 | `bridge/people-parser.ts` | 359 | People + meeting parsing, name matching |
 | `bridge/vault.ts` | 44 | Vault path resolution |
 | `claude-config/mcp-discovery.ts` | 450 | MCP server discovery + parsing |
+## Chat (v1 backend)
+
+Content-anchored Claude chats (plan: `docs/plans/chat-v1-implementation-plan.md`; UI lands in later workstreams). A port of Loft's chat system with two settled divergences: no approval gates (single-user, own data — `--permission-mode bypassPermissions`, tool transparency via traces instead), and server-side persistence (the streaming route writes the transcript as the run progresses; the client only renders).
+
+- **Execution model**: per-message CLI spawn — each user turn is one `claude -p --output-format stream-json` run (`src/lib/chat/run-claude.ts`); the CLI's own session store carries conversation context via `--resume`. `cwd` = vault root (`getVaultPath()`), model pinned to Sonnet, tools `Read,Edit,Write,Grep,Glob,LS` (no Bash in v1) — both single exported constants. Edits go straight to disk; existing vault watchers surface them in the UI.
+- **Persistence**: one JSON per chat at `DATA_DIR/chat-sessions/<chatId>.json` (`src/lib/chat/store.ts`) — app state, never the vault, never `~/.claude/projects/` (the CLI manages its own store there; Hilt only passes `--resume` ids). Atomic temp+rename writes; normalize-on-read so schema drift or corruption degrades to defaults instead of crashing the list.
+- **Streaming**: `POST /api/chat/message` responds `application/x-ndjson` — `session` → `trace`/`message` → `complete`|`error`. Tool calls become trace events with `summarizeToolInput`-reduced inputs (full inputs are never persisted); Edit/Write/MultiEdit paths are collected vault-relative as `filesTouched`. Client abort → child SIGTERM, partial transcript persisted, no error event. A dead `--resume` id triggers one retry-without-resume flagged by a warning trace.
+- **First-turn context**: `src/lib/chat/context.ts` composes a context block per `ChatContextRef` kind (library/task/meeting hydrated; doc/person/loop-item/briefing-line stubs until their workstreams). The block goes only to the CLI — the stored transcript keeps the user's prompt alone.
+- Because `cwd` is the vault, these CLI sessions also appear in System → Sessions — intended.
+
 | `claude-config/plugin-discovery.ts` | 252 | Plugin discovery |
 | `claude-config/discovery.ts` | 243 | Config file discovery |
 | `claude-config/types.ts` | 241 | Config type definitions |

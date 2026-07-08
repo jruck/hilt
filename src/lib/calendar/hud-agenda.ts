@@ -12,14 +12,20 @@ export function selectHudNextEventGroup(
   currentEvent: CalendarEvent | null,
   now: Date,
 ): CalendarEvent[] {
-  const threshold = currentEvent ? new Date(currentEvent.end).getTime() : now.getTime();
+  const nowTime = now.getTime();
   const orderedEvents = sortHudEvents(events);
-  const firstNextEvent = orderedEvents.find((event) => new Date(event.start).getTime() >= threshold);
+  const firstNextEvent = orderedEvents.find((event) => (
+    (!currentEvent || event.id !== currentEvent.id)
+    && new Date(event.end).getTime() > nowTime
+    && new Date(event.start).getTime() >= nowTime
+  ));
   if (!firstNextEvent) return [];
 
   const firstStartMinute = eventStartMinute(firstNextEvent);
   return orderedEvents.filter((event) => (
-    new Date(event.start).getTime() >= threshold
+    (!currentEvent || event.id !== currentEvent.id)
+    && new Date(event.end).getTime() > nowTime
+    && new Date(event.start).getTime() >= nowTime
     && eventStartMinute(event) === firstStartMinute
   ));
 }
@@ -40,7 +46,7 @@ export function buildHudAgendaItems(
 
     const eventStart = new Date(event.start);
     const eventEnd = new Date(event.end);
-    if (eventEnd <= agendaFloor) continue;
+    if (eventEnd <= now) continue;
 
     if (eventStart < cursor) {
       items.push({ kind: "event", event });

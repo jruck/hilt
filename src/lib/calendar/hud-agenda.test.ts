@@ -68,4 +68,19 @@ describe("HUD agenda", () => {
     assert.deepEqual(nextEvents.map((event) => event.id), ["fftc", "insights"]);
     assert.deepEqual(eventIds, ["fftc", "insights", "design", "handoff"]);
   });
+
+  test("surfaces meetings that start before the current meeting ends", () => {
+    const now = new Date("2026-07-08T17:34:00.000Z");
+    const design = calendarEvent("design", "Design review", "2026-07-08T17:30:00.000Z", "2026-07-08T18:00:00.000Z");
+    const priceless = calendarEvent("priceless", "Priceless weekly admin", "2026-07-08T17:45:00.000Z", "2026-07-08T18:00:00.000Z");
+    const billing = calendarEvent("billing", "Resolving billing issues", "2026-07-08T18:00:00.000Z", "2026-07-08T18:30:00.000Z");
+    const events = [design, priceless, billing];
+
+    const nextEvents = selectHudNextEventGroup(events, design, now);
+    const items = buildHudAgendaItems(events, now, design, { freeBlockMinutes: 30, maxItems: 28 });
+    const eventIds = items.filter((item) => item.kind === "event").map((item) => item.event.id);
+
+    assert.deepEqual(nextEvents.map((event) => event.id), ["priceless"]);
+    assert.deepEqual(eventIds, ["priceless", "billing"]);
+  });
 });

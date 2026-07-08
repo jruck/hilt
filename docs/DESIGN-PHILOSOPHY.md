@@ -177,6 +177,16 @@ Every action should have visible feedback:
 
 This section tracks design decisions and refinements over time. Each entry should note what was tried, what was rejected, and why.
 
+### 2026-07-08: HUD Overlaps Are Actionable, Not Covered
+
+**Principle**: A meeting that starts during the current meeting is still a distinct upcoming obligation. The HUD should not treat it as "covered" just because its end time is inside the current block.
+
+**UI rule**:
+- The Now card can keep the currently active meeting, but the Next card and Today agenda must still surface later-starting overlaps before showing the next clean handoff.
+- Calendar-grid visibility and HUD visibility should agree for actionable foreground events; if the grid shows a real meeting, the HUD should not silently drop it merely because it overlaps a longer event.
+
+**Rationale**: The HUD is the glanceable decision surface for what the user needs to do next. Overlapping short meetings are exactly the kind of thing the HUD must preserve, because they represent a fork or interruption rather than free time.
+
 ### 2026-07-08: System Threads Index — Cross-System Discovery + Process In Place
 
 **Principle**: Thread discovery across the whole system is a System inspection mode, not per-object chrome. The under-object `ThreadView` keeps individual conversations where the object is read (the 2026-07-08 Thread-Under-Object entry); the System → Threads index is the complementary bird's-eye — every feedback thread in one dense, filterable list — so a comment left anywhere is findable without hunting through objects.

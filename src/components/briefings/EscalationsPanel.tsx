@@ -10,16 +10,27 @@ import { CommentBox } from "@/components/comments/CommentBox";
 import { useVerdictNote, VerdictNoteField, VerdictNoteTrigger } from "@/components/comments/VerdictNoteField";
 import type { Citation, LoopItem, RegistryLoop, Verdict, VerdictRecord } from "@/lib/loops/types";
 import { meetingLabelFromRelPath } from "@/lib/briefing/canvas";
+import { askToTaskFile } from "@/lib/tasks/meeting-next-steps";
 import { parseOwnerPrefix } from "@/lib/tasks/owner";
 import { ObjectPill } from "@/components/objects/ObjectPill";
-import { OwnerChip } from "@/components/tasks/TaskCard";
-import { MeetingCard } from "./MeetingCard";
+import { OwnerChip, TaskCard } from "@/components/tasks/TaskCard";
+import { requestTaskOpen } from "@/lib/tasks/deeplink";
+import type { TaskFile } from "@/lib/tasks/types";
+import { MeetingCard, useExpandSignal, type ExpandSignal } from "./MeetingCard";
 
 export type EscalatedLoopItem = LoopItem & {
   loop_phase: RegistryLoop["phase"];
   artifact_date: string;
   verdict?: Verdict;
 };
+
+/** BriefingContent's shared verdict wire (canvas.makeVerdictHandler) threaded down so the
+ * unfeatured meeting cards post through the SAME /api/loops/verdicts handler as the featured
+ * lane. Returns undefined when the object carries no verdict join (read-only card). */
+export type MakeVerdictHandler = (
+  loop?: string,
+  itemId?: string,
+) => ((verdict: Verdict, note?: string) => Promise<void>) | undefined;
 
 interface EscalationsResponse {
   loops: Array<{ id: string; phase: RegistryLoop["phase"]; artifact_date: string }>;
@@ -299,8 +310,9 @@ export function FloatingAskControls({ item, onChanged }: { item: EscalatedLoopIt
  * (kind), not escalation. Everything else (citation, confidence, loop, reason) lives behind the
  * same click-to-expand pattern as editorial bullets.
  */
-function LoopItemRow({ item, onChanged }: { item: EscalatedLoopItem; onChanged: () => void }) {
+function LoopItemRow({ item, onChanged, expandSignal }: { item: EscalatedLoopItem; onChanged: () => void; expandSignal?: ExpandSignal }) {
   const [expanded, setExpanded] = useState(false);
+  useExpandSignal(expandSignal, setExpanded);
   const [commentOpen, setCommentOpen] = useState(false);
   const citation = formatCitation(item.citations);
   const meetingCitationRel = firstMeetingCitationSource(item.citations);
@@ -382,14 +394,16 @@ function LoopItemRow({ item, onChanged }: { item: EscalatedLoopItem; onChanged: 
 
 /** One source meeting's asks: a collapsed bullet row that expands into nested ask bullets —
  * progressive disclosure inside the section's own list. */
-function MeetingGroupRow({ date, title, items, defaultOpen, onChanged }: {
+function MeetingGroupRow({ date, title, items, defaultOpen, onChanged, expandSignal }: {
   date: string;
   title: string;
   items: EscalatedLoopItem[];
   defaultOpen: boolean;
   onChanged: () => void;
+  expandSignal?: ExpandSignal;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  useExpandSignal(expandSignal, setOpen);
   const decided = items.filter((item) => item.verdict).length;
   const status = decided > 0 ? `${decided}/${items.length} decided` : `${items.length} ${items.length === 1 ? "ask" : "asks"}`;
   return (
@@ -413,6 +427,7 @@ function MeetingGroupRow({ date, title, items, defaultOpen, onChanged }: {
               key={`${item.loop}:${item.id}:${item.artifact_date}`}
               item={item}
               onChanged={onChanged}
+              expandSignal={expandSignal}
             />
           ))}
         </ul>
@@ -425,22 +440,30 @@ function MeetingGroupRow({ date, title, items, defaultOpen, onChanged }: {
  * editor-featured entries use, so the section reads as one list of meeting cards. No editor
  * substance lead exists for an unfeatured group, so the header is just the DATED meeting pill
  * (wrapped in <strong> — the heading-grade pill form the featured `**[pill]**` headlines get) +
- * the shell's own "N pending" count. Expansion contents are UNCHANGED from MeetingGroupRow —
- * the same decidable LoopItemRow ask rows (smallest correct change: shell swap only). */
-function MeetingGroupCard({ date, title, rel, items, defaultOpen, onChanged }: {
+ * the shell's own "N pending" count. The interior is the featured lane's, too: every ask is a
+ * TaskCard — the live task FILE when the item's task_id resolves (openable, like the featured
+ * join), the askToTaskFile synthesis when it doesn't (pre-A6 asks, or the tasks list still
+ * hydrating — both stay decidable). LoopItemRow survives only for non-ask items. */
+function MeetingGroupCard({ date, title, rel, items, defaultOpen, onChanged, expandSignal, taskById, makeVerdictHandler }: {
   date: string;
   title: string;
   rel: string;
   items: EscalatedLoopItem[];
   defaultOpen: boolean;
   onChanged: () => void;
+  expandSignal?: ExpandSignal;
+  taskById?: Map<string, TaskFile>;
+  makeVerdictHandler?: MakeVerdictHandler;
 }) {
+  const asks = items.filter(isAsk);
+  const rows = items.filter((item) => !isAsk(item));
   return (
     <MeetingCard
       title={title}
       date={date}
       pendingCount={items.filter((item) => !item.verdict).length}
       defaultOpen={defaultOpen}
+      expandSignal={expandSignal}
       summary={(
         // ObjectPill stops its own click propagation, so the pill opens its popover without
         // toggling the card. NOT passing meetingRel: the summary IS the pill — the shell's
@@ -450,15 +473,32 @@ function MeetingGroupCard({ date, title, rel, items, defaultOpen, onChanged }: {
         </strong>
       )}
     >
-      <ul className="briefing-list space-y-0.5">
-        {items.map((item) => (
-          <LoopItemRow
+      {asks.map((item) => {
+        const task = item.task_id ? taskById?.get(item.task_id) : undefined;
+        return (
+          <TaskCard
             key={`${item.loop}:${item.id}:${item.artifact_date}`}
-            item={item}
-            onChanged={onChanged}
+            flush
+            hideMeeting
+            task={task ?? askToTaskFile(item, rel)}
+            verdict={item.verdict}
+            onVerdict={item.verdict ? undefined : makeVerdictHandler?.(item.loop, item.id)}
+            onOpen={task ? () => requestTaskOpen(task.id) : undefined}
           />
-        ))}
-      </ul>
+        );
+      })}
+      {rows.length > 0 && (
+        <ul className="briefing-list space-y-0.5">
+          {rows.map((item) => (
+            <LoopItemRow
+              key={`${item.loop}:${item.id}:${item.artifact_date}`}
+              item={item}
+              onChanged={onChanged}
+              expandSignal={expandSignal}
+            />
+          ))}
+        </ul>
+      )}
     </MeetingCard>
   );
 }
@@ -467,10 +507,16 @@ function MeetingGroupCard({ date, title, rel, items, defaultOpen, onChanged }: {
  * standalone items flat, meeting asks grouped by source meeting. When the owning section is
  * ⏭ Next steps (`asMeetingCards`), each group renders in the MeetingCard shell instead of the
  * pre-pill MeetingGroupRow, matching the featured entries; other sections keep the row form. */
-export function EscalationsBlock({ items, onChanged, asMeetingCards = false }: {
+export function EscalationsBlock({ items, onChanged, asMeetingCards = false, expandSignal, taskById, makeVerdictHandler }: {
   items: EscalatedLoopItem[];
   onChanged: () => void;
   asMeetingCards?: boolean;
+  /** The owning section's expand-all / collapse-all broadcast (BriefingContent header button). */
+  expandSignal?: ExpandSignal;
+  /** The canvas task join + verdict wire (BriefingContent) — meeting-card groups render their
+   * asks as TaskCards through these; absent (fallback fold), groups keep the row form. */
+  taskById?: Map<string, TaskFile>;
+  makeVerdictHandler?: MakeVerdictHandler;
 }) {
   const { standalone, meetingGroups } = useMemo(() => {
     const standaloneItems: EscalatedLoopItem[] = [];
@@ -499,6 +545,7 @@ export function EscalationsBlock({ items, onChanged, asMeetingCards = false }: {
           key={`${item.loop}:${item.id}:${item.artifact_date}`}
           item={item}
           onChanged={onChanged}
+          expandSignal={expandSignal}
         />
       ))}
       {meetingGroups.map((group, index) => {
@@ -512,6 +559,9 @@ export function EscalationsBlock({ items, onChanged, asMeetingCards = false }: {
             items={group.items}
             defaultOpen={defaultOpen}
             onChanged={onChanged}
+            expandSignal={expandSignal}
+            taskById={taskById}
+            makeVerdictHandler={makeVerdictHandler}
           />
         ) : (
           <MeetingGroupRow
@@ -521,6 +571,7 @@ export function EscalationsBlock({ items, onChanged, asMeetingCards = false }: {
             items={group.items}
             defaultOpen={defaultOpen}
             onChanged={onChanged}
+            expandSignal={expandSignal}
           />
         );
       })}

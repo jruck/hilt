@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useMemo, useCallback, type MouseEvent, type ReactNode } from "react";
+import { useState, useEffect, useMemo, useCallback, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, ChevronsUpDown, ChevronsDownUp } from "lucide-react";
 import { CommentBox } from "@/components/comments/CommentBox";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useScope } from "@/contexts/ScopeContext";
@@ -31,7 +31,7 @@ import {
   stripTaskTokens,
   type BriefingItem,
 } from "@/lib/briefing/canvas";
-import { MeetingCard } from "./MeetingCard";
+import { MeetingCard, useExpandSignal, type ExpandSignal } from "./MeetingCard";
 import { ObjectPill } from "@/components/objects/ObjectPill";
 import { parseHiltUri } from "@/lib/objects/uri";
 import { TaskCard } from "@/components/tasks/TaskCard";
@@ -213,9 +213,10 @@ function CanvasTaskCard({ task, canvas }: { task: TaskFile; canvas: CanvasContex
   );
 }
 
-function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoopItems = [], onLoopItemsChanged = () => {}, canvas }: { item: BriefingItem; section: string; date?: string; absPath?: string; feedbackable?: boolean; boundLoopItems?: EscalatedLoopItem[]; onLoopItemsChanged?: () => void; canvas: CanvasContext }) {
+function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoopItems = [], onLoopItemsChanged = () => {}, canvas, expandSignal }: { item: BriefingItem; section: string; date?: string; absPath?: string; feedbackable?: boolean; boundLoopItems?: EscalatedLoopItem[]; onLoopItemsChanged?: () => void; canvas: CanvasContext; expandSignal?: ExpandSignal }) {
   const haptics = useHaptics();
   const [expanded, setExpanded] = useState(false);
+  useExpandSignal(expandSignal, setExpanded);
   // B3 canvas join: task ids in this bullet hydrate into TaskCards. Headline-bound cards render
   // under the headline (the bullet IS the object); detail-bound cards render inside the
   // expansion, replacing their id-only lines — same progressive disclosure as ask lists.
@@ -385,7 +386,7 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
  * view (B2) uses, so a verdict given in either place is reflected in both. The editor's id-only
  * sub-bullet lines are consumed by their cards; every other sub-line renders above the cards.
  */
-function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedbackable, canvas, boundLoopItems = [], defaultOpen }: {
+function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedbackable, canvas, boundLoopItems = [], defaultOpen, expandSignal }: {
   item: BriefingItem;
   meetingRel: string;
   section: string;
@@ -395,6 +396,7 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
   canvas: CanvasContext;
   boundLoopItems?: EscalatedLoopItem[];
   defaultOpen?: boolean;
+  expandSignal?: ExpandSignal;
 }) {
   const { title, date: meetingDate } = meetingLabelFromRelPath(meetingRel);
   const join = useMemo(
@@ -494,6 +496,7 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
       suppressHeaderPill={item.headline.includes(`hilt:meeting/${meetingRel}`)}
       pendingCount={pendingCount}
       defaultOpen={defaultOpen}
+      expandSignal={expandSignal}
       actions={(
         <>
           {feedbackable && <ItemFeedbackButton section={section} headline={item.headline} date={date} />}
@@ -583,6 +586,24 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
     () => parseBriefing(stripDateAfterMeetingPill(normalizeHiltLinks(content))),
     [content],
   );
+
+  // ── Per-section expand-all / collapse-all ─────────────────────────────────────────────────
+  // One header button per section broadcasts an ExpandSignal to every expandable child
+  // (CollapsibleItem, MeetingCard entries, EscalationsBlock rows). It is an ACTION toggle, not
+  // a computed all-state: the icon reflects the NEXT action and flips only on its own clicks —
+  // local child toggles never move it. Children keep their local open state; a fresh signal
+  // object per click re-applies over any local toggling in between.
+  const haptics = useHaptics();
+  const [expandSignals, setExpandSignals] = useState<Record<number, ExpandSignal>>({});
+  // Section indices are only meaningful for the briefing they were minted against.
+  useEffect(() => setExpandSignals({}), [content]);
+  const toggleSectionExpand = useCallback((si: number) => {
+    setExpandSignals((prev) => {
+      const current = prev[si];
+      const expanded = !(current?.expanded ?? false);
+      return { ...prev, [si]: { version: (current?.version ?? 0) + 1, expanded } };
+    });
+  }, []);
 
   // ── B3 canvas: the live task stores + the shared verdict wire ────────────────────────────
   // useTasksList revalidates on the `tasks-changed` WS event; POSTing a verdict goes to the
@@ -735,12 +756,41 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
         const meetingRels = section.items.map((item) =>
           isNextSteps && !item.prose ? extractMeetingRelPath(`${item.headline}\n${item.details}`) : null);
         const meetingEntryCount = meetingRels.filter(Boolean).length;
+        // Escalation rows the block will actually render (⏭ filters out already-featured
+        // meetings) — computed here so the header knows whether ANYTHING is expandable.
+        const blockItems = isNextSteps
+          ? sectionEscalations.filter((it) => {
+              const src = it.citations?.[0]?.source || "";
+              return !meetingRels.some((rel) => rel && src.includes(rel));
+            })
+          : sectionEscalations;
+        // All-prose sections get no button — a control that can't do anything is dead chrome.
+        const hasExpandable = !isSourcesSection && (
+          meetingEntryCount > 0
+          || blockItems.length > 0
+          || section.items.some((item, ii) => !meetingRels[ii] && item.details.trim().length > 0)
+        );
+        const signal = expandSignals[si];
+        const nextExpand = !(signal?.expanded ?? false);
         return (
           <div key={si} className="hilt-card hilt-card-static overflow-visible">
-            <div className="rounded-t-lg px-4 py-3 border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">
+            <div className="rounded-t-lg px-4 py-3 border-b border-[var(--border-default)] bg-[var(--bg-secondary)] flex items-center justify-between gap-3">
               <h2 className="text-base font-semibold text-[var(--text-primary)] !m-0">
                 {section.heading}
               </h2>
+              {hasExpandable && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    nextExpand ? haptics.soft() : haptics.rigid();
+                    toggleSectionExpand(si);
+                  }}
+                  title={nextExpand ? "Expand all" : "Collapse all"}
+                  className="shrink-0 rounded-md p-0.5 text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-primary)]"
+                >
+                  {nextExpand ? <ChevronsUpDown className="h-4 w-4" /> : <ChevronsDownUp className="h-4 w-4" />}
+                </button>
+              )}
             </div>
             {isSourcesSection ? (
               <div className="px-4 py-2 space-y-0.5 !m-0 text-sm text-[var(--text-secondary)]">
@@ -780,11 +830,12 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
                         canvas={canvas}
                         boundLoopItems={byBullet.get(`${si}:${ii}`)}
                         defaultOpen={meetingEntryCount === 1}
+                        expandSignal={signal}
                       />
                     );
                   }
                   return (
-                    <CollapsibleItem key={ii} item={item} section={section.heading} date={date} absPath={absPath} feedbackable={feedbackable} boundLoopItems={byBullet.get(`${si}:${ii}`)} onLoopItemsChanged={onEscalationsChanged} canvas={canvas} />
+                    <CollapsibleItem key={ii} item={item} section={section.heading} date={date} absPath={absPath} feedbackable={feedbackable} boundLoopItems={byBullet.get(`${si}:${ii}`)} onLoopItemsChanged={onEscalationsChanged} canvas={canvas} expandSignal={signal} />
                   );
                 })}
                 {/* Loop items the editor did NOT feature: bullets in the SAME list — urgency is
@@ -794,14 +845,12 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
                     citation join (joinMeetingNextSteps) renders those, so a group here would be
                     a second identical card for the same meeting (adversarial finding). */}
                 <EscalationsBlock
-                  items={isNextSteps
-                    ? sectionEscalations.filter((it) => {
-                        const src = it.citations?.[0]?.source || "";
-                        return !meetingRels.some((rel) => rel && src.includes(rel));
-                      })
-                    : sectionEscalations}
+                  items={blockItems}
                   onChanged={onEscalationsChanged}
                   asMeetingCards={isNextSteps}
+                  expandSignal={signal}
+                  taskById={canvas.taskById}
+                  makeVerdictHandler={canvas.makeVerdictHandler}
                 />
               </ul>
             )}

@@ -15,12 +15,29 @@
  * `granola_id` to People's meeting inbox, closing the header-nav gap deferred at B3 (no
  * rel-path→granola-id resolver existed then).
  */
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useHaptics } from "@/hooks/useHaptics";
 import { ObjectPill } from "@/components/objects/ObjectPill";
 
-export function MeetingCard({ title, date, summary, pendingCount, defaultOpen = false, actions, children, meetingRel, suppressHeaderPill = false }: {
+/** Section-level expand-all / collapse-all broadcast. A fresh object per click (version bumps)
+ * so children re-apply it even if the reader toggled them locally in between; children keep
+ * their own local open state — the signal is an event, not lifted state. */
+export interface ExpandSignal {
+  version: number;
+  expanded: boolean;
+}
+
+/** Apply a section broadcast to a child's local open state. No-op until the first click
+ * (signal undefined); re-applies on every version bump. */
+export function useExpandSignal(signal: ExpandSignal | undefined, setOpen: (open: boolean) => void) {
+  useEffect(() => {
+    if (signal) setOpen(signal.expanded);
+    // A new signal object is minted per click — object identity IS the version key.
+  }, [signal, setOpen]);
+}
+
+export function MeetingCard({ title, date, summary, pendingCount, defaultOpen = false, actions, children, meetingRel, suppressHeaderPill = false, expandSignal }: {
   /** Meeting title derived from the cited vault path — tooltip/fallback when no summary. */
   title: string;
   /** YYYY-MM-DD from the cited path (null when underivable). */
@@ -39,9 +56,12 @@ export function MeetingCard({ title, date, summary, pendingCount, defaultOpen = 
   /** True when the summary already carries its own pill for this meeting (an editor-written
    * inline `hilt:` citation) — the structural header pill would be a duplicate. */
   suppressHeaderPill?: boolean;
+  /** Section expand-all / collapse-all broadcast — applies over the local open state. */
+  expandSignal?: ExpandSignal;
 }) {
   const haptics = useHaptics();
   const [open, setOpen] = useState(defaultOpen);
+  useExpandSignal(expandSignal, setOpen);
   const status = pendingCount > 0
     ? `${pendingCount} pending`
     : "decided";

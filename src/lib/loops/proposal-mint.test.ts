@@ -214,3 +214,43 @@ test("free-text due goes to the body, never the due field (Invalid Date crash gu
   });
   assert.equal(isoTask!.due, "2026-07-14");
 });
+
+// ── Context → proposal body ──────────────────────────────────────────────────────────────────
+
+const CONTEXT = "Sarah asked about volume pricing for the Q3 rollout and Justin offered to pull current numbers.";
+
+test("entry context becomes the proposal body's leading paragraph", () => {
+  const dir = tmpdir();
+  const opts = { sink: { dir, kind: "explicit" as const }, loopId: "meeting-actions", vaultPath: dir, now: "2026-07-08T09:00:00.000Z" };
+
+  // Context alone: the body IS the paragraph.
+  const alone = mintProposalFromLedgerEntry(makeEntry({ id: "ma-2026-07-05-070", context: CONTEXT }), opts);
+  assert.equal(alone!.body, `${CONTEXT}\n`);
+
+  // Context + stated due: context paragraph first, blank line, then the stated-due line.
+  const both = mintProposalFromLedgerEntry(
+    makeEntry({ id: "ma-2026-07-05-071", context: CONTEXT, due: "next sprint" }),
+    opts,
+  );
+  assert.equal(both!.body, `${CONTEXT}\n\nDue (as stated): next sprint\n`);
+
+  // The body survives the file round-trip (the pane reads the FILE).
+  const onDisk = parseTaskFile(fs.readFileSync(path.join(dir, `${both!.id}.md`), "utf-8"));
+  assert.equal(onDisk.body, `${CONTEXT}\n\nDue (as stated): next sprint\n`);
+});
+
+test("no context → body byte-identical to the pre-context mint (24+ real entries lack it)", () => {
+  const dir = tmpdir();
+  const opts = { sink: { dir, kind: "explicit" as const }, loopId: "meeting-actions", vaultPath: dir, now: "2026-07-08T09:00:00.000Z" };
+
+  // makeEntry has NO context key — the production ledger's existing entry shape.
+  const bare = mintProposalFromLedgerEntry(makeEntry({ id: "ma-2026-07-05-072" }), opts);
+  assert.equal(bare!.body, "\n"); // empty body normalized, exactly as before
+
+  const statedDue = mintProposalFromLedgerEntry(makeEntry({ id: "ma-2026-07-05-073", due: "next sprint" }), opts);
+  assert.equal(statedDue!.body, "Due (as stated): next sprint\n");
+
+  // Whitespace-only context degrades to no-context, never an empty leading paragraph.
+  const blank = mintProposalFromLedgerEntry(makeEntry({ id: "ma-2026-07-05-074", context: "   " }), opts);
+  assert.equal(blank!.body, "\n");
+});

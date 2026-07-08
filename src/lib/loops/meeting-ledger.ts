@@ -20,6 +20,11 @@ export interface LedgerEntry {
   action: string;
   owner: string; // justin | other:<name> | unclear | agent:<name> (future)
   due?: string;
+  /** 1-2 sentences of the SURROUNDING DISCUSSION from extraction (what was being talked about,
+   * why the commitment arose) — rides into the minted proposal's body so the verdict is decided
+   * with the discussion, not just the quote. Forward-only: entries predating the field (and
+   * thin transcripts) simply lack it, and every reader must degrade cleanly without it. */
+  context?: string;
   citations: Citation[];
   /** Extraction confidence 0..1; catch-phrase captures are 0.95+. */
   confidence: number;
@@ -160,6 +165,28 @@ export function dismissedLedgerDigest(ledger: Ledger, nowIso: string): string {
       return `${e.id} · ${e.owner} · ${digestText(e.action, 120)}${reason}`;
     })
     .join("\n");
+}
+
+/** Cap for stored extractor context — a runaway-model guard, NOT an editorial limit (the
+ * prompt's guidance is purpose-based: as much as the verdict needs, per Justin 2026-07-08).
+ * Generous enough for a real paragraph or two; only pathological output ever hits it. */
+export const CONTEXT_MAX_CHARS = 1500;
+
+/** Normalize extractor-emitted `context` (the surrounding discussion the verdict needs):
+ * flatten whitespace, trim, cap, surrogate-safe. Non-string/empty → null — missing or invalid
+ * context is never an error; the field just stays absent. */
+export function cleanExtractedContext(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  return digestText(raw, CONTEXT_MAX_CHARS) || null;
+}
+
+/** Fill `entry.context` from a new extraction ONLY when the entry has none — context is
+ * forward-only enrichment (a later sighting's richer extraction may fill a gap), and prose
+ * already on the entry is never overwritten. */
+export function fillContextIfEmpty(entry: LedgerEntry, raw: unknown): void {
+  if (entry.context) return;
+  const context = cleanExtractedContext(raw);
+  if (context) entry.context = context;
 }
 
 /** Whitespace/case-insensitive action-text normalization — the exact-match key for the

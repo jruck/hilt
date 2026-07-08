@@ -287,7 +287,9 @@ remembers and won't re-propose it"; Revise = "send a correction — returns for 
 Proposals also have their own surface now: the **Proposals** section in the Priorities view
 (collapsed behind a count; only appears when something is waiting) shows each proposal as a card
 — title, the verbatim quote it came from, the meeting, the due date — with the same
-Approve / Assign to agent / Dismiss / Revise buttons as the briefing. Dismissed proposals are
+Approve / Assign to agent / Dismiss / Revise buttons as the briefing. New proposals also carry a
+short paragraph of the discussion the commitment arose from — open one and it's the first thing
+in the body (older proposals predate this and simply don't have it). Dismissed proposals are
 never gone from the UI: a quiet "Dismissed · N" divider at the tail of the section expands into
 the record of what you declined in the last 30 days (title + when) — read from the meetings
 node's ledger, so a fresh dismiss shows up there after the node's next run. It's a record, not

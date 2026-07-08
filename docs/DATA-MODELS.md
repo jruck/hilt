@@ -723,12 +723,19 @@ Weekly lists opt in via frontmatter `list_format: 2` (`listFormatFromFrontmatter
 
 ### Proposal minting from loop ledgers (v3 unit A6)
 
-Meeting-loop asks become proposal task files at ESCALATION time (`src/lib/loops/proposal-mint.ts`). Mapping — LedgerEntry → TaskFile: `action` → `title`; first citation's `anchor`+`source` → `provenance { quote, source }`; meeting path + ledger id + loop id → `origin { loop, meeting, item_id }`; `due` carries. The verdict item id IS the ledger id IS `origin.item_id` — that triple join is how the verdict route finds the file.
+Meeting-loop asks become proposal task files at ESCALATION time (`src/lib/loops/proposal-mint.ts`). Mapping — LedgerEntry → TaskFile: `action` → `title`; first citation's `anchor`+`source` → `provenance { quote, source }`; meeting path + ledger id + loop id → `origin { loop, meeting, item_id }`; `due` carries; `context` (when present) becomes the proposal BODY's leading paragraph (a non-ISO stated due follows as its own `Due (as stated): …` line — entries without context mint the pre-context body byte-for-byte). The verdict item id IS the ledger id IS `origin.item_id` — that triple join is how the verdict route finds the file.
 
 ```typescript
 // LedgerEntry (src/lib/loops/meeting-ledger.ts) gains:
 interface LedgerEntry {
   // …
+  context?: string;   // extractor-written SURROUNDING DISCUSSION, sized to the verdict (prompt
+                      // v2.2 purpose-based rule: usually a couple sentences, a short paragraph
+                      // when warranted; 1500-char runaway cap via cleanExtractedContext) —
+                      // rides into the
+                      // minted proposal's body. Forward-only: pre-v2.2 entries lack it; a later
+                      // sighting may fill an empty one (fillContextIfEmpty) but existing prose
+                      // is never overwritten.
   task_id?: string;   // proposal file minted from this entry — the idempotency stamp:
                       // a stamped entry NEVER re-mints (survives re-runs AND the deliberate
                       // file deletion of a dismiss)

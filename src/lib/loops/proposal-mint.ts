@@ -77,7 +77,8 @@ export interface MintProposalOptions {
  * a `task_id` (never re-mint: the stamp survives loop re-runs AND deliberate file deletion).
  *
  * Mapping: action → title; first citation's anchor+source → provenance { quote, source };
- * meeting path + ledger id + loop id → origin; due carries when present.
+ * meeting path + ledger id + loop id → origin; due carries when present; context (when the
+ * entry has one) leads the body as its own paragraph.
  */
 export function mintProposalFromLedgerEntry(entry: LedgerEntry, options: MintProposalOptions): TaskFile | null {
   if (entry.task_id) return null;
@@ -85,6 +86,10 @@ export function mintProposalFromLedgerEntry(entry: LedgerEntry, options: MintPro
   const rawDue = (entry.due ?? "").trim();
   const isoDue = /^\d{4}-\d{2}-\d{2}$/.test(rawDue) ? rawDue : null;
   const statedDue = rawDue && !isoDue ? rawDue : null;
+  // Flatten defensively: the extractor path always stores flattened text, but a hand-edited
+  // ledger with literal newlines here could otherwise forge body structure (a "## History"
+  // line) in the minted file (adversarial hardening note, 2026-07-08).
+  const context = entry.context?.replace(/\s+/g, " ").trim() || null;
 
   const origin: TaskOrigin = {
     loop: options.loopId,
@@ -96,15 +101,23 @@ export function mintProposalFromLedgerEntry(entry: LedgerEntry, options: MintPro
     ? { quote: citation.anchor, source: citation.source }
     : undefined;
 
+  // Body order: the context paragraph (the surrounding discussion the verdict is decided with)
+  // leads; the stated-due line follows. Entries without context — everything pre-v2.2 — keep
+  // the pre-context body byte-for-byte.
+  const bodyParts = [
+    ...(context ? [context] : []),
+    // Extractor dues are free text ~15% of the time ("next sprint", "Q3 2026"). The task
+    // contract expects YYYY-MM-DD in `due` (line renders, date badges); non-ISO stated dues
+    // land in the body instead so the information survives without corrupting the field.
+    ...(statedDue ? [`Due (as stated): ${statedDue}`] : []),
+  ];
+
   const task = createProposalIn(
     options.sink.dir,
     {
       title: entry.action,
-      // Extractor dues are free text ~15% of the time ("next sprint", "Q3 2026"). The task
-      // contract expects YYYY-MM-DD in `due` (line renders, date badges); non-ISO stated dues
-      // land in the body instead so the information survives without corrupting the field.
       ...(isoDue ? { due: isoDue } : {}),
-      ...(statedDue ? { body: `Due (as stated): ${statedDue}\n` } : {}),
+      ...(bodyParts.length ? { body: `${bodyParts.join("\n\n")}\n` } : {}),
       origin,
       ...(provenance ? { provenance } : {}),
       ...(options.now ? { created_at: options.now } : {}),

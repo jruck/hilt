@@ -12,7 +12,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  CONTEXT_MAX_CHARS,
   DISMISSED_IMMUNITY_DAYS,
+  cleanExtractedContext,
+  fillContextIfEmpty,
   readLedger,
   writeLedger,
   dismissedLedgerDigest,
@@ -193,4 +196,51 @@ test("readLedger: missing file → empty ledger; CORRUPT file → throws (never 
   fs.mkdirSync(path.join(home, "state"), { recursive: true });
   fs.writeFileSync(path.join(home, "state", "ledger.json"), '{"version":1,"entries":{"trunc', "utf-8");
   assert.throws(() => readLedger(home), /ledger unreadable/);
+});
+
+// ── Extraction context (v2.2) ─────────────────────────────────────────────────────────────────
+
+test("cleanExtractedContext: trims/flattens, caps at CONTEXT_MAX_CHARS, rejects non-strings", () => {
+  assert.equal(cleanExtractedContext("  Sarah asked about\n  volume pricing.  "), "Sarah asked about volume pricing.");
+  // A runaway model paragraph must not bloat the ledger.
+  const runaway = cleanExtractedContext(`${"x".repeat(CONTEXT_MAX_CHARS)}overflow`);
+  assert.equal(runaway, "x".repeat(CONTEXT_MAX_CHARS));
+  // Missing/invalid context is never an error — it degrades to absent.
+  assert.equal(cleanExtractedContext(undefined), null);
+  assert.equal(cleanExtractedContext(42), null);
+  assert.equal(cleanExtractedContext(["not", "a", "string"]), null);
+  assert.equal(cleanExtractedContext("   "), null);
+  assert.equal(cleanExtractedContext(""), null);
+});
+
+test("fillContextIfEmpty: fills a missing context, NEVER overwrites existing prose", () => {
+  const bare = entry({});
+  fillContextIfEmpty(bare, "Discussion around the pricing ask.");
+  assert.equal(bare.context, "Discussion around the pricing ask.");
+
+  fillContextIfEmpty(bare, "A later, different restatement's context.");
+  assert.equal(bare.context, "Discussion around the pricing ask.");
+
+  // Invalid input on an empty entry is a no-op — the key stays absent, not "".
+  const untouched = entry({ id: "ma-2026-07-01-002" });
+  fillContextIfEmpty(untouched, 42);
+  assert.ok(!("context" in untouched));
+});
+
+test("context round-trips through write + read; context-LESS entries (the production shape) read clean", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-ledger-ctx-"));
+  const withContext = entry({ id: "ma-2026-07-08-001", context: "Sarah asked about volume pricing for Q3." });
+  const preContext = entry({ id: "ma-2026-07-01-001" }); // no context key — every pre-v2.2 entry
+  writeLedger(home, ledgerOf(withContext, preContext));
+  const reread = readLedger(home);
+  assert.equal(reread.entries["ma-2026-07-08-001"].context, "Sarah asked about volume pricing for Q3.");
+  assert.ok(!("context" in reread.entries["ma-2026-07-01-001"]));
+  // Context-less entries stay fully functional readers-side.
+  assert.equal(openEntries(reread).length, 2);
+});
+
+test("EXTRACTOR_SYSTEM carries the context contract (commitments AND sightings)", () => {
+  assert.ok(/CONTEXT:/.test(EXTRACTOR_SYSTEM));
+  assert.ok(/"context":/.test(EXTRACTOR_SYSTEM));
+  assert.ok(/omit when none/i.test(EXTRACTOR_SYSTEM));
 });

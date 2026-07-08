@@ -8,9 +8,9 @@ import { loadRegistry, loopHome } from "../src/lib/loops/registry";
 import { emitLoopArtifact, defaultSandboxDir } from "../src/lib/loops/emit";
 import { readUnactedVerdicts, markVerdictsActed, readUnprocessedFeedback, markFeedbackProcessed } from "../src/lib/loops/stores";
 import {
-  catchPhraseSpans, dismissedLedgerDigest, mintEntryId, nextSeq, normalizeActionText,
-  openEntries, openLedgerDigest, readLedger, recentlyDismissedByAction, transition,
-  writeLedger, type Ledger, type LedgerEntry,
+  catchPhraseSpans, cleanExtractedContext, dismissedLedgerDigest, fillContextIfEmpty,
+  mintEntryId, nextSeq, normalizeActionText, openEntries, openLedgerDigest, readLedger,
+  recentlyDismissedByAction, transition, writeLedger, type Ledger, type LedgerEntry,
 } from "../src/lib/loops/meeting-ledger";
 import { EXTRACTOR_SYSTEM, buildExtractorTask } from "../src/lib/loops/meeting-extractor-prompt";
 import { mintProposalFromLedgerEntry, resolveProposalSink } from "../src/lib/loops/proposal-mint";
@@ -102,8 +102,10 @@ const feedbackGuidanceRef = { value: "" };
 
 interface ExtractionResult {
   meeting_summary?: string;
-  new_commitments: Array<{ action: string; owner: string; due?: string; quote: string; source: string; confidence: number }>;
-  sightings: Array<{ ledger_id: string; quote: string }>;
+  // `context` (v2.2) is advisory prose — cleanExtractedContext validates/caps it at apply time,
+  // and its absence is never an error (older extractions and thin transcripts omit it).
+  new_commitments: Array<{ action: string; owner: string; due?: string; quote: string; context?: string; source: string; confidence: number }>;
+  sightings: Array<{ ledger_id: string; quote: string; context?: string }>;
   closures: Array<{ ledger_id: string; outcome: "resolved" | "dropped"; quote: string }>;
 }
 
@@ -270,15 +272,18 @@ async function main(): Promise<void> {
       const dismissedTwin = dismissedByAction.get(normalizeActionText(c.action || ""));
       if (dismissedTwin) {
         dismissedTwin.sightings.push({ at: now, meeting: rel, ...(c.quote ? { quote: c.quote.slice(0, 200) } : {}) });
+        fillContextIfEmpty(dismissedTwin, c.context);
         sighted.push(dismissedTwin.id);
         continue;
       }
+      const context = cleanExtractedContext(c.context);
       const id = mintEntryId(meetingDate, nextSeq(ledger, meetingDate));
       const entry: LedgerEntry = {
         id,
         action: c.action,
         owner: c.owner || "unclear",
         ...(c.due ? { due: c.due } : {}),
+        ...(context ? { context } : {}),
         citations: [{ source: rel, date: meetingDate, anchor: c.quote?.slice(0, 200) }],
         confidence: Math.max(0, Math.min(1, c.confidence ?? 0.5)),
         source: "extractor",
@@ -300,6 +305,9 @@ async function main(): Promise<void> {
       const entry = ledger.entries[s.ledger_id];
       if (!entry) continue;
       entry.sightings.push({ at: now, meeting: rel, ...(s.quote ? { quote: s.quote.slice(0, 200) } : {}) });
+      // A restatement's discussion may supply the context an older entry lacks (pre-v2.2
+      // entries have none) — filled only when empty, never overwriting existing prose.
+      fillContextIfEmpty(entry, s.context);
       sighted.push(s.ledger_id);
     }
     for (const c of result.closures) {

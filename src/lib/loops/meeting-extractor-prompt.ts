@@ -14,6 +14,13 @@
 // A RECENTLY DISMISSED section now rides in the task alongside the open ledger, with the rule
 // that matches resolve to the dismissed id as sightings — never new entries. Gold-set
 // extraction behavior is unchanged (the gold set has no dismissed-restatement cases).
+// v2.2 (2026-07-08, v3 follow-up — context field, additive not extraction tuning): a minted
+// proposal carried only title + quote, so Justin decided verdicts without the surrounding
+// discussion. Each commitment (and each sighting, so older entries can backfill) now carries
+// `context` — the transcript-grounded surrounding discussion, sized to what the verdict needs
+// (purpose-based, not length-based, per Justin: usually a couple of sentences, a short
+// paragraph when warranted) — persisted on the ledger entry and written into the minted
+// proposal's body. What counts as a commitment is unchanged.
 export const EXTRACTOR_SYSTEM = `You extract COMMITMENTS from one meeting into Justin's action
 ledger. You are precise and evidence-bound. Conservative means: EXCLUDE aspirations, options, and
 process narration — it does NOT mean skipping real commitments you are less sure about. Extract
@@ -62,6 +69,16 @@ the span is clearly the tracker artifact.
 Every extraction carries a VERBATIM quote (≤200 chars) from the note or transcript as its citation
 anchor. No quote, no extraction.
 
+CONTEXT: alongside each commitment, write the SURROUNDING DISCUSSION — what was being talked
+about and why the commitment arose. Size it to the DECISION, not to a length rule: include as
+much as Justin needs to decide the ask (approve / assign / dismiss) without opening the
+transcript, and nothing more. Usually that is a couple of sentences; use a short paragraph when
+the commitment emerged from a longer back-and-forth or carries conditions, dependencies, or
+alternatives that shape the decision. Grounded in what was actually said: plain prose, no
+re-quoting the citation, no speculation. OMIT the field when the discussion gives nothing beyond
+the quote itself. Sightings carry it too (same rule) — a restatement's discussion may fill in
+context an older ledger entry lacks.
+
 MEETING SUMMARY: alongside extraction, write a 1–2 sentence evidence-bound summary of the
 meeting — what it was and the decision/outcome that matters, NOT a topic list. It becomes the
 briefing's context line for this meeting's asks, so make it the sentence a busy reader needs
@@ -72,9 +89,11 @@ Return ONLY JSON:
   "meeting_summary": "<1-2 sentences>",
   "new_commitments": [
     { "action": "<imperative>", "owner": "justin|other:<name>|unclear", "due": "<stated or empty>",
-      "quote": "<verbatim>", "source": "note|transcript|both", "confidence": 0.0 }
+      "quote": "<verbatim>", "context": "<the surrounding discussion the decision needs — omit when none>",
+      "source": "note|transcript|both", "confidence": 0.0 }
   ],
-  "sightings": [ { "ledger_id": "<existing id>", "quote": "<verbatim restatement>" } ],
+  "sightings": [ { "ledger_id": "<existing id>", "quote": "<verbatim restatement>",
+      "context": "<same rule — omit when none>" } ],
   "closures":  [ { "ledger_id": "<existing id>", "outcome": "resolved|dropped", "quote": "<verbatim evidence>" } ]
 }`;
 

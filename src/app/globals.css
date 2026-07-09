@@ -2951,7 +2951,6 @@ body[data-dev-focus="inspector"] [data-feedback-toolbar] {
 }
 
 .hilt-calendar .hilt-calendar-event-unblocked {
-  position: relative;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hilt-calendar-accent) 56%, transparent);
 }
 

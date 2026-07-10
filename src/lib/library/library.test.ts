@@ -23,6 +23,7 @@ import { cleanupLegacyReferenceBody, stripLegacyReferenceBodyCruft } from "./leg
 import { archiveLibraryArtifact, getLibraryArtifact, getLibraryArtifactByPath, hasUnreadLibraryArtifacts, listLibraryArtifactDetails, listLibrarySources } from "./library";
 import { buildMediaMarkdown } from "./media";
 import { parseOpenGraphHtml } from "./media-enrichment";
+import { parseMarkdownFile, stringifyMarkdown } from "./markdown";
 import { markLibraryArtifactsRead } from "./read-state";
 import { PIPELINE_VERSION } from "./pipeline";
 import { getRecommendations, scoreArtifacts } from "./recommendations";
@@ -58,6 +59,18 @@ function tempVault(): string {
 
 function writeSource(vault: string, name: string, yaml: string) {
   fs.writeFileSync(path.join(vault, "meta", "sources", name), yaml, "utf-8");
+}
+
+function markFixtureWeavesComplete(vault: string): void {
+  for (const artifact of listLibraryArtifactDetails(vault, { includeCandidates: true }).artifacts) {
+    const { data, body } = parseMarkdownFile(artifact.abs_path);
+    if (data.reweave_pending !== true) continue;
+    // Rest-spread instead of delete: the spread literal's inferred type pins its known keys,
+    // so `delete next.reweave_pending` fails to compile (TS2339).
+    const { reweave_pending: _cleared, ...rest } = data;
+    const next = { ...rest, reconnected_at: "2026-05-28T12:00:00.000Z" };
+    fs.writeFileSync(artifact.abs_path, stringifyMarkdown(next, body), "utf-8");
+  }
 }
 
 function processedYouTubeArtifact(): ProcessedArtifact {
@@ -2590,6 +2603,7 @@ ${fixtures.map((fixture) => `  - url: ${fixture.url}
 `);
 
   await runIngestion(vault, { useSummarize: false });
+  markFixtureWeavesComplete(vault);
   const recommendations = getRecommendations(vault, 50);
   // The eval discriminates by worth: the on-topic item leads and outranks every off-topic filler item.
   assert.ok(recommendations.items.length >= 1 && recommendations.items.length <= 8);
@@ -2626,6 +2640,7 @@ fixtures:
 `);
 
   await runIngestion(vault, { useSummarize: false });
+  markFixtureWeavesComplete(vault);
   const artifact = listLibraryArtifactDetails(vault, { includeCandidates: true }).artifacts[0];
   const scored = scoreArtifacts(vault, [artifact])[0];
   assert.ok(scored.eval_attrs);

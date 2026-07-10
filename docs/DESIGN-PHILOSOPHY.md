@@ -177,6 +177,21 @@ Every action should have visible feedback:
 
 This section tracks design decisions and refinements over time. Each entry should note what was tried, what was rejected, and why.
 
+### 2026-07-10: System Chats — The Loft Workspace Pattern (Split List + Live Pane)
+
+**Principle**: A cross-system chat log is a *workspace*, not an index. System → Chats is a design-level port of Loft's `AIEditWorkspace`: a persisted resizable split with the session list left and the live conversation right, where the list itself carries enough metadata (status, unread, preview, context, recency) to triage without opening anything. `MapView`'s `SessionRow` is explicitly NOT the design bar here — the chat client must not feel neutered relative to Loft.
+
+**UI rules**:
+- **Split, persisted, clamped**: pointer-capture drag on a 1px separator; ratio in localStorage (`hilt-chats-split`), clamped [0.28, 0.72], written on pointerup only (not per-move). Panes get `minmax()` floors so neither side collapses.
+- **Rows are rich and three-deep**: kind icon · title + capped unread badge ("9+") · contextLabel subtitle · preview line (last snippet, or status text while running) · compact time-ago (`Now/5m/2h/1d`) · status label+icon. Status colors follow house semantics: Running = emerald pulse, Unread = blue, Archived = quaternary. Selected row = the blue border+tint idiom.
+- **Attention-first grouping**: sending/unread chats float to an "Active" group above Open (archived-with-attention included); Archived is a collapsible tail group paginated 20/page so a long history never buries the live list.
+- **Row context menu over row-button clutter**: one hover-revealed ⋮ opening a small anchored menu (archive/unarchive, mark read/**mark unread**, rename) — closes on Escape and outside pointerdown; rename is inline in the row (no modal, ever).
+- **Manual unread is sacred**: a chat the user marked unread stays unread until they explicitly open or mark it read — auto-mark-read paths (select effects, turn-complete refresh) must check the suppression ref first (Loft's `suppressAutoReadPathRef` nuance). "The app cleared my flag" is a trust bug.
+- **The pane remounts per chat** (`key={chatId}`) so an in-flight stream can never bleed into another conversation — same invariant as ThreadDrawer.
+- **Filter tabs earn their pixels**: kind tabs render only for kinds that have chats; All is default. Zero-count chrome is noise.
+
+**Rationale**: Loft already solved this surface — density, grouping, unread semantics, split persistence — and Justin considers it the reference implementation. Porting behavior AND design (re-tokened to zinc/blue/emerald) beats reinventing a weaker list, and composing the pane from the shared chat primitives keeps Library-drawer chats and System chats the same conversations in two places.
+
 ### 2026-07-09: Thread Drawer — A Thread Is A Chat Session
 
 **Principle**: System → Threads should read like a compact chat client. Each row is an individual conversation session; opening it shows the human thread, the processor's saved chat transcript, and the trace evidence for what the agent did.

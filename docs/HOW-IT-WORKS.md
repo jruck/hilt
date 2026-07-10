@@ -329,6 +329,18 @@ small emerald "Processing" pulse. **Process all** drains the open queue with liv
 and can be canceled; anything already processed stays resolved. The **Process** affordance also
 still sits under each object's own thread, so you can act on a comment from wherever you find it.
 
+Chats have the same kind of home: **System → Chats** is the log of every Claude chat Hilt has
+started — from a Library reference, a doc, wherever — as a split workspace: the list of chats on
+the left (filterable by what each chat is about — Library, Docs, People, …), the open conversation
+on the right, drag the divider to resize (it remembers). Chats needing your attention sort to the
+top: a running chat shows the emerald "Running" pulse, one with replies you haven't read shows a
+blue "Unread" badge with the count. Click a chat to reopen it with its full history and just keep
+talking — it resumes the same Claude session, even after an app restart. Each row's ⋮ menu can
+archive/unarchive a chat, rename it, or mark it read/unread — and a chat you deliberately mark
+unread *stays* unread until you actually open it, so you can flag one for later without the app
+"helpfully" clearing it. Archived chats live in a collapsed group at the bottom, out of the way
+but never deleted.
+
 Proposals also have their own surface now: the **Proposals** section in the Priorities view
 (collapsed behind a count; only appears when something is waiting) shows each proposal as a card
 — title, the verbatim quote it came from, the meeting, the due date — with the same

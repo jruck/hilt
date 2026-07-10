@@ -189,8 +189,8 @@ export function Board() {
     : "bridge"; // fallback
   const systemMode = systemModeFromUrl(urlViewMode, scopePath);
   const stackScopePath = stackScopeFromSystemUrl(urlViewMode, scopePath);
-  const graphScopePath = systemMode === "graph"
-    ? scopePath.split("/").filter(Boolean).slice(1).join("/") // remainder after "graph"
+  const systemSubScopePath = systemMode === "graph" || systemMode === "chats"
+    ? scopePath.split("/").filter(Boolean).slice(1).join("/") // remainder after the mode segment
     : "";
 
   // Unified setter
@@ -497,7 +497,7 @@ export function Board() {
             onModeChange={setSystemMode}
             searchQuery={searchQuery}
             workingFolder={stackScopePath || workingFolder || ""}
-            scopePath={graphScopePath}
+            scopePath={systemSubScopePath}
           />
         ) : viewMode === "briefings" ? (
           <BriefingsView
@@ -547,7 +547,7 @@ export function Board() {
             onModeChange={setSystemMode}
             searchQuery={searchQuery}
             workingFolder={stackScopePath || workingFolder || ""}
-            scopePath={graphScopePath}
+            scopePath={systemSubScopePath}
           />
         ) : viewMode === "briefings" ? (
           <BriefingsView

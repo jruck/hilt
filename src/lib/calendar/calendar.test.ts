@@ -18,6 +18,7 @@ const envKeys = [
   "HILT_CALENDAR_SYNC_PAST_DAYS",
   "HILT_CALENDAR_SYNC_FUTURE_DAYS",
   "HILT_CALENDAR_ICS_PERSONAL_URL",
+  "HILT_CALENDAR_ICS_FAMILY_URL",
   "HILT_CALENDAR_ICS_PRICELESS_URL",
   "HILT_CALENDAR_ICS_EVERCOMMERCE_URL",
   "HILT_CALENDAR_ICS_US_HOLIDAYS_URL",
@@ -39,7 +40,7 @@ async function withTempCalendar(run: () => void | Promise<void>, fixtureMode = t
   closeCalendarDbForTests();
   process.env.DATA_DIR = dir;
   process.env.HILT_CALENDAR_DB_PATH = join(dir, "calendar.sqlite");
-  process.env.HILT_CALENDAR_SYNC_PAST_DAYS = "30";
+  process.env.HILT_CALENDAR_SYNC_PAST_DAYS = "120";
   process.env.HILT_CALENDAR_SYNC_FUTURE_DAYS = "90";
   if (fixtureMode) process.env.HILT_CALENDAR_FIXTURE_MODE = "1";
   else delete process.env.HILT_CALENDAR_FIXTURE_MODE;
@@ -402,11 +403,15 @@ describe("calendar setup, storage, and APIs", () => {
 
       const sources = listCalendarSources();
       const calendars = listCalendars();
+      assert.deepEqual(sources.map((source) => source.id), ["personal", "family", "priceless", "evercommerce", "us-holidays"]);
       assert.equal(sources.find((source) => source.id === "priceless")?.color, "#059669");
       assert.equal(sources.find((source) => source.id === "personal")?.color, "#dc2626");
+      assert.equal(sources.find((source) => source.id === "family")?.color, "#f59e0b");
       assert.equal(sources.find((source) => source.id === "us-holidays")?.color, "#7c3aed");
+      assert.equal(calendars.find((calendar) => calendar.sourceId === "family")?.name, "Family Fixture");
       assert.equal(calendars.find((calendar) => calendar.sourceId === "priceless")?.color, "#059669");
       assert.equal(calendars.find((calendar) => calendar.sourceId === "personal")?.color, "#dc2626");
+      assert.equal(calendars.find((calendar) => calendar.sourceId === "family")?.color, "#f59e0b");
       assert.equal(calendars.find((calendar) => calendar.sourceId === "us-holidays")?.color, "#7c3aed");
     });
   });

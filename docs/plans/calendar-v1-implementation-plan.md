@@ -2,7 +2,7 @@
 
 ## Summary
 
-Build a first-class Hilt Calendar view backed by a local Hilt-owned event database. V1 is ICS-only and read-only: consume private subscription feeds for personal Google, Priceless Google, and EverCommerce Outlook; render them as a unified calendar with Schedule-X; and expose enough event metadata for meeting notes, people context, join links, and future task attachment.
+Build a first-class Hilt Calendar view backed by a local Hilt-owned event database. V1 is ICS-only and read-only: consume private subscription feeds for personal Google, Family Google, Priceless Google, and EverCommerce Outlook; render them as a unified calendar with Schedule-X; and expose enough event metadata for meeting notes, people context, join links, and future task attachment.
 
 This version intentionally avoids OAuth, Nylas, Microsoft Graph, Google Calendar API, RSVP, and event creation. Those remain future provider adapters if the read-only calendar proves valuable enough to justify deeper integration.
 
@@ -21,6 +21,7 @@ This version intentionally avoids OAuth, Nylas, Microsoft Graph, Google Calendar
 The following ignored local env keys are required:
 
 - `HILT_CALENDAR_ICS_PERSONAL_URL`
+- `HILT_CALENDAR_ICS_FAMILY_URL`
 - `HILT_CALENDAR_ICS_PRICELESS_URL`
 - `HILT_CALENDAR_ICS_EVERCOMMERCE_URL`
 - `HILT_CALENDAR_ICS_US_HOLIDAYS_URL` (optional override; defaults to a public US holidays ICS feed and filters to public holidays)
@@ -46,6 +47,8 @@ Verified initial feed capability on May 29, 2026:
 - Personal Google: fetches successfully; includes descriptions, locations, organizers, attendees, recurrence, and meeting links.
 
 ## Interfaces
+
+Google secondary/shared calendars need their own iCal feed URL even when they are visible to the same Google account. The primary Personal Google ICS feed does not include the Family calendar.
 
 Add these server APIs:
 

@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as path from "path";
 
 export interface CalendarSourceConfig {
-  id: "personal" | "priceless" | "evercommerce" | "us-holidays";
+  id: "personal" | "family" | "priceless" | "evercommerce" | "us-holidays";
   label: string;
   providerHint: "google" | "outlook" | "ics";
   accountHint: string;
@@ -14,13 +14,22 @@ export interface CalendarSourceConfig {
 
 export const CALENDAR_SOURCE_CONFIGS: CalendarSourceConfig[] = [
   {
-    id: "evercommerce",
-    label: "EverCommerce",
-    providerHint: "outlook",
-    accountHint: "jruckman@evercommerce.com",
-    envKey: "HILT_CALENDAR_ICS_EVERCOMMERCE_URL",
-    color: "#2563eb",
-    priority: 0,
+    id: "personal",
+    label: "Personal",
+    providerHint: "google",
+    accountHint: "justinruckman@gmail.com",
+    envKey: "HILT_CALENDAR_ICS_PERSONAL_URL",
+    color: "#dc2626",
+    priority: 2,
+  },
+  {
+    id: "family",
+    label: "Family",
+    providerHint: "google",
+    accountHint: "family02812820750125202686@group.calendar.google.com",
+    envKey: "HILT_CALENDAR_ICS_FAMILY_URL",
+    color: "#f59e0b",
+    priority: 3,
   },
   {
     id: "priceless",
@@ -32,13 +41,13 @@ export const CALENDAR_SOURCE_CONFIGS: CalendarSourceConfig[] = [
     priority: 1,
   },
   {
-    id: "personal",
-    label: "Personal",
-    providerHint: "google",
-    accountHint: "justinruckman@gmail.com",
-    envKey: "HILT_CALENDAR_ICS_PERSONAL_URL",
-    color: "#dc2626",
-    priority: 2,
+    id: "evercommerce",
+    label: "EverCommerce",
+    providerHint: "outlook",
+    accountHint: "jruckman@evercommerce.com",
+    envKey: "HILT_CALENDAR_ICS_EVERCOMMERCE_URL",
+    color: "#2563eb",
+    priority: 0,
   },
   {
     id: "us-holidays",
@@ -47,7 +56,7 @@ export const CALENDAR_SOURCE_CONFIGS: CalendarSourceConfig[] = [
     accountHint: "Public US holidays",
     envKey: "HILT_CALENDAR_ICS_US_HOLIDAYS_URL",
     color: "#7c3aed",
-    priority: 3,
+    priority: 4,
     defaultUrl: "https://calendar.google.com/calendar/ical/en.usa%23holiday%40group.v.calendar.google.com/public/basic.ics",
   },
 ];

@@ -130,6 +130,29 @@ DESCRIPTION:Duplicate fixture from another source.
 LOCATION:https://meet.google.com/abc-defg-hij
 END:VEVENT
 END:VCALENDAR`,
+  family: `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Hilt//Calendar Fixture//EN
+X-WR-CALNAME:Family Fixture
+BEGIN:VEVENT
+UID:family-first-day@example.com
+DTSTAMP:20260520T120000Z
+DTSTART;VALUE=DATE:20260803
+DTEND;VALUE=DATE:20260804
+SUMMARY:First Day of School
+DESCRIPTION:Fixture family calendar event.
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:family-labor-day@example.com
+DTSTAMP:20260520T120000Z
+DTSTART;VALUE=DATE:20260907
+DTEND;VALUE=DATE:20260908
+SUMMARY:Labor Day - No School
+DESCRIPTION:Fixture school holiday.
+TRANSP:TRANSPARENT
+END:VEVENT
+END:VCALENDAR`,
   "us-holidays": `BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Hilt//Calendar Fixture//EN

@@ -1,6 +1,6 @@
 import type { PersonCalendarCandidate } from "../types";
 
-export type CalendarSourceId = "personal" | "priceless" | "evercommerce" | string;
+export type CalendarSourceId = "personal" | "family" | "priceless" | "evercommerce" | string;
 
 export interface CalendarParticipant {
   name: string | null;

@@ -33,7 +33,7 @@ Weekly planning and project management. Bridge reads markdown weekly lists, task
 
 ![Calendar view](docs/screenshots/calendar.png)
 
-A unified, read-only calendar over your ICS feeds. Hilt syncs work and personal calendars locally, de-duplicates the same event across feeds, and renders day/week/month/agenda views with per-day weather, a current-time indicator, and subtle availability hints for blocked work time. Each event collects its actions in one place — join links (Teams/Meet/Zoom), the source calendar, and any matched meeting notes — and the notes link back to the event in return.
+A unified, read-only calendar over your ICS feeds. Hilt syncs work, personal, family, and public-holiday calendars locally, de-duplicates the same event across feeds, and renders day/week/month/agenda views with per-day weather, a current-time indicator, and subtle availability hints for blocked work time. Each event collects its actions in one place — join links (Teams/Meet/Zoom), the source calendar, and any matched meeting notes — and the notes link back to the event in return.
 
 ### People
 

@@ -347,6 +347,12 @@ async function main(): Promise<void> {
   let ledgerDirty = false;
   const proposalsMinted: string[] = [];
   let proposalFailures = 0;
+  // First-touch always escalates (Justin, 2026-07-10): an ask EXTRACTED THIS RUN reaches the
+  // queue even when its meeting has aged past RECENT_DAYS — a days-late first extraction (the
+  // trigger AND nightly both failed for a stretch) must never park work ledger-only and
+  // invisible. The flood-gate keeps holding for entries opened by PRIOR runs that never met
+  // the recency bar (the 2026-07-02 backfill flood).
+  const openedThisRun = new Set(opened.map((entry) => entry.id));
   for (const e of openEntries(ledger)) {
     if (e.verdict) continue;
     if (e.owner.startsWith("other:")) continue;
@@ -354,7 +360,7 @@ async function main(): Promise<void> {
     // Recency admits an ask to the queue; ONCE IN, it stays until decided (first_escalated_at) —
     // 2026-07-06: a holiday weekend aged 15 undecided asks out of the panel silently. Backfill
     // entries that never met the recency bar stay latent (the flood-gate holds).
-    if (!isRecentDate(meetingDate) && !e.first_escalated_at) continue;
+    if (!isRecentDate(meetingDate) && !e.first_escalated_at && !openedThisRun.has(e.id)) continue;
     if (!e.first_escalated_at) { e.first_escalated_at = now; ledgerDirty = true; }
     // A6: an escalated ask ALSO becomes a proposal task file in the resolved sink (the volume
     // gates above carry over for free — only entries that reach this line ever mint). Entries

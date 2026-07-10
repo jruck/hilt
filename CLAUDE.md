@@ -107,9 +107,10 @@ curl -s -X POST "http://localhost:$PORT/navigate" \
   -d '{"view":"docs","path":"/absolute/path/to/file"}'
 ```
 
-Views: `bridge`, `people`, `briefings`, `library`, `docs`, `system`
+Views: `bridge`, `people`, `briefings`, `library`, `docs`, `chats`, `system`
 - `path` is optional — omit to just switch views
 - `docs` uses absolute file paths; `people` uses slug paths (e.g. `/art-vandelay`)
+- `chats` optionally takes `/<conversation id>` (a thread id or chat-session id)
 - Window auto-focuses in Electron mode
 
 ## Development

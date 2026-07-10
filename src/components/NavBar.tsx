@@ -17,7 +17,8 @@ const SHORTCUTS = [
   { keys: "⌘ 3", description: "People" },
   { keys: "⌘ 4", description: "Library" },
   { keys: "⌘ 5", description: "Docs" },
-  { keys: "⌘ 6", description: "System" },
+  { keys: "⌘ 6", description: "Chats" },
+  { keys: "⌘ 7", description: "System" },
   { keys: "Esc", description: "Close search" },
 ];
 
@@ -27,7 +28,8 @@ const VIEW_KEYS: Record<string, ViewMode> = {
   "3": "people",
   "4": "library",
   "5": "docs",
-  "6": "system",
+  "6": "chats",
+  "7": "system",
 };
 
 const DRAG_REGION_STYLE = { WebkitAppRegion: "drag" } as React.CSSProperties;

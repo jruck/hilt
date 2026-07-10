@@ -321,25 +321,8 @@ travels one of two roads:
 The point: a comment is a lever, not a note. It either steers a node's next run (with a receipt)
 or gets acted on directly (with an edit or a proposal). Nothing you write just sits there unseen.
 
-Every thread is also visible in one place: **System → Threads** lists every feedback thread across
-the system (filterable Open / Resolved / All). Resolved rows say *how* they resolved — "Calibrated · meeting-actions", "Clustered", "Proposal minted" — and anything resolved in the last day carries a small blue dot, so a node quietly consuming your comments overnight is visible at a glance. Click any row and it opens as a conversation drawer:
-the original thread, the saved chat transcript of what the processor did, and the tool/trace evidence
-for that run. If the processor is working, the drawer streams the chat live and the row carries a
-small emerald "Processing" pulse. **Process all** drains the open queue with live `n/total` progress
-and can be canceled; anything already processed stays resolved. The **Process** affordance also
-still sits under each object's own thread, so you can act on a comment from wherever you find it.
-
-Chats have the same kind of home: **System → Chats** is the log of every Claude chat Hilt has
-started — from a Library reference, a doc, wherever — as a split workspace: the list of chats on
-the left (filterable by what each chat is about — Library, Docs, People, …), the open conversation
-on the right, drag the divider to resize (it remembers). Chats needing your attention sort to the
-top: a running chat shows the emerald "Running" pulse, one with replies you haven't read shows a
-blue "Unread" badge with the count. Click a chat to reopen it with its full history and just keep
-talking — it resumes the same Claude session, even after an app restart. Each row's ⋮ menu can
-archive/unarchive a chat, rename it, or mark it read/unread — and a chat you deliberately mark
-unread *stays* unread until you actually open it, so you can flag one for later without the app
-"helpfully" clearing it. Archived chats live in a collapsed group at the bottom, out of the way
-but never deleted.
+Every one of these conversations is also visible in one place: the top-level **Chats** tab
+(described below) lists every feedback thread across the system alongside every free-standing chat.
 
 Proposals also have their own surface now: the **Proposals** section in the Priorities view
 (collapsed behind a count; only appears when something is waiting) shows each proposal as a card
@@ -351,6 +334,48 @@ never gone from the UI: a quiet "Dismissed · N" divider at the tail of the sect
 the record of what you declined in the last 30 days (title + when) — read from the meetings
 node's ledger, so a fresh dismiss shows up there after the node's next run. It's a record, not
 cards: the files are deleted, the ledger remembers.
+
+## Chats — every conversation, one tab
+
+A conversation in Hilt is one concept with two shapes. Some are **anchored to an object** — the
+feedback threads from the flywheel above: your comments, the agent's replies, and the saved
+processor transcripts, attached to a task, meeting, briefing line, or library item. Others are
+**free-standing** — chats you started from a Library reference, a doc, or the API, with no object
+behind them. They used to live in two System sub-tabs (Threads and Chats); now they share one
+top-level **Chats** view in the main nav, between Docs and System — they were too buried in the
+System tab, and System is back to pure monitoring.
+
+The view is a split workspace: the merged conversation list on the left, the open conversation on
+the right (drag the divider to resize — it remembers). A chat that belongs to a thread — one the
+processor minted while working that thread — never appears twice: it renders inside its thread's
+conversation, not as a row of its own.
+
+Three lenses across the toolbar pick what the list shows: **Needs you** (open threads — dev items
+included — plus chats that are running or carry unread replies), **All**, and **Done** (resolved
+threads and archived chats). The tab opens on Needs you whenever something actually needs you,
+otherwise All. Under the toolbar, kind tabs (Library, Docs, Tasks, Meetings, Loops, Briefings, …)
+narrow the list to what a conversation is about.
+
+**Thread rows** behave exactly as the old System → Threads index. Resolved rows say *how* they
+resolved — "Calibrated · meeting-actions", "Clustered", "Proposal minted" — and anything resolved
+in the last day carries a small blue dot, so a node quietly consuming your comments overnight is
+visible at a glance. Click a row and the conversation opens on the right: the original thread, the
+saved chat transcript of what the processor did, and the tool/trace evidence for that run. If the
+processor is working, the drawer streams the chat live and the row carries a small emerald
+"Processing" pulse. **Process all** in the toolbar drains the open queue with live `n/total`
+progress and can be canceled; anything already processed stays resolved. The **Process**
+affordance also still sits under each object's own thread, so you can act on a comment from
+wherever you find it.
+
+**Chat rows** keep their chat-client behaviors. A running chat shows the emerald "Running" pulse;
+one with replies you haven't read shows a blue "Unread" badge with the count. Click a chat to
+reopen it with its full history and just keep talking — it resumes the same Claude session, even
+after an app restart. Each row's ⋮ menu can archive/unarchive a chat, rename it, or mark it
+read/unread — and a chat you deliberately mark unread *stays* unread until you actually open it,
+so you can flag one for later without the app "helpfully" clearing it. Archived chats live under
+the Done lens, out of the way but never deleted.
+
+Old `System → Threads` / `System → Chats` links still work — they redirect to the Chats tab.
 
 ## The daily rhythm
 

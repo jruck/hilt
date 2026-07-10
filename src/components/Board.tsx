@@ -19,7 +19,7 @@ import { PullToRefresh } from "./PullToRefresh";
 import { MobileChromeProvider } from "@/contexts/MobileChromeContext";
 import { CALENDAR_EVENT_OPEN_EVENT, PENDING_CALENDAR_EVENT_STORAGE_KEY, type CalendarEventOpenDetail } from "@/lib/calendar/deeplink";
 import { TASK_OPEN_EVENT, type TaskOpenDetail } from "@/lib/tasks/deeplink";
-import { isSystemMode, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode, type SystemMode } from "@/lib/system/navigation";
+import { isSystemMode, legacyConversationScopeFromSystemUrl, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode, type SystemMode } from "@/lib/system/navigation";
 import { withBasePath } from "@/lib/base-path";
 import type { BridgeMode } from "./bridge/BridgeModeToggle";
 
@@ -29,6 +29,7 @@ const BriefingsView = dynamic(() => import("./briefings/BriefingsView").then(m =
 const CalendarView = dynamic(() => loadCalendarViewModule().then(m => ({ default: m.CalendarView })), { ssr: false });
 const LibraryView = dynamic(() => import("./library/LibraryView").then(m => ({ default: m.LibraryView })), { ssr: false });
 const PeopleView = dynamic(() => import("./people/PeopleView").then(m => ({ default: m.PeopleView })), { ssr: false });
+const ChatsView = dynamic(() => import("./chats/ChatsView").then(m => ({ default: m.ChatsView })), { ssr: false });
 const SystemView = dynamic(() => import("./system").then(m => ({ default: m.SystemView })), { ssr: false });
 
 const SYSTEM_MODE_STORAGE_KEY = "hilt-system-mode";
@@ -185,13 +186,21 @@ export function Board() {
     : urlViewMode === "calendar" ? "calendar"
     : urlViewMode === "library" ? "library"
     : urlViewMode === "people" ? "people"
+    : urlViewMode === "chats" ? "chats"
     : urlViewMode === "system" || urlViewMode === "map" || urlViewMode === "local-apps" || urlViewMode === "stack" ? "system"
     : "bridge"; // fallback
   const systemMode = systemModeFromUrl(urlViewMode, scopePath);
   const stackScopePath = stackScopeFromSystemUrl(urlViewMode, scopePath);
-  const systemSubScopePath = systemMode === "graph" || systemMode === "chats"
+  const systemSubScopePath = systemMode === "graph"
     ? scopePath.split("/").filter(Boolean).slice(1).join("/") // remainder after the mode segment
     : "";
+
+  // Legacy System → Threads/Chats deep links (stale briefing/doc links, old localStorage)
+  // redirect to the top-level Chats view instead of dead-ending on the sessions fallback.
+  useEffect(() => {
+    const legacyScope = legacyConversationScopeFromSystemUrl(urlViewMode, scopePath);
+    if (legacyScope !== null) navigateTo("chats", legacyScope);
+  }, [navigateTo, scopePath, urlViewMode]);
 
   // Unified setter
   const setViewMode = useCallback((mode: ViewMode) => {
@@ -207,6 +216,8 @@ export function Board() {
       navigateTo("library", "");
     } else if (mode === "people") {
       navigateTo("people", getStoredPeopleScope());
+    } else if (mode === "chats") {
+      navigateTo("chats", "");
     } else if (mode === "system") {
       const lastMode = typeof window !== "undefined"
         ? (localStorage.getItem(SYSTEM_MODE_STORAGE_KEY) as SystemMode | null)
@@ -328,7 +339,7 @@ export function Board() {
     if (hasLibraryUnread) tabs.add("library");
     return tabs.size ? tabs : undefined;
   }, [hasBriefingUnread, hasLibraryUnread]);
-  const usesWorkspaceGutter = !isMobile && (viewMode === "bridge" || viewMode === "briefings" || viewMode === "docs" || viewMode === "people" || viewMode === "system" || viewMode === "library" || viewMode === "calendar");
+  const usesWorkspaceGutter = !isMobile && (viewMode === "bridge" || viewMode === "briefings" || viewMode === "docs" || viewMode === "people" || viewMode === "system" || viewMode === "library" || viewMode === "calendar" || viewMode === "chats");
   const usesWorkspaceTopBorder = !isMobile && (viewMode === "docs" || viewMode === "people");
 
   // Search state
@@ -513,6 +524,8 @@ export function Board() {
           <LibraryView searchQuery={searchQuery} activationToken={libraryActivationToken} />
         ) : viewMode === "people" ? (
           <PeopleView searchQuery={searchQuery} />
+        ) : viewMode === "chats" ? (
+          <ChatsView scopePath={scopePath} workingFolder={workingFolder || ""} />
         ) : null}
         </div>
         </PullToRefresh>}
@@ -561,6 +574,8 @@ export function Board() {
           <LibraryView searchQuery={searchQuery} activationToken={libraryActivationToken} />
         ) : viewMode === "people" ? (
           <PeopleView searchQuery={searchQuery} />
+        ) : viewMode === "chats" ? (
+          <ChatsView scopePath={scopePath} workingFolder={workingFolder || ""} />
         ) : null}
         </div>
         </div>}

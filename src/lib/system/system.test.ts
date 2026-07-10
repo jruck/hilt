@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import http from "node:http";
-import { isSystemMode, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode } from "./navigation";
+import { isSystemMode, legacyConversationScopeFromSystemUrl, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode } from "./navigation";
 import { decodeSystemNodeId, decodeSystemSessionId, systemMachineNodeId, systemNodeId, systemSessionId } from "./map";
 import { machineIdentity } from "../local-apps/tailnet";
 import { localSystemMachineResponse, machineId, machineLabel, systemMachineFromResponse } from "./peers";
@@ -107,6 +107,17 @@ describe("system navigation", () => {
     assert.equal(systemScopeForMode("stack", "/Users/jruck/work/engineering/hilt"), "/stack/Users/jruck/work/engineering/hilt");
     assert.equal(stackScopeFromSystemUrl("system", "/stack/Users/jruck/work/engineering/hilt"), "/Users/jruck/work/engineering/hilt");
     assert.equal(stackScopeFromSystemUrl("system", "/sync"), "");
+  });
+
+  it("no longer treats threads/chats as System modes — they redirect to the top-level Chats view", () => {
+    assert.equal(isSystemMode("threads"), false);
+    assert.equal(isSystemMode("chats"), false);
+    assert.equal(systemModeFromUrl("system", "/threads"), "sessions");
+    assert.equal(legacyConversationScopeFromSystemUrl("system", "/threads"), "");
+    assert.equal(legacyConversationScopeFromSystemUrl("system", "/threads/th-123"), "/th-123");
+    assert.equal(legacyConversationScopeFromSystemUrl("system", "/chats/abc-def"), "/abc-def");
+    assert.equal(legacyConversationScopeFromSystemUrl("system", "/sync"), null);
+    assert.equal(legacyConversationScopeFromSystemUrl("docs", "/threads/th-123"), null);
   });
 });
 

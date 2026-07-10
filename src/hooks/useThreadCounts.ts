@@ -2,7 +2,7 @@
 
 /**
  * useThreadCounts — ONE app-wide SWR fetch of the thread summaries (GET /api/threads; the
- * same key SystemThreadsView polls) → per-anchor message counts for CommentPopover pills.
+ * same key the top-level ChatsView polls) → per-anchor message counts for CommentPopover pills.
  * Identity is the client-safe targetKey (src/lib/threads/target-key.ts). Counts revalidate
  * through mutateThreadsForTarget, which mutates this key alongside the per-target one.
  */

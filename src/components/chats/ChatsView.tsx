@@ -1,5 +1,11 @@
 "use client";
 
+// Top-level Chats view — ONE surface for every conversation in the system (Justin: chats
+// "shouldn't be buried in the systems tab"; the accepted design unifies rather than
+// relocates). Thread rows (feedback threads anchored to objects) render as the System
+// Threads index rows did; free-chat rows render as the System Chats rows did; the merge,
+// lens partition, and thread-attachment de-dupe live in ./conversations.ts.
+
 import {
   useCallback,
   useEffect,
@@ -14,8 +20,6 @@ import {
   Archive,
   BookOpen,
   CalendarClock,
-  ChevronDown,
-  ChevronRight,
   FileText,
   Mail,
   MailOpen,
@@ -24,38 +28,69 @@ import {
   MoreVertical,
   Newspaper,
   Pencil,
+  Play,
   RefreshCw,
   Repeat,
   RotateCcw,
+  Sparkles,
   SquareCheck,
   User,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import {
   SECONDARY_CHROME_BODY_GUTTER_CLASS,
   SecondaryIconButton,
+  SecondarySegmentedButton,
+  SecondarySegmentedControl,
   SecondaryToolbar,
 } from "@/components/layout/SecondaryToolbar";
+import { ThreadDrawer } from "@/components/threads/ThreadDrawer";
+import {
+  resolutionStory,
+  resolvedAt,
+  resolvedRecently,
+  targetIcon,
+  targetLabel,
+} from "@/components/threads/threadTargetHelpers";
 import { useScope } from "@/contexts/ScopeContext";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { THREAD_SUMMARIES_KEY } from "@/hooks/useThreadCounts";
 import { withBasePath } from "@/lib/base-path";
 import type { ChatContextKind, ChatSessionSummary } from "@/lib/chat/types";
+import type { CommentTarget } from "@/lib/comments/types";
+import { runProcessAll, runThreadProcess, type ProcessAllProgress } from "@/lib/threads/process-client";
+import type { ThreadSummary } from "@/lib/threads/types";
+import {
+  conversationKindCounts,
+  mergeConversations,
+  type ChatsLens,
+  type ConversationKindFilter,
+  type ConversationRow,
+} from "./conversations";
 
 interface ChatsViewProps {
-  modeSwitcher: ReactNode;
   scopePath?: string;
   workingFolder?: string;
 }
 
-type ChatFilter = "all" | ChatContextKind;
+type Selection =
+  | { type: "thread"; threadId: string; target: CommentTarget }
+  | { type: "chat"; chatId: string };
+
 type SessionPatch = { archivedAt?: number | null; unreadCount?: number; title?: string };
 
 const SPLIT_STORAGE_KEY = "hilt-chats-split";
 const DEFAULT_SPLIT = 0.38;
 const MIN_SPLIT = 0.28;
 const MAX_SPLIT = 0.72;
-const ARCHIVED_PAGE_SIZE = 20;
+
+const LENS_OPTIONS: Array<{ id: ChatsLens; label: string }> = [
+  { id: "needs-you", label: "Needs you" },
+  { id: "all", label: "All" },
+  { id: "done", label: "Done" },
+];
 
 const CONTEXT_KIND_OPTIONS: Array<{ kind: ChatContextKind; label: string; icon: LucideIcon }> = [
   { kind: "library", label: "Library", icon: BookOpen },
@@ -79,6 +114,15 @@ const CONTEXT_ICONS: Record<ChatContextKind, LucideIcon> = {
   none: MessageSquare,
 };
 
+async function fetchThreads(url: string): Promise<{ threads: ThreadSummary[] }> {
+  const response = await fetch(withBasePath(url));
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(payload?.error || `Request failed: ${response.status}`);
+  }
+  return response.json() as Promise<{ threads: ThreadSummary[] }>;
+}
+
 async function fetchChatSessions(url: string): Promise<{ sessions: ChatSessionSummary[] }> {
   const response = await fetch(withBasePath(url));
   if (!response.ok) {
@@ -86,6 +130,10 @@ async function fetchChatSessions(url: string): Promise<{ sessions: ChatSessionSu
     throw new Error(payload?.error || `Request failed: ${response.status}`);
   }
   return response.json() as Promise<{ sessions: ChatSessionSummary[] }>;
+}
+
+function isAbortError(error: unknown): boolean {
+  return (error instanceof DOMException || error instanceof Error) && error.name === "AbortError";
 }
 
 function clampSplit(value: number): number {
@@ -113,70 +161,118 @@ function formatSessionAge(timestamp: number): string {
   return `${Math.floor(deltaMs / day)}d`;
 }
 
-function updatedDesc(a: ChatSessionSummary, b: ChatSessionSummary): number {
-  return b.updatedAt - a.updatedAt;
+function relativeTime(value: string): string {
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return "unknown";
+  const diff = Date.now() - time;
+  const abs = Math.abs(diff);
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (abs < minute) return "just now";
+  if (abs < hour) return `${Math.round(diff / minute)}m ago`;
+  if (abs < hour * 24) return `${Math.round(diff / hour)}h ago`;
+  return `${Math.round(diff / day)}d ago`;
 }
 
-export function ChatsView({ modeSwitcher, scopePath = "", workingFolder = "" }: ChatsViewProps) {
+export function ChatsView({ scopePath = "", workingFolder = "" }: ChatsViewProps) {
   const isMobile = useIsMobile();
   const { navigateTo } = useScope();
-  const [filter, setFilter] = useState<ChatFilter>("all");
-  const [selectedId, setSelectedId] = useState<string | null>(() => scopePath?.split("/").filter(Boolean)[0] ?? null);
+  const [lensChoice, setLensChoice] = useState<ChatsLens | null>(null);
+  const [filter, setFilter] = useState<ConversationKindFilter>("all");
+  const [selected, setSelected] = useState<Selection | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [errorById, setErrorById] = useState<Record<string, string>>({});
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<ProcessAllProgress | null>(null);
+  const [batchError, setBatchError] = useState<string | null>(null);
   const [split, setSplit] = useState(() => loadStoredSplit());
   const [isResizingSplit, setIsResizingSplit] = useState(false);
   const splitAreaRef = useRef<HTMLDivElement | null>(null);
   const splitRef = useRef(split);
-  const lastAppliedScopeIdRef = useRef<string | null>(selectedId);
+  const batchAbortControllerRef = useRef<AbortController | null>(null);
+  const lastAppliedScopeIdRef = useRef<string | null>(null);
   const suppressAutoReadIdRef = useRef<string | null>(null);
 
-  const { data, error, isLoading, isValidating, mutate } = useSWR<{ sessions: ChatSessionSummary[] }, Error>(
-    "/api/chat/sessions",
-    fetchChatSessions,
-    { keepPreviousData: true, refreshInterval: 15_000 },
+  const {
+    data: threadsData,
+    error: threadsError,
+    isValidating: threadsValidating,
+    mutate: mutateThreads,
+  } = useSWR<{ threads: ThreadSummary[] }, Error>(THREAD_SUMMARIES_KEY, fetchThreads, {
+    keepPreviousData: true,
+    refreshInterval: 15_000,
+  });
+  const {
+    data: sessionsData,
+    error: sessionsError,
+    isValidating: sessionsValidating,
+    mutate: mutateSessions,
+  } = useSWR<{ sessions: ChatSessionSummary[] }, Error>("/api/chat/sessions", fetchChatSessions, {
+    keepPreviousData: true,
+    refreshInterval: 15_000,
+  });
+
+  const threads = useMemo(() => threadsData?.threads ?? [], [threadsData]);
+  const sessions = useMemo(() => sessionsData?.sessions ?? [], [sessionsData]);
+  const bothLoaded = Boolean(threadsData) && Boolean(sessionsData);
+
+  const needsYouRows = useMemo(() => mergeConversations(threads, sessions, "needs-you"), [threads, sessions]);
+  // Default lens: Needs you when non-empty, else All — auto-derived until the user picks.
+  const lens: ChatsLens = lensChoice ?? (!bothLoaded || needsYouRows.length > 0 ? "needs-you" : "all");
+
+  const lensRows = useMemo(() => mergeConversations(threads, sessions, lens), [threads, sessions, lens]);
+  const rows = useMemo(
+    () => (filter === "all" ? lensRows : mergeConversations(threads, sessions, lens, filter)),
+    [filter, lens, lensRows, threads, sessions],
   );
 
-  const sessions = data?.sessions ?? [];
-  const counts = useMemo(() => {
-    let open = 0;
-    let archived = 0;
-    for (const session of sessions) {
-      if (session.archivedAt == null) open += 1;
-      else archived += 1;
-    }
-    return { open, archived };
-  }, [sessions]);
-
-  const kindCounts = useMemo(() => {
-    const next = new Map<ChatContextKind, number>();
-    for (const session of sessions) {
-      next.set(session.context.kind, (next.get(session.context.kind) ?? 0) + 1);
-    }
-    return next;
-  }, [sessions]);
-
+  const kindCounts = useMemo(() => conversationKindCounts(lensRows), [lensRows]);
   const kindTabs = useMemo(
     () => CONTEXT_KIND_OPTIONS.filter((option) => (kindCounts.get(option.kind) ?? 0) > 0),
     [kindCounts],
   );
 
-  const filteredSessions = useMemo(
-    () => filter === "all" ? sessions : sessions.filter((session) => session.context.kind === filter),
-    [filter, sessions],
+  const openThreadCount = useMemo(
+    () => threads.reduce((count, thread) => count + (thread.status === "open" ? 1 : 0), 0),
+    [threads],
   );
 
-  const groupedSessions = useMemo(() => {
-    const sorted = [...filteredSessions].sort(updatedDesc);
-    const attention = sorted.filter((session) => session.status === "sending" || session.unreadCount > 0);
-    const open = sorted.filter((session) => session.status !== "sending" && session.unreadCount === 0 && session.archivedAt == null);
-    const archived = sorted.filter((session) => session.status !== "sending" && session.unreadCount === 0 && session.archivedAt != null);
-    return { attention, open, archived };
-  }, [filteredSessions]);
+  const sendingChatIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const session of sessions) {
+      if (session.status === "sending") set.add(session.id);
+    }
+    return set;
+  }, [sessions]);
 
   const selectedSession = useMemo(
-    () => sessions.find((session) => session.id === selectedId) ?? null,
-    [selectedId, sessions],
+    () => (selected?.type === "chat" ? sessions.find((session) => session.id === selected.chatId) ?? null : null),
+    [selected, sessions],
   );
+
+  // Deep link: /chats/<id> — the id may be a thread id or a chat id. Threads win ties, so a
+  // chat match is only trusted after the thread store has answered.
+  useEffect(() => {
+    const scopeId = scopePath?.split("/").filter(Boolean)[0] ?? null;
+    if (!scopeId || scopeId === lastAppliedScopeIdRef.current) return;
+    const thread = threads.find((candidate) => candidate.id === scopeId);
+    if (thread) {
+      lastAppliedScopeIdRef.current = scopeId;
+      setSelected({ type: "thread", threadId: thread.id, target: thread.target });
+      return;
+    }
+    if (!threadsData) return;
+    const session = sessions.find((candidate) => candidate.id === scopeId);
+    if (session) {
+      lastAppliedScopeIdRef.current = scopeId;
+      setSelected({ type: "chat", chatId: scopeId });
+      return;
+    }
+    // Both stores answered and neither knows the id — stop probing.
+    if (sessionsData) lastAppliedScopeIdRef.current = scopeId;
+  }, [scopePath, threads, sessions, threadsData, sessionsData]);
 
   const patchSession = useCallback(async (id: string, patch: SessionPatch) => {
     setActionError(null);
@@ -190,39 +286,34 @@ export function ChatsView({ modeSwitcher, scopePath = "", workingFolder = "" }: 
         const payload = (await response.json().catch(() => null)) as { error?: string } | null;
         throw new Error(payload?.error || `Request failed: ${response.status}`);
       }
-      void mutate();
+      void mutateSessions();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Chat action failed");
     }
-  }, [mutate]);
+  }, [mutateSessions]);
+
+  const selectedChatId = selected?.type === "chat" ? selected.chatId : null;
 
   useEffect(() => {
-    const scopeId = scopePath?.split("/").filter(Boolean)[0] ?? null;
-    if (!scopeId || scopeId === lastAppliedScopeIdRef.current) return;
-    lastAppliedScopeIdRef.current = scopeId;
-    setSelectedId(scopeId);
-  }, [scopePath]);
-
-  useEffect(() => {
-    if (suppressAutoReadIdRef.current !== selectedId) {
+    if (suppressAutoReadIdRef.current !== selectedChatId) {
       suppressAutoReadIdRef.current = null;
     }
-  }, [selectedId]);
+  }, [selectedChatId]);
 
   useEffect(() => {
-    if (!selectedId || !selectedSession || selectedSession.unreadCount <= 0) return;
-    if (suppressAutoReadIdRef.current === selectedId) return;
-    void patchSession(selectedId, { unreadCount: 0 });
-  }, [patchSession, selectedId, selectedSession]);
+    if (!selectedChatId || !selectedSession || selectedSession.unreadCount <= 0) return;
+    if (suppressAutoReadIdRef.current === selectedChatId) return;
+    void patchSession(selectedChatId, { unreadCount: 0 });
+  }, [patchSession, selectedChatId, selectedSession]);
 
-  const handleSelect = useCallback((id: string) => {
+  const handleSelectChat = useCallback((id: string) => {
     const wasSuppressed = suppressAutoReadIdRef.current === id;
     if (wasSuppressed) suppressAutoReadIdRef.current = null;
-    setSelectedId(id);
-    if (wasSuppressed && selectedId === id) {
+    setSelected({ type: "chat", chatId: id });
+    if (wasSuppressed && selectedChatId === id) {
       void patchSession(id, { unreadCount: 0 });
     }
-  }, [patchSession, selectedId]);
+  }, [patchSession, selectedChatId]);
 
   const markRead = useCallback((id: string) => {
     if (suppressAutoReadIdRef.current === id) suppressAutoReadIdRef.current = null;
@@ -248,8 +339,9 @@ export function ChatsView({ modeSwitcher, scopePath = "", workingFolder = "" }: 
 
   const refresh = useCallback(() => {
     setActionError(null);
-    void mutate();
-  }, [mutate]);
+    void mutateThreads();
+    void mutateSessions();
+  }, [mutateSessions, mutateThreads]);
 
   const handleOpenFile = useCallback((relPath: string) => {
     // filesTouched are vault-relative, but outside-vault edits stay absolute (message route) —
@@ -266,10 +358,58 @@ export function ChatsView({ modeSwitcher, scopePath = "", workingFolder = "" }: 
   // is explicit engagement — clear the suppression and mark it read, otherwise the server-side
   // unread bump on turn completion leaves a growing badge on the chat the user is typing in.
   const handleSendStart = useCallback(() => {
-    if (!selectedId || suppressAutoReadIdRef.current !== selectedId) return;
+    if (!selectedChatId || suppressAutoReadIdRef.current !== selectedChatId) return;
     suppressAutoReadIdRef.current = null;
-    void patchSession(selectedId, { unreadCount: 0 });
-  }, [patchSession, selectedId]);
+    void patchSession(selectedChatId, { unreadCount: 0 });
+  }, [patchSession, selectedChatId]);
+
+  async function processAllOpenThreads() {
+    if (batchRunning) {
+      batchAbortControllerRef.current?.abort();
+      return;
+    }
+    const controller = new AbortController();
+    batchAbortControllerRef.current = controller;
+    setBatchRunning(true);
+    setBatchProgress({ index: 0, total: openThreadCount });
+    setBatchError(null);
+    try {
+      await runProcessAll(setBatchProgress, controller.signal);
+      await mutateThreads();
+    } catch (err) {
+      if (isAbortError(err)) {
+        setBatchError(null);
+        await mutateThreads();
+      } else {
+        setBatchError(err instanceof Error ? err.message : "Thread batch processing failed");
+      }
+    } finally {
+      if (batchAbortControllerRef.current === controller) batchAbortControllerRef.current = null;
+      setBatchRunning(false);
+      setBatchProgress(null);
+    }
+  }
+
+  async function processThread(threadId: string) {
+    if (processingId) return;
+    setProcessingId(threadId);
+    setErrorById((current) => {
+      const next = { ...current };
+      delete next[threadId];
+      return next;
+    });
+    try {
+      await runThreadProcess(threadId);
+      await mutateThreads();
+    } catch (err) {
+      setErrorById((current) => ({
+        ...current,
+        [threadId]: err instanceof Error ? err.message : "Thread processing failed",
+      }));
+    } finally {
+      setProcessingId(null);
+    }
+  }
 
   const handleSplitPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const splitArea = splitAreaRef.current;
@@ -300,54 +440,167 @@ export function ChatsView({ modeSwitcher, scopePath = "", workingFolder = "" }: 
     window.addEventListener("pointercancel", handlePointerUp);
   }, []);
 
+  const emptyLabel = !bothLoaded
+    ? "Loading conversations"
+    : lens === "needs-you"
+      ? "Nothing needs you"
+      : lens === "done"
+        ? "Nothing done yet"
+        : "No conversations yet";
+
   const listPane = (
-    <ChatListPane
-      filter={filter}
-      kindTabs={kindTabs}
-      kindCounts={kindCounts}
-      emptyLabel={isLoading && !data ? "Loading chats" : "No chats yet"}
-      groupedSessions={groupedSessions}
-      selectedId={selectedId}
-      onFilterChange={setFilter}
-      onSelect={handleSelect}
-      onMarkRead={markRead}
-      onMarkUnread={markUnread}
-      onArchive={archive}
-      onUnarchive={unarchive}
-      onRename={rename}
-    />
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-[var(--border-default)] px-3 py-1.5">
+        <FilterTab active={filter === "all"} onClick={() => setFilter("all")}>
+          All
+        </FilterTab>
+        {kindTabs.map((tab) => (
+          <FilterTab key={tab.kind} active={filter === tab.kind} onClick={() => setFilter(tab.kind)}>
+            <span>{tab.label}</span>
+            <span className="text-[var(--text-quaternary)]">{kindCounts.get(tab.kind) ?? 0}</span>
+          </FilterTab>
+        ))}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {rows.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-[var(--text-tertiary)]">
+            <MessagesSquare className="h-6 w-6" />
+            <span>{emptyLabel}</span>
+          </div>
+        ) : (
+          rows.map((row) =>
+            row.type === "thread" ? (
+              <ThreadRow
+                key={`thread-${row.thread.id}`}
+                thread={row.thread}
+                selected={selected?.type === "thread" && selected.threadId === row.thread.id}
+                working={
+                  processingId === row.thread.id
+                  || batchProgress?.threadId === row.thread.id
+                  || Boolean(row.thread.chat_ids?.some((chatId) => sendingChatIds.has(chatId)))
+                }
+                processDisabled={Boolean(processingId) || batchRunning}
+                error={errorById[row.thread.id] ?? null}
+                onSelect={() => setSelected({ type: "thread", threadId: row.thread.id, target: row.thread.target })}
+                onProcess={() => void processThread(row.thread.id)}
+              />
+            ) : (
+              <ChatSessionRow
+                key={`chat-${row.session.id}`}
+                session={row.session}
+                selectedId={selectedChatId}
+                onSelect={handleSelectChat}
+                onMarkRead={markRead}
+                onMarkUnread={markUnread}
+                onArchive={archive}
+                onUnarchive={unarchive}
+                onRename={rename}
+              />
+            ),
+          )
+        )}
+      </div>
+    </div>
   );
+
+  const detailPane = selected?.type === "thread" ? (
+    // Keyed per thread: switching rows remounts the drawer, so an in-flight process
+    // stream aborts (unmount cleanup) instead of bleeding into another thread.
+    <ThreadDrawer
+      key={selected.threadId}
+      threadId={selected.threadId}
+      target={selected.target}
+      onClose={() => setSelected(null)}
+      onProcessingChange={(active) => setProcessingId(active ? selected.threadId : null)}
+      onFollowThread={(id) => setSelected({ type: "thread", threadId: id, target: selected.target })}
+    />
+  ) : selected?.type === "chat" ? (
+    <ChatPanel
+      key={selected.chatId}
+      chatId={selected.chatId}
+      autoMarkRead={false}
+      onClose={() => setSelected(null)}
+      onSendStart={handleSendStart}
+      onTurnEnd={() => void mutateSessions()}
+      onOpenFile={handleOpenFile}
+    />
+  ) : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-primary)]">
       <SecondaryToolbar
-        left={modeSwitcher}
+        left={
+          <SecondarySegmentedControl>
+            {LENS_OPTIONS.map((option) => (
+              <SecondarySegmentedButton
+                key={option.id}
+                active={lens === option.id}
+                onClick={() => setLensChoice(option.id)}
+              >
+                {option.label}
+              </SecondarySegmentedButton>
+            ))}
+          </SecondarySegmentedControl>
+        }
         right={
           <>
             <div className="hidden items-center gap-1.5 text-xs text-[var(--text-tertiary)] md:flex">
-              <span>{counts.open} open</span>
+              <span>{needsYouRows.length} need you</span>
               <span className="text-[var(--text-quaternary)]">·</span>
-              <span>{counts.archived} archived</span>
+              <span>{mergeConversations(threads, sessions, "all").length} total</span>
             </div>
+            {openThreadCount > 0 || batchRunning ? (
+              <>
+                {batchRunning ? (
+                  <span className="hidden text-xs font-medium text-emerald-600 sm:inline">
+                    Processing {batchProgress?.index ?? 0}/{batchProgress?.total ?? openThreadCount}
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void processAllOpenThreads()}
+                  className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors hover:bg-[var(--bg-tertiary)] ${
+                    batchRunning
+                      ? "text-red-500 hover:text-red-600"
+                      : batchError
+                        ? "text-red-500"
+                        : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  }`}
+                >
+                  {batchRunning ? <X className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  <span>{batchRunning ? "Cancel" : "Process all"}</span>
+                </button>
+              </>
+            ) : null}
             <SecondaryIconButton
               onClick={refresh}
-              disabled={isValidating}
-              title="Refresh chats"
-              aria-label="Refresh chats"
+              disabled={threadsValidating || sessionsValidating}
+              title="Refresh conversations"
+              aria-label="Refresh conversations"
             >
-              <RefreshCw className={`h-4 w-4 ${isValidating ? "animate-spin" : ""}`} />
+              <RefreshCw className={`h-4 w-4 ${threadsValidating || sessionsValidating ? "animate-spin" : ""}`} />
             </SecondaryIconButton>
           </>
         }
       />
+      {batchError ? (
+        <div className="border-b border-red-500/20 bg-red-500/5 px-4 py-2 text-xs text-red-600">
+          {batchError}
+        </div>
+      ) : null}
       {actionError ? (
         <div className="border-b border-red-500/20 bg-red-500/5 px-4 py-2 text-xs text-red-600">
           {actionError}
         </div>
       ) : null}
-      {error ? (
+      {threadsError ? (
         <div className="border-b border-red-500/20 bg-red-500/5 px-4 py-2 text-xs text-red-600">
-          {error.message}
+          {threadsError.message}
+        </div>
+      ) : null}
+      {sessionsError ? (
+        <div className="border-b border-red-500/20 bg-red-500/5 px-4 py-2 text-xs text-red-600">
+          {sessionsError.message}
         </div>
       ) : null}
 
@@ -358,17 +611,9 @@ export function ChatsView({ modeSwitcher, scopePath = "", workingFolder = "" }: 
               {listPane}
             </div>
           </div>
-          {selectedId ? (
+          {detailPane ? (
             <div className="absolute inset-0 z-10 bg-[var(--content-surface,var(--bg-primary))]">
-              <ChatPanel
-                key={selectedId}
-                chatId={selectedId}
-                autoMarkRead={false}
-                onClose={() => setSelectedId(null)}
-                onSendStart={handleSendStart}
-                onTurnEnd={() => void mutate()}
-                onOpenFile={handleOpenFile}
-              />
+              {detailPane}
             </div>
           ) : null}
         </div>
@@ -390,119 +635,10 @@ export function ChatsView({ modeSwitcher, scopePath = "", workingFolder = "" }: 
             <div className="absolute inset-y-0 -left-1 -right-1" />
           </div>
           <div className="min-h-0 min-w-0 flex flex-col overflow-hidden border-y border-[var(--border-default)] bg-[var(--content-surface,var(--bg-primary))]">
-            {selectedId ? (
-              <ChatPanel
-                key={selectedId}
-                chatId={selectedId}
-                autoMarkRead={false}
-                onClose={() => setSelectedId(null)}
-                onSendStart={handleSendStart}
-                onTurnEnd={() => void mutate()}
-                onOpenFile={handleOpenFile}
-              />
-            ) : (
-              <EmptyChatPane />
-            )}
+            {detailPane ?? <EmptyDetailPane />}
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function ChatListPane({
-  filter,
-  kindTabs,
-  kindCounts,
-  emptyLabel,
-  groupedSessions,
-  selectedId,
-  onFilterChange,
-  onSelect,
-  onMarkRead,
-  onMarkUnread,
-  onArchive,
-  onUnarchive,
-  onRename,
-}: {
-  filter: ChatFilter;
-  kindTabs: Array<{ kind: ChatContextKind; label: string; icon: LucideIcon }>;
-  kindCounts: Map<ChatContextKind, number>;
-  emptyLabel: string;
-  groupedSessions: {
-    attention: ChatSessionSummary[];
-    open: ChatSessionSummary[];
-    archived: ChatSessionSummary[];
-  };
-  selectedId: string | null;
-  onFilterChange: (filter: ChatFilter) => void;
-  onSelect: (id: string) => void;
-  onMarkRead: (id: string) => void;
-  onMarkUnread: (id: string) => void;
-  onArchive: (id: string) => void;
-  onUnarchive: (id: string) => void;
-  onRename: (id: string, title: string) => void;
-}) {
-  const empty = groupedSessions.attention.length === 0
-    && groupedSessions.open.length === 0
-    && groupedSessions.archived.length === 0;
-
-  return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="flex items-center gap-1 overflow-x-auto border-b border-[var(--border-default)] px-3 py-1.5">
-        <FilterTab active={filter === "all"} onClick={() => onFilterChange("all")}>
-          All
-        </FilterTab>
-        {kindTabs.map((tab) => (
-          <FilterTab key={tab.kind} active={filter === tab.kind} onClick={() => onFilterChange(tab.kind)}>
-            <span>{tab.label}</span>
-            <span className="text-[var(--text-quaternary)]">{kindCounts.get(tab.kind) ?? 0}</span>
-          </FilterTab>
-        ))}
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {empty ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-[var(--text-tertiary)]">
-            <MessagesSquare className="h-6 w-6" />
-            <span>{emptyLabel}</span>
-          </div>
-        ) : (
-          <>
-            <ChatSessionGroup
-              title="Active"
-              sessions={groupedSessions.attention}
-              selectedId={selectedId}
-              onSelect={onSelect}
-              onMarkRead={onMarkRead}
-              onMarkUnread={onMarkUnread}
-              onArchive={onArchive}
-              onUnarchive={onUnarchive}
-              onRename={onRename}
-            />
-            <ChatSessionGroup
-              title="Open"
-              sessions={groupedSessions.open}
-              selectedId={selectedId}
-              onSelect={onSelect}
-              onMarkRead={onMarkRead}
-              onMarkUnread={onMarkUnread}
-              onArchive={onArchive}
-              onUnarchive={onUnarchive}
-              onRename={onRename}
-            />
-            <ArchivedChatGroup
-              sessions={groupedSessions.archived}
-              selectedId={selectedId}
-              onSelect={onSelect}
-              onMarkRead={onMarkRead}
-              onMarkUnread={onMarkUnread}
-              onArchive={onArchive}
-              onUnarchive={onUnarchive}
-              onRename={onRename}
-            />
-          </>
-        )}
-      </div>
     </div>
   );
 }
@@ -531,82 +667,125 @@ function FilterTab({
   );
 }
 
-function ChatSessionGroup({
-  title,
-  sessions,
-  ...rowProps
+function ThreadRow({
+  thread,
+  selected,
+  working,
+  processDisabled,
+  error,
+  onSelect,
+  onProcess,
 }: {
-  title: string;
-  sessions: ChatSessionSummary[];
-} & ChatRowActions) {
-  if (sessions.length === 0) return null;
+  thread: ThreadSummary;
+  selected: boolean;
+  working: boolean;
+  processDisabled: boolean;
+  error: string | null;
+  onSelect: () => void;
+  onProcess: () => void;
+}) {
+  const Icon = targetIcon(thread.target);
 
   return (
-    <section>
-      <h2 className="px-3 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
-        {title}
-      </h2>
-      <div>
-        {sessions.map((session) => (
-          <ChatSessionRow key={session.id} session={session} {...rowProps} />
-        ))}
+    <div>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onSelect}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelect();
+          }
+        }}
+        className={`group flex cursor-pointer items-center gap-3 border-l-2 px-3 py-2 transition-colors ${
+          selected
+            ? "border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10"
+            : "border-transparent hover:bg-[var(--bg-secondary)]"
+        }`}
+      >
+        <Icon className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm text-[var(--text-primary)]">{targetLabel(thread.target)}</div>
+          {thread.last_message_snippet ? (
+            <div className="mt-0.5 truncate text-xs text-[var(--text-tertiary)]">{thread.last_message_snippet}</div>
+          ) : null}
+        </div>
+        {thread.dev_item ? (
+          <span
+            className="hidden shrink-0 items-center rounded border border-amber-500/20 bg-amber-500/5 px-1.5 text-[11px] leading-5 text-amber-600 md:inline-flex"
+            title={`Diagnosed ${thread.dev_item.diagnosed_at}`}
+          >
+            Dev item
+          </span>
+        ) : null}
+        <ThreadStatus thread={thread} working={working} />
+        <div className="flex shrink-0 items-center gap-1 text-xs text-[var(--text-quaternary)]">
+          <MessageSquare className="h-3.5 w-3.5" />
+          <span>{thread.message_count}</span>
+        </div>
+        <time
+          className="hidden shrink-0 text-xs text-[var(--text-quaternary)] sm:inline"
+          dateTime={thread.updated_at}
+          title={thread.updated_at}
+        >
+          {relativeTime(thread.updated_at)}
+        </time>
+        {thread.status === "open" && !working ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onProcess();
+            }}
+            disabled={processDisabled}
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium opacity-0 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] focus-within:opacity-100 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
+          >
+            <Play className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">Process</span>
+          </button>
+        ) : null}
       </div>
-    </section>
+      {error ? (
+        <div className="pb-2 pl-10 pr-3 text-xs text-red-500">
+          {error}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
-function ArchivedChatGroup({
-  sessions,
-  ...rowProps
-}: {
-  sessions: ChatSessionSummary[];
-} & ChatRowActions) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(ARCHIVED_PAGE_SIZE);
-  const visibleSessions = sessions.slice(0, visibleCount);
-  const remainingCount = Math.max(0, sessions.length - visibleSessions.length);
-
-  useEffect(() => {
-    if (!isExpanded) {
-      setVisibleCount(ARCHIVED_PAGE_SIZE);
-    }
-  }, [isExpanded]);
-
-  if (sessions.length === 0) return null;
+function ThreadStatus({ thread, working }: { thread: ThreadSummary; working: boolean }) {
+  if (working) {
+    return (
+      <div className="hidden shrink-0 items-center gap-1.5 text-xs font-medium text-emerald-600 md:flex">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+        <span>Processing</span>
+      </div>
+    );
+  }
 
   return (
-    <section>
-      <button
-        type="button"
-        onClick={() => setIsExpanded((expanded) => !expanded)}
-        aria-expanded={isExpanded}
-        className="flex w-full items-center justify-between px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-primary)]"
-      >
-        <span className="flex items-center gap-1">
-          {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-          Archived
-        </span>
-        <span>{sessions.length}</span>
-      </button>
-      {isExpanded ? (
+    <div className="hidden shrink-0 items-center gap-1.5 text-xs text-[var(--text-tertiary)] md:flex">
+      {thread.status === "open" ? (
+        <span>Open</span>
+      ) : (
         <>
-          <div>
-            {visibleSessions.map((session) => (
-              <ChatSessionRow key={session.id} session={session} {...rowProps} />
-            ))}
-          </div>
-          {remainingCount > 0 ? (
-            <button
-              type="button"
-              onClick={() => setVisibleCount((count) => count + ARCHIVED_PAGE_SIZE)}
-              className="ml-3 mt-1 pb-3 text-xs text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-primary)]"
-            >
-              Show {Math.min(ARCHIVED_PAGE_SIZE, remainingCount)} more
-            </button>
+          {/* House unread idiom (ViewToggle/Library blue dot): resolved in the last 24h =
+              news you likely haven't seen — "the loop handled this overnight". */}
+          {resolvedRecently(thread) ? (
+            <span
+              className="h-1.5 w-1.5 rounded-full bg-blue-500"
+              title="Resolved in the last 24 hours"
+            />
           ) : null}
+          <span className="text-[var(--text-quaternary)]" title={resolvedAt(thread)}>
+            {resolutionStory(thread)}
+          </span>
         </>
-      ) : null}
-    </section>
+      )}
+    </div>
   );
 }
 
@@ -687,7 +866,7 @@ function ChatSessionRow({
           onSelect(session.id);
         }
       }}
-      className={`group relative flex cursor-pointer items-start gap-2.5 border-l-2 px-3 py-2 transition-colors ${
+      className={`group relative flex cursor-pointer items-start gap-3 border-l-2 px-3 py-2 transition-colors ${
         selected
           ? "border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10"
           : "border-transparent hover:bg-[var(--bg-secondary)]"
@@ -849,11 +1028,11 @@ function ChatRowStatus({ session }: { session: ChatSessionSummary }) {
   );
 }
 
-function EmptyChatPane() {
+function EmptyDetailPane() {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-[var(--text-tertiary)]">
       <MessagesSquare className="h-7 w-7" />
-      <span>Select a chat</span>
+      <span>Select a conversation</span>
     </div>
   );
 }

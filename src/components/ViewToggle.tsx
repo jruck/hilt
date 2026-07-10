@@ -1,11 +1,11 @@
 "use client";
 
 import React from "react";
-import { FileText, Compass, CalendarRange, Users, Layers, Bookmark } from "lucide-react";
+import { FileText, Compass, CalendarRange, Users, Layers, Bookmark, MessagesSquare } from "lucide-react";
 import { useHaptics } from "@/hooks/useHaptics";
 
 // The underlying view mode stored in state/preferences
-export type ViewMode = "docs" | "bridge" | "briefings" | "calendar" | "library" | "people" | "system";
+export type ViewMode = "docs" | "bridge" | "briefings" | "calendar" | "library" | "people" | "chats" | "system";
 
 // Primary view categories (same as ViewMode now)
 export type PrimaryView = Exclude<ViewMode, "briefings">;
@@ -34,14 +34,15 @@ const VIEW_CONFIG = [
   { id: "people" as const, label: "People", icon: Users, title: "People & meetings", shortcut: "3" },
   { id: "library" as const, label: "Library", icon: Bookmark, title: "Library", shortcut: "4" },
   { id: "docs" as const, label: "Docs", icon: FileText, title: "Documentation", shortcut: "5" },
-  { id: "system" as const, label: "System", icon: Layers, title: "System inspection", shortcut: "6" },
+  { id: "chats" as const, label: "Chats", icon: MessagesSquare, title: "Threads & chats", shortcut: "6" },
+  { id: "system" as const, label: "System", icon: Layers, title: "System inspection", shortcut: "7" },
 ];
 
 const VIEW_CONFIG_BY_ID = Object.fromEntries(
   VIEW_CONFIG.map((config) => [config.id, config]),
 ) as Record<PrimaryView, (typeof VIEW_CONFIG)[number]>;
 
-const VIEW_GROUPS: PrimaryView[][] = [["bridge", "calendar", "people", "library", "docs", "system"]];
+const VIEW_GROUPS: PrimaryView[][] = [["bridge", "calendar", "people", "library", "docs", "chats", "system"]];
 const NO_DRAG_STYLE = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 
 export function ViewToggle({ view, onChange, compact, iconSize, onDoubleTapActive, unreadTabs }: ViewToggleProps) {

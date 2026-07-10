@@ -9,7 +9,7 @@
  *      /system/sessions
  */
 
-export const VIEW_PREFIXES = ["bridge", "system", "map", "local-apps", "docs", "stack", "briefings", "calendar", "people", "library"] as const;
+export const VIEW_PREFIXES = ["bridge", "system", "map", "local-apps", "docs", "stack", "briefings", "calendar", "people", "library", "chats"] as const;
 export type ViewPrefix = (typeof VIEW_PREFIXES)[number];
 
 export function isViewPrefix(s: string): s is ViewPrefix {

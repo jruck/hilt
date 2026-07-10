@@ -2,15 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { Activity, Bot, FileText, Layers, Loader2, Map as MapIcon, MessageSquare, MessagesSquare, Network, RefreshCw, Server } from "lucide-react";
+import { Activity, Bot, FileText, Layers, Loader2, Map as MapIcon, Network, RefreshCw, Server } from "lucide-react";
 import { MapView } from "@/components/map/MapView";
 import { LocalAppsView } from "@/components/local-apps";
 import { PerformanceView } from "@/components/performance";
 import { isGraphEnabled } from "@/lib/graph/config";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { SystemSyncView } from "./SystemSyncView";
-import { SystemThreadsView } from "./SystemThreadsView";
-import { ChatsView } from "./ChatsView";
 import { StackFileTree, type StackFilterType } from "@/components/stack/StackFileTree";
 import { StackSummary } from "@/components/stack/StackSummary";
 import { MCPServerDetail } from "@/components/stack/MCPServerDetail";
@@ -42,8 +40,6 @@ const BASE_MODES: Array<{ id: SystemMode; label: string; icon: typeof MapIcon; t
   { id: "apps", label: "Apps", icon: Server, title: "Running apps and local services" },
   { id: "stack", label: "Stack", icon: Layers, title: "Claude/Codex configuration stack" },
   { id: "sync", label: "Sync", icon: RefreshCw, title: "Syncthing sync health" },
-  { id: "threads", label: "Threads", icon: MessageSquare, title: "Feedback threads across the system" },
-  { id: "chats", label: "Chats", icon: MessagesSquare, title: "Hilt-initiated Claude chats" },
   { id: "performance", label: "Performance", icon: Activity, title: "Mercury closet & compute telemetry" },
 ];
 
@@ -93,10 +89,6 @@ export function SystemView({ mode, onModeChange, searchQuery = "", workingFolder
           </div>
         ) : mode === "performance" ? (
           <PerformanceView modeSwitcher={modeSwitcher} />
-        ) : mode === "threads" ? (
-          <SystemThreadsView modeSwitcher={modeSwitcher} />
-        ) : mode === "chats" ? (
-          <ChatsView modeSwitcher={modeSwitcher} scopePath={scopePath} workingFolder={workingFolder} />
         ) : (
           <SystemSyncView modeSwitcher={modeSwitcher} />
         )}

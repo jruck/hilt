@@ -9,7 +9,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
-import { MessageSquare, Play, Send, X } from "lucide-react";
+import { Check, MessageSquare, Play, Send, X } from "lucide-react";
 import { ChatMessageList } from "@/components/chat/ChatMessageList";
 import { consumeNdjsonStream, mergeTraceEvent } from "@/components/chat/stream";
 import { formatRelativeDate } from "@/components/tasks/ProposalsSection";
@@ -103,6 +103,8 @@ export function ThreadDrawer({ threadId, target, onClose, onProcessingChange, on
   const [commentText, setCommentText] = useState("");
   const [commentBusy, setCommentBusy] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const liveChatIdRef = useRef<string | null>(null);
   const onProcessingChangeRef = useRef(onProcessingChange);
@@ -210,6 +212,28 @@ export function ThreadDrawer({ threadId, target, onClose, onProcessingChange, on
         setLiveDraft("");
         setLiveError(null);
       }
+    }
+  }
+
+  async function resolveManually() {
+    if (!thread || resolving) return;
+    setResolving(true);
+    setResolveError(null);
+    try {
+      const response = await fetch(withBasePath(`/api/threads/${thread.id}`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resolveAction: "closed", by: "justin" }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error || `Request failed: ${response.status}`);
+      }
+      await Promise.all([mutate(), mutateThreadsForTarget(target), globalMutate(THREAD_SUMMARIES_KEY)]);
+    } catch (err) {
+      setResolveError(err instanceof Error ? err.message : "Failed to resolve thread");
+    } finally {
+      setResolving(false);
     }
   }
 
@@ -333,7 +357,7 @@ export function ThreadDrawer({ threadId, target, onClose, onProcessingChange, on
         )}
 
         {thread?.status === "open" && (
-          <div className="mt-3 border-t border-[var(--border-default)] pt-2">
+          <div className="mt-3 flex items-center gap-1 border-t border-[var(--border-default)] pt-2">
             <button
               type="button"
               onClick={() => void processThread()}
@@ -347,6 +371,20 @@ export function ThreadDrawer({ threadId, target, onClose, onProcessingChange, on
               <Play className={`h-3.5 w-3.5 ${processing ? "animate-pulse" : ""}`} />
               {processing ? "Processing" : "Process"}
             </button>
+            {/* The manual close for the queue Justin owns: dev items (and any open thread he's
+                done with) need a way OUT of Open — the resolve API existed with no UI caller
+                (W3 verify note; Justin 2026-07-10: "logged and actionable by me later"). */}
+            <button
+              type="button"
+              onClick={() => void resolveManually()}
+              disabled={processing || resolving}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-60"
+              title="Mark this thread resolved"
+            >
+              <Check className="h-3.5 w-3.5" />
+              {resolving ? "Resolving" : "Resolve"}
+            </button>
+            {resolveError ? <span className="text-xs text-red-500">{resolveError}</span> : null}
           </div>
         )}
       </div>

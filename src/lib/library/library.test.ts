@@ -2134,6 +2134,127 @@ fixtures:
   assert.equal(listed.artifacts[0].created_at, new Date().toISOString().slice(0, 10));
 });
 
+test("explicit-save promotion preserves a completed candidate reweave", async () => {
+  process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
+  const vault = tempVault();
+  const cacheDir = path.join(vault, "references", ".cache", "library-candidates");
+  fs.mkdirSync(cacheDir, { recursive: true });
+  fs.writeFileSync(path.join(cacheDir, "adam-mosseri.md"), `---
+type: reference-candidate
+pipeline_version: v2.2
+description: Instagram's pod model validates the product-staff role and taste-as-bottleneck thesis.
+url: 'https://www.youtube.com/watch?v=yQ_EWmtfWvQ'
+format: video
+title: 'Adam Mosseri: AI is a tailwind for authenticity'
+author: Lenny's Podcast
+published: '2026-07-09'
+digested: '2026-07-09'
+channel: youtube
+source_id: youtube-lennys-podcast
+source_name: Lenny's Podcast
+intent: discovery
+digestion_status: hot
+digested_with: summarize-cli
+digested_at: '2026-07-09T13:28:27.825Z'
+extracted_chars: 1000
+cached_source_chars: 1000
+cached_source_extractor: summarize-cli
+tags: [product, growth]
+library_mode: study
+status: candidate
+expires: '2026-08-08'
+score:
+  relevance: 0.51
+  novelty: 0.65
+  confidence: 0.78
+  total: 0.619
+save_recommendation: review
+proposed_destination: references/process
+connected_projects:
+  - seb-1on1-strategy
+connection_suggestions:
+  - target: thoughts/new-process/index
+    label: The New Process
+    relationship: Mosseri's pod model confirms the role-collapse thesis.
+connection_reasoning: Woven into 1 note across Justin's work.
+reconnected_at: '2026-07-09T13:28:27.824Z'
+reweave_candidates:
+  - target: projects/seb-1on1-strategy/2026-07-09-seb-show-and-tell-plan
+    why: Add product staff as Meta's vocabulary for the generalist PM-plus archetype.
+attention_judgment:
+  tier: high
+  reason: Directly supports the current Seb narrative.
+youtube_video_id: yQ_EWmtfWvQ
+youtube_clip:
+  content_form: episode
+  confidence: 0.85
+  confidence_label: high
+  policy_action: process
+  clip_score: 0
+  episode_score: 0.85
+  signals:
+    - duration_over_20m
+    - description_has_chapters
+---
+# Adam Mosseri: AI is a tailwind for authenticity
+
+## Media
+
+<iframe width="560" height="315" src="https://www.youtube.com/embed/yQ_EWmtfWvQ" title="Adam Mosseri: AI is a tailwind for authenticity" frameborder="0"></iframe>
+
+Meta restructured Instagram's canonical product team into smaller pods.
+
+## Product Staff
+
+The candidate's completed reweave explains product staff as an evolved PM shape.
+
+## Connections
+
+- [[thoughts/new-process/index|The New Process]] - Mosseri's pod model confirms the role-collapse thesis.
+
+## Raw Content
+
+<details>
+<summary>Full source cache</summary>
+
+Transcript: A long useful transcript about product staff, pods, taste, and authenticity.
+
+</details>
+`, "utf-8");
+  writeSource(vault, "youtube-bookmarks.yaml", `
+id: youtube-bookmarks
+name: YouTube Bookmarks
+channel: fixture
+url: youtube://playlist/PLBOOKMARKS
+enabled: true
+intent: explicit_save
+signal: youtube_bookmark_playlist
+fixtures:
+  - url: https://www.youtube.com/watch?v=yQ_EWmtfWvQ
+    title: 'Adam Mosseri: AI is a tailwind for authenticity'
+    date: 2026-07-09
+    content: Explicit bookmark of the same video should promote the candidate, not redigest it down.
+    metadata: {}
+`);
+
+  const report = await runIngestion(vault, { useSummarize: false });
+  assert.equal(report.promoted, 1);
+  const promotedCandidate = listCandidates(vault)[0];
+  assert.equal(promotedCandidate.status, "promoted");
+
+  const saved = listSavedReferences(vault)[0];
+  assert.equal(saved.path, "references/process/2026-07-09-adam-mosseri-ai-is-a-tailwind-for-authenticity.md");
+  const parsed = parseReferenceFile(vault, path.join(vault, saved.path));
+  assert.ok(parsed);
+  assert.match(parsed.content, /## Product Staff/);
+  assert.doesNotMatch(parsed.content, /## Summary\n\nExplicit bookmark/);
+  assert.equal(parsed.raw_frontmatter.reconnected_at, "2026-07-09T13:28:27.824Z");
+  assert.equal(parsed.raw_frontmatter.reweave_pending, undefined);
+  assert.equal(parsed.raw_frontmatter.connection_reasoning, "Woven into 1 note across Justin's work.");
+  assert.equal((parsed.raw_frontmatter.connection_suggestions as ConnectionSuggestion[]).length, 1);
+  assert.equal((parsed.raw_frontmatter.youtube_clip as { confidence_label?: string }).confidence_label, "high");
+});
+
 test("source taxonomy is preserved separately from display tags", async () => {
   process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
   const vault = tempVault();

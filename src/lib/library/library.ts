@@ -93,6 +93,7 @@ function candidateToArtifact(vaultPath: string, candidate: ReferenceCandidate): 
     path: candidate.path,
     abs_path: filePath,
     title: candidate.title,
+    source_title: candidate.source_title || null,
     summary: candidate.summary || null,
     source_type: "reference-candidate",
     channel: candidate.channel,
@@ -130,6 +131,7 @@ function candidateToArtifact(vaultPath: string, candidate: ReferenceCandidate): 
     expires_at: candidate.expires,
     is_unread: false,
     read_at: null,
+    processing: candidate.processing,
     content: candidate.content,
     key_points: candidate.key_points,
     connections: candidate.connected_projects,
@@ -335,7 +337,6 @@ function resolveArtifactPath(vaultPath: string, artifactPath: string): { relPath
 export function getLibraryArtifactByPath(vaultPath: string, id: string, artifactPath: string): LibraryArtifactDetail | null {
   const resolved = resolveArtifactPath(vaultPath, artifactPath);
   if (!resolved) return null;
-  if (hashId(resolved.relPath) !== id) return null;
 
   const candidatePrefix = `${CANDIDATE_CACHE_DIR.split(path.sep).join("/")}/`;
   const artifact = resolved.relPath.startsWith(candidatePrefix)
@@ -345,6 +346,7 @@ export function getLibraryArtifactByPath(vaultPath: string, id: string, artifact
     })()
     : parseReferenceFile(vaultPath, resolved.filePath);
   if (!artifact) return null;
+  if (artifact.id !== id && hashId(resolved.relPath) !== id) return null;
   return applyLibraryReadState([artifact], readLibraryReadState(vaultPath))[0] || null;
 }
 

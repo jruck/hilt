@@ -9,6 +9,7 @@ import { PIPELINE_VERSION } from "./pipeline";
 import { friendlyNewsletterSender, semanticTags, uniqueTags, validLibraryMode } from "./taxonomy";
 import { youtubeFrontmatter } from "./youtube-frontmatter";
 import { seriesFromFrontmatter, seriesFrontmatter } from "./series";
+import { processingStateOf } from "./processing-state";
 
 const REFERENCES_DIR = "references";
 export const MANUAL_SOURCE_ID = "manual";
@@ -123,12 +124,15 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
       : null;
   const tags = semanticTags(frontmatterTags(data));
   const series = seriesFromFrontmatter(data);
+  const artifactUid = typeof data.artifact_uid === "string" && data.artifact_uid.trim() ? data.artifact_uid.trim() : undefined;
+  const processing = processingStateOf(data.processing);
 
   const detail: LibraryArtifactDetail = {
-    id: hashId(relPath),
+    id: artifactUid || hashId(relPath),
     path: relPath,
     abs_path: filePath,
     title,
+    source_title: typeof data.source_title === "string" ? data.source_title : null,
     summary,
     source_type: "reference",
     channel: (channel || MANUAL_SOURCE_ID) as LibraryArtifactDetail["channel"],
@@ -158,6 +162,7 @@ export function parseReferenceFile(vaultPath: string, filePath: string): Library
         : undefined,
     is_unread: false,
     read_at: null,
+    processing,
     content: body.trim(),
     key_points: keyPoints,
     connections: extractConnections(body),
@@ -188,9 +193,8 @@ export function listArchivedReferences(vaultPath: string): LibraryArtifactDetail
 export function findSavedReferenceById(vaultPath: string, id: string): LibraryArtifactDetail | null {
   for (const filePath of walkMarkdown(referencesDir(vaultPath))) {
     if (filePath.includes(`${path.sep}.cache${path.sep}`)) continue;
-    const relPath = relativeVaultPath(vaultPath, filePath);
-    if (hashId(relPath) !== id) continue;
-    return parseReferenceFile(vaultPath, filePath);
+    const artifact = parseReferenceFile(vaultPath, filePath);
+    if (artifact?.id === id) return artifact;
   }
   return null;
 }
@@ -244,10 +248,12 @@ function connectionLines(processed: ProcessedArtifact): string {
 
 export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reason?: PromotionReason): string {
   const { raw, source } = processed;
-  const capturedAt = isoNow();
+  const capturedAt = processed.processing?.started_at || isoNow();
   const captured = dateOnly(capturedAt);
   const frontmatter: Record<string, unknown> = {
     type: "reference",
+    artifact_uid: processed.artifact_uid || undefined,
+    source_title: processed.source_title || undefined,
     pipeline_version: PIPELINE_VERSION,
     // Prefer the reweave's feed-card description when present, else the summary. The reweave
     // description is allowed a touch more room (300) than the legacy summary slice.
@@ -290,6 +296,7 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
     attention_judgment: processed.attention_judgment || undefined,
     reweave_pending: processed.reweave_pending ? true : undefined,
     needs_auth_recovery: processed.needs_auth_recovery ? true : undefined,
+    processing: processed.processing || undefined,
     relevance_signals: source.intent === "explicit_save" ? [{
       type: source.signal || "explicit_save",
       channel: source.channel,
@@ -353,6 +360,11 @@ export function writeDurableReference(vaultPath: string, processed: ProcessedArt
   if (duplicate) return path.join(vaultPath, duplicate.path);
   const dir = destinationDir(vaultPath, processed.proposed_destination);
   const filePath = uniqueReferencePath(dir, processed.raw.title, dateOnly(processed.raw.date || new Date()));
+  atomicWriteFile(filePath, buildDurableReferenceMarkdown(processed, reason));
+  return filePath;
+}
+
+export function writeDurableReferenceAtPath(filePath: string, processed: ProcessedArtifact, reason?: PromotionReason): string {
   atomicWriteFile(filePath, buildDurableReferenceMarkdown(processed, reason));
   return filePath;
 }

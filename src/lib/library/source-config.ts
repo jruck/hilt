@@ -86,6 +86,10 @@ export interface SourceStateEntry {
   last_checked_at?: string;
   last_success_at?: string;
   last_error?: string;
+  last_polled_at?: string;
+  next_poll_at?: string;
+  poll_backoff_until?: string;
+  consecutive_poll_errors?: number;
   cursor?: string;
   backfill_complete_at?: string;
   blocked_reason?: string;

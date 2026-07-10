@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Archive, ArrowLeft, Check, ChevronDown, Clock, Copy, FileText, Layers, Link2, Network, Play, ThumbsDown, X, Zap, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Archive, ArrowLeft, Check, ChevronDown, Clock, Copy, FileText, Layers, Link2, Loader2, Network, Play, RotateCcw, ThumbsDown, X, Zap, type LucideIcon } from "lucide-react";
 import type { ReviewQueueStatus } from "@/lib/library/review-queue";
 import { useScope } from "@/contexts/ScopeContext";
 import { isGraphEnabled } from "@/lib/graph/config";
 import { buildGraphScope } from "@/components/graph/graph-deeplink";
-import { useLibraryArtifact } from "@/hooks/useLibrary";
+import { retryLibraryProcessing, useLibraryArtifact } from "@/hooks/useLibrary";
 import { attentionJudgmentFromFrontmatter, connectionPassEvidence, connectionPassState, connectionSuggestionsFromFrontmatter } from "@/lib/library/connection-state";
 import { stripLegacyReferenceBodyCruft } from "@/lib/library/legacy-cleanup";
 import { getYouTubeVideoId } from "@/lib/library/media";
@@ -23,6 +23,7 @@ import { LibraryLifecycleMenu } from "./LibraryLifecycleMenu";
 import { LibrarySeriesPanel } from "./LibrarySeriesPanel";
 import { VideoTranscript } from "./VideoTranscript";
 import { YouTubeEmbed, type YouTubeSeekRequest } from "./YouTubeEmbed";
+import { ProcessingStatus } from "./ProcessingStatus";
 
 export const LIBRARY_META_OPEN_KEY = "hilt.library.metaOpen";
 
@@ -269,6 +270,8 @@ export function LibraryArtifactDetailPane({
   const [videoSeconds, setVideoSeconds] = useState<number | null>(null);
   const [seekRequest, setSeekRequest] = useState<YouTubeSeekRequest | null>(null);
   const [copied, setCopied] = useState<"link" | "path" | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
   // Sticky across item switches: persisted so the metadata panel stays open/closed as you move between
   // items until you toggle it. (The pane remounts per item, so the state lives in localStorage.)
   const [metaOpen, setMetaOpen] = useState<boolean>(() => {
@@ -323,6 +326,8 @@ export function LibraryArtifactDetailPane({
     setVideoSeconds(null);
     setSeekRequest(null);
     setCopied(null);
+    setRetrying(false);
+    setRetryError(null);
   }, [id]);
 
   useEffect(() => {
@@ -372,6 +377,7 @@ export function LibraryArtifactDetailPane({
   const transcriptSegments = videoId ? parseTimedTranscript(sourceMarkdown) : [];
   const hasTimedTranscript = transcriptSegments.length >= 2;
   const isCandidate = artifact.lifecycle_status === "candidate";
+  const processingIncomplete = Boolean(artifact.processing && artifact.processing.state !== "ready");
   const handleChanged = async () => {
     await mutate();
     onChanged?.();
@@ -379,6 +385,19 @@ export function LibraryArtifactDetailPane({
   const seekVideo = (seconds: number) => {
     setSeekRequest({ id: Date.now(), seconds });
     setVideoSeconds(seconds);
+  };
+  const retryProcessing = async () => {
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      await retryLibraryProcessing(artifact.id);
+      await mutate();
+      onChanged?.();
+    } catch (error) {
+      setRetryError(error instanceof Error ? error.message : "Retry failed");
+    } finally {
+      setRetrying(false);
+    }
   };
   const hiltUrl = typeof window === "undefined"
     ? buildLibraryItemUrl(artifact.id)
@@ -448,23 +467,44 @@ export function LibraryArtifactDetailPane({
               )}
               {!artifact.pipeline_version && !artifact.eval_attrs && <span>metadata</span>}
             </button>
-            <LibraryLifecycleMenu
-              artifact={artifact}
-              align="right"
-              onChanged={handleChanged}
-              onMarkUnread={onMarkUnread}
-              onDismissCandidate={onCandidateDismissed}
-              onArchiveReference={onArchiveReference}
-              open={lifecycleOpen}
-              onOpenChange={(open) => {
-                setLifecycleOpen(open);
-                if (open) setReviewOpen(false);
-              }}
-            />
+            {!processingIncomplete && (
+              <LibraryLifecycleMenu
+                artifact={artifact}
+                align="right"
+                onChanged={handleChanged}
+                onMarkUnread={onMarkUnread}
+                onDismissCandidate={onCandidateDismissed}
+                onArchiveReference={onArchiveReference}
+                open={lifecycleOpen}
+                onOpenChange={(open) => {
+                  setLifecycleOpen(open);
+                  if (open) setReviewOpen(false);
+                }}
+              />
+            )}
           </div>
         </div>
         <h1 className="text-xl font-semibold leading-tight text-[var(--text-primary)] sm:text-2xl">{artifact.title}</h1>
         <LibrarySeriesPanel artifact={artifact} />
+        {artifact.processing && artifact.processing.state !== "ready" && (
+          <div className="mt-4 rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] p-3">
+            <ProcessingStatus processing={artifact.processing} standalone />
+            {artifact.processing.state === "blocked" && (
+              <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-[var(--border-default)] pt-3">
+                <button
+                  type="button"
+                  onClick={() => { void retryProcessing(); }}
+                  disabled={retrying}
+                  className="inline-flex min-h-9 items-center gap-2 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:cursor-wait disabled:opacity-60"
+                >
+                  {retrying ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                  Retry
+                </button>
+                {retryError && <span className="text-xs text-red-500">{retryError}</span>}
+              </div>
+            )}
+          </div>
+        )}
 
         {(() => {
           const meta = artifact.raw_frontmatter || {};
@@ -740,7 +780,7 @@ export function LibraryArtifactDetailPane({
                 <Network className="h-4 w-4" />
               </button>
             ) : null}
-            {!isCandidate && (
+            {!processingIncomplete && !isCandidate && (
               <>
                 {onReviewStatus && (
                   <div className="relative">

@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as http from "http";
 import { loadEnvConfig } from "@next/env";
 import { EventServer } from "./event-server";
-import { getScopeWatcher, getInboxWatcher, getBridgeWatcher } from "./watchers";
+import { getScopeWatcher, getInboxWatcher, getBridgeWatcher, getLibraryWatcher } from "./watchers";
 import { startCalendarSyncDaemon } from "../src/lib/calendar/daemon";
 import { startGranolaSyncDaemon } from "../src/lib/granola/daemon";
 import { startMetricsCollectorDaemon } from "../src/lib/system/telemetry/daemon";
@@ -16,6 +16,9 @@ import type {
 } from "./watchers";
 import type { GraphRunner } from "../src/lib/graph/runner";
 import type { SemanticRunner } from "../src/lib/semantic/runner";
+import { getVaultPathSync } from "../src/lib/bridge/vault";
+import { LibraryProcessingRunner } from "../src/lib/library/processing-trigger";
+import { startLibraryIntakeDaemon } from "../src/lib/library/intake-daemon";
 
 loadEnvConfig(process.cwd());
 
@@ -171,6 +174,21 @@ async function startServer() {
   const eventServer = new EventServer();
   console.log(`Event WebSocket server configured for path: /events`);
 
+  const libraryVaultPath = getVaultPathSync();
+  const libraryProcessingRunner = new LibraryProcessingRunner(libraryVaultPath);
+  const libraryWatcher = getLibraryWatcher(libraryVaultPath);
+  const libraryIntakeDaemon = startLibraryIntakeDaemon(libraryVaultPath, () => libraryProcessingRunner.kick());
+
+  libraryWatcher.on("artifact-changed", (event) => {
+    eventServer.broadcast("library", "artifact-changed", event);
+  });
+  libraryWatcher.on("queue-changed", (event) => {
+    eventServer.broadcast("library", "queue-changed", event);
+    libraryProcessingRunner.kick();
+  });
+  libraryWatcher.start();
+  libraryProcessingRunner.kick();
+
   // Scope watcher for docs tree/file events (per-client subscription)
   const scopeWatcher = getScopeWatcher();
 
@@ -207,6 +225,7 @@ async function startServer() {
 
   // Handle subscription events to start/stop watching scopes
   eventServer.on("subscription:added", ({ clientId, channel, params }: { clientId: string; channel: string; params: Record<string, unknown> }) => {
+    if (channel === "library") libraryIntakeDaemon.setForeground(true);
     const scope = params.scope as string | undefined;
     if (!scope) return;
 
@@ -218,6 +237,9 @@ async function startServer() {
   });
 
   eventServer.on("subscription:removed", ({ clientId, channel, params }: { clientId: string; channel: string; params?: Record<string, unknown> }) => {
+    if (channel === "library") {
+      libraryIntakeDaemon.setForeground(eventServer.getSubscribers("library").length > 0);
+    }
     const scope = params?.scope as string | undefined;
     if (!scope) return;
 
@@ -232,6 +254,7 @@ async function startServer() {
   eventServer.on("client:disconnected", (clientId: string) => {
     scopeWatcher.removeClient(clientId);
     inboxWatcher.removeClient(clientId);
+    libraryIntakeDaemon.setForeground(eventServer.getSubscribers("library").length > 0);
   });
 
   // Bridge watcher for vault file events
@@ -365,7 +388,7 @@ async function startServer() {
     })();
   }
 
-  console.log(`Scope, inbox, bridge, and calendar watchers configured`);
+  console.log(`Scope, inbox, bridge, library, and calendar watchers configured`);
 
   // Manually handle WebSocket upgrades and route to appropriate server
   httpServer.on("upgrade", (request, socket, head) => {
@@ -417,6 +440,8 @@ async function startServer() {
     scopeWatcher.stop();
     inboxWatcher.stop();
     bridgeWatcher.stop();
+    libraryWatcher.stop();
+    libraryIntakeDaemon.stop();
     stopCalendarSyncDaemon();
     fs.unwatchFile(CALENDAR_MARKER_FILE);
     eventServer.close();

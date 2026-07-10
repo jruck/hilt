@@ -6,6 +6,28 @@ export type LibraryLifecycleStatus = "candidate" | "saved" | "skipped" | "expire
 export type LibraryMode = "study" | "keep";
 export type LibraryModeFilter = LibraryMode | "all";
 
+export type LibraryProcessingStateName = "queued" | "active" | "ready" | "blocked";
+export type LibraryProcessingStage = "metadata" | "capture" | "transcribe" | "digest" | "reweave";
+
+export interface LibraryProcessingError {
+  code: string;
+  message: string;
+  retryable: boolean;
+}
+
+/** Durable, user-visible progress for a reference while its source becomes a finished Library read. */
+export interface LibraryProcessingState {
+  state: LibraryProcessingStateName;
+  stage: LibraryProcessingStage;
+  completed_stages: LibraryProcessingStage[];
+  started_at: string;
+  updated_at: string;
+  attempt: number;
+  next_retry_at: string | null;
+  last_error: LibraryProcessingError | null;
+  completed_at?: string | null;
+}
+
 export interface LibrarySeriesMetadata {
   id: string;
   title: string;
@@ -146,7 +168,21 @@ export interface ReweaveResult {
   attention_judgment?: AttentionJudgment;
 }
 
+export interface DigestionProgressEvent {
+  stage: LibraryProcessingStage;
+  status: "started" | "completed";
+  raw: RawArtifact;
+  summary?: string;
+  description?: string;
+  source_cache?: SourceCache;
+}
+
 export interface ProcessedArtifact {
+  /** Stable across title changes, candidate promotion, and file moves. */
+  artifact_uid?: string;
+  /** Source-native title retained when the Library-facing title improves. */
+  source_title?: string;
+  processing?: LibraryProcessingState;
   raw: RawArtifact;
   source: LibrarySourceConfig;
   format: string;
@@ -203,6 +239,7 @@ export interface ProcessedArtifact {
 
 export interface ReferenceCandidate {
   id: string;
+  artifact_uid?: string;
   path: string;
   title: string;
   url: string;
@@ -216,6 +253,8 @@ export interface ReferenceCandidate {
   /** Other sources that cited the same content (this entry is the canonical merge of them). */
   cited_from?: Citation[];
   thumbnail: string | null;
+  source_title?: string | null;
+  processing?: LibraryProcessingState;
   intent: SourceIntent;
   status: CandidateStatus;
   expires: string;
@@ -238,6 +277,12 @@ export interface ReferenceCandidate {
   };
   summary: string;
   key_points: string[];
+  digest_markdown?: string;
+  connection_suggestions?: ConnectionSuggestion[];
+  connection_reasoning?: string;
+  reconnected_at?: string;
+  reweave_candidates?: Array<{ target: string; why: string }>;
+  attention_judgment?: AttentionJudgment;
   cached_source: string | null;
   content: string;
   raw_frontmatter: Record<string, unknown>;
@@ -266,6 +311,7 @@ export interface LibraryArtifact {
   /** Absolute filesystem path — for portable references a local agent can open directly. */
   abs_path: string;
   title: string;
+  source_title?: string | null;
   summary: string | null;
   source_type: string;
   channel: LibraryChannel | null;
@@ -297,6 +343,7 @@ export interface LibraryArtifact {
   expires_at?: string | null;
   is_unread: boolean;
   read_at: string | null;
+  processing?: LibraryProcessingState;
   /** Dynamic L3 eval attributes for study items. Computed on read, never stamped into this shape. */
   eval_attrs?: LibraryEvalAttrs;
   /** Dynamic YouTube clip review attributes. Computed on read, never stamped by the filter UI. */
@@ -428,6 +475,19 @@ export interface LibraryOperationalHealth {
   sources: LibrarySourceHealthSummary[];
   dead_letters: LibraryDeadLetterSummary;
   reweave: LibraryReweaveBacklogSummary;
+  intake: LibraryIntakeHealthSummary;
+}
+
+export interface LibraryIntakeHealthSummary {
+  enabled: boolean;
+  running: boolean;
+  last_polled_at: string | null;
+  next_poll_at: string | null;
+  foreground: boolean;
+  queue_depth: number;
+  active: number;
+  blocked: number;
+  oldest_queued_at: string | null;
 }
 
 export interface LibraryReweaveBacklogSummary {
@@ -470,6 +530,28 @@ export interface IngestionArtifactResult {
   reason?: string;
   youtube_clip_policy?: YouTubeClipReviewAttrs["policy_action"];
   youtube_content_form?: YouTubeClipReviewAttrs["content_form"];
+}
+
+export interface LibraryIntakeArtifactResult {
+  artifact_uid: string;
+  url: string;
+  title: string;
+  lifecycle_status: "saved" | "candidate";
+  path: string;
+  status: "queued" | "duplicate" | "promoted";
+  reason?: string;
+}
+
+export interface LibraryIntakeReport {
+  started_at: string;
+  finished_at: string;
+  checked: number;
+  queued: number;
+  duplicates: number;
+  promoted: number;
+  blocked: Array<{ source_id: string; reason: string }>;
+  errors: string[];
+  artifacts: LibraryIntakeArtifactResult[];
 }
 
 export interface YouTubeClipIngestionSummary {

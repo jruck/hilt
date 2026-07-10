@@ -196,6 +196,17 @@ export function LibraryHealthPanel({
                   {health.reweave.last_throttled_at ? ` · last throttle ${relativeTime(health.reweave.last_throttled_at)} ago` : ""}
                 </div>
               )}
+              {health && (
+                <div data-testid="library-health-intake" className="mt-0.5 text-[var(--text-tertiary)]">
+                  Intake {health.intake.enabled ? (health.intake.foreground ? "foreground" : "background") : "disabled"}
+                  {health.intake.running ? " · checking now" : ""}
+                  {` · last poll ${health.intake.last_polled_at ? `${relativeTime(health.intake.last_polled_at)} ago` : "never"}`}
+                  {` · queue ${health.intake.queue_depth}`}
+                  {health.intake.active ? ` (${health.intake.active} active)` : ""}
+                  {health.intake.blocked ? ` · ${health.intake.blocked} blocked` : ""}
+                  {health.intake.oldest_queued_at ? ` · oldest ${relativeTime(health.intake.oldest_queued_at)}` : ""}
+                </div>
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
               {onCheckSources && (
@@ -208,7 +219,7 @@ export function LibraryHealthPanel({
                   className="inline-flex h-8 min-w-[112px] items-center justify-center gap-1.5 rounded-md px-2 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] disabled:cursor-wait disabled:text-[var(--text-tertiary)]"
                   title={isCheckingSources ? "Checking live Library sources" : "Check live Library sources now"}
                 >
-                  {isCheckingSources ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  {isCheckingSources ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                   {isCheckingSources ? "Checking" : "Check sources"}
                 </button>
               )}
@@ -221,7 +232,7 @@ export function LibraryHealthPanel({
                 className="inline-flex h-8 min-w-[104px] items-center justify-center gap-1.5 rounded-md px-2 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] disabled:cursor-wait disabled:text-[var(--text-tertiary)]"
                 title={refreshInFlight ? "Refreshing library health status" : "Refresh library health status"}
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${refreshInFlight ? "animate-spin" : ""}`} />
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshInFlight ? "motion-safe:animate-spin" : ""}`} />
                 {refreshInFlight ? "Refreshing" : "Refresh status"}
               </button>
             </div>

@@ -211,6 +211,38 @@ interface LoopEscalationsResponse {
 }
 ```
 
+### Calendar
+
+Hilt Calendar is read-only and stores normalized events in `${DATA_DIR}/calendar.sqlite`. The sync adapter consumes one private/public ICS URL per configured source; Google secondary calendars do not ride inside the primary account feed, so shared calendars need their own env key.
+
+```typescript
+type CalendarSourceId = "evercommerce" | "priceless" | "personal" | "family" | "us-holidays" | string;
+
+interface CalendarSource {
+  id: CalendarSourceId;
+  label: string;
+  providerHint: "google" | "outlook" | "fixture" | "ics";
+  accountHint: string;     // Account or calendar id hint, never the private feed URL
+  readOnly: boolean;
+  configured: boolean;
+  urlConfigured: boolean;
+  color: string;
+  lastSyncAt: string | null;
+  lastError: string | null;
+}
+
+interface CalendarDefinition {
+  id: string;              // `${sourceId}:primary`
+  sourceId: CalendarSourceId;
+  name: string;            // Feed display name, e.g. "Family"
+  color: string;
+  selected: boolean;
+  readOnly: boolean;
+}
+```
+
+Configured calendar sources live in `src/lib/calendar/config.ts`: EverCommerce, Priceless, Personal, Family (`family02812820750125202686@group.calendar.google.com`), and US Holidays. The Family source uses `HILT_CALENDAR_ICS_FAMILY_URL`; the US Holidays source keeps a public default feed.
+
 ### PinnedFolder
 
 A folder pinned to the sidebar for quick access.

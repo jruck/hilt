@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import type { LibraryArtifact, LibraryArtifactDetail } from "./types";
 import { atomicWriteFile, dateTimestamp, ensureDir, hashId, isoNow } from "./utils";
+import { libraryProcessingQueuePath, readProcessingQueueRecord } from "./processing";
 
 export interface LibraryReadState {
   version: 1;
@@ -132,7 +133,8 @@ export function applyLibraryReadState<T extends LibraryArtifact | LibraryArtifac
 }
 
 export function markLibraryArtifactsRead(vaultPath: string, ids: string[], readAt = isoNow()): MarkLibraryReadResult {
-  const uniqueIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  const uniqueIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)))
+    .filter((id) => !readProcessingQueueRecord(libraryProcessingQueuePath(vaultPath, id)));
   if (!uniqueIds.length) return { marked: 0, ids: [], read_at: readAt };
 
   const state = readLibraryReadState(vaultPath);

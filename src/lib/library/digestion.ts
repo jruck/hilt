@@ -3,7 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { promisify } from "util";
-import type { LibrarySourceConfig, ProcessedArtifact, RawArtifact, SaveRecommendation } from "./types";
+import type { DigestionProgressEvent, LibraryProcessingStage, LibrarySourceConfig, ProcessedArtifact, RawArtifact, SaveRecommendation } from "./types";
 import { isoNow, scoreClamp } from "./utils";
 import { isXVideoUrl, isYouTubeUrl, looksLikeThreadRoot } from "./media";
 import { enrichRawArtifactMedia } from "./media-enrichment";
@@ -615,19 +615,41 @@ function projectSlugFromTarget(target: string | null, projectSlugs: Set<string>)
   return projectSlugs.has(slug) ? slug : null;
 }
 
+export interface DigestArtifactOptions {
+  useSummarize?: boolean;
+  vaultPath?: string;
+  preferCachedSource?: boolean;
+  reweaveTimeoutMs?: number;
+  onProgress?: (event: DigestionProgressEvent) => void | Promise<void>;
+}
+
+async function reportProgress(
+  options: DigestArtifactOptions,
+  stage: LibraryProcessingStage,
+  status: DigestionProgressEvent["status"],
+  raw: RawArtifact,
+  details: Omit<DigestionProgressEvent, "stage" | "status" | "raw"> = {},
+): Promise<void> {
+  await options.onProgress?.({ stage, status, raw, ...details });
+}
+
 export async function digestArtifact(
   raw: RawArtifact,
   source: LibrarySourceConfig,
-  options: { useSummarize?: boolean; vaultPath?: string; preferCachedSource?: boolean; reweaveTimeoutMs?: number } = {},
+  options: DigestArtifactOptions = {},
 ): Promise<ProcessedArtifact> {
+  await reportProgress(options, "metadata", "started", raw);
   const extractionNotes: string[] = [];
   const mediaEnrichment = await enrichRawArtifactMedia(raw, {
     disabled: source.channel === "raindrop" && Boolean(raw.metadata.raindrop_id),
   });
   raw = mediaEnrichment.raw;
   extractionNotes.push(...mediaEnrichment.notes);
+  await reportProgress(options, "metadata", "completed", raw);
 
   const requestedSummarize = options.useSummarize ?? true;
+  const captureStage: LibraryProcessingStage = source.channel === "youtube" || isYouTubeUrl(raw.url) ? "transcribe" : "capture";
+  await reportProgress(options, captureStage, "started", raw);
   const xSource = source.channel === "twitter" || isXUrl(raw.url);
   const linkedUrl = xSource ? await resolveLinkedUrl(raw) : null;
   const directX = xSource ? await fetchXPostText(raw.url, source) : null;
@@ -842,6 +864,8 @@ export async function digestArtifact(
   if (shouldSummarizeUrl && !sourceCache && /^https?:\/\//.test(summarizeTarget)) {
     extractionNotes.push("Full source extraction was unavailable; Raw Content uses source-provided metadata/content fallback.");
   }
+  await reportProgress(options, captureStage, "completed", raw, { source_cache: sourceCache || undefined });
+  await reportProgress(options, "digest", "started", raw, { source_cache: sourceCache || undefined });
 
   const format = inferFormat(raw, source);
   // GUARD: the summarize CLI sometimes returns a raw transcript/source dump instead of a real digest
@@ -941,8 +965,14 @@ export async function digestArtifact(
   let digestMarkdown: string | undefined = summarized?.trim() || undefined;
   let description: string | undefined = digestMarkdown ? deriveDescription(digestMarkdown) : undefined;
   let reweavePending = false;
+  await reportProgress(options, "digest", "completed", raw, {
+    summary,
+    description,
+    source_cache: sourceCache || undefined,
+  });
   const vaultPath = options.vaultPath || process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER;
   if (shouldWeaveConnections && process.env.LIBRARY_CONNECTIONS_DISABLED !== "1" && vaultPath) {
+    await reportProgress(options, "reweave", "started", raw, { summary, description, source_cache: sourceCache || undefined });
     const projectSlugs = projectSlugSet(vaultPath);
     const kbIndex = buildKbIndex(vaultPath);
     // Durable saves get the single-pass reweave: a free-form digest plus disciplined first-party
@@ -987,6 +1017,7 @@ export async function digestArtifact(
       ));
       // We never auto-rename files; raw.title is kept as the H1 and filename basis. The reweave's
       // proposed_title is a suggestion only and is not persisted from this path.
+      await reportProgress(options, "reweave", "completed", raw, { summary, description, source_cache: sourceCache || undefined });
     } else {
       // Reweave couldn't run (rate-limited / parse failure). The L1 free-form digest stands as the
       // body; flag for re-upgrade so a later pass adds connections — never stamp a study item "done"

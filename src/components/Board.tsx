@@ -13,7 +13,7 @@ import { AppHud } from "./AppHud";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBriefingUnread } from "@/hooks/useBriefingUnread";
 import { prefetchCalendarCaches } from "@/hooks/useCalendar";
-import { useLibraryUnread } from "@/hooks/useLibrary";
+import { intakeLibrarySources, useLibraryUnread } from "@/hooks/useLibrary";
 import { prefetchWeatherForecast } from "@/hooks/useWeather";
 import { PullToRefresh } from "./PullToRefresh";
 import { MobileChromeProvider } from "@/contexts/MobileChromeContext";
@@ -372,12 +372,19 @@ export function Board() {
     }
   }, [setViewMode]);
 
-  // Pull-to-refresh: full page reload (simplest, most reliable for PWA)
   const handleRefresh = useCallback(async () => {
+    if (viewMode === "library") {
+      try {
+        await intakeLibrarySources({ limit: 25 });
+      } finally {
+        setLibraryActivationToken((token) => token + 1);
+      }
+      return;
+    }
     window.location.reload();
     // Return a promise that never resolves — page will reload
     return new Promise<void>(() => {});
-  }, []);
+  }, [viewMode]);
 
   // Listen for CLI navigation commands.
   //

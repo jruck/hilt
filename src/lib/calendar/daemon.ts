@@ -8,6 +8,7 @@ export function startCalendarSyncDaemon(options: {
   intervalMs?: number;
   runImmediately?: boolean;
 } = {}): () => void {
+  if (process.env.HILT_CALENDAR_SYNC_DAEMON === "0") return () => {};
   if (stopCurrentDaemon) return stopCurrentDaemon;
 
   const intervalMs = options.intervalMs ?? CALENDAR_SYNC_FRESHNESS_MS;

@@ -27,6 +27,7 @@ import { SECONDARY_TOOLBAR_BODY_GUTTER_CLASS } from "@/components/layout/Seconda
 import { EvalMetricPills, formatEvalScore } from "./EvalMetricPills";
 import { LibraryArtifactDetailPane } from "./LibraryArtifactDetailPane";
 import { SeriesBadge } from "./SeriesBadge";
+import { ProcessingStatus } from "./ProcessingStatus";
 
 const SOURCE_WIDTH_KEY = "hilt-library-source-width";
 const LIST_WIDTH_KEY = "hilt-library-list-width";
@@ -619,11 +620,15 @@ export function ArtifactList({
                     <span className="truncate">{artifact.source_name || artifact.channel}</span>
                     <span>{artifact.created_at?.slice(0, 10)}</span>
                     {artifact.series && <SeriesBadge artifact={artifact} compact />}
-                    <EvalMetricPills
-                      evalAttrs={artifact.eval_attrs}
-                      breakdown={showEvalBreakdown}
-                      showArchiveFlag={showEvalBreakdown}
-                    />
+                    {artifact.processing && artifact.processing.state !== "ready" ? (
+                      <ProcessingStatus processing={artifact.processing} compact standalone />
+                    ) : (
+                      <EvalMetricPills
+                        evalAttrs={artifact.eval_attrs}
+                        breakdown={showEvalBreakdown}
+                        showArchiveFlag={showEvalBreakdown}
+                      />
+                    )}
                     <span className="inline-flex items-center gap-1 text-[var(--text-secondary)]">
                       {artifact.lifecycle_status === "candidate" ? <CircleDot className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
                       {artifact.lifecycle_status === "candidate" ? "Candidate" : "Saved"}

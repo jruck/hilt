@@ -12,6 +12,7 @@ import { ContentTypeIcon } from "./ContentTypeIcon";
 import { EvalMetricPills } from "./EvalMetricPills";
 import { LibraryLifecycleMenu } from "./LibraryLifecycleMenu";
 import { SeriesBadge } from "./SeriesBadge";
+import { ProcessingStatus } from "./ProcessingStatus";
 
 function clipPolicyLabel(policy: string): string {
   if (policy === "label_review") return "Clip review";
@@ -79,7 +80,8 @@ export function FeedCard({
   const hasGeneralActions = Boolean(isCandidate && artifact.url);
   const displayTags = artifactDisplayTags(artifact).slice(0, 4);
   const clipReview = artifact.youtube_clip && artifact.youtube_clip.policy_action !== "process" ? artifact.youtube_clip : null;
-  const hasCardActionRow = Boolean(artifact.lifecycle_status || artifact.eval_attrs || hasUpdatedReviewActions || hasGeneralActions);
+  const processingIncomplete = Boolean(artifact.processing && artifact.processing.state !== "ready");
+  const hasCardActionRow = !processingIncomplete && Boolean(artifact.lifecycle_status || artifact.eval_attrs || hasUpdatedReviewActions || hasGeneralActions);
   const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.target !== event.currentTarget) return;
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -112,9 +114,9 @@ export function FeedCard({
       className={`hilt-card group relative cursor-pointer overflow-visible transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)] focus:ring-offset-2 focus:ring-offset-[var(--bg-primary)] ${actionsOpen || reviewOpen || lifecycleOpen ? "z-30" : "z-0"} ${useWideLayout ? "md:flex md:min-h-[190px] md:flex-row-reverse md:items-start" : ""} ${activeClass}`}
     >
       {hasThumbnail && (
-        <div className={`relative z-10 block aspect-video w-full overflow-hidden rounded-t-lg bg-[var(--bg-secondary)] text-left ${useWideLayout ? "md:m-4 md:ml-0 md:aspect-auto md:w-[34%] md:min-w-[220px] md:max-w-[320px] md:shrink-0 md:self-start md:rounded-md" : ""}`}>
+        <div className={`relative z-10 block aspect-video w-full overflow-hidden rounded-t-lg bg-[var(--bg-secondary)] text-left ${useWideLayout ? "md:m-4 md:ml-0 md:w-[34%] md:min-w-[220px] md:max-w-[320px] md:shrink-0 md:self-start md:rounded-md" : ""}`}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={artifact.thumbnail || ""} alt="" onError={() => setThumbnailFailed(true)} className={`h-full w-full object-cover ${useWideLayout ? "md:h-auto md:object-contain" : ""}`} />
+          <img src={artifact.thumbnail || ""} alt="" onError={() => setThumbnailFailed(true)} className="h-full w-full object-cover" />
           {formatVideoDuration(artifact.video_duration_seconds) && (
             <span className="absolute bottom-1.5 right-1.5 rounded bg-black/80 px-1.5 py-0.5 text-[11px] font-medium leading-none text-white tabular-nums">
               {formatVideoDuration(artifact.video_duration_seconds)}
@@ -160,6 +162,8 @@ export function FeedCard({
             </div>
           </div>
         )}
+
+        {artifact.processing && <ProcessingStatus processing={artifact.processing} />}
 
         {hasCardActionRow && (
           <div className="flex flex-wrap items-center justify-start gap-1 border-t border-[var(--border-default)] pt-3">

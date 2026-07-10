@@ -130,7 +130,7 @@ export function PullToRefresh({
   const isOverThreshold = pullDistance >= threshold;
 
   return (
-    <div ref={containerRef} className="flex flex-col flex-1 overflow-hidden relative">
+    <div ref={containerRef} data-testid="pull-to-refresh" className="flex flex-col flex-1 overflow-hidden relative">
       {/* Pull indicator */}
       <div
         className="absolute left-0 right-0 flex items-center justify-center z-10 pointer-events-none"

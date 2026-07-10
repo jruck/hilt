@@ -1,14 +1,15 @@
 import fs from "fs";
 import path from "path";
-import type { CandidateStatus, ReferenceCandidate, ProcessedArtifact, PromotionReason } from "./types";
+import type { AttentionJudgment, CandidateStatus, ReferenceCandidate, ProcessedArtifact, PromotionReason } from "./types";
 import { addDays, atomicWriteFile, canonicalUrl, dateOnly, ensureDir, hashId, isoNow, slugify, walkMarkdown } from "./utils";
 import { extractBullets, extractSection, parseMarkdownFile, relativeVaultPath, stringifyMarkdown } from "./markdown";
 import { buildMediaMarkdown, cachedSourceContent, stripDetailsWrapper } from "./media";
-import { readCitations } from "./citations";
+import { connectionSuggestionsOf, readCitations } from "./citations";
 import { PIPELINE_VERSION } from "./pipeline";
 import { friendlyNewsletterSender, semanticTags, uniqueTags, validLibraryMode } from "./taxonomy";
 import { youtubeFrontmatter } from "./youtube-frontmatter";
 import { seriesFromFrontmatter, seriesFrontmatter } from "./series";
+import { processingStateOf } from "./processing-state";
 
 export const CANDIDATE_CACHE_DIR = path.join("references", ".cache", "library-candidates");
 const NEWSLETTERS_SOURCE_ID = "superhuman-news";
@@ -20,6 +21,57 @@ const MANUAL_SOURCE_NAME = "Manual";
 
 export function candidateCacheDir(vaultPath: string): string {
   return path.join(vaultPath, CANDIDATE_CACHE_DIR);
+}
+
+function parseReweaveCandidates(value: unknown): Array<{ target: string; why: string }> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const parsed = value
+    .map((item): { target: string; why: string } | null => {
+      if (!item || typeof item !== "object") return null;
+      const record = item as Record<string, unknown>;
+      const target = typeof record.target === "string" ? record.target.trim() : "";
+      const why = typeof record.why === "string" ? record.why.trim() : "";
+      return target && why ? { target, why } : null;
+    })
+    .filter((item): item is { target: string; why: string } => item !== null);
+  return parsed.length ? parsed : undefined;
+}
+
+function parseAttentionJudgment(value: unknown): AttentionJudgment | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const tier = record.tier;
+  const reason = typeof record.reason === "string" ? record.reason.trim() : "";
+  if ((tier !== "high" && tier !== "medium" && tier !== "low") || !reason) return undefined;
+  return { tier, reason };
+}
+
+function extractCandidateDigestMarkdown(body: string): string | undefined {
+  const lines = body.split(/\r?\n/);
+  let index = 0;
+  if (/^#\s+/.test(lines[index]?.trim() || "")) {
+    index += 1;
+    while (index < lines.length && !lines[index].trim()) index += 1;
+  }
+
+  const digest: string[] = [];
+  for (; index < lines.length; index += 1) {
+    const line = lines[index];
+    const heading = line.trim().match(/^##\s+(.+?)\s*$/)?.[1]?.toLowerCase();
+    if (heading === "connections" || heading === "suggested connections" || heading === "raw content" || heading === "source notes" || heading === "assessment") {
+      break;
+    }
+    if (heading === "media") {
+      index += 1;
+      while (index < lines.length && !/^##\s+/.test(lines[index].trim())) index += 1;
+      index -= 1;
+      continue;
+    }
+    digest.push(line);
+  }
+
+  const markdown = digest.join("\n").trim();
+  return markdown || undefined;
 }
 
 // Per-file parsed-candidate cache — the candidate-lane twin of the reference detailCache in
@@ -44,6 +96,7 @@ export function parseCandidateFile(vaultPath: string, filePath: string): Referen
   const score = typeof data.score === "object" && data.score !== null ? data.score as Record<string, unknown> : {};
   const promotion = typeof data.promotion === "object" && data.promotion !== null ? data.promotion as Record<string, unknown> : {};
   const keyPoints = extractBullets(extractSection(body, "Key Points"));
+  const digestMarkdown = extractCandidateDigestMarkdown(body);
   const cachedSource = stripDetailsWrapper(extractSection(body, "Raw Content"));
   const sourceTags = uniqueTags(Array.isArray(data.source_tags) ? data.source_tags : []);
   const channel = String(data.channel || "manual") as ReferenceCandidate["channel"];
@@ -63,6 +116,8 @@ export function parseCandidateFile(vaultPath: string, filePath: string): Referen
       : null;
   const sourceId = String(data.source_id || "");
   const series = seriesFromFrontmatter(data);
+  const artifactUid = typeof data.artifact_uid === "string" && data.artifact_uid.trim() ? data.artifact_uid.trim() : undefined;
+  const processing = processingStateOf(data.processing);
   const sourceName = sourceId === NEWSLETTERS_SOURCE_ID
     ? NEWSLETTERS_SOURCE_NAME
     : sourceId === BOOK_CAPTURE_SOURCE_ID
@@ -71,7 +126,8 @@ export function parseCandidateFile(vaultPath: string, filePath: string): Referen
         ? MANUAL_SOURCE_NAME
         : String(data.source_name || "");
   const candidate: ReferenceCandidate = {
-    id: hashId(relativeVaultPath(vaultPath, filePath)),
+    id: artifactUid || hashId(relativeVaultPath(vaultPath, filePath)),
+    artifact_uid: artifactUid,
     path: relativeVaultPath(vaultPath, filePath),
     title,
     url: String(data.url || ""),
@@ -84,6 +140,8 @@ export function parseCandidateFile(vaultPath: string, filePath: string): Referen
     source_name: sourceName,
     cited_from: readCitations(data),
     thumbnail: typeof data.thumbnail === "string" ? data.thumbnail : null,
+    source_title: typeof data.source_title === "string" ? data.source_title : null,
+    processing,
     intent: String(data.intent || "discovery") as ReferenceCandidate["intent"],
     status: String(data.status || "candidate") as CandidateStatus,
     expires: String(data.expires || addDays(new Date(), 30)),
@@ -111,6 +169,12 @@ export function parseCandidateFile(vaultPath: string, filePath: string): Referen
     },
     summary: String(data.description || data.summary || extractSection(body, "Summary") || "").trim(),
     key_points: keyPoints,
+    digest_markdown: digestMarkdown,
+    connection_suggestions: connectionSuggestionsOf(data),
+    connection_reasoning: typeof data.connection_reasoning === "string" ? data.connection_reasoning : undefined,
+    reconnected_at: typeof data.reconnected_at === "string" ? data.reconnected_at : undefined,
+    reweave_candidates: parseReweaveCandidates(data.reweave_candidates),
+    attention_judgment: parseAttentionJudgment(data.attention_judgment),
     cached_source: cachedSource || null,
     content: body.trim(),
     raw_frontmatter: data,
@@ -130,9 +194,8 @@ export function listCandidates(vaultPath: string, status?: CandidateStatus): Ref
 
 export function findCandidateById(vaultPath: string, id: string): ReferenceCandidate | null {
   for (const filePath of walkMarkdown(candidateCacheDir(vaultPath), { includeHidden: true })) {
-    const relPath = relativeVaultPath(vaultPath, filePath);
-    if (hashId(relPath) !== id) continue;
-    return parseCandidateFile(vaultPath, filePath);
+    const candidate = parseCandidateFile(vaultPath, filePath);
+    if (candidate?.id === id) return candidate;
   }
   return null;
 }
@@ -168,6 +231,8 @@ export function buildCandidateMarkdown(processed: ProcessedArtifact): string {
   const now = dateOnly();
   const frontmatter: Record<string, unknown> = {
     type: "reference-candidate",
+    artifact_uid: processed.artifact_uid || undefined,
+    source_title: processed.source_title || undefined,
     pipeline_version: PIPELINE_VERSION,
     // The feed-card description. Prefer the reweave's free-form description; persist it so a
     // free-form digest body (which no longer carries a ## Summary heading) still yields a summary
@@ -216,6 +281,7 @@ export function buildCandidateMarkdown(processed: ProcessedArtifact): string {
     reweave_candidates: processed.reweave_candidates?.length ? processed.reweave_candidates : undefined,
     attention_judgment: processed.attention_judgment || undefined,
     reweave_pending: processed.reweave_pending ? true : undefined,
+    processing: processed.processing || undefined,
     promotion: {
       promoted_to: null,
       promoted_at: null,
@@ -268,6 +334,11 @@ export function writeCandidate(vaultPath: string, processed: ProcessedArtifact):
   const existing = findCandidateByUrl(vaultPath, processed.raw.url);
   if (existing) return path.join(vaultPath, existing.path);
   const filePath = candidateFilePath(vaultPath, processed);
+  atomicWriteFile(filePath, buildCandidateMarkdown(processed));
+  return filePath;
+}
+
+export function writeCandidateAtPath(filePath: string, processed: ProcessedArtifact): string {
   atomicWriteFile(filePath, buildCandidateMarkdown(processed));
   return filePath;
 }

@@ -17,3 +17,6 @@ export { BridgeWatcher, getBridgeWatcher } from "./bridge-watcher";
 export type {
   BridgeChangedEvent,
 } from "./bridge-watcher";
+
+export { LibraryWatcher, getLibraryWatcher } from "./library-watcher";
+export type { LibraryArtifactChangedEvent, LibraryQueueChangedEvent } from "./library-watcher";

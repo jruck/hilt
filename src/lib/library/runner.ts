@@ -2,7 +2,7 @@ import { appendDeadLetter } from "./dead-letter";
 import { isLibrarySourceBlockedError } from "./errors";
 import { fetchArtifactBatchForSource } from "./adapters";
 import { loadSources, readSourceState, writeSourceState } from "./source-config";
-import { processArtifact } from "./processor";
+import { processArtifactBatch } from "./batch-processor";
 import { isoNow } from "./utils";
 import { persistedYouTubeClip } from "./youtube-frontmatter";
 import { isMutedSender, readMutedSenders } from "./library-mute";
@@ -141,6 +141,7 @@ export async function runIngestion(
       }
       report.checked += 1;
 
+      const processableArtifacts: RawArtifact[] = [];
       for (const artifact of artifacts) {
         // Muted senders: skip before any fetch/digest/reweave so we never spend tokens on them.
         const sender = artifact.author || (typeof artifact.metadata.author === "string" ? artifact.metadata.author : null);
@@ -170,12 +171,18 @@ export async function runIngestion(
           });
           continue;
         }
+        processableArtifacts.push(artifact);
+      }
+
+      const processedBatch = await processArtifactBatch(vaultPath, processableArtifacts, source, {
+        useSummarize: options.useSummarize,
+        dryRun: options.dryRun,
+        reweaveTimeoutMs: options.reweaveTimeoutMs,
+      });
+      for (const [artifactIndex, artifact] of processableArtifacts.entries()) {
         try {
-          const processed = await processArtifact(vaultPath, artifact, source, {
-            useSummarize: options.useSummarize,
-            dryRun: options.dryRun,
-            reweaveTimeoutMs: options.reweaveTimeoutMs,
-          });
+          const processed = processedBatch[artifactIndex];
+          if (!processed) throw new Error("Processing result was not produced");
           if (processed.status === "candidate") {
             result.candidates += 1;
             report.candidates += 1;
@@ -192,7 +199,7 @@ export async function runIngestion(
             result.duplicates += 1;
             report.duplicates += 1;
           }
-          const youtubeClip = processed.youtube_clip || persistedYouTubeClip(artifact.metadata.youtube_clip);
+          const youtubeClip = persistedYouTubeClip(artifact.metadata.youtube_clip) || processed.youtube_clip;
           recordYouTubeClip(result.youtube_clip_review, youtubeClip);
           result.artifacts.push({
             url: artifact.url,

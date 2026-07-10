@@ -77,7 +77,7 @@ function currentTaskSignals(vaultPath: string, taskWeight: number): ContextSigna
 
 function recentSaveSignals(artifacts: LibraryArtifactDetail[], weights: LibraryScoringConfig["signal_weights"]): ContextSignal[] {
   return artifacts
-    .filter((artifact) => artifact.lifecycle_status === "saved")
+    .filter((artifact) => artifact.lifecycle_status === "saved" && (!artifact.processing || artifact.processing.state === "ready"))
     .slice(0, 20)
     .map((artifact) => ({
       kind: "recent_save" as const,
@@ -295,6 +295,7 @@ export function evaluateLibrary(vaultPath: string, opts: { limit?: number } = {}
   const semanticCtx = buildSemanticContext(vaultPath, artifacts);
   return artifacts
     .filter((artifact) => artifact.lifecycle_status !== "expired" && artifact.lifecycle_status !== "skipped")
+    .filter((artifact) => !artifact.processing || artifact.processing.state === "ready")
     // keep is a stash, out of the worth-ranked feed; worth scoring applies only to study items.
     .filter((artifact) => artifact.library_mode !== "keep")
     .map((artifact) => scoreArtifact(vaultPath, artifact, signals, semanticCtx, config));
@@ -305,12 +306,14 @@ export function evaluateLibrary(vaultPath: string, opts: { limit?: number } = {}
 export function scoreArtifacts(vaultPath: string, artifacts: LibraryArtifactDetail[]): RecommendedArtifact[] {
   const { artifacts: all, signals, config } = sharedScoringInputs(vaultPath);
   const semanticCtx = buildSemanticContext(vaultPath, all);
-  return artifacts.map((artifact) => scoreArtifact(vaultPath, artifact, signals, semanticCtx, config));
+  return artifacts
+    .filter((artifact) => !artifact.processing || artifact.processing.state === "ready")
+    .map((artifact) => scoreArtifact(vaultPath, artifact, signals, semanticCtx, config));
 }
 
 /** Eval attributes for a single study item (for the detail metadata panel). null for keep items. */
 export function evalAttrsForArtifact(vaultPath: string, artifact: LibraryArtifactDetail): LibraryEvalAttrs | null {
-  if (artifact.library_mode === "keep") return null;
+  if (artifact.library_mode === "keep" || (artifact.processing && artifact.processing.state !== "ready")) return null;
   const { artifacts: all, signals, config } = sharedScoringInputs(vaultPath);
   const semanticCtx = buildSemanticContext(vaultPath, all);
   const scored = scoreArtifact(vaultPath, artifact, signals, semanticCtx, config);

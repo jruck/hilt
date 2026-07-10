@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
-import type { IngestionReport, LibraryArtifact, LibraryArtifactDetail, LibraryOperationalHealth, LibrarySourceConfig, LibrarySourceSummary, PromotionReason, RecommendedArtifact } from "@/lib/library/types";
+import type { IngestionReport, LibraryArtifact, LibraryArtifactDetail, LibraryIntakeReport, LibraryOperationalHealth, LibrarySourceConfig, LibrarySourceSummary, PromotionReason, RecommendedArtifact } from "@/lib/library/types";
 import type { ActiveBatchNote, ReviewQueueEntry, ReviewQueueStatus } from "@/lib/library/review-queue";
 import { withBasePath } from "@/lib/base-path";
+import { useEventSocketContext } from "@/contexts/EventSocketContext";
 
 export type ReviewQueueArtifact = LibraryArtifact & { review: ReviewQueueEntry };
 
@@ -59,6 +60,30 @@ interface LibraryListResponse {
   limit: number;
 }
 
+interface LibraryArtifactEvent {
+  operation: "add" | "change" | "unlink";
+  id: string;
+  path: string;
+}
+
+function useLibraryEvents(
+  onArtifactChanged: (event: LibraryArtifactEvent) => void,
+  onQueueChanged?: () => void,
+): boolean {
+  const { connected, subscribe, unsubscribe, on } = useEventSocketContext();
+  useEffect(() => {
+    subscribe("library");
+    const off = on("library", "artifact-changed", (data) => onArtifactChanged(data as LibraryArtifactEvent));
+    const offQueue = onQueueChanged ? on("library", "queue-changed", onQueueChanged) : null;
+    return () => {
+      off();
+      offQueue?.();
+      unsubscribe("library");
+    };
+  }, [on, onArtifactChanged, onQueueChanged, subscribe, unsubscribe]);
+  return connected;
+}
+
 function libraryParams(options: UseLibraryOptions, offset?: number, limit?: number): URLSearchParams {
   const params = new URLSearchParams();
   if (options.source) params.set("source", options.source);
@@ -94,7 +119,15 @@ export function useLibraryFacets() {
 
 export function useLibrary(options: UseLibraryOptions = {}) {
   const params = libraryParams(options);
-  const { data, error, isLoading, mutate } = useSWR<LibraryListResponse>(`/api/library?${params.toString()}`, fetcher);
+  const key = `/api/library?${params.toString()}`;
+  const { data, error, isLoading, mutate } = useSWR<LibraryListResponse>(key, fetcher);
+  const onChanged = useCallback(() => { void mutate(); }, [mutate]);
+  const connected = useLibraryEvents(onChanged);
+  useEffect(() => {
+    if (connected) return;
+    const timer = setInterval(() => { void mutate(); }, 5_000);
+    return () => clearInterval(timer);
+  }, [connected, mutate]);
   return { artifacts: data?.artifacts || [], total: data?.total || 0, unreadTotal: data?.unread_total || 0, error, isLoading, mutate };
 }
 
@@ -108,7 +141,19 @@ export function useInfiniteLibrary(options: UseLibraryOptions = {}, pageSize = 8
   const { data, error, isLoading, isValidating, size, setSize, mutate } = useSWRInfinite<LibraryListResponse>(getKey, fetcher, {
     revalidateFirstPage: false,
   });
-  const artifacts = data?.flatMap((page) => page.artifacts) || [];
+  const onChanged = useCallback(() => { void mutate(); }, [mutate]);
+  const connected = useLibraryEvents(onChanged);
+  useEffect(() => {
+    if (connected) return;
+    const timer = setInterval(() => { void mutate(); }, 5_000);
+    return () => clearInterval(timer);
+  }, [connected, mutate]);
+  const seen = new Set<string>();
+  const artifacts = (data?.flatMap((page) => page.artifacts) || []).filter((artifact) => {
+    if (seen.has(artifact.id)) return false;
+    seen.add(artifact.id);
+    return true;
+  });
   const total = data?.[0]?.total || 0;
   const unreadTotal = data?.[0]?.unread_total || 0;
   const lastPage = data?.[data.length - 1] || null;
@@ -139,6 +184,15 @@ export function useLibraryArtifact(id: string | null, artifactPath?: string | nu
     ? `/api/library/${id}${artifactPath ? `?${new URLSearchParams({ path: artifactPath }).toString()}` : ""}`
     : null;
   const { data, error, isLoading, mutate } = useSWR<LibraryArtifactDetail>(key, fetcher);
+  const onChanged = useCallback((event: LibraryArtifactEvent) => {
+    if (event.id === id) void mutate();
+  }, [id, mutate]);
+  const connected = useLibraryEvents(onChanged);
+  useEffect(() => {
+    if (connected || !id) return;
+    const timer = setInterval(() => { void mutate(); }, 5_000);
+    return () => clearInterval(timer);
+  }, [connected, id, mutate]);
   return { artifact: data || null, error, isLoading, mutate };
 }
 
@@ -152,6 +206,9 @@ export function useLibraryHealth() {
   const { data, error, isLoading, isValidating, mutate } = useSWR<LibraryOperationalHealth>(key, fetcher, {
     refreshInterval: 60_000,
   });
+  const onArtifactChanged = useCallback(() => { void mutate(); }, [mutate]);
+  const onQueueChanged = useCallback(() => { void mutate(); }, [mutate]);
+  useLibraryEvents(onArtifactChanged, onQueueChanged);
   const refresh = () => mutate(fetcher(`${key}?refresh=${Date.now()}`), { revalidate: false });
   return { health: data || null, error, isLoading, isValidating, mutate, refresh };
 }
@@ -240,6 +297,26 @@ export async function ingestLibrarySources(options: {
     throw new Error(message);
   }
   return body as IngestionReport;
+}
+
+export async function intakeLibrarySources(options: { sourceIds?: string[]; limit?: number; force?: boolean } = {}) {
+  const res = await fetch(withBasePath("/api/sources/intake"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...options, force: options.force !== false, explicitOnly: true }),
+  });
+  const body = await res.json().catch(() => null) as LibraryIntakeReport | { error?: string } | null;
+  if (!res.ok) {
+    throw new Error(body && "error" in body && body.error ? body.error : `Failed to check sources: ${res.status}`);
+  }
+  return body as LibraryIntakeReport;
+}
+
+export async function retryLibraryProcessing(id: string) {
+  const res = await fetch(withBasePath(`/api/library/${id}/processing/retry`), { method: "POST" });
+  const body = await res.json().catch(() => null) as { error?: string } | null;
+  if (!res.ok) throw new Error(body?.error || `Failed to retry processing: ${res.status}`);
+  return body;
 }
 
 export async function archiveArtifact(id: string) {

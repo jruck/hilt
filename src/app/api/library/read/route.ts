@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
       ? markLibraryArtifactsUnread(vaultPath, ids)
       : markLibraryArtifactsRead(vaultPath, ids);
     if (body.unread !== true) {
-      appendLibraryEvents(vaultPath, ids.map((id) => ({ type: "read" as const, artifact_id: id })));
+      appendLibraryEvents(vaultPath, result.ids.map((id) => ({ type: "read" as const, artifact_id: id })));
     }
     return NextResponse.json(result);
   } catch (error) {

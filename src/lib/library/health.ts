@@ -6,6 +6,8 @@ import { listLibrarySources } from "./library";
 import { libraryLaunchAgentsDir, librarySchedulerJobs, schedulerJobScheduleLabel, type LibrarySchedulerJobDefinition } from "./scheduler-jobs";
 import { countReweaveBacklog } from "./reweave-pending";
 import { readSourceState } from "./source-config";
+import { readLibraryIntakeDaemonState } from "./intake-daemon-state";
+import { processingQueueSummary } from "./processing";
 import type { LibraryDeadLetterSummary, LibraryOperationalHealth, LibraryReweaveBacklogSummary, LibrarySchedulerJobSummary, LibrarySourceHealthSummary } from "./types";
 import { isoNow } from "./utils";
 
@@ -242,6 +244,8 @@ export function getLibraryOperationalHealth(vaultPath: string, options: HealthOp
     last_drained_at: nightly ? laterIso(fileUpdatedAt(nightly.stdout), fileUpdatedAt(nightly.stderr)) : null,
     last_throttled_at: nightly ? laterIso(lastRateLimitAt(nightly.stdout), lastRateLimitAt(nightly.stderr)) : null,
   };
+  const daemon = readLibraryIntakeDaemonState(vaultPath);
+  const queue = processingQueueSummary(vaultPath);
 
   return {
     checked_at: isoNow(),
@@ -254,5 +258,13 @@ export function getLibraryOperationalHealth(vaultPath: string, options: HealthOp
     sources,
     dead_letters: deadLetters,
     reweave,
+    intake: {
+      enabled: daemon?.enabled ?? process.env.HILT_LIBRARY_INTAKE_DAEMON !== "0",
+      running: daemon?.running ?? false,
+      last_polled_at: daemon?.last_polled_at ?? null,
+      next_poll_at: daemon?.next_poll_at ?? null,
+      foreground: daemon?.foreground ?? false,
+      ...queue,
+    },
   };
 }

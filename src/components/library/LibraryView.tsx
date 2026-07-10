@@ -5,10 +5,11 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { CirclePlus, Clock3, FileText, List, Loader2, PanelLeft, RefreshCw, Sparkles, X } from "lucide-react";
 import { useSWRConfig } from "swr";
 import { useScope } from "@/contexts/ScopeContext";
+import { useEventSocketContext } from "@/contexts/EventSocketContext";
 import type { LibraryArtifact, RecommendedArtifact } from "@/lib/library/types";
 import { artifactDisplayTags } from "@/lib/library/taxonomy";
 import { buildLibraryUrl, libraryConcreteSource, libraryItemIdFromScope, libraryItemScope, librarySourceChannel, parseLibraryControls, type LibraryDensity, type LibraryModeControl, type LibraryRanking, type LibraryStatusFilter, type LibraryUrlControls } from "@/lib/library/url";
-import { archiveArtifact, ingestLibrarySources, markLibraryArtifactsRead, markLibraryArtifactsUnread, restoreCandidate, setReviewStatus, skipCandidate, useInfiniteLibrary, useRecommendations, useReviewQueue } from "@/hooks/useLibrary";
+import { archiveArtifact, intakeLibrarySources, markLibraryArtifactsRead, markLibraryArtifactsUnread, restoreCandidate, setReviewStatus, skipCandidate, useInfiniteLibrary, useRecommendations, useReviewQueue } from "@/hooks/useLibrary";
 import type { ReviewQueueStatus } from "@/lib/library/review-queue";
 import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import { SECONDARY_CHROME_BODY_GUTTER_CLASS, SECONDARY_CHROME_MOBILE_OFFSET, SecondaryIconButton, SecondarySegmentedButton, SecondarySegmentedControl, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
@@ -110,9 +111,24 @@ function applyLocalReadState<T extends LibraryArtifact | RecommendedArtifact>(it
     : artifact);
 }
 
+function isActivelyProcessing(artifact: LibraryArtifact | RecommendedArtifact): boolean {
+  return artifact.processing?.state === "queued" || artifact.processing?.state === "active";
+}
+
+function isReadableArtifact(artifact: LibraryArtifact | RecommendedArtifact): boolean {
+  return !artifact.processing || artifact.processing.state === "ready";
+}
+
+function pinProcessing(items: LibraryArtifact[]): LibraryArtifact[] {
+  return items.map((artifact, index) => ({ artifact, index }))
+    .sort((a, b) => Number(isActivelyProcessing(b.artifact)) - Number(isActivelyProcessing(a.artifact)) || a.index - b.index)
+    .map(({ artifact }) => artifact);
+}
+
 export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery: string; activationToken?: number }) {
   const { mutate: mutateGlobal } = useSWRConfig();
   const { scopePath, navigateTo } = useScope();
+  const { subscribe: subscribeEvents, unsubscribe: unsubscribeEvents, on: onEvent } = useEventSocketContext();
   const [density, setDensityState] = useState<LibraryDensity>(() => initialLibraryControls().density);
   const [ranking, setRankingState] = useState<LibraryRanking>(() => initialLibraryControls().ranking);
   const [statusFilter, setStatusFilterState] = useState<LibraryStatusFilter>(() => initialLibraryControls().status);
@@ -129,6 +145,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
   const [localHiddenIds, setLocalHiddenIds] = useState<Set<string>>(() => new Set());
   const [toast, setToast] = useState<LibraryToast | null>(null);
   const [isCheckingSources, setIsCheckingSources] = useState(false);
+  const [newItemNoticeCount, setNewItemNoticeCount] = useState(0);
   const [evalFilters, setEvalFilters] = useState<{
     lifecycle?: string | null;
     connection_state?: string | null;
@@ -145,6 +162,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const pendingFeedScrollAnchorRef = useRef<FeedScrollAnchor | null>(null);
+  const noticedArtifactIdsRef = useRef<Set<string>>(new Set());
   const pendingReadIdsRef = useRef<Set<string>>(new Set());
   const readFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const readEligibleIdsRef = useRef<Set<string>>(new Set());
@@ -191,13 +209,14 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
     artifact.is_unread && (localReadIds.has(artifact.id) || localHiddenIds.has(artifact.id))
   )).length;
   const localUpdatedHiddenCount = reviewQueue.items.filter((artifact) => localHiddenIds.has(artifact.id)).length;
+  const recentRankedItems = ranking === "recent" || ranking === "new" ? pinProcessing(recent.artifacts) : recent.artifacts;
   const rawItems: LibraryArtifact[] = ranking === "for-you"
     ? filteredRecommendations
     : ranking === "updated"
       ? reviewQueue.items
       : ranking === "new"
-        ? recent.artifacts.filter((artifact) => (artifact.is_unread && !localReadIds.has(artifact.id)) || artifact.id === selectedId)
-        : recent.artifacts;
+        ? recentRankedItems.filter((artifact) => (artifact.is_unread && !localReadIds.has(artifact.id)) || artifact.id === selectedId)
+        : recentRankedItems;
   const visibleRawItems = useMemo(() => rawItems.filter((artifact) => !localHiddenIds.has(artifact.id)), [localHiddenIds, rawItems]);
   const items = useMemo(() => applyLocalReadState(visibleRawItems, localReadIds), [visibleRawItems, localReadIds]);
   const localHiddenCount = rawItems.length - visibleRawItems.length;
@@ -214,6 +233,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
   const forYouCount = filteredRecommendations.length;
   const newCount = Math.max(0, recent.unreadTotal - localUnreadExcludedCount);
   const updatedCount = Math.max(0, reviewQueue.total - localUpdatedHiddenCount);
+  const processingCount = recent.artifacts.filter(isActivelyProcessing).length;
   const loading = ranking === "for-you"
     ? recommendations.isLoading
     : ranking === "updated"
@@ -243,6 +263,34 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
     overscan: FEED_CARD_OVERSCAN,
     useAnimationFrameWithResizeObserver: true,
   });
+
+  useEffect(() => {
+    subscribeEvents("library");
+    const off = onEvent("library", "artifact-changed", (data) => {
+      const event = data as { operation?: string; id?: string };
+      if (event.operation !== "add" || !event.id || noticedArtifactIdsRef.current.has(event.id)) return;
+      noticedArtifactIdsRef.current.add(event.id);
+      if (density !== "feed" || (ranking !== "recent" && ranking !== "new")) return;
+      const scroller = feedScrollRef.current;
+      if (!scroller || scroller.scrollTop < 160) return;
+      const firstRow = feedVirtualizer.getVirtualItems().find((row) => row.index < items.length);
+      const anchor = firstRow ? items[firstRow.index] : null;
+      const card = anchor
+        ? scroller.querySelector<HTMLElement>(`[data-library-artifact-id="${CSS.escape(anchor.id)}"]`)
+        : null;
+      if (anchor && card) {
+        pendingFeedScrollAnchorRef.current = {
+          id: anchor.id,
+          offsetTop: card.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
+        };
+      }
+      setNewItemNoticeCount((count) => count + 1);
+    });
+    return () => {
+      off();
+      unsubscribeEvents("library");
+    };
+  }, [density, feedVirtualizer, items, onEvent, ranking, subscribeEvents, unsubscribeEvents]);
 
   const refreshReadAwareData = useCallback(() => {
     void recent.mutate();
@@ -418,7 +466,6 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
   useEffect(() => {
     const itemId = libraryItemIdFromScope(scopePath);
     if (itemId) {
-      readEligibleIdsRef.current.add(itemId);
       setSelectedId(itemId);
       setMobileDetailOpen(true);
       return;
@@ -428,6 +475,12 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
       setMobileDetailOpen(false);
     }
   }, [density, scopePath]);
+
+  useEffect(() => {
+    if (!selectedId || !selectedArtifact) return;
+    if (isReadableArtifact(selectedArtifact)) readEligibleIdsRef.current.add(selectedId);
+    else readEligibleIdsRef.current.delete(selectedId);
+  }, [selectedArtifact, selectedId]);
 
   useEffect(() => {
     if (!toast) return;
@@ -543,35 +596,23 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
     setIsCheckingSources(true);
     const checkedSourceIds = selectedSourceId && selectedSourceId !== "manual" ? [selectedSourceId] : undefined;
     try {
-      const report = await ingestLibrarySources({
+      refreshReadAwareData();
+      const report = await intakeLibrarySources({
         sourceIds: checkedSourceIds,
-        cadence: checkedSourceIds ? undefined : "hourly",
-        limit: 10,
-        reweaveTimeoutMs: 60_000,
+        limit: 25,
       });
-      const added = report.saved + report.candidates + report.promoted;
+      const added = report.queued + report.promoted;
       const issueCount = report.errors.length + report.blocked.length;
-      const sourceLabel = checkedSourceIds ? selectedSourceId : "hourly sources";
-      const clipReviewCount = report.sources.reduce((total, source) => {
-        const policy = source.youtube_clip_review?.policy_actions;
-        if (!policy) return total;
-        return total + policy.suppress + policy.label_review + policy.label_only;
-      }, 0);
-      const clipReviewMessage = clipReviewCount
-        ? `${clipReviewCount} clip-review ${clipReviewCount === 1 ? "item" : "items"} flagged`
-        : null;
       setToast({
         id: `source-check:${Date.now()}`,
         title: issueCount
           ? report.errors[0] || report.blocked[0]?.reason || "Source check needs attention"
           : `${report.checked} ${report.checked === 1 ? "source" : "sources"} checked`,
         message: issueCount
-          ? "Source check needs attention"
+          ? report.errors[0] || report.blocked[0]?.reason || "Source check needs attention"
           : added
-            ? `Added ${added} ${added === 1 ? "item" : "items"} from ${sourceLabel}${clipReviewMessage ? `; ${clipReviewMessage}` : ""}`
-            : clipReviewMessage
-              ? `${clipReviewMessage} from ${sourceLabel}`
-              : `No new items from ${sourceLabel}`,
+            ? `${added} ${added === 1 ? "item" : "items"} processing`
+            : "No new items",
       });
       refreshReadAwareData();
       void mutateGlobal((key) => typeof key === "string" && (
@@ -689,7 +730,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
     if (intent === "metadata") {
       try { window.localStorage.setItem(LIBRARY_META_OPEN_KEY, "1"); } catch { /* ignore */ }
       captureFeedScrollAnchor(artifact.id);
-      readEligibleIdsRef.current.add(artifact.id);
+      if (isReadableArtifact(artifact)) readEligibleIdsRef.current.add(artifact.id);
       setSelectedId(artifact.id);
       setMobileDetailOpen(true);
       navigateLibrary(libraryItemScope(artifact.id), libraryControls);
@@ -703,7 +744,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
       return;
     }
     captureFeedScrollAnchor(artifact.id);
-    readEligibleIdsRef.current.add(artifact.id);
+    if (isReadableArtifact(artifact)) readEligibleIdsRef.current.add(artifact.id);
     setSelectedId(artifact.id);
     setMobileDetailOpen(true);
     navigateLibrary(libraryItemScope(artifact.id), libraryControls);
@@ -767,10 +808,11 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
   const handleFeedScroll = useCallback(() => {
     const node = feedScrollRef.current;
     if (!node) return;
+    if (node.scrollTop < 80 && newItemNoticeCount) setNewItemNoticeCount(0);
     if (usesRecentPaging && recent.hasMore && !recent.isLoadingMore && node.scrollHeight - node.scrollTop - node.clientHeight < 900) {
       recent.loadMore();
     }
-  }, [recent, usesRecentPaging]);
+  }, [newItemNoticeCount, recent, usesRecentPaging]);
 
   const startResize = useCallback((kind: "source" | "content", width: number) => (event: React.MouseEvent) => {
     event.preventDefault();
@@ -857,6 +899,18 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
                   </SecondarySegmentedButton>
                 )}
               </SecondarySegmentedControl>
+              {processingCount > 0 && ranking !== "recent" && ranking !== "new" && (
+                <SecondarySegmentedControl>
+                  <SecondarySegmentedButton
+                    onClick={() => selectRanking("recent")}
+                    active={false}
+                    icon={<Loader2 className="h-4 w-4 motion-safe:animate-spin" />}
+                    title="Show processing items in Recent"
+                  >
+                    Processing <span className="ml-1.5 text-xs tabular-nums text-[var(--text-tertiary)]">{processingCount}</span>
+                  </SecondarySegmentedButton>
+                </SecondarySegmentedControl>
+              )}
               <SecondaryIconButton
                 data-testid="library-check-sources-toolbar"
                 onClick={() => { void checkSourcesNow(); }}
@@ -935,6 +989,20 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
           >
             {density === "feed" ? (
               <div ref={feedScrollRef} onScroll={handleFeedScroll} data-mobile-scroll-chrome="top-bottom" data-testid="library-feed-list" className="hilt-mobile-scroll-clearance min-h-0 flex-1 overflow-y-auto">
+                {newItemNoticeCount > 0 && (
+                  <div className="sticky top-3 z-30 flex h-0 justify-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        feedVirtualizer.scrollToOffset(0, { align: "start" });
+                        setNewItemNoticeCount(0);
+                      }}
+                      className="rounded-full border border-[var(--border-default)] bg-[var(--content-surface)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] content-card-shadow hover:text-[var(--text-primary)]"
+                    >
+                      {newItemNoticeCount} new {newItemNoticeCount === 1 ? "item" : "items"}
+                    </button>
+                  </div>
+                )}
                 <div className={`${desktopReaderVisible ? "max-w-none px-3 pt-3" : "mx-auto max-w-4xl px-4 pt-5"} w-full`}>
                   {ranking === "updated" && reviewQueue.notes.length > 0 && (
                     <div className={`flex w-full flex-col ${desktopReaderVisible ? "gap-3 pb-3" : "gap-5 pb-5"}`}>

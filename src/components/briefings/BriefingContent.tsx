@@ -21,10 +21,12 @@ import {
   cleanLoopTokens,
   extractMeetingRelPath,
   extractTaskIds,
+  isConsumedTaskId,
   isNextStepsHeading,
   isRedundantMeetingCitationLine,
   isTaskIdOnlyLine,
   meetingLabelFromRelPath,
+  stampedIdLineDisposition,
   normalizeHiltLinks,
   parseBriefing,
   stripDateAfterMeetingPill,
@@ -179,6 +181,10 @@ interface CanvasContext {
   tasks: TaskFile[];
   proposals: TaskFile[];
   escalations: EscalatedLoopItem[];
+  /** Task ids whose proposals were verdict-DISMISSED: the file is deleted but the ledger (and,
+   * in the pre-stamp limbo window, the escalations feed) remembers the minted `task_id`. These
+   * ids are CONSUMED — represented by the "Dismissed · N" tails, never by raw-token chips. */
+  dismissedTaskIds: ReadonlySet<string>;
   /** POSTs to the SAME /api/loops/verdicts endpoint every other surface uses (file effect +
    * ledger effect ride the task's origin). Undefined when the task has no verdict join. */
   makeVerdictHandler: (loop?: string, itemId?: string) => ((verdict: Verdict, note?: string) => Promise<void>) | undefined;
@@ -221,11 +227,21 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
   // B3 canvas join: task ids in this bullet hydrate into TaskCards. Headline-bound cards render
   // under the headline (the bullet IS the object); detail-bound cards render inside the
   // expansion, replacing their id-only lines — same progressive disclosure as ask lists.
-  const headlineTasks = extractTaskIds(item.headline)
+  // Consumed = hydrated (live card via taskById) or verdict-dismissed (ledger-remembered, no
+  // card, no chip). An id that is neither is an out-of-band deletion and keeps its raw token.
+  const isConsumed = (id: string) => canvas.taskById.has(id) || canvas.dismissedTaskIds.has(id);
+  const headlineIds = extractTaskIds(item.headline);
+  const headlineTasks = headlineIds
     .map((id) => canvas.taskById.get(id))
     .filter((task): task is TaskFile => Boolean(task));
+  // Headline task tokens strip when a card hydrates below, or when EVERY stamped id is
+  // consumed (all dismissed → no card, but each id is ledger-remembered, not lost).
+  const stripHeadlineTaskTokens = headlineTasks.length > 0
+    || (headlineIds.length > 0 && headlineIds.every(isConsumed));
   const detailTaskIds = extractTaskIds(item.details);
-  const hasDetailTasks = detailTaskIds.some((id) => canvas.taskById.has(id));
+  // Dismissed detail ids count: their lines must route through the structured renderer below so
+  // they drop/strip instead of leaking raw tokens via the plain-markdown details branch.
+  const hasDetailTasks = detailTaskIds.some(isConsumed);
   // A loop item whose ask already renders as a task card must not ALSO bind ask controls —
   // one affordance per object (the card wins; it is the richer surface).
   const cardOriginIds = useMemo(() => {
@@ -275,7 +291,7 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
               a: ({ href, children, className }) => <BriefingLink href={href} className={className} date={date}>{children}</BriefingLink>,
             }}
           >
-            {renderCitations(stripDisplayTokens(item.headline, hasAskList || headlineBound.length > 0, headlineTasks.length > 0))}
+            {renderCitations(stripDisplayTokens(item.headline, hasAskList || headlineBound.length > 0, stripHeadlineTaskTokens))}
           </ReactMarkdown>
         </span>
         <span onClick={(e) => e.stopPropagation()} className="flex shrink-0 items-center gap-0.5">
@@ -340,7 +356,13 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
               );
             }
             const bound = detailBound.find((loopItem) => line.includes(loopItem.id));
-            const text = cleanLoopTokens(line).replace(/^\s*-\s*/, "").trim();
+            // No card hydrated on this line (lineTasks was empty): a dismissed id drops its
+            // id-only line / strips from prose exactly like a known id would have; an
+            // unknown+undismissed id keeps its raw token as an inert chip (never-drop).
+            const disposition = stampedIdLineDisposition(line, isConsumed);
+            if (disposition === "drop") return null;
+            const cleanedLine = disposition === "keep" ? cleanLoopTokens(line) : stripTaskTokens(cleanLoopTokens(line));
+            const text = cleanedLine.replace(/^\s*-\s*/, "").trim();
             if (!text) return null;
             return (
               <li key={li} className={`group/askrow relative text-[var(--text-secondary)] ${bound?.escalated ? "briefing-escalated" : ""}`}>
@@ -474,12 +496,16 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
       // and dates this meeting, so a sub-line that is JUST that citation is suppressed. Lines
       // citing a different source (or carrying any other prose) still render below.
       if (isRedundantMeetingCitationLine(line, meetingRel)) return null;
-      const ids = extractTaskIds(line);
-      if (isTaskIdOnlyLine(line) && ids.every((id) => knownTaskIds.has(id))) return null;
-      // A line whose id is UNKNOWN (task file deleted out-of-band) keeps its raw token as an
-      // inert chip — stripping it left an empty residue that vanished, violating never-drop.
-      const keepTokens = ids.some((id) => !knownTaskIds.has(id));
-      const cleaned = keepTokens ? cleanLoopTokens(line) : stripTaskTokens(cleanLoopTokens(line));
+      // Consumed ids strip: known ids render as cards; DISMISSED ids (verdict-dismissal — file
+      // deleted, ledger remembers) are represented by the "Dismissed · N" tail below. Only an
+      // id that is neither — a task file deleted out-of-band — keeps its raw token as an inert
+      // chip: stripping it left an empty residue that vanished, violating never-drop.
+      const disposition = stampedIdLineDisposition(
+        line,
+        (id) => isConsumedTaskId(id, knownTaskIds, canvas.dismissedTaskIds),
+      );
+      if (disposition === "drop") return null;
+      const cleaned = disposition === "keep" ? cleanLoopTokens(line) : stripTaskTokens(cleanLoopTokens(line));
       const text = cleaned.replace(/^\s*-\s*/, "").trim();
       return text || null;
     })
@@ -624,6 +650,24 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
     for (const task of [...tasks, ...proposals]) map.set(task.id, task);
     return map;
   }, [tasks, proposals]);
+  // Verdict-dismissals are IN-BAND: dismiss deletes the proposal file, but the ledger keeps the
+  // minted task_id (surfaced via useDismissed) and the escalations feed carries it through the
+  // pre-stamp limbo window. Both sources merge here so a dismissed stamped id stays consumed
+  // across the whole lifecycle — never rendered as a dead raw-token chip. (SWR dedupes this
+  // fetch with NextStepsMeetingItem's own useDismissed call for the tails.)
+  const { dismissed: dismissedLedger } = useDismissed(PROPOSAL_LOOP);
+  const dismissedTaskIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const record of dismissedLedger) {
+      if (record.task_id) ids.add(record.task_id);
+    }
+    for (const item of escalations) {
+      if ((item.kind === "action" || item.kind === "proposal") && item.verdict === "dismiss" && item.task_id) {
+        ids.add(item.task_id);
+      }
+    }
+    return ids;
+  }, [dismissedLedger, escalations]);
   const makeVerdictHandler = useCallback(
     (loop?: string, itemId?: string) => {
       // Only loop-minted objects carry the verdict join — anything else is read-only rather
@@ -646,8 +690,8 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
     [mutateTasks, onEscalationsChanged],
   );
   const canvas = useMemo<CanvasContext>(
-    () => ({ taskById, tasks, proposals, escalations, makeVerdictHandler }),
-    [taskById, tasks, proposals, escalations, makeVerdictHandler],
+    () => ({ taskById, tasks, proposals, escalations, dismissedTaskIds, makeVerdictHandler }),
+    [taskById, tasks, proposals, escalations, dismissedTaskIds, makeVerdictHandler],
   );
 
   // Nest each loop's escalations inside its owning section. The join key is the briefing's OWN

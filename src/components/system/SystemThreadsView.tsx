@@ -395,6 +395,14 @@ function ThreadRow({
       >
         <Icon className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]" />
         <div className="min-w-0 flex-1">{middle}</div>
+        {thread.dev_item ? (
+          <span
+            className="hidden shrink-0 items-center rounded border border-amber-500/20 bg-amber-500/5 px-1.5 text-[11px] leading-5 text-amber-600 md:inline-flex"
+            title={`Diagnosed ${thread.dev_item.diagnosed_at}`}
+          >
+            Dev item
+          </span>
+        ) : null}
         <ThreadStatus thread={thread} working={working} />
         <div className="flex shrink-0 items-center gap-1 text-xs text-[var(--text-quaternary)]">
           <MessageSquare className="h-3.5 w-3.5" />

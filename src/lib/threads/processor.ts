@@ -4,6 +4,7 @@
  * - the turn persists as a normal chat session, including trace and file-touch metadata;
  * - the thread is untouched on Claude failure so it can be retried;
  * - a final-line PROPOSAL marker mints a proposal task with origin.thread.
+ * - a final-line DEVITEM marker stamps dev_item and leaves the thread open.
  */
 import crypto from "crypto";
 import path from "path";
@@ -14,13 +15,14 @@ import { appendMessage, createChat, readChat, updateChat } from "../chat/store";
 import { deterministicTitle, type ChatContextRef, type ChatStreamEvent, type ChatTraceEvent } from "../chat/types";
 import { createProposalIn, proposalsDir } from "../tasks/store";
 import { commentTargetToFeedback } from "./feedback-bridge";
-import { appendChatId, appendToThread, markProcessed, readThread, resolveThread } from "./store";
+import { appendChatId, appendToThread, markDevItem, markProcessed, readThread, resolveThread } from "./store";
 import type { CommentTarget, Thread, ThreadMessage } from "./types";
 
 export const PROCESSOR_INSTRUCTIONS =
   "You are the processor for this feedback thread inside Hilt. Act within your tools (Read/Edit/Write/Grep/Glob/LS — no Bash). " +
   "If the request is immediately actionable in vault files, do it with minimal surgical edits. " +
-  "If it is BIGGER than a local edit, do NOT attempt it — instead end your reply with a line 'PROPOSAL: <imperative task title>'. " +
+  "If the feedback is about Hilt's OWN SOFTWARE BEHAVIOR (app UI, briefing rendering, views, loops-as-code — a bug report or feature request about the product, not vault content), do NOT edit ANY files — not vault, not code. Investigate read-only: the Hilt source lives at /Users/jruck/work/engineering/me/hilt and you may Read/Grep/Glob it. Then end your reply with a final line 'DEVITEM: <one-line diagnosis>'. " +
+  "If it is BIGGER than a local edit (and not a dev item), do NOT attempt it — instead end your reply with a line 'PROPOSAL: <imperative task title>'. " +
   "Always end with a concise reply to Justin.";
 
 export type ProcessorRunner = (options: RunClaudeOptions) => Promise<RunClaudeResult>;
@@ -29,7 +31,7 @@ export interface ProcessThreadResult {
   ok: boolean;
   threadId: string;
   chatId: string | null;
-  action?: "processed" | "proposal-minted";
+  action?: "processed" | "proposal-minted" | "dev-item";
   proposalTaskId?: string;
   reply?: string;
   error?: string;
@@ -142,19 +144,33 @@ export function threadContextRef(target: CommentTarget): ChatContextRef {
   }
 }
 
-/** PROPOSAL marker on the reply's last non-empty line. */
-export function parseProposalMarker(text: string): { title: string; stripped: string } | null {
+/** Marker on the reply's last non-empty line. */
+function parseFinalLineMarker(text: string, keyword: string): { value: string; stripped: string } | null {
   const lines = text.split(/\r?\n/);
   let markerIndex = lines.length - 1;
   while (markerIndex >= 0 && lines[markerIndex].trim() === "") markerIndex--;
   if (markerIndex < 0) return null;
 
-  const match = lines[markerIndex].match(/^PROPOSAL: (.+)$/);
-  if (!match) return null;
+  const prefix = `${keyword}: `;
+  if (!lines[markerIndex].startsWith(prefix)) return null;
+  const value = lines[markerIndex].slice(prefix.length).trim();
+  if (value.length === 0) return null;
   return {
-    title: match[1].trim(),
+    value,
     stripped: lines.slice(0, markerIndex).join("\n").trimEnd(),
   };
+}
+
+/** PROPOSAL marker on the reply's last non-empty line. */
+export function parseProposalMarker(text: string): { title: string; stripped: string } | null {
+  const marker = parseFinalLineMarker(text, "PROPOSAL");
+  return marker ? { title: marker.value, stripped: marker.stripped } : null;
+}
+
+/** DEVITEM marker on the reply's last non-empty line. */
+export function parseDevItemMarker(text: string): { diagnosis: string; stripped: string } | null {
+  const marker = parseFinalLineMarker(text, "DEVITEM");
+  return marker ? { diagnosis: marker.value, stripped: marker.stripped } : null;
 }
 
 /** agent:<loop> when the target maps to a loop; otherwise the generic processor identity. */
@@ -301,6 +317,49 @@ export async function processThread(threadId: string, opts: {
   let reply = result.collectedText || "Claude returned no text.";
   let action: ProcessThreadResult["action"] = "processed";
   let proposalTaskId: string | undefined;
+  const devItemMarker = parseDevItemMarker(reply);
+
+  if (devItemMarker) {
+    reply = devItemMarker.stripped
+      ? `${devItemMarker.stripped}\n\nDiagnosis: ${devItemMarker.diagnosis}`
+      : `Diagnosis: ${devItemMarker.diagnosis}`;
+    action = "dev-item";
+    const trace = makeTraceEvent({
+      type: "step",
+      status: "complete",
+      label: "Dev item diagnosed",
+      detail: devItemMarker.diagnosis,
+    });
+    traces.push(trace);
+    emit({ type: "trace", trace });
+
+    appendMessage(chatId, {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: reply,
+      timestamp: Date.now(),
+      ...(traces.length > 0 ? { trace: traces } : {}),
+      ...(filesTouched.length > 0 ? { filesTouched } : {}),
+    });
+    const current = readChat(chatId);
+    updateChat(chatId, {
+      status: "idle",
+      claudeSessionId: result.claudeSessionId,
+      unreadCount: (current?.unreadCount ?? 0) + 1,
+    });
+
+    const author = deriveProcessorAuthor(thread.target);
+    appendToThread(threadId, { author, text: reply });
+    const diagnosedAt = new Date().toISOString();
+    markDevItem(threadId, { diagnosed_at: diagnosedAt });
+    if (commentTargetToFeedback(thread.target)) {
+      markProcessed(threadId, { at: diagnosedAt, run_at: diagnosedAt });
+    }
+    emit({ type: "complete", claudeSessionId: result.claudeSessionId });
+
+    return { ok: true, threadId, chatId, action, reply };
+  }
+
   const marker = parseProposalMarker(reply);
 
   if (marker) {

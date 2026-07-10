@@ -304,16 +304,19 @@ travels one of two roads:
 - **Processing (the active road).** Sometimes a comment is a *request*, not just calibration —
   "fix the owner on this," "this summary is wrong." Hit **Process** on the thread (or **Process
   all** to drain the queue, up to 10 at a time) and a Claude turn opens the object, reads your
-  thread, and acts within its tools (Read/Edit/Write — no shell). Two outcomes:
+  thread, and acts within its tools (Read/Edit/Write — no shell). Three outcomes:
   - **Small enough to do now** → it makes the surgical edit and replies with what it changed.
   - **Bigger than a local edit** → it does NOT attempt it; instead it **mints a proposal task**
     into `$VAULT/tasks/.proposals/` (carrying a link back to the thread) and replies telling you
     it filed one. That proposal then flows through the normal Approve / Dismiss verdict path like
     any other.
+  - **About Hilt itself** (a bug or feature request about the app, not your content) → it
+    investigates the code read-only, replies with a diagnosis, and the thread stays open — dev
+    items wait for Justin's dev pass instead of being auto-fixed.
 
-  Either way the thread is resolved with the reply, and the whole exchange is saved as an ordinary
-  chat you can reopen later. If the Claude turn fails, the thread stays open — nothing is lost,
-  just try again.
+  Edits and proposals resolve the thread with the reply; dev items stay open with a diagnosis.
+  The whole exchange is saved as an ordinary chat you can reopen later. If the Claude turn fails,
+  the thread stays open — nothing is lost, just try again.
 
 The point: a comment is a lever, not a note. It either steers a node's next run (with a receipt)
 or gets acted on directly (with an edit or a proposal). Nothing you write just sits there unseen.

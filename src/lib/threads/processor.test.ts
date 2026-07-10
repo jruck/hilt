@@ -18,6 +18,7 @@ import { POST } from "../../app/api/threads/[id]/process/route";
 import {
   PROCESSOR_INSTRUCTIONS,
   deriveProcessorAuthor,
+  parseDevItemMarker,
   parseProposalMarker,
   processThread,
   threadContextRef,
@@ -90,6 +91,29 @@ describe("parseProposalMarker", () => {
       title: "Rework owners",
       stripped: "Justin, this is bigger.",
     });
+  });
+});
+
+describe("parseDevItemMarker", () => {
+  it("only accepts a DEVITEM marker on the last non-empty line", () => {
+    expect(parseDevItemMarker("plain text")).toBeNull();
+    expect(parseDevItemMarker("DEVITEM: mid\nmore prose")).toBeNull();
+    expect(parseDevItemMarker("prose\nDEVITEM:   ")).toBeNull(); // whitespace-only diagnosis rejected
+
+    expect(parseDevItemMarker("Read Board.tsx.  \n\nDEVITEM:   Filter state resets on refresh  \n\n")).toEqual({
+      diagnosis: "Filter state resets on refresh",
+      stripped: "Read Board.tsx.",
+    });
+  });
+
+  it("only the FINAL line owns the marker when both DEVITEM and PROPOSAL appear", () => {
+    const proposalLast = "body\nDEVITEM: diag\nPROPOSAL: Do the thing";
+    expect(parseDevItemMarker(proposalLast)).toBeNull();
+    expect(parseProposalMarker(proposalLast)?.title).toBe("Do the thing");
+
+    const devItemLast = "body\nPROPOSAL: Do the thing\nDEVITEM: diag";
+    expect(parseProposalMarker(devItemLast)).toBeNull();
+    expect(parseDevItemMarker(devItemLast)?.diagnosis).toBe("diag");
   });
 });
 
@@ -197,6 +221,72 @@ describe("processThread", () => {
     expect(reply).not.toContain("PROPOSAL:");
     expect(reply.endsWith(`Minted proposal ${result.proposalTaskId}.`)).toBe(true);
     expect(reread?.resolution?.action).toBe("proposal-minted");
+  });
+
+  it("DEVITEM marker diagnoses, stamps dev_item, and leaves the thread open", async () => {
+    const thread = createLoopItemThread();
+    const events: ChatStreamEvent[] = [];
+
+    const result = await processThread(thread.id, {
+      runner: stubRunner({
+        text: "Looked at Board.tsx.\n\nDEVITEM: Filter state resets because Board remounts on refresh",
+      }),
+      vaultRoot: vaultRoot(),
+      emit: (event) => events.push(event),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.action).toBe("dev-item");
+    expect(result.proposalTaskId).toBeUndefined();
+
+    const reread = readThread(thread.id);
+    expect(reread?.status).toBe("open");
+    expect(reread?.resolution).toBeUndefined();
+    expect(reread?.dev_item?.diagnosed_at).toBeDefined();
+    expect(reread?.processed).toBeDefined();
+    expect(reread?.messages.at(-1)?.author).toBe("agent:meeting-actions");
+    expect(reread?.messages.at(-1)?.text).toContain("Diagnosis: Filter state resets because Board remounts on refresh");
+    expect(reread?.messages.at(-1)?.text).not.toContain("DEVITEM:");
+
+    if (!result.chatId) throw new Error("missing chatId");
+    const chat = readChat(result.chatId);
+    const assistant = chat?.messages.at(-1);
+    expect(assistant?.trace?.some((trace) => trace.label === "Dev item diagnosed")).toBe(true);
+    expect(events.some((event) => event.type === "trace" && event.trace.label === "Dev item diagnosed")).toBe(true);
+  });
+
+  it("a dev-item reply cannot also mint: DEVITEM on the final line wins over a PROPOSAL line above it", async () => {
+    const thread = createLoopItemThread();
+
+    const result = await processThread(thread.id, {
+      runner: stubRunner({ text: "Investigated.\nPROPOSAL: Rework the board filters\nDEVITEM: Board remounts on refresh" }),
+      vaultRoot: vaultRoot(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.action).toBe("dev-item");
+    expect(result.proposalTaskId).toBeUndefined();
+    expect(fs.existsSync(path.join(vaultRoot(), "tasks", ".proposals"))).toBe(false);
+
+    const reread = readThread(thread.id);
+    expect(reread?.status).toBe("open");
+    expect(reread?.dev_item).toBeDefined();
+    expect(reread?.messages.at(-1)?.text).not.toContain("Minted proposal");
+  });
+
+  it("DEVITEM spoof before the final line takes the normal processed path", async () => {
+    const thread = createLoopItemThread();
+
+    const result = await processThread(thread.id, {
+      runner: stubRunner({ text: "Looked at Board.tsx.\nDEVITEM: fake\nmore prose" }),
+      vaultRoot: vaultRoot(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.action).toBe("processed");
+    const reread = readThread(thread.id);
+    expect(reread?.status).toBe("resolved");
+    expect(reread?.dev_item).toBeUndefined();
   });
 
   it("runner failure leaves the thread open", async () => {

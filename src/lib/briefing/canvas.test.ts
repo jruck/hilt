@@ -4,9 +4,11 @@ import {
   cleanLoopTokens,
   extractMeetingRelPath,
   extractTaskIds,
+  isConsumedTaskId,
   isNextStepsHeading,
   isRedundantMeetingCitationLine,
   isTaskIdOnlyLine,
+  stampedIdLineDisposition,
   meetingDateSegment,
   meetingLabelFromRelPath,
   parseBriefing,
@@ -95,6 +97,44 @@ test("isTaskIdOnlyLine: id-only sub-bullets are consumed; prose lines are not", 
   assert.equal(isTaskIdOnlyLine("  - Confirm ASM titles `t-20260707-011`"), false);
   assert.equal(isTaskIdOnlyLine("  - plain sub-bullet, no id"), false);
   assert.equal(isTaskIdOnlyLine(""), false);
+});
+
+// ── stamped-id strip predicate (dismissed ids are consumed — 2026-07-10 fix) ──────────────────
+
+const KNOWN = new Set(["t-20260707-011"]);
+const DISMISSED = new Set(["t-20260707-001"]);
+const consumed = (id: string) => isConsumedTaskId(id, KNOWN, DISMISSED);
+
+test("isConsumedTaskId: known or dismissed consumes; neither does not", () => {
+  assert.equal(isConsumedTaskId("t-20260707-011", KNOWN, DISMISSED), true);
+  assert.equal(isConsumedTaskId("t-20260707-001", KNOWN, DISMISSED), true);
+  assert.equal(isConsumedTaskId("t-20260707-099", KNOWN, DISMISSED), false);
+});
+
+test("stampedIdLineDisposition: known id strips — id-only line drops, prose line keeps residue", () => {
+  assert.equal(stampedIdLineDisposition("  - `t-20260707-011`", consumed), "drop");
+  assert.equal(stampedIdLineDisposition("  - Confirm ASM titles `t-20260707-011`", consumed), "strip");
+});
+
+test("stampedIdLineDisposition: DISMISSED id strips exactly like a known id", () => {
+  assert.equal(stampedIdLineDisposition("  - `t-20260707-001`", consumed), "drop");
+  assert.equal(stampedIdLineDisposition("- t-20260707-001", consumed), "drop");
+  assert.equal(stampedIdLineDisposition("  - Follow up with vendor `t-20260707-001`", consumed), "strip");
+});
+
+test("stampedIdLineDisposition: unknown + undismissed id keeps its raw token (never-drop)", () => {
+  assert.equal(stampedIdLineDisposition("  - `t-20260707-099`", consumed), "keep");
+  assert.equal(stampedIdLineDisposition("  - Out-of-band deletion `t-20260707-099`", consumed), "keep");
+});
+
+test("stampedIdLineDisposition: a line mixing consumed + unknown ids keeps tokens", () => {
+  assert.equal(stampedIdLineDisposition("  - `t-20260707-011` `t-20260707-099`", consumed), "keep");
+  assert.equal(stampedIdLineDisposition("  - `t-20260707-001` `t-20260707-099`", consumed), "keep");
+});
+
+test("stampedIdLineDisposition: a line without task ids is strip (a no-op), never dropped", () => {
+  assert.equal(stampedIdLineDisposition("  - editorial sub-bullet, no id", consumed), "strip");
+  assert.equal(stampedIdLineDisposition("", consumed), "strip");
 });
 
 // ── meeting citations ─────────────────────────────────────────────────────────────────────────

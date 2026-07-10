@@ -9,9 +9,10 @@
  * Invariants:
  * - A thread has ≥1 message; deleting the last message deletes the thread file.
  * - `status` drives append-to-open semantics: a new comment on a target with an OPEN thread
- *   appends to it; a resolved/processed target starts a fresh thread.
+ *   appends to it; a resolved or processed non-dev target starts a fresh thread.
  * - `processed` mirrors the loops feedback stamp (consumed by a loop's health pass). Stamping
- *   processed also resolves the thread — consumed feedback is a closed conversation.
+ *   processed also resolves the thread — unless dev_item is present: a diagnosed dev thread
+ *   leaves the guidance set but stays open.
  * - `source_ref` is migration provenance (the original FeedbackRecord/LibraryComment id) and
  *    the idempotency key for re-runs of the migration.
  */
@@ -37,6 +38,8 @@ export interface Thread {
   messages: ThreadMessage[];
   /** Chat sessions minted by the processor for this thread (append-only, oldest first). */
   chat_ids?: string[];
+  /** Stamped when the processor diagnoses the thread as a Hilt dev item; the thread stays OPEN for Justin's dev pass. */
+  dev_item?: { diagnosed_at: string };
   /** Stamped when a loop's health pass consumes the thread as feedback. */
   processed?: { at: string; run_at: string };
   /** Explicit resolution (user or agent action), distinct from the processed stamp. */
@@ -55,6 +58,7 @@ export interface ThreadSummary {
   message_count: number;
   last_message_snippet: string | null;
   chat_ids?: Thread["chat_ids"];
+  dev_item?: Thread["dev_item"];
   processed?: Thread["processed"];
   resolution?: Thread["resolution"];
   source_ref?: string;

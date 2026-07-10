@@ -16,6 +16,8 @@ import { buildReference } from "@/lib/references/build";
 import { copyToClipboard } from "@/lib/references/clipboard";
 import { TO_ARCHIVE_WORTH } from "@/lib/library/library-eval";
 import { LoadingState } from "@/components/ui/LoadingState";
+import { CommentPopover } from "@/components/comments/CommentPopover";
+import { ThreadView } from "@/components/threads/ThreadView";
 import { withBasePath } from "@/lib/base-path";
 import { EvalMetricPill, evalMetricTitle, formatEvalScore } from "./EvalMetricPills";
 import { LibraryMarkdown } from "./LibraryMarkdown";
@@ -285,40 +287,6 @@ export function LibraryArtifactDetailPane({
       return next;
     });
   }, []);
-  const [newComment, setNewComment] = useState("");
-  const [commentBusy, setCommentBusy] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingText, setEditingText] = useState("");
-  useEffect(() => { setNewComment(""); setEditingId(null); }, [artifact?.id]);
-  const postComment = useCallback(async () => {
-    const text = newComment.trim();
-    if (!id || !text) return;
-    setCommentBusy(true);
-    try {
-      await fetch(withBasePath(`/api/library/${id}/feedback`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
-      setNewComment("");
-      await mutate();
-      onChanged?.();
-    } finally { setCommentBusy(false); }
-  }, [id, newComment, mutate, onChanged]);
-  const saveCommentEdit = useCallback(async () => {
-    if (!id || !editingId) return;
-    setCommentBusy(true);
-    try {
-      await fetch(withBasePath(`/api/library/${id}/feedback`), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ commentId: editingId, text: editingText }) });
-      setEditingId(null);
-      await mutate();
-    } finally { setCommentBusy(false); }
-  }, [id, editingId, editingText, mutate]);
-  const deleteComment = useCallback(async (commentId: string) => {
-    if (!id) return;
-    setCommentBusy(true);
-    try {
-      await fetch(withBasePath(`/api/library/${id}/feedback`), { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ commentId }) });
-      await mutate();
-      onChanged?.();
-    } finally { setCommentBusy(false); }
-  }, [id, mutate, onChanged]);
 
   useEffect(() => {
     setReviewOpen(false);
@@ -653,60 +621,7 @@ export function LibraryArtifactDetailPane({
                   </div>
                 )}
               </div>
-              <div className="mt-2 border-t border-[var(--border-default)] pt-2">
-                <div className="mb-1 text-[var(--text-tertiary)]">Feedback</div>
-                {(artifact.comments || []).length > 0 && (
-                  <ul className="mb-2 space-y-1.5">
-                    {(artifact.comments || []).map((comment) => (
-                      <li key={comment.id} className="rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] px-2 py-1.5">
-                        {editingId === comment.id ? (
-                          <div>
-                            <textarea
-                              value={editingText}
-                              onChange={(event) => setEditingText(event.target.value)}
-                              rows={3}
-                              className="w-full resize-y rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2 py-1 text-xs text-[var(--text-primary)] outline-none"
-                            />
-                            <div className="mt-1 flex justify-end gap-3 text-[11px]">
-                              <button type="button" onClick={() => setEditingId(null)} className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">cancel</button>
-                              <button type="button" onClick={saveCommentEdit} disabled={commentBusy} className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50">save</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <div className="flex items-start justify-between gap-2">
-                              <span className="whitespace-pre-wrap text-[var(--text-primary)]">{comment.text}</span>
-                              <span className="flex shrink-0 items-center gap-2 text-[10px] text-[var(--text-tertiary)]">
-                                {comment.processed_at && <span className="text-emerald-500">✓</span>}
-                                <button type="button" onClick={() => { setEditingId(comment.id); setEditingText(comment.text); }} className="hover:text-[var(--text-secondary)]">edit</button>
-                                <button type="button" onClick={() => deleteComment(comment.id)} className="hover:text-red-500">delete</button>
-                              </span>
-                            </div>
-                            <div className="mt-0.5 text-[10px] text-[var(--text-tertiary)]">{(comment.updated_at || comment.created_at).slice(0, 16).replace("T", " ")}{comment.processed_at ? " · actioned" : ""}</div>
-                          </>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <textarea
-                  value={newComment}
-                  onChange={(event) => setNewComment(event.target.value)}
-                  placeholder="Add a comment… (wrong tier, shouldn't archive, bad digest…). Then ask me to “process library feedback”."
-                  rows={2}
-                  className="w-full resize-y rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] px-2 py-1 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--text-tertiary)]"
-                />
-                <div className="mt-1 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={postComment}
-                    disabled={commentBusy || !newComment.trim()}
-                    className="rounded-md border border-[var(--border-default)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--content-surface)] disabled:opacity-50"
-                  >
-                    {commentBusy ? "Posting…" : "Post"}
-                  </button>
-                </div>
-              </div>
+              <ThreadView target={{ kind: "library", id: artifact.id }} title="Feedback" className="mt-2 border-t border-[var(--border-default)] pt-2" />
             </div>
           ) : null;
         })()}
@@ -740,6 +655,11 @@ export function LibraryArtifactDetailPane({
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <CommentPopover
+              target={{ kind: "library", id: artifact.id }}
+              placeholder="Comment on this reference"
+              triggerTitle="Comment on this reference"
+            />
             <button
               type="button"
               onClick={async () => {

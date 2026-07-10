@@ -215,6 +215,41 @@ export function isTaskIdOnlyLine(line: string): boolean {
 }
 
 /**
+ * Is this stamped task id CONSUMED by an in-band representation? Known ids (live task files,
+ * escalation `task_id` joins) render as hydrated cards; dismissed ids are verdict-dismissals —
+ * the file is deleted but the loop's LEDGER remembers the minted `task_id`, and the id's
+ * representation is the "Dismissed · N" tail. Either way the raw token is a join key, not
+ * reading material. An id in NEITHER set is an out-of-band deletion: never-drop keeps its raw
+ * token visible as an inert chip (that rule has caught real pipeline bugs).
+ */
+export function isConsumedTaskId(
+  id: string,
+  knownIds: ReadonlySet<string>,
+  dismissedIds: ReadonlySet<string>,
+): boolean {
+  return knownIds.has(id) || dismissedIds.has(id);
+}
+
+/**
+ * What a briefing sub-line does with its stamped task-id tokens:
+ *   "drop"  — the line is JUST consumed id(s) (isTaskIdOnlyLine): its card / dismissed tail
+ *             already represents it fully, so the line disappears
+ *   "keep"  — some id is unconsumed (deleted out-of-band, no dismissal record): the raw token
+ *             stays visible as an inert chip — stripping it left an empty residue that
+ *             vanished, violating never-drop
+ *   "strip" — tokens strip, prose residue stays (also the no-op for lines without task ids)
+ */
+export function stampedIdLineDisposition(
+  line: string,
+  isConsumed: (id: string) => boolean,
+): "drop" | "strip" | "keep" {
+  const ids = extractTaskIds(line);
+  if (ids.length === 0) return "strip";
+  if (ids.some((id) => !isConsumed(id))) return "keep";
+  return isTaskIdOnlyLine(line) ? "drop" : "strip";
+}
+
+/**
  * First vault-relative meeting path cited in a span of text (`meetings/<date>/<file>.md`).
  * Meeting filenames contain spaces/`@`/unicode, so the match runs to the first `.md`,
  * stopping at markdown delimiters that can't appear in a filename's citation form.

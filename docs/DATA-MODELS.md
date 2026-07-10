@@ -858,7 +858,8 @@ interface Thread {
   updated_at: string;
   messages: ThreadMessage[];                              // ≥1 — last delete removes the file
   chat_ids?: string[];                                    // processor chat sessions, oldest first
-  processed?: { at: string; run_at: string };             // loop-consumption stamp; implies resolved
+  dev_item?: { diagnosed_at: string };                    // processor dev diagnosis; stays OPEN
+  processed?: { at: string; run_at: string };             // loop-consumption stamp; implies resolved except dev_item
   resolution?: { action: string; at: string; run_at?: string; by: string };
   source_ref?: string;     // migration provenance: the original record/comment id (idempotency key)
 }
@@ -868,7 +869,9 @@ interface Thread {
 
 **Processor chat join**: `chat_ids?: string[]` is append-only and processor-minted. The processor stamps the chat id as soon as it emits the streaming `session` event, before the Claude turn finishes, so System → Threads can show the live run and later reopen the saved transcript. Normalization keeps only UUID-valid ids, dedupes in order, and omits the field when empty. `ThreadSummary.chat_ids` mirrors the same list for row-level working detection.
 
-**Append-to-open semantics**: a new comment on a target with an OPEN thread appends to it; a resolved/processed target starts a fresh thread. Target identity = `targetKey` (kind + naming ids; `loop-item.artifactDate` and `briefing-anchor.anchor.citation` are deliberately NOT identity).
+**Dev items**: `dev_item?: { diagnosed_at: string }` marks a processor diagnosis that the feedback is about Hilt's own software behavior. Dev items are enforced at the PROMPT level only — the processor tool policy has no Bash but does include Edit/Write, so a misbehaving turn could still edit files; `filesTouched` on the saved chat message exposes any edit for audit. When `dev_item` is present, `processed` only removes the thread from loop guidance; it does not imply resolved, and the thread stays OPEN for Justin's dev pass.
+
+**Append-to-open semantics**: a new comment on a target with an OPEN thread appends to it; a resolved or processed non-dev target starts a fresh thread. Target identity = `targetKey` (kind + naming ids; `loop-item.artifactDate` and `briefing-anchor.anchor.citation` are deliberately NOT identity).
 
 **FeedbackTarget → CommentTarget mapping** (migration + live adapter, `feedback-bridge.ts`): level `item`+anchor → `briefing-anchor`; level `item`+item_id → `loop-item {loop, itemId, artifactDate?}`; level `section` → `briefing-section`; level `briefing` → `briefing {date}` (dateless legacy records borrow the record's created_at day). Reading back, a home (`<base>/meta/loops/<domain>`) resolves to its loop ids via the registry (`loopIdsForHome` — domain "briefings" ↔ loop id "briefing"), and each human message maps to one `FeedbackRecord` (message id = record id; `agent:*` consumption messages are excluded).
 

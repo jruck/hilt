@@ -2177,6 +2177,7 @@ Run the on-demand processor over ONE open thread. Validates before streaming: `4
 The processor (`src/lib/threads/processor.ts`) creates a normal chat session (context from the thread's target via the C1 `buildFirstTurnPrompt` builders; label from the thread's first human message), runs one Claude turn (Read/Edit/Write/Grep/Glob/LS — no Bash) over a preamble carrying the thread's target + messages, then:
 - posts the assistant's final text back to the thread as an agent reply (`agent:<loop>` when the target maps to a loop, else `agent:processor`) and resolves it `{ action: "processed" }`;
 - if the reply's last non-empty line matches `/^PROPOSAL: (.+)$/`, mints a proposal task file into `$VAULT/tasks/.proposals/` with `origin.thread = <threadId>`, strips the marker line, appends `Minted proposal <task-id>.`, and resolves `{ action: "proposal-minted" }`.
+- if the reply's last non-empty line matches `/^DEVITEM: (.+)$/`, strips the marker line, appends `Diagnosis: <diagnosis>`, stamps `dev_item`, stamps `processed` for loop-mapped targets, returns `{ action: "dev-item" }`, and leaves the thread OPEN.
 
 The chat session persists (visible in ChatsView — intended). A failed Claude turn emits `{ type: "error" }` and leaves the thread OPEN for retry.
 

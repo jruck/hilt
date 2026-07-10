@@ -41,6 +41,7 @@ import {
   editMessage,
   isValidThreadId,
   listThreads,
+  markDevItem,
   markProcessed,
   normalizeThread,
   openThreadForTarget,
@@ -108,12 +109,22 @@ describe("thread store — round-trip", () => {
     const thread = saveThread({
       ...createThread(libTarget, { author: "justin", text: "line one\nline  two" }),
       chat_ids: [chatId],
+      dev_item: { diagnosed_at: "2026-07-09T00:00:00.000Z" },
     });
     const summary = toThreadSummary(thread);
     expect(summary.message_count).toBe(1);
     expect(summary.last_message_snippet).toBe("line one line two");
     expect(summary.target).toEqual(libTarget);
     expect(summary.chat_ids).toEqual([chatId]);
+    expect(summary.dev_item).toEqual({ diagnosed_at: "2026-07-09T00:00:00.000Z" });
+  });
+
+  it("dev_item round-trips through saveThread and readThread", () => {
+    const thread = saveThread({
+      ...createThread(libTarget, { author: "justin", text: "app bug" }),
+      dev_item: { diagnosed_at: "2026-07-09T12:00:00.000Z" },
+    });
+    expect(readThread(thread.id)?.dev_item).toEqual({ diagnosed_at: "2026-07-09T12:00:00.000Z" });
   });
 
   it("rejects traversal-shaped ids before touching the filesystem", () => {
@@ -158,6 +169,7 @@ describe("thread store — normalize on read", () => {
       messages: [{ id: "m1", author: "justin", text: "legacy", created_at: "2026-07-09T00:00:00.000Z" }],
     });
     expect("chat_ids" in readThread(legacy)!).toBe(false);
+    expect("dev_item" in readThread(legacy)!).toBe(false);
   });
 
   it("coerces bad/missing fields instead of throwing", () => {
@@ -173,6 +185,7 @@ describe("thread store — normalize on read", () => {
         { id: "m3", author: "justin" }, // no text → dropped
       ],
       processed: { at: "2026-07-02T00:00:00Z" }, // missing run_at → dropped
+      dev_item: { diagnosed_at: 42 }, // non-string diagnosed_at → dropped
       resolution: { action: "done" }, // missing at/by → dropped
       source_ref: 17,
     });
@@ -183,6 +196,7 @@ describe("thread store — normalize on read", () => {
     expect(thread!.messages).toHaveLength(2);
     expect(thread!.messages[1].author).toBe("justin"); // non-string author coerced
     expect(thread!.processed).toBeUndefined();
+    expect(thread!.dev_item).toBeUndefined();
     expect(thread!.resolution).toBeUndefined();
     expect(thread!.source_ref).toBeUndefined();
     expect(thread!.created_at).toBe("2026-07-01T00:00:00Z"); // falls back to first message
@@ -197,6 +211,21 @@ describe("thread store — normalize on read", () => {
       processed: { at: "2026-07-02T00:00:00Z", run_at: "2026-07-02T00:00:00Z" },
     });
     expect(readThread(id)!.status).toBe("resolved");
+  });
+
+  it("processed dev_item threads stay open when raw files normalize", () => {
+    const id = crypto.randomUUID();
+    writeRawThread(id, {
+      target: { kind: "loop-item", loop: "meeting-actions", itemId: "ma-1" },
+      status: "open",
+      messages: [{ id: "m", author: "justin", text: "t", created_at: "2026-07-01T00:00:00Z" }],
+      dev_item: { diagnosed_at: "2026-07-02T00:00:00Z" },
+      processed: { at: "2026-07-02T00:00:00Z", run_at: "2026-07-02T00:00:00Z" },
+    });
+    const thread = readThread(id)!;
+    expect(thread.status).toBe("open");
+    expect(thread.dev_item).toEqual({ diagnosed_at: "2026-07-02T00:00:00Z" });
+    expect(thread.processed).toEqual({ at: "2026-07-02T00:00:00Z", run_at: "2026-07-02T00:00:00Z" });
   });
 
   it("invalid target, zero messages, or corrupt JSON degrade to missing and never crash the list", () => {
@@ -264,6 +293,21 @@ describe("thread store — append-to-open semantics", () => {
     expect(stamped.status).toBe("resolved");
     expect(stamped.processed).toEqual({ at: "2026-07-08T01:00:00Z", run_at: "2026-07-08T01:00:00Z" });
     expect(openThreadForTarget(libTarget)).toBeNull();
+  });
+
+  it("markDevItem preserves status; markProcessed keeps dev items open", () => {
+    const open = createThread(libTarget, { author: "justin", text: "hilt bug" });
+    const diagnosed = markDevItem(open.id, { diagnosed_at: "2026-07-08T01:00:00Z" });
+    expect(diagnosed.status).toBe("open");
+    expect(diagnosed.dev_item).toEqual({ diagnosed_at: "2026-07-08T01:00:00Z" });
+
+    const stamped = markProcessed(open.id, { at: "2026-07-08T01:01:00Z", run_at: "2026-07-08T01:01:00Z" });
+    expect(stamped.status).toBe("open");
+    expect(stamped.processed).toEqual({ at: "2026-07-08T01:01:00Z", run_at: "2026-07-08T01:01:00Z" });
+
+    const normal = createThread({ kind: "library", id: "art-2" }, { author: "justin", text: "content fb" });
+    expect(markProcessed(normal.id, { at: "2026-07-08T02:00:00Z", run_at: "2026-07-08T02:00:00Z" }).status)
+      .toBe("resolved");
   });
 });
 

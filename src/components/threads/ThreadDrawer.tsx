@@ -65,6 +65,9 @@ function isAbortError(error: unknown): boolean {
 
 function statusLine(thread: Thread | null): string {
   if (!thread) return "Loading";
+  if (thread.status === "open" && thread.dev_item) {
+    return `Dev item · diagnosed ${formatRelativeDate(thread.dev_item.diagnosed_at)}`;
+  }
   if (thread.status === "open") return `Open · ${formatRelativeDate(thread.updated_at)}`;
   return `${resolutionStory(thread)} · ${formatRelativeDate(resolvedAt(thread))}`;
 }

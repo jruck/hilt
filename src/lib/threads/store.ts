@@ -98,6 +98,11 @@ function normalizeStamp(value: unknown): { at: string; run_at: string } | undefi
   return { at: value.at, run_at: value.run_at };
 }
 
+function normalizeDevItem(value: unknown): Thread["dev_item"] | undefined {
+  if (!isRecord(value) || !nonEmpty(value.diagnosed_at)) return undefined;
+  return { diagnosed_at: value.diagnosed_at };
+}
+
 function normalizeResolution(value: unknown): Thread["resolution"] | undefined {
   if (!isRecord(value) || !nonEmpty(value.action) || !nonEmpty(value.at) || !nonEmpty(value.by)) return undefined;
   return {
@@ -134,16 +139,18 @@ export function normalizeThread(value: unknown, fallbackId: string): Thread | nu
   if (messages.length === 0) return null;
   const createdAt = nonEmpty(record.created_at) ? record.created_at : messages[0].created_at;
   const processed = normalizeStamp(record.processed);
+  const devItem = normalizeDevItem(record.dev_item);
   const resolution = normalizeResolution(record.resolution);
   const chatIds = normalizeUuidList(record.chat_ids);
   return {
     id: nonEmpty(record.id) && isValidThreadId(record.id) ? record.id : fallbackId,
     target,
-    status: record.status === "resolved" || processed ? "resolved" : "open",
+    status: record.status === "resolved" || (processed && !devItem) ? "resolved" : "open",
     created_at: createdAt,
     updated_at: nonEmpty(record.updated_at) ? record.updated_at : createdAt,
     messages,
     ...(chatIds ? { chat_ids: chatIds } : {}),
+    ...(devItem ? { dev_item: devItem } : {}),
     ...(processed ? { processed } : {}),
     ...(resolution ? { resolution } : {}),
     ...(nonEmpty(record.source_ref) ? { source_ref: record.source_ref } : {}),
@@ -196,7 +203,7 @@ export function threadsForTarget(target: CommentTarget): Thread[] {
 
 /**
  * The open thread a new comment on this target APPENDS to (most recently updated wins).
- * Resolved/processed targets return null — the next comment starts a fresh thread.
+ * Resolved targets return null — the next comment starts a fresh thread.
  */
 export function openThreadForTarget(target: CommentTarget): Thread | null {
   const open = threadsForTarget(target).filter((thread) => thread.status === "open");
@@ -292,13 +299,22 @@ export function resolveThread(
   return saveThread(thread);
 }
 
-/** Loop-consumption stamp. Also resolves: consumed feedback is a closed conversation. */
+/** Loop-consumption stamp. Also resolves unless this is a diagnosed dev item. */
 export function markProcessed(id: string, stamp: { at: string; run_at: string }): Thread {
   const thread = readThread(id);
   if (!thread) throw new Error(`thread not found: ${id}`);
   thread.processed = stamp;
-  thread.status = "resolved";
+  // Dev-item threads leave the loop guidance set but stay OPEN for Justin's dev pass.
+  if (!thread.dev_item) thread.status = "resolved";
   thread.updated_at = stamp.at;
+  return saveThread(thread);
+}
+
+export function markDevItem(id: string, stamp: { diagnosed_at: string }): Thread {
+  const thread = readThread(id);
+  if (!thread) throw new Error(`thread not found: ${id}`);
+  thread.dev_item = stamp;
+  thread.updated_at = stamp.diagnosed_at;
   return saveThread(thread);
 }
 
@@ -324,6 +340,7 @@ export function toThreadSummary(thread: Thread): ThreadSummary {
     message_count: thread.messages.length,
     last_message_snippet: snippet || null,
     ...(thread.chat_ids ? { chat_ids: thread.chat_ids } : {}),
+    ...(thread.dev_item ? { dev_item: thread.dev_item } : {}),
     ...(thread.processed ? { processed: thread.processed } : {}),
     ...(thread.resolution ? { resolution: thread.resolution } : {}),
     ...(thread.source_ref ? { source_ref: thread.source_ref } : {}),

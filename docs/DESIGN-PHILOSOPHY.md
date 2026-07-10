@@ -177,6 +177,18 @@ Every action should have visible feedback:
 
 This section tracks design decisions and refinements over time. Each entry should note what was tried, what was rejected, and why.
 
+### 2026-07-09: Comment Popover — One Floating Experience, Count Pills for Discovery
+
+**Principle**: Commenting is ONE experience everywhere. Every surface exposes the same small comment button in a consistent, discoverable place — immediately left of the object's kebab/action cluster on headers, in the hover-reveal action cluster on bullets — and clicking it always opens the SAME floating popover (composer + compact thread history) anchored at the trigger, sitting ON TOP of the canvas. The UI for giving feedback never lives in the canvas pushing content around.
+
+**UI rules**:
+- The trigger is a quiet `MessageSquare` icon button. Once the target's thread has messages it carries a small zinc count pill (total messages incl. agent replies — activity visibility). On hover-revealed bullet rows, a nonzero count FORCES the trigger visible without hover — a commented bullet is discoverable at a glance; only uncommented triggers stay hover-gated.
+- The popover is the house `ObjectPopover` shell (anchored, viewport-clamped, Escape/outside-click closes) — never a modal, never an inline form row. Enter sends, Shift+Enter newlines. Posting keeps the popover OPEN and the new message appears in place (Figma behavior). Edit/delete/Process affordances work on the history rows inside the popover.
+- The under-body `ThreadView` Comments section remains the object's durable record where it already renders (task pane, meeting notes); the popover is the quick layer over the same anchor and SWR key, so the two can never disagree.
+- This SUPERSEDES the CommentBox idiom split (compact inline form for rows, labeled inline button for whole objects) noted in the 2026-07-08 Thread-Under-Object entry: the floating popover is now the composer everywhere; CommentBox survives only inside VerdictNoteField, whose verdict-riding note is a different gesture.
+
+**Rationale**: The comment affordance was inconsistent per surface — Justin literally could not find the meeting comment button at the bottom of the pane, and inline-expanding forms shoved content around while typing. Figma's model (button → floating thread → count pill) is the reference: one gesture, one placement rule, activity visible before interaction.
+
 ### 2026-07-08: HUD Overlaps Are Actionable, Not Covered
 
 **Principle**: A meeting that starts during the current meeting is still a distinct upcoming obligation. The HUD should not treat it as "covered" just because its end time is inside the current block.

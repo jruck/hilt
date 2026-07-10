@@ -5,6 +5,7 @@ import { promisify } from "util";
 import { loadEnvConfig } from "@next/env";
 import { detectRateLimitInEnvelope, extractModelText, resolveClaudeBin, runClaude } from "../src/lib/library/connections";
 import { isoNow } from "../src/lib/library/utils";
+import { extractJsonObject } from "../src/lib/loops/extract-json";
 import { loadRegistry, loopHome } from "../src/lib/loops/registry";
 import { emitLoopArtifact, defaultSandboxDir } from "../src/lib/loops/emit";
 import { runThreadHealthPass, renderFeedbackHandledSection } from "../src/lib/loops/health-pass";
@@ -32,7 +33,10 @@ const vaultPath = argValue("--vault") || process.env.BRIDGE_VAULT_PATH || proces
 const today = argValue("--date") || new Date().toLocaleDateString("en-CA");
 const asOf = argValue("--as-of");
 const windowDays = Number(argValue("--window-days") || 7);
-const timeoutMs = Number(process.env.LOOP_GOALS_TIMEOUT_MS || 240_000);
+// 240s was calibrated for a terser model; the current one takes 5-8 min on this call (live
+// measurements 2026-07-09: 240s + one 540s attempt timed out, a 540s-budget run succeeded at
+// 7m57s) — a too-tight budget reads as "analysis call failed" every morning.
+const timeoutMs = Number(process.env.LOOP_GOALS_TIMEOUT_MS || 600_000);
 
 const REPOS = [vaultPath, "/Users/jruck/work/engineering/me/hilt", `${vaultPath}/libraries/everpro`, `${vaultPath}/libraries/priceless-misc`];
 
@@ -168,17 +172,28 @@ async function main(): Promise<void> {
   fs.writeFileSync(promptPath, GOALS_SYSTEM, "utf-8");
   let parsed: any = null;
   let rateLimited = false;
+  let parseFailed = false;
   try {
     const stdout = await runClaude(resolveClaudeBin(), ["-p", task, "--append-system-prompt-file", promptPath, "--output-format", "json"], timeoutMs, vaultPath);
     if (detectRateLimitInEnvelope(stdout).limited) rateLimited = true;
     else {
-      const text = extractModelText(stdout);
-      const m = text.match(/\{[\s\S]*\}/);
-      parsed = JSON.parse(m ? m[0] : text);
+      parsed = extractJsonObject(extractModelText(stdout));
+      if (parsed === null) {
+        const retryTask = `${task}\n\nIMPORTANT: Your previous answer could not be parsed. Return ONLY the JSON object — no prose, no preamble, no code fences.`;
+        const retryStdout = await runClaude(resolveClaudeBin(), ["-p", retryTask, "--append-system-prompt-file", promptPath, "--output-format", "json"], timeoutMs, vaultPath);
+        if (detectRateLimitInEnvelope(retryStdout).limited) rateLimited = true;
+        else {
+          parsed = extractJsonObject(extractModelText(retryStdout));
+          if (parsed === null) parseFailed = true;
+        }
+      }
     }
   } catch (error) {
     const e = error as { stdout?: string; stderr?: string };
     if (detectRateLimitInEnvelope(e?.stdout || "").limited || /rate.?limit|usage limit/i.test(e?.stderr || "")) rateLimited = true;
+    // A silent catch made a timeout indistinguishable from every other failure for a full
+    // diagnostic session (2026-07-09) — one line keeps the launchd log tellable.
+    else console.error("[loop-goals-areas] analysis call failed:", error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -237,12 +252,12 @@ async function main(): Promise<void> {
     health: {
       ok: Boolean(parsed),
       coverage: parsed ? 1 : 0,
-      notes: rateLimited ? "rate-limited" : parsed ? `${(parsed.alignment || []).length} priorities read, ${items.length} findings${feedbackHandled.consumed ? `, ${feedbackHandled.consumed} feedback thread(s) consumed` : ""}` : "analysis call failed",
+      notes: rateLimited ? "rate-limited" : parsed ? `${(parsed.alignment || []).length} priorities read, ${items.length} findings${feedbackHandled.consumed ? `, ${feedbackHandled.consumed} feedback thread(s) consumed` : ""}` : parseFailed ? "analysis parse failed (after retry)" : "analysis call failed",
     },
     contentBody,
   });
 
-  console.log(JSON.stringify({ artifact, findings: items.length, rate_limited: rateLimited, ok: Boolean(parsed) }, null, 2));
+  console.log(JSON.stringify({ artifact, findings: items.length, rate_limited: rateLimited, parse_failed: parseFailed, ok: Boolean(parsed) }, null, 2));
 }
 
 main().catch((error) => { console.error(error); process.exit(1); });

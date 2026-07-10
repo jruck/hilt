@@ -33,6 +33,7 @@ import { withBasePath } from "@/lib/base-path";
 import { parseLifecycle } from "@/lib/attribution";
 import { historyEntries, joinTaskBody, splitTaskBody } from "@/lib/tasks/task-body";
 import type { ImplementedCommentTarget } from "@/lib/comments/types";
+import { CommentPopover } from "@/components/comments/CommentPopover";
 import { ObjectCard } from "@/components/objects/ObjectCard";
 import { ObjectPill } from "@/components/objects/ObjectPill";
 import { useVerdictNote, VerdictNoteField } from "@/components/comments/VerdictNoteField";
@@ -261,6 +262,16 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
           <div className="flex-1 text-lg leading-snug font-semibold text-[var(--text-primary)]">
             {task ? displayTitle : notFound ? "Task not found" : ""}
           </div>
+        )}
+
+        {/* The quick comment layer (W1) — same anchor as the under-body Comments record below;
+            both read threadsUrlForTarget(commentTarget), so they cannot disagree. */}
+        {task && !dismissed && (
+          <CommentPopover
+            target={commentTarget}
+            placeholder="Comment on this task"
+            triggerTitle="Comment on this task"
+          />
         )}
 
         {/* Verdict actions — proposals only; the house three-dot menu (BridgeTaskPanel slot),

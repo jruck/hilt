@@ -14,6 +14,11 @@
  *   container; toggling the icon closes it.
  * - default — the whole-object idiom (BriefingsView's BriefingFeedbackButton): a labeled
  *   bordered button; the form replaces it inline with Send + explicit close.
+ *
+ * W1 supersession: the standalone header/bullet usages (briefing bullets, escalation rows,
+ * whole-briefing, meeting notes) now render CommentPopover — the floating universal
+ * experience. CommentBox stays exported as the inline-input primitive (the VerdictNoteField
+ * check-flash idiom derives from it); it has no remaining standalone call sites.
  */
 import { useState, type FormEvent } from "react";
 import { Check, MessageSquare, Send, X } from "lucide-react";

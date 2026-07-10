@@ -5,7 +5,7 @@ import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import { ChevronRight, ChevronsUpDown, ChevronsDownUp } from "lucide-react";
-import { CommentBox } from "@/components/comments/CommentBox";
+import { CommentPopover } from "@/components/comments/CommentPopover";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useScope } from "@/contexts/ScopeContext";
 import { withBasePath } from "@/lib/base-path";
@@ -151,19 +151,20 @@ function BriefingLink({
 }
 
 /** Universal per-item feedback (scope §6: "a comment affordance on any briefing bullet"). Anchors
- * by (briefing date, section, bullet text) and routes to the briefing loop — now via the shared
- * CommentBox + postComment (the gate-B comment primitive; C2 turns these into threads). */
+ * by (briefing date, section, bullet text) — now the W1 CommentPopover: floating composer +
+ * history; the count pill forces trigger visibility on commented bullets. */
 function ItemFeedbackButton({ section, headline, date }: { section: string; headline: string; date?: string }) {
   return (
-    <CommentBox
+    <CommentPopover
       compact
+      hoverReveal
       target={{
         kind: "briefing-anchor",
         ...(date ? { date } : {}),
         anchor: { section, text: headline.slice(0, 200) },
       }}
       placeholder="Feedback on this item"
-      triggerTitle="Leave feedback on this item"
+      triggerTitle="Comment on this item"
     />
   );
 }
@@ -277,10 +278,14 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
             {renderCitations(stripDisplayTokens(item.headline, hasAskList || headlineBound.length > 0, headlineTasks.length > 0))}
           </ReactMarkdown>
         </span>
-        <span onClick={(e) => e.stopPropagation()} className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+        <span onClick={(e) => e.stopPropagation()} className="flex shrink-0 items-center gap-0.5">
           {feedbackable && <ItemFeedbackButton section={section} headline={item.headline} date={date} />}
+          {/* CommentPopover self-gates via hoverReveal so a commented bullet's count pill stays
+              visible; the copy button stays hover-revealed. */}
           {absPath && (
-            <CopyReferenceButton variant="icon" reference={{ kind: "briefing-item", absPath, headline: item.headline }} />
+            <span className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+              <CopyReferenceButton variant="icon" reference={{ kind: "briefing-item", absPath, headline: item.headline }} />
+            </span>
           )}
         </span>
       </div>
@@ -500,8 +505,12 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
       actions={(
         <>
           {feedbackable && <ItemFeedbackButton section={section} headline={item.headline} date={date} />}
+          {/* CommentPopover self-gates via hoverReveal so a commented bullet's count pill stays
+              visible; the copy button stays hover-revealed. */}
           {absPath && (
-            <CopyReferenceButton variant="icon" reference={{ kind: "briefing-item", absPath, headline: item.headline }} />
+            <span className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+              <CopyReferenceButton variant="icon" reference={{ kind: "briefing-item", absPath, headline: item.headline }} />
+            </span>
           )}
         </>
       )}

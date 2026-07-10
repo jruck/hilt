@@ -23,6 +23,7 @@ import { useState, type FormEvent } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import { Check, MessageSquare, Pencil, Play, Trash2, X } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
+import { THREAD_SUMMARIES_KEY } from "@/hooks/useThreadCounts";
 import type { CommentTarget } from "@/lib/comments/types";
 import { runThreadProcess } from "@/lib/threads/process-client";
 import type { Thread, ThreadMessage } from "@/lib/threads/types";
@@ -33,9 +34,13 @@ export function threadsUrlForTarget(target: CommentTarget): string {
   return `/api/threads?target=${encodeURIComponent(JSON.stringify(target))}`;
 }
 
-/** Revalidate an anchor's ThreadView after a post lands (CommentBox/VerdictNoteField onPosted). */
+/** Revalidate an anchor's ThreadView after a post lands (CommentPopover/VerdictNoteField
+ * onPosted) — and the app-wide summaries key, so count pills update on the same path. */
 export function mutateThreadsForTarget(target: CommentTarget): Promise<unknown> {
-  return globalMutate(threadsUrlForTarget(target));
+  return Promise.all([
+    globalMutate(threadsUrlForTarget(target)),
+    globalMutate(THREAD_SUMMARIES_KEY),
+  ]);
 }
 
 function authorChipLabel(author: string): string {
@@ -95,7 +100,7 @@ export function ThreadView({ target, title, className }: ThreadViewProps) {
   );
 }
 
-function ThreadBlock({ thread, onChanged }: { thread: Thread; onChanged: () => void }) {
+export function ThreadBlock({ thread, onChanged = () => undefined }: { thread: Thread; onChanged?: () => void }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -194,7 +199,7 @@ function ThreadBlock({ thread, onChanged }: { thread: Thread; onChanged: () => v
   );
 }
 
-function MessageRow({
+export function MessageRow({
   message,
   editing,
   draft,

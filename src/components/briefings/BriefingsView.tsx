@@ -11,7 +11,7 @@ import { BridgeModeToggle, type BridgeMode } from "@/components/bridge/BridgeMod
 import { SecondaryInlineContent } from "@/components/layout/SecondaryToolbar";
 import { AppHud, AppHudCollapsedBar } from "@/components/AppHud";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { CommentBox } from "@/components/comments/CommentBox";
+import { CommentPopover } from "@/components/comments/CommentPopover";
 import type { CalendarEventOpenDetail } from "@/lib/calendar/deeplink";
 
 interface BriefingsViewProps {
@@ -22,10 +22,15 @@ interface BriefingsViewProps {
   onOpenTask?: (taskId: string) => void;
 }
 
-/** Whole-briefing feedback — the shared CommentBox (labeled form), routed through postComment
- * to the briefing loop's feedback stream (the gate-B comment primitive; C2 → threads). */
+/** Whole-briefing feedback — the universal CommentPopover (W1) anchored at {kind:"briefing", date}. */
 function BriefingFeedbackButton({ date }: { date: string }) {
-  return <CommentBox target={{ kind: "briefing", date }} />;
+  return (
+    <CommentPopover
+      target={{ kind: "briefing", date }}
+      placeholder="Feedback on this briefing"
+      triggerTitle="Comment on this briefing"
+    />
+  );
 }
 
 export function BriefingsView({

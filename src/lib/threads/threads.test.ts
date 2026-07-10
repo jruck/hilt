@@ -50,6 +50,7 @@ import {
   threadsForTarget,
   toThreadSummary,
 } from "./store";
+import { targetKey as clientTargetKey } from "./target-key";
 import type { CommentTarget, Thread } from "./types";
 
 const originalDataDir = process.env.DATA_DIR;
@@ -519,5 +520,42 @@ describe("library adapter re-point — LibraryComment-shaped over threads", () =
 
     addStoredComment("/ignored", "art-lib", "post-processing comment");
     expect(listThreads()).toHaveLength(2); // resolved target → fresh thread
+  });
+});
+
+describe("targetKey — client-safe extraction parity (W1)", () => {
+  it("the store re-export IS the client-safe implementation", () => {
+    expect(targetKey).toBe(clientTargetKey);
+  });
+
+  it("produces identical keys for every kind and variant", () => {
+    const targets: CommentTarget[] = [
+      { kind: "task", id: "t-20260709-001" },
+      { kind: "loop-item", loop: "meeting-actions", itemId: "ma-1" },
+      { kind: "loop-item", loop: "meeting-actions", itemId: "ma-1", artifactDate: "2026-07-09" },
+      { kind: "briefing", date: "2026-07-09" },
+      { kind: "briefing-section", date: "2026-07-09", section: "Signals" },
+      { kind: "briefing-anchor", anchor: { text: "a bullet" } },
+      { kind: "briefing-anchor", date: "2026-07-09", anchor: { section: "Signals", citation: "meetings/x.md", text: "a bullet" } },
+      { kind: "library", id: "art-1" },
+      { kind: "meeting", rel: "meetings/2026-07-09/standup.md" },
+    ];
+    for (const target of targets) {
+      expect(clientTargetKey(target)).toBe(targetKey(target));
+    }
+  });
+
+  it("pins identity exclusions: artifactDate and citation are provenance, not identity", () => {
+    expect(clientTargetKey({ kind: "loop-item", loop: "l", itemId: "i", artifactDate: "2026-07-01" }))
+      .toBe(clientTargetKey({ kind: "loop-item", loop: "l", itemId: "i", artifactDate: "2026-07-08" }));
+    expect(clientTargetKey({ kind: "briefing-anchor", date: "2026-07-09", anchor: { section: "S", citation: "a.md", text: "t" } }))
+      .toBe(clientTargetKey({ kind: "briefing-anchor", date: "2026-07-09", anchor: { section: "S", citation: "b.md", text: "t" } }));
+    // date/section/text ARE identity.
+    expect(clientTargetKey({ kind: "briefing-anchor", date: "2026-07-09", anchor: { section: "S", text: "t" } }))
+      .not.toBe(clientTargetKey({ kind: "briefing-anchor", date: "2026-07-08", anchor: { section: "S", text: "t" } }));
+    expect(clientTargetKey({ kind: "briefing-anchor", date: "2026-07-09", anchor: { section: "S", text: "t" } }))
+      .not.toBe(clientTargetKey({ kind: "briefing-anchor", date: "2026-07-09", anchor: { section: "S2", text: "t" } }));
+    expect(clientTargetKey({ kind: "briefing-anchor", date: "2026-07-09", anchor: { section: "S", text: "t" } }))
+      .not.toBe(clientTargetKey({ kind: "briefing-anchor", date: "2026-07-09", anchor: { section: "S", text: "t2" } }));
   });
 });

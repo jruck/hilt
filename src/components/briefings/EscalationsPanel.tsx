@@ -6,7 +6,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
-import { CommentBox } from "@/components/comments/CommentBox";
+import { CommentPopover } from "@/components/comments/CommentPopover";
+import { mutateThreadsForTarget } from "@/components/threads/ThreadView";
 import { useVerdictNote, VerdictNoteField, VerdictNoteTrigger } from "@/components/comments/VerdictNoteField";
 import type { Citation, LoopItem, RegistryLoop, Verdict, VerdictRecord } from "@/lib/loops/types";
 import { meetingLabelFromRelPath } from "@/lib/briefing/canvas";
@@ -228,6 +229,11 @@ export function AskVerdictControls({ item, onChanged, vertical = false }: { item
       });
       setLocalVerdict(record.verdict);
       noteControl.reset();
+      // A note riding the verdict lands in the thread store — refresh the row's count pill
+      // (and any open popover) through the same mutate path posts use (W1).
+      if (note?.trim()) {
+        void mutateThreadsForTarget({ kind: "loop-item", loop: item.loop, itemId: item.id, artifactDate: item.artifact_date });
+      }
       onChanged();
     } catch (error) {
       setLocalVerdict(previousVerdict);
@@ -276,6 +282,9 @@ export function AskVerdictControls({ item, onChanged, vertical = false }: { item
       busy={Boolean(busyVerdict)}
       vertical={vertical}
       className={vertical ? undefined : "flex items-center gap-2 pb-1"}
+      // Pure-comment Send threads on the origin loop-item (postComment routing) — refresh the
+      // row's anchor so its count pill / open popover pick the note up (W1).
+      onPosted={() => void mutateThreadsForTarget({ kind: "loop-item", loop: item.loop, itemId: item.id, artifactDate: item.artifact_date })}
     />
   );
 
@@ -313,7 +322,6 @@ export function FloatingAskControls({ item, onChanged }: { item: EscalatedLoopIt
 function LoopItemRow({ item, onChanged, expandSignal }: { item: EscalatedLoopItem; onChanged: () => void; expandSignal?: ExpandSignal }) {
   const [expanded, setExpanded] = useState(false);
   useExpandSignal(expandSignal, setExpanded);
-  const [commentOpen, setCommentOpen] = useState(false);
   const citation = formatCitation(item.citations);
   const meetingCitationRel = firstMeetingCitationSource(item.citations);
   const confidence = typeof item.confidence === "number"
@@ -333,24 +341,15 @@ function LoopItemRow({ item, onChanged, expandSignal }: { item: EscalatedLoopIte
           {displayTitle}
           <OwnerChip owner={owner} className="ml-1.5 align-middle" />
         </span>
-        <span
-          onClick={(e) => e.stopPropagation()}
-          // While the box is OPEN it must not fade on blur, and the form takes its own
-          // full-width line beneath the row (the row container flex-wraps) — the pre-refit
-          // layout (adversarial finding: hover-gating an open form made it vanish mid-typing).
-          className={commentOpen
-            ? "order-last basis-full flex items-center gap-0.5 opacity-100"
-            : "flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"}
-        >
-          {/* The shared comment gesture (gate-B primitive): same icon → inline input → check
-              flash as briefing bullets; routes via postComment — task_id-bearing asks target
-              their TASK so the comment dual-writes (drawer + visible file note-line). */}
-          <CommentBox
+        <span onClick={(e) => e.stopPropagation()} className="flex shrink-0 items-center gap-0.5">
+          {/* The W1 comment gesture: floating popover — no full-width form row, no fade-while-
+              typing hazard. Always the loop-item anchor: postComment routes a task target to its
+              ORIGIN loop-item anyway (for minted asks origin === this item), so reading/counting
+              on the loop-item keeps the popover's history and pill on the thread the write hits. */}
+          <CommentPopover
             compact
-            onOpenChange={setCommentOpen}
-            target={item.task_id
-              ? { kind: "task", id: item.task_id }
-              : { kind: "loop-item", loop: item.loop, itemId: item.id, artifactDate: item.artifact_date }}
+            hoverReveal
+            target={{ kind: "loop-item", loop: item.loop, itemId: item.id, artifactDate: item.artifact_date }}
             placeholder="Feedback"
             triggerTitle="Leave feedback"
           />

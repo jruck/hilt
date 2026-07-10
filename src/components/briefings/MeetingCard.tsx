@@ -91,7 +91,9 @@ export function MeetingCard({ title, date, summary, pendingCount, defaultOpen = 
           ) : null}
         </span>
         {actions && (
-          <span onClick={(e) => e.stopPropagation()} className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+          // Children self-gate their hover reveal (W1: a pilled comment trigger must stay
+          // visible without hover; see BriefingContent's action clusters).
+          <span onClick={(e) => e.stopPropagation()} className="flex shrink-0 items-center gap-0.5">
             {actions}
           </span>
         )}

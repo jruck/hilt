@@ -25,8 +25,8 @@ import type { Verdict } from "@/lib/loops/types";
 import type { CommentTarget } from "@/lib/comments/types";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { TranscriptView } from "./TranscriptView";
-import { CommentBox } from "@/components/comments/CommentBox";
-import { mutateThreadsForTarget, ThreadView } from "@/components/threads/ThreadView";
+import { CommentPopover } from "@/components/comments/CommentPopover";
+import { ThreadView } from "@/components/threads/ThreadView";
 import { TaskCard } from "@/components/tasks/TaskCard";
 import { PROPOSAL_LOOP, formatRelativeDate } from "@/components/tasks/ProposalsSection";
 import { useEscalations } from "@/components/briefings/EscalationsPanel";
@@ -934,6 +934,13 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
         </div>
         <div className="ml-3 flex flex-shrink-0 items-center gap-2">
           {hasNotes && <SaveIndicator state={saveState} error={saveError} />}
+          {meetingCommentTarget && (
+            <CommentPopover
+              target={meetingCommentTarget}
+              placeholder="Comment on this meeting"
+              triggerTitle="Comment on this meeting"
+            />
+          )}
           {menuButton}
         </div>
       </div>
@@ -1076,22 +1083,11 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
               </NotesAccordionSection>
             )}
 
-            {/* Comments — the meeting's thread(s), a quiet section at the bottom of the
-                notes area (thread-under-object pattern). ThreadView renders nothing when
-                empty; the labeled CommentBox is the whole-object comment idiom. */}
+            {/* Comments — the meeting's thread(s), a quiet section at the bottom of the notes
+                area (thread-under-object pattern; renders nothing when empty). The composer
+                lives in the header CommentPopover — one comment gesture everywhere (W1). */}
             {meetingCommentTarget && (
-              <div className="mt-4">
-                <ThreadView target={meetingCommentTarget} title="Comments" className="mb-2" />
-                <div className="flex items-center justify-end">
-                  <CommentBox
-                    target={meetingCommentTarget}
-                    label="Comment"
-                    placeholder="Comment on this meeting"
-                    triggerTitle="Comment on this meeting"
-                    onPosted={() => void mutateThreadsForTarget(meetingCommentTarget)}
-                  />
-                </div>
-              </div>
+              <ThreadView target={meetingCommentTarget} title="Comments" className="mt-4" />
             )}
           </div>
         )}

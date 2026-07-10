@@ -12,7 +12,7 @@ export async function runThreadProcess(threadId: string, signal?: AbortSignal): 
   await drainProcessStream(response);
 }
 
-export interface ProcessAllProgress { index: number; total: number; }
+export interface ProcessAllProgress { index: number; total: number; threadId?: string; }
 
 /** POST /api/threads/process-all and drain the NDJSON stream, reporting the running
  * (index/total) as thread-start events arrive. Resolves on the summary/stream end. */
@@ -25,7 +25,11 @@ export async function runProcessAll(onProgress: (p: ProcessAllProgress) => void,
   });
   await drainProcessStream(response, (event) => {
     if (event.type === "thread-start" && typeof event.index === "number" && typeof event.total === "number") {
-      onProgress({ index: event.index, total: event.total });
+      onProgress({
+        index: event.index,
+        total: event.total,
+        ...(typeof event.threadId === "string" ? { threadId: event.threadId } : {}),
+      });
     }
   });
 }

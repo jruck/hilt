@@ -161,6 +161,7 @@ describe("processThread", () => {
     expect(reread?.resolution?.by).toBe("agent:meeting-actions");
 
     if (!result.chatId) throw new Error("missing chatId");
+    expect(readThread(thread.id)?.chat_ids).toEqual([result.chatId]);
     const chat = readChat(result.chatId);
     expect(chat?.messages).toHaveLength(2);
     expect(chat?.messages[0].role).toBe("user");
@@ -213,6 +214,38 @@ describe("processThread", () => {
     expect(reread?.messages).toHaveLength(1);
     expect(reread?.messages.some((message) => message.author.startsWith("agent:"))).toBe(false);
     expect(reread?.resolution).toBeUndefined();
+    if (!result.chatId) throw new Error("missing chatId");
+    expect(reread?.chat_ids).toEqual([result.chatId]);
+  });
+
+  it("a cancelled run with partial text leaves the thread open (no truncated resolve)", async () => {
+    const thread = createLoopItemThread();
+    const controller = new AbortController();
+    const result = await processThread(thread.id, {
+      // SIGTERM'd child: close fires with a null code AND partial collected text.
+      runner: async (options) => {
+        controller.abort();
+        options.onText?.("partial rep");
+        return { collectedText: "partial rep", claudeSessionId: null, code: null, stderr: "" };
+      },
+      signal: controller.signal,
+      vaultRoot: vaultRoot(),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("cancelled");
+
+    const reread = readThread(thread.id);
+    expect(reread?.status).toBe("open");
+    expect(reread?.resolution).toBeUndefined();
+    expect(reread?.processed).toBeUndefined();
+    expect(reread?.messages.some((message) => message.author.startsWith("agent:"))).toBe(false);
+
+    if (!result.chatId) throw new Error("missing chatId");
+    expect(reread?.chat_ids).toEqual([result.chatId]);
+    const chat = readChat(result.chatId);
+    expect(chat?.status).toBe("idle");
+    expect(chat?.messages.at(-1)?.content).toBe("partial rep");
   });
 
   it("mint failure is non-fatal: reply preserved, action stays processed (C3-3)", async () => {

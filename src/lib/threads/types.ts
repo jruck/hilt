@@ -35,6 +35,8 @@ export interface Thread {
   created_at: string;
   updated_at: string;
   messages: ThreadMessage[];
+  /** Chat sessions minted by the processor for this thread (append-only, oldest first). */
+  chat_ids?: string[];
   /** Stamped when a loop's health pass consumes the thread as feedback. */
   processed?: { at: string; run_at: string };
   /** Explicit resolution (user or agent action), distinct from the processed stamp. */
@@ -52,6 +54,7 @@ export interface ThreadSummary {
   updated_at: string;
   message_count: number;
   last_message_snippet: string | null;
+  chat_ids?: Thread["chat_ids"];
   processed?: Thread["processed"];
   resolution?: Thread["resolution"];
   source_ref?: string;

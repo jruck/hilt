@@ -177,6 +177,19 @@ Every action should have visible feedback:
 
 This section tracks design decisions and refinements over time. Each entry should note what was tried, what was rejected, and why.
 
+### 2026-07-09: Thread Drawer — A Thread Is A Chat Session
+
+**Principle**: System → Threads should read like a compact chat client. Each row is an individual conversation session; opening it shows the human thread, the processor's saved chat transcript, and the trace evidence for what the agent did.
+
+**UI rules**:
+- Whole row = open the conversation. The status text is metadata, not a link; cheap target navigation moves to the drawer header title only.
+- The drawer is the house right-pane, not a modal: fixed header, scrollable conversation/transcript body, fixed composer, no backdrop, no entrance animation.
+- Saved chat transcripts and trace panels are evidence, not decoration. They sit under the thread at History-section weight and prove the processor's reads/tools/results.
+- Processing streams live into the drawer using the same chat transcript shape; open rows show the emerald pulse + "Processing" label while local runs, batch runs, or sending chat sessions are active.
+- Batch operations must be cancelable and honest: show `Processing n/total`, keep the current row marked working, and turn the toolbar action into a quiet red Cancel.
+
+**Rationale**: Threads are no longer just comments waiting for a background action; they are visible agent conversations. Keeping the list as a dense queue and the detail as a right pane preserves the System inspection idiom while giving Justin the chat-client mental model he asked for.
+
 ### 2026-07-09: Comment Popover — One Floating Experience, Count Pills for Discovery
 
 **Principle**: Commenting is ONE experience everywhere. Every surface exposes the same small comment button in a consistent, discoverable place — immediately left of the object's kebab/action cluster on headers, in the hover-reveal action cluster on bullets — and clicking it always opens the SAME floating popover (composer + compact thread history) anchored at the trigger, sitting ON TOP of the canvas. The UI for giving feedback never lives in the canvas pushing content around.

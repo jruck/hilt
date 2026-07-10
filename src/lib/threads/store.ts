@@ -21,8 +21,12 @@ export function threadsDir(): string {
 
 const THREAD_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+function isUuid(value: unknown): value is string {
+  return typeof value === "string" && THREAD_ID_RE.test(value);
+}
+
 export function isValidThreadId(id: string): boolean {
-  return typeof id === "string" && THREAD_ID_RE.test(id);
+  return isUuid(id);
 }
 
 function threadPath(id: string): string {
@@ -104,6 +108,18 @@ function normalizeResolution(value: unknown): Thread["resolution"] | undefined {
   };
 }
 
+function normalizeUuidList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const item of value) {
+    if (!isUuid(item) || seen.has(item)) continue;
+    seen.add(item);
+    ids.push(item);
+  }
+  return ids.length > 0 ? ids : undefined;
+}
+
 /**
  * Coerce bad/missing fields to defaults — never throw. Returns null (degrade to missing) only
  * when the thread is unusable: invalid target or zero recoverable messages.
@@ -119,6 +135,7 @@ export function normalizeThread(value: unknown, fallbackId: string): Thread | nu
   const createdAt = nonEmpty(record.created_at) ? record.created_at : messages[0].created_at;
   const processed = normalizeStamp(record.processed);
   const resolution = normalizeResolution(record.resolution);
+  const chatIds = normalizeUuidList(record.chat_ids);
   return {
     id: nonEmpty(record.id) && isValidThreadId(record.id) ? record.id : fallbackId,
     target,
@@ -126,6 +143,7 @@ export function normalizeThread(value: unknown, fallbackId: string): Thread | nu
     created_at: createdAt,
     updated_at: nonEmpty(record.updated_at) ? record.updated_at : createdAt,
     messages,
+    ...(chatIds ? { chat_ids: chatIds } : {}),
     ...(processed ? { processed } : {}),
     ...(resolution ? { resolution } : {}),
     ...(nonEmpty(record.source_ref) ? { source_ref: record.source_ref } : {}),
@@ -284,6 +302,16 @@ export function markProcessed(id: string, stamp: { at: string; run_at: string })
   return saveThread(thread);
 }
 
+export function appendChatId(threadId: string, chatId: string): Thread {
+  if (!isUuid(chatId)) throw new Error(`invalid chat id: ${JSON.stringify(chatId).slice(0, 80)}`);
+  const thread = readThread(threadId);
+  if (!thread) throw new Error(`thread not found: ${threadId}`);
+  const chatIds = thread.chat_ids ?? [];
+  thread.chat_ids = chatIds.includes(chatId) ? chatIds : [...chatIds, chatId];
+  thread.updated_at = new Date().toISOString();
+  return saveThread(thread);
+}
+
 export function toThreadSummary(thread: Thread): ThreadSummary {
   const last = thread.messages[thread.messages.length - 1];
   const snippet = last ? last.text.replace(/\s+/g, " ").trim().slice(0, 120) : "";
@@ -295,6 +323,7 @@ export function toThreadSummary(thread: Thread): ThreadSummary {
     updated_at: thread.updated_at,
     message_count: thread.messages.length,
     last_message_snippet: snippet || null,
+    ...(thread.chat_ids ? { chat_ids: thread.chat_ids } : {}),
     ...(thread.processed ? { processed: thread.processed } : {}),
     ...(thread.resolution ? { resolution: thread.resolution } : {}),
     ...(thread.source_ref ? { source_ref: thread.source_ref } : {}),

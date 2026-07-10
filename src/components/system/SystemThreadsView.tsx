@@ -1,18 +1,13 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import useSWR from "swr";
 import {
-  BookMarked,
   MessageSquare,
-  Newspaper,
   Play,
   RefreshCw,
-  Repeat,
   Sparkles,
-  SquareCheck,
-  Users,
-  type LucideIcon,
+  X,
 } from "lucide-react";
 import {
   SECONDARY_CHROME_BODY_GUTTER_CLASS,
@@ -21,12 +16,20 @@ import {
   SecondarySegmentedControl,
   SecondaryToolbar,
 } from "@/components/layout/SecondaryToolbar";
+import { ThreadDrawer } from "@/components/threads/ThreadDrawer";
+import {
+  resolutionStory,
+  resolvedAt,
+  resolvedRecently,
+  targetIcon,
+  targetLabel,
+} from "@/components/threads/threadTargetHelpers";
 import { LoadingState } from "@/components/ui/LoadingState";
-import { useScope } from "@/contexts/ScopeContext";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { THREAD_SUMMARIES_KEY } from "@/hooks/useThreadCounts";
 import { withBasePath } from "@/lib/base-path";
 import type { CommentTarget } from "@/lib/comments/types";
-import { libraryItemScope } from "@/lib/library/url";
-import { requestTaskOpen } from "@/lib/tasks/deeplink";
+import type { ChatSessionSummary } from "@/lib/chat/types";
 import { runProcessAll, runThreadProcess, type ProcessAllProgress } from "@/lib/threads/process-client";
 import type { ThreadSummary } from "@/lib/threads/types";
 
@@ -45,16 +48,37 @@ async function fetchThreads(url: string): Promise<{ threads: ThreadSummary[] }> 
   return response.json() as Promise<{ threads: ThreadSummary[] }>;
 }
 
+async function fetchChatSessions(url: string): Promise<{ sessions: ChatSessionSummary[] }> {
+  const response = await fetch(withBasePath(url));
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(payload?.error || `Request failed: ${response.status}`);
+  }
+  return response.json() as Promise<{ sessions: ChatSessionSummary[] }>;
+}
+
+function isAbortError(error: unknown): boolean {
+  return (error instanceof DOMException || error instanceof Error) && error.name === "AbortError";
+}
+
 export function SystemThreadsView({ modeSwitcher }: SystemThreadsViewProps) {
+  const isMobile = useIsMobile();
   const [filter, setFilter] = useState<ThreadFilter>("open");
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [errorById, setErrorById] = useState<Record<string, string>>({});
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchProgress, setBatchProgress] = useState<ProcessAllProgress | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<{ threadId: string; target: CommentTarget } | null>(null);
+  const batchAbortControllerRef = useRef<AbortController | null>(null);
   const { data, error, isLoading, isValidating, mutate } = useSWR<{ threads: ThreadSummary[] }, Error>(
-    "/api/threads",
+    THREAD_SUMMARIES_KEY,
     fetchThreads,
+    { keepPreviousData: true, refreshInterval: 15_000 },
+  );
+  const { data: chatSessionsData } = useSWR<{ sessions: ChatSessionSummary[] }, Error>(
+    "/api/chat/sessions",
+    fetchChatSessions,
     { keepPreviousData: true, refreshInterval: 15_000 },
   );
 
@@ -74,9 +98,21 @@ export function SystemThreadsView({ modeSwitcher }: SystemThreadsViewProps) {
     return threads.filter((thread) => thread.status === filter);
   }, [filter, threads]);
 
+  const sendingChatIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const session of chatSessionsData?.sessions ?? []) {
+      if (session.status === "sending") set.add(session.id);
+    }
+    return set;
+  }, [chatSessionsData]);
+
   async function processAllOpenThreads() {
-    if (batchRunning) return;
+    if (batchRunning) {
+      batchAbortControllerRef.current?.abort();
+      return;
+    }
     const controller = new AbortController();
+    batchAbortControllerRef.current = controller;
     setBatchRunning(true);
     setBatchProgress({ index: 0, total: counts.open });
     setBatchError(null);
@@ -84,8 +120,14 @@ export function SystemThreadsView({ modeSwitcher }: SystemThreadsViewProps) {
       await runProcessAll(setBatchProgress, controller.signal);
       await mutate();
     } catch (err) {
-      setBatchError(err instanceof Error ? err.message : "Thread batch processing failed");
+      if (isAbortError(err)) {
+        setBatchError(null);
+        await mutate();
+      } else {
+        setBatchError(err instanceof Error ? err.message : "Thread batch processing failed");
+      }
     } finally {
+      if (batchAbortControllerRef.current === controller) batchAbortControllerRef.current = null;
       setBatchRunning(false);
       setBatchProgress(null);
     }
@@ -162,25 +204,62 @@ export function SystemThreadsView({ modeSwitcher }: SystemThreadsViewProps) {
           {error.message}
         </div>
       ) : null}
-      <div data-mobile-scroll-chrome="bottom" className={`hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-4 flex-1 overflow-auto px-4 ${SECONDARY_CHROME_BODY_GUTTER_CLASS}`}>
-        {filteredThreads.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">
-            {filter === "all" ? "No threads" : `No ${filter} threads`}
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div className="flex h-full min-w-0">
+          <div data-mobile-scroll-chrome="bottom" className={`hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-4 min-w-0 flex-1 overflow-auto px-4 ${SECONDARY_CHROME_BODY_GUTTER_CLASS}`}>
+            {filteredThreads.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">
+                {filter === "all" ? "No threads" : `No ${filter} threads`}
+              </div>
+            ) : (
+              <div className="divide-y divide-[var(--border-default)] border-y border-[var(--border-default)]">
+                {filteredThreads.map((thread) => {
+                  const working = processingId === thread.id
+                    || batchProgress?.threadId === thread.id
+                    || Boolean(thread.chat_ids?.some((chatId) => sendingChatIds.has(chatId)));
+                  return (
+                    <ThreadRow
+                      key={thread.id}
+                      thread={thread}
+                      selected={selected?.threadId === thread.id}
+                      working={working}
+                      processDisabled={Boolean(processingId) || batchRunning}
+                      error={errorById[thread.id] ?? null}
+                      onSelect={() => setSelected({ threadId: thread.id, target: thread.target })}
+                      onProcess={() => void processThread(thread.id)}
+                    />
+                  );
+                })}
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="divide-y divide-[var(--border-default)] border-y border-[var(--border-default)]">
-            {filteredThreads.map((thread) => (
-              <ThreadRow
-                key={thread.id}
-                thread={thread}
-                processing={processingId === thread.id}
-                processDisabled={Boolean(processingId) || batchRunning}
-                error={errorById[thread.id] ?? null}
-                onProcess={() => void processThread(thread.id)}
+          {selected && !isMobile ? (
+            <aside className="h-full w-[26rem] flex-shrink-0 border-l border-[var(--border-default)]">
+              {/* Keyed per thread: switching rows remounts the drawer, so an in-flight process
+                  stream aborts (unmount cleanup) instead of bleeding into another thread. */}
+              <ThreadDrawer
+                key={selected.threadId}
+                threadId={selected.threadId}
+                target={selected.target}
+                onClose={() => setSelected(null)}
+                onProcessingChange={(active) => setProcessingId(active ? selected.threadId : null)}
+                onFollowThread={(id) => setSelected({ threadId: id, target: selected.target })}
               />
-            ))}
+            </aside>
+          ) : null}
+        </div>
+        {selected && isMobile ? (
+          <div className="absolute inset-0 z-10">
+            <ThreadDrawer
+              key={selected.threadId}
+              threadId={selected.threadId}
+              target={selected.target}
+              onClose={() => setSelected(null)}
+              onProcessingChange={(active) => setProcessingId(active ? selected.threadId : null)}
+              onFollowThread={(id) => setSelected({ threadId: id, target: selected.target })}
+            />
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -231,22 +310,28 @@ function ThreadsToolbar({
             <span className="text-[var(--text-quaternary)]">·</span>
             <span>{counts.resolved} resolved</span>
           </div>
-          {counts.open > 0 ? (
-            <button
-              type="button"
-              onClick={onProcessAll}
-              disabled={batchRunning}
-              className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-default disabled:opacity-60 ${
-                batchRunning
-                  ? "text-emerald-600"
-                  : batchError
-                    ? "text-red-500"
-                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-              }`}
-            >
-              <Sparkles className={`h-3.5 w-3.5 ${batchRunning ? "animate-pulse" : ""}`} />
-              <span>{batchRunning ? `Processing ${batchProgress?.index ?? 0}/${batchProgress?.total ?? counts.open}` : "Process all"}</span>
-            </button>
+          {counts.open > 0 || batchRunning ? (
+            <>
+              {batchRunning ? (
+                <span className="hidden text-xs font-medium text-emerald-600 sm:inline">
+                  Processing {batchProgress?.index ?? 0}/{batchProgress?.total ?? counts.open}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                onClick={onProcessAll}
+                className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors hover:bg-[var(--bg-tertiary)] ${
+                  batchRunning
+                    ? "text-red-500 hover:text-red-600"
+                    : batchError
+                      ? "text-red-500"
+                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                }`}
+              >
+                {batchRunning ? <X className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
+                <span>{batchRunning ? "Cancel" : "Process all"}</span>
+              </button>
+            </>
           ) : null}
           <SecondaryIconButton
             onClick={onRefresh}
@@ -264,20 +349,22 @@ function ThreadsToolbar({
 
 function ThreadRow({
   thread,
-  processing,
+  selected,
+  working,
   processDisabled,
   error,
+  onSelect,
   onProcess,
 }: {
   thread: ThreadSummary;
-  processing: boolean;
+  selected: boolean;
+  working: boolean;
   processDisabled: boolean;
   error: string | null;
+  onSelect: () => void;
   onProcess: () => void;
 }) {
-  const { navigateTo } = useScope();
   const Icon = targetIcon(thread.target);
-  const openTarget = targetOpenHandler(thread.target, navigateTo);
   const middle = (
     <>
       <div className="truncate text-sm text-[var(--text-primary)]">{targetLabel(thread.target)}</div>
@@ -289,20 +376,26 @@ function ThreadRow({
 
   return (
     <div>
-      <div className="group flex items-center gap-3 px-2 py-2 transition-colors hover:bg-[var(--bg-secondary)]">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onSelect}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelect();
+          }
+        }}
+        className={`group flex cursor-pointer items-center gap-3 border-l-2 px-2 py-2 transition-colors ${
+          selected
+            ? "border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10"
+            : "border-transparent hover:bg-[var(--bg-secondary)]"
+        }`}
+      >
         <Icon className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]" />
-        {openTarget ? (
-          <button
-            type="button"
-            onClick={openTarget}
-            className="min-w-0 flex-1 cursor-pointer text-left"
-          >
-            {middle}
-          </button>
-        ) : (
-          <div className="min-w-0 flex-1">{middle}</div>
-        )}
-        <ThreadStatus thread={thread} />
+        <div className="min-w-0 flex-1">{middle}</div>
+        <ThreadStatus thread={thread} working={working} />
         <div className="flex shrink-0 items-center gap-1 text-xs text-[var(--text-quaternary)]">
           <MessageSquare className="h-3.5 w-3.5" />
           <span>{thread.message_count}</span>
@@ -314,19 +407,18 @@ function ThreadRow({
         >
           {relativeTime(thread.updated_at)}
         </time>
-        {thread.status === "open" ? (
+        {thread.status === "open" && !working ? (
           <button
             type="button"
-            onClick={onProcess}
+            onClick={(event) => {
+              event.stopPropagation();
+              onProcess();
+            }}
             disabled={processDisabled}
-            className={`inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium transition-opacity disabled:cursor-default ${
-              processing
-                ? "opacity-100 text-emerald-600"
-                : "opacity-0 text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] focus-within:opacity-100 group-hover:opacity-100 disabled:opacity-0"
-            }`}
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium opacity-0 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] focus-within:opacity-100 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
           >
-            <Play className={`h-3.5 w-3.5 ${processing ? "animate-pulse" : ""}`} />
-            <span className="hidden md:inline">{processing ? "Processing" : "Process"}</span>
+            <Play className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">Process</span>
           </button>
         ) : null}
       </div>
@@ -339,77 +431,37 @@ function ThreadRow({
   );
 }
 
-function ThreadStatus({ thread }: { thread: ThreadSummary }) {
+function ThreadStatus({ thread, working }: { thread: ThreadSummary; working: boolean }) {
+  if (working) {
+    return (
+      <div className="hidden shrink-0 items-center gap-1.5 text-xs font-medium text-emerald-600 md:flex">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+        <span>Processing</span>
+      </div>
+    );
+  }
+
   return (
-    <div className="hidden shrink-0 items-center gap-1 text-xs text-[var(--text-tertiary)] md:flex">
+    <div className="hidden shrink-0 items-center gap-1.5 text-xs text-[var(--text-tertiary)] md:flex">
       {thread.status === "open" ? (
         <span>Open</span>
       ) : (
         <>
-          <span className="text-[var(--text-quaternary)]">Resolved</span>
-          {thread.resolution ? <span className="text-[var(--text-quaternary)]">· {thread.resolution.action}</span> : null}
+          {/* House unread idiom (ViewToggle/Library blue dot): resolved in the last 24h =
+              news you likely haven't seen — "the loop handled this overnight". */}
+          {resolvedRecently(thread) ? (
+            <span
+              className="h-1.5 w-1.5 rounded-full bg-blue-500"
+              title="Resolved in the last 24 hours"
+            />
+          ) : null}
+          <span className="text-[var(--text-quaternary)]" title={resolvedAt(thread)}>
+            {resolutionStory(thread)}
+          </span>
         </>
       )}
-      {thread.processed ? (
-        <span className="rounded bg-[var(--bg-tertiary)] px-1.5 py-0.5 text-[10px] text-[var(--text-quaternary)]">
-          processed
-        </span>
-      ) : null}
     </div>
   );
-}
-
-function targetIcon(target: CommentTarget): LucideIcon {
-  switch (target.kind) {
-    case "task":
-      return SquareCheck;
-    case "loop-item":
-      return Repeat;
-    case "briefing":
-    case "briefing-section":
-    case "briefing-anchor":
-      return Newspaper;
-    case "library":
-      return BookMarked;
-    case "meeting":
-      return Users;
-  }
-}
-
-function targetLabel(target: CommentTarget): string {
-  switch (target.kind) {
-    case "task":
-      return "Task";
-    case "loop-item":
-      return `Loop: ${target.loop}`;
-    case "briefing":
-      return `Briefing · ${target.date}`;
-    case "briefing-section":
-      return `Briefing · ${target.date} § ${target.section}`;
-    case "briefing-anchor":
-      return `Briefing${target.date ? ` · ${target.date}` : ""}`;
-    case "library":
-      return "Library reference";
-    case "meeting": {
-      const basename = target.rel.split("/").pop()?.replace(/\.md$/, "") || target.rel;
-      return `Meeting · ${basename}`;
-    }
-  }
-}
-
-function targetOpenHandler(target: CommentTarget, navigateTo: ReturnType<typeof useScope>["navigateTo"]): (() => void) | null {
-  switch (target.kind) {
-    case "task":
-      return () => requestTaskOpen(target.id);
-    case "library":
-      return () => navigateTo("library", libraryItemScope(target.id));
-    case "loop-item":
-    case "briefing":
-    case "briefing-section":
-    case "briefing-anchor":
-    case "meeting":
-      return null;
-  }
 }
 
 function relativeTime(value: string): string {

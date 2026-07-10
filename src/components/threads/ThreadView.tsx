@@ -16,7 +16,9 @@
  *   editable/deletable — settled decision): inline edit → PATCH /api/threads/[id]
  *   {messageId, text}; trash → DELETE /api/threads/[id]/messages/[messageId] (deleting the
  *   last message deletes the thread — the section simply disappears).
- * - Resolution/processed stamps render as quiet tertiary metadata lines per thread.
+ * - A resolved thread renders ONE quiet outcome caption under its last message —
+ *   `resolutionStory` ("Calibrated · meeting-actions") + time-ago — so the agent reply
+ *   reads as the outcome instead of being buried under duplicate stamp lines.
  * - Open threads carry a quiet Process affordance for running the active processor.
  */
 import { useState, type FormEvent } from "react";
@@ -28,6 +30,7 @@ import type { CommentTarget } from "@/lib/comments/types";
 import { runThreadProcess } from "@/lib/threads/process-client";
 import type { Thread, ThreadMessage } from "@/lib/threads/types";
 import { formatRelativeDate } from "@/components/tasks/ProposalsSection";
+import { resolutionStory, resolvedAt } from "./threadTargetHelpers";
 
 /** The SWR key for one anchor's threads — shared by ThreadView and posting surfaces. */
 export function threadsUrlForTarget(target: CommentTarget): string {
@@ -100,7 +103,15 @@ export function ThreadView({ target, title, className }: ThreadViewProps) {
   );
 }
 
-export function ThreadBlock({ thread, onChanged = () => undefined }: { thread: Thread; onChanged?: () => void }) {
+export function ThreadBlock({
+  thread,
+  onChanged = () => undefined,
+  processAffordance = "inline",
+}: {
+  thread: Thread;
+  onChanged?: () => void;
+  processAffordance?: "inline" | "none";
+}) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -164,20 +175,12 @@ export function ThreadBlock({ thread, onChanged = () => undefined }: { thread: T
           onDelete={() => deleteMessage(message.id)}
         />
       ))}
-      {thread.resolution && (
-        <div className="py-0.5 text-[11px] text-[var(--text-tertiary)]" title={thread.resolution.at}>
-          Resolved · {thread.resolution.action} · {formatRelativeDate(thread.resolution.at)}
+      {thread.status === "resolved" && (
+        <div className="py-0.5 text-[11px] text-[var(--text-tertiary)]" title={resolvedAt(thread)}>
+          {resolutionStory(thread)} · {formatRelativeDate(resolvedAt(thread))}
         </div>
       )}
-      {thread.processed && (
-        <div className="py-0.5 text-[11px] text-[var(--text-tertiary)]" title={thread.processed.at}>
-          Processed · {formatRelativeDate(thread.processed.at)}
-        </div>
-      )}
-      {thread.status === "resolved" && !thread.resolution && !thread.processed && (
-        <div className="py-0.5 text-[11px] text-[var(--text-tertiary)]">Resolved</div>
-      )}
-      {thread.status === "open" && (
+      {thread.status === "open" && processAffordance === "inline" && (
         <div className="py-0.5">
           <button
             type="button"

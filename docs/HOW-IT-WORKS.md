@@ -319,9 +319,12 @@ The point: a comment is a lever, not a note. It either steers a node's next run 
 or gets acted on directly (with an edit or a proposal). Nothing you write just sits there unseen.
 
 Every thread is also visible in one place: **System → Threads** lists every feedback thread across
-the system (filterable Open / Resolved / All), with the same **Process** button on each open row and a
-**Process all** action to drain the open queue. The **Process** affordance also sits under each object's
-own thread, so you can act on a comment from wherever you find it.
+the system (filterable Open / Resolved / All). Resolved rows say *how* they resolved — "Calibrated · meeting-actions", "Clustered", "Proposal minted" — and anything resolved in the last day carries a small blue dot, so a node quietly consuming your comments overnight is visible at a glance. Click any row and it opens as a conversation drawer:
+the original thread, the saved chat transcript of what the processor did, and the tool/trace evidence
+for that run. If the processor is working, the drawer streams the chat live and the row carries a
+small emerald "Processing" pulse. **Process all** drains the open queue with live `n/total` progress
+and can be canceled; anything already processed stays resolved. The **Process** affordance also
+still sits under each object's own thread, so you can act on a comment from wherever you find it.
 
 Proposals also have their own surface now: the **Proposals** section in the Priorities view
 (collapsed behind a count; only appears when something is waiting) shows each proposal as a card

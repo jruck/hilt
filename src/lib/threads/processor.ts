@@ -14,7 +14,7 @@ import { appendMessage, createChat, readChat, updateChat } from "../chat/store";
 import { deterministicTitle, type ChatContextRef, type ChatStreamEvent, type ChatTraceEvent } from "../chat/types";
 import { createProposalIn, proposalsDir } from "../tasks/store";
 import { commentTargetToFeedback } from "./feedback-bridge";
-import { appendToThread, markProcessed, readThread, resolveThread } from "./store";
+import { appendChatId, appendToThread, markProcessed, readThread, resolveThread } from "./store";
 import type { CommentTarget, Thread, ThreadMessage } from "./types";
 
 export const PROCESSOR_INSTRUCTIONS =
@@ -182,6 +182,7 @@ export async function processThread(threadId: string, opts: {
   const session = createChat(contextRef, contextLabel);
   const chatId = session.id;
   emit({ type: "session", chatId });
+  appendChatId(threadId, chatId);
 
   const lines = thread.messages.map(messageLine);
   const userContent = [
@@ -258,6 +259,26 @@ export async function processThread(threadId: string, opts: {
     updateChat(chatId, { status: "idle" });
     emit({ type: "error", error: detail });
     return { ok: false, threadId, chatId, error: detail };
+  }
+
+  // A cancelled run (drawer close/stop, batch Cancel, client disconnect) SIGTERMs the child,
+  // which resolves with a non-zero/null code but may have already collected partial text. Never
+  // let that partial text ride the success path — it would resolve the thread with a truncated
+  // reply. Leave the thread untouched (retryable) and close out the chat session.
+  if (opts.signal?.aborted) {
+    if (traces.length > 0 || result.collectedText) {
+      appendMessage(chatId, {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: result.collectedText,
+        timestamp: Date.now(),
+        ...(traces.length > 0 ? { trace: traces } : {}),
+        ...(filesTouched.length > 0 ? { filesTouched } : {}),
+      });
+    }
+    updateChat(chatId, { status: "idle" });
+    emit({ type: "error", error: "cancelled" });
+    return { ok: false, threadId, chatId, error: "cancelled" };
   }
 
   if (result.code !== 0 && !result.collectedText) {

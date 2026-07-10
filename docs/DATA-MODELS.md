@@ -825,6 +825,7 @@ interface Thread {
   created_at: string;
   updated_at: string;
   messages: ThreadMessage[];                              // ≥1 — last delete removes the file
+  chat_ids?: string[];                                    // processor chat sessions, oldest first
   processed?: { at: string; run_at: string };             // loop-consumption stamp; implies resolved
   resolution?: { action: string; at: string; run_at?: string; by: string };
   source_ref?: string;     // migration provenance: the original record/comment id (idempotency key)
@@ -832,6 +833,8 @@ interface Thread {
 ```
 
 **Persistence**: one JSON file per thread at `DATA_DIR/threads/<uuid>.json` (app state, never the vault) — atomic temp+rename, normalize-on-read never throws (chat-store contract: reads degrade to missing, mutations throw).
+
+**Processor chat join**: `chat_ids?: string[]` is append-only and processor-minted. The processor stamps the chat id as soon as it emits the streaming `session` event, before the Claude turn finishes, so System → Threads can show the live run and later reopen the saved transcript. Normalization keeps only UUID-valid ids, dedupes in order, and omits the field when empty. `ThreadSummary.chat_ids` mirrors the same list for row-level working detection.
 
 **Append-to-open semantics**: a new comment on a target with an OPEN thread appends to it; a resolved/processed target starts a fresh thread. Target identity = `targetKey` (kind + naming ids; `loop-item.artifactDate` and `briefing-anchor.anchor.citation` are deliberately NOT identity).
 
@@ -1054,13 +1057,13 @@ interface ReweaveResult {
 
 `parseReweaveOutput` is tolerant (raw JSON, ```json fences, or embedded JSON via brace-balanced extraction), drops connections whose target is empty or points into `references/.cache/`, strips a trailing `.md` from targets, requires a non-empty relationship, and coerces missing fields to safe defaults.
 
-`digestion.ts` maps the `ReweaveResult` onto the processed artifact. For durable saves it sets `digest_markdown` + `description`, builds `connection_suggestions = [...connections_first_party, ...connections_library]` as `{ target, label: title, relationship }` (first-party ordered first), and sets `connected_projects` to the first-party targets under `projects/<slug>/`. When `reweaveArtifact` returns `null` (failure, timeout, `LIBRARY_CONNECTIONS_DISABLED=1`, or no vault path), it falls back to the legacy `judgeConnections` + `parseDigestOutput` Summary/Key Points path.
+`digestion.ts` maps the `ReweaveResult` onto the processed artifact. For study-mode artifacts (saved references and active candidates) it sets `digest_markdown` + `description`, builds `connection_suggestions = [...connections_first_party, ...connections_library]` as `{ target, label: title, relationship }` (first-party ordered first), and sets `connected_projects` to the first-party targets under `projects/<slug>/`. When `reweaveArtifact` returns `null` (failure, timeout, `LIBRARY_CONNECTIONS_DISABLED=1`, or no vault path), it falls back to the legacy `judgeConnections` + `parseDigestOutput` Summary/Key Points path.
 
 `judgeConnections` (the fallback) returns a `ConnectionJudgment` that `digestion.ts` maps onto the same fields. `ProcessedArtifact` carries:
 
 ```typescript
 // Fields added to ProcessedArtifact:
-digest_markdown?: string;                               // Free-form reweave digest body (durable saves)
+digest_markdown?: string;                               // Free-form reweave digest body
 description?: string;                                   // Reweave feed-card description; falls back to summary
 summary: string;                                        // Legacy Summary text (candidates + reweave fallback)
 key_points: string[];                                   // Legacy Key Points (candidates + reweave fallback)
@@ -1074,7 +1077,7 @@ connected_projects?: string[];                          // Subset of connection 
 
 Study-mode artifacts (saved references and active candidates) may run the same reweave/connection pass. A successful pass writes either `connection_suggestions` (state `has`) or a positive abstention marker (`reconnected_at`, `connection_reasoning`, or the v2.2 `attention_judgment`, state `abstained`). A hot study item with none of those markers is treated as `missing_connection_pass` and is eligible for deferred repair. Saved references and candidates may include `connection_suggestions`, `connection_reasoning`, `reconnected_at`, `attention_judgment`, and `reweave_candidates` in frontmatter.
 
-The **durable reference body is now a free-form digest**: when `digest_markdown` is present, the model-chosen `##` sections replace the fixed `## Summary` / `## Key Points` template, followed by `## Connections` and `## Raw Content` (and `## Media` when present). Connections render as `- [[target|Title]] - relationship` (the neighbor's human title as the wikilink alias; `- Title - relationship` for a null target); when there are none the section body is empty and reasoning/reweave candidates live in frontmatter. The frontmatter `description` uses `processed.description || processed.summary`. **Candidate** bodies are unchanged — they keep the legacy Summary/Key Points format and render the same `- [[target|Title]] - relationship` shape under `## Suggested Connections`. `connected_projects` remains the compact wiki-target list for filtering and compatibility. New durable references also include precise `captured_at` metadata; `Recent` keeps `created_at` as the source date and uses precise fields such as `captured_at` or `digested_at` only to order items that land on the same source date.
+The **reference/candidate body may be a free-form digest**: when `digest_markdown` is present, the model-chosen `##` sections replace the fixed `## Summary` / `## Key Points` template, followed by `## Connections` and `## Raw Content` (and `## Media` when present). Connections render as `- [[target|Title]] - relationship` (the neighbor's human title as the wikilink alias; `- Title - relationship` for a null target); when there are none the section body is empty and reasoning/reweave candidates live in frontmatter. The frontmatter `description` uses `processed.description || processed.summary`. A candidate that already has `digest_markdown`, connection metadata, and `reconnected_at` is already a completed study read; explicit-save promotion preserves that body and metadata instead of redigesting it down to legacy Summary/Key Points. `connected_projects` remains the compact wiki-target list for filtering and compatibility. New durable references also include precise `captured_at` metadata; `Recent` keeps `created_at` as the source date and uses precise fields such as `captured_at` or `digested_at` only to order items that land on the same source date.
 
 For X/Twitter bookmarks, `title` is source-normalized before file writes: short URLs are removed from human-readable tweet text, URL-only wrappers use an author fallback title, and non-status linked X routes remain `warm`/metadata-limited until a recoverable source body exists. The source URL still lives in `url:` and any cached source stays under `## Raw Content`; titles, descriptions, summaries, and key points should not be raw `t.co` links.
 
@@ -1505,6 +1508,8 @@ type ChatStreamEvent =
   | { type: "error"; error: string };
 ```
 
+`src/components/chat/` is the shared render/stream contract for these models: `consumeNdjsonStream` parses line-delimited events, `mergeTraceEvent` updates in-flight trace rows by id, `ChatMessageList` renders persisted messages plus optional `liveTrace` / `liveDraft`, and `ChatTracePanel` is the evidence pane for the assistant message's tool and step trace.
+
 ---
 
-*Last updated: 2026-06-01*
+*Last updated: 2026-07-10*

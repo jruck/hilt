@@ -35,6 +35,7 @@ import {
 } from "./migrate";
 import {
   appendToThread,
+  appendChatId,
   createThread,
   deleteMessage,
   editMessage,
@@ -45,6 +46,7 @@ import {
   openThreadForTarget,
   readThread,
   resolveThread,
+  saveThread,
   targetKey,
   threadsDir,
   threadsForTarget,
@@ -102,11 +104,16 @@ describe("thread store — round-trip", () => {
   });
 
   it("toThreadSummary carries counts and a flattened snippet", () => {
-    const thread = createThread(libTarget, { author: "justin", text: "line one\nline  two" });
+    const chatId = crypto.randomUUID();
+    const thread = saveThread({
+      ...createThread(libTarget, { author: "justin", text: "line one\nline  two" }),
+      chat_ids: [chatId],
+    });
     const summary = toThreadSummary(thread);
     expect(summary.message_count).toBe(1);
     expect(summary.last_message_snippet).toBe("line one line two");
     expect(summary.target).toEqual(libTarget);
+    expect(summary.chat_ids).toEqual([chatId]);
   });
 
   it("rejects traversal-shaped ids before touching the filesystem", () => {
@@ -117,6 +124,42 @@ describe("thread store — round-trip", () => {
 });
 
 describe("thread store — normalize on read", () => {
+  it("normalizes chat_ids without changing legacy empty threads", () => {
+    const chatOne = crypto.randomUUID();
+    const chatTwo = crypto.randomUUID();
+    const saved = saveThread({
+      id: crypto.randomUUID(),
+      target: libTarget,
+      status: "open",
+      created_at: "2026-07-09T00:00:00.000Z",
+      updated_at: "2026-07-09T00:00:00.000Z",
+      messages: [{ id: "m1", author: "justin", text: "hello", created_at: "2026-07-09T00:00:00.000Z" }],
+      chat_ids: [chatOne, "not-a-uuid", chatTwo, chatOne],
+    });
+    expect(readThread(saved.id)?.chat_ids).toEqual([chatOne, chatTwo]);
+
+    const empty = saveThread({
+      id: crypto.randomUUID(),
+      target: libTarget,
+      status: "open",
+      created_at: "2026-07-09T00:00:00.000Z",
+      updated_at: "2026-07-09T00:00:00.000Z",
+      messages: [{ id: "m1", author: "justin", text: "hello", created_at: "2026-07-09T00:00:00.000Z" }],
+      chat_ids: [],
+    });
+    expect("chat_ids" in readThread(empty.id)!).toBe(false);
+
+    const legacy = crypto.randomUUID();
+    writeRawThread(legacy, {
+      target: libTarget,
+      status: "open",
+      created_at: "2026-07-09T00:00:00.000Z",
+      updated_at: "2026-07-09T00:00:00.000Z",
+      messages: [{ id: "m1", author: "justin", text: "legacy", created_at: "2026-07-09T00:00:00.000Z" }],
+    });
+    expect("chat_ids" in readThread(legacy)!).toBe(false);
+  });
+
   it("coerces bad/missing fields instead of throwing", () => {
     const id = crypto.randomUUID();
     writeRawThread(id, {
@@ -178,6 +221,27 @@ describe("thread store — normalize on read", () => {
 });
 
 describe("thread store — append-to-open semantics", () => {
+  it("appendChatId appends, dedupes, bumps updated_at, and throws on unknown threads", () => {
+    const chatOne = crypto.randomUUID();
+    const chatTwo = crypto.randomUUID();
+    const thread = saveThread({
+      id: crypto.randomUUID(),
+      target: libTarget,
+      status: "open",
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+      messages: [{ id: "m1", author: "justin", text: "hello", created_at: "2026-07-01T00:00:00.000Z" }],
+    });
+
+    const first = appendChatId(thread.id, chatOne);
+    expect(first.chat_ids).toEqual([chatOne]);
+    expect(new Date(first.updated_at).getTime()).toBeGreaterThan(new Date(thread.updated_at).getTime());
+
+    expect(appendChatId(thread.id, chatOne).chat_ids).toEqual([chatOne]);
+    expect(appendChatId(thread.id, chatTwo).chat_ids).toEqual([chatOne, chatTwo]);
+    expect(() => appendChatId(crypto.randomUUID(), chatOne)).toThrow(/thread not found/);
+  });
+
   it("an open thread on the target absorbs the next comment; resolved targets start fresh", () => {
     const first = createThread(libTarget, { author: "justin", text: "one" });
     expect(openThreadForTarget(libTarget)!.id).toBe(first.id);

@@ -64,6 +64,7 @@ import { runProcessAll, runThreadProcess, type ProcessAllProgress } from "@/lib/
 import type { ThreadSummary } from "@/lib/threads/types";
 import {
   conversationKindCounts,
+  conversationRowId,
   mergeConversations,
   type ChatsLens,
   type ConversationKindFilter,
@@ -222,9 +223,22 @@ export function ChatsView({ scopePath = "", workingFolder = "" }: ChatsViewProps
   // Default lens: Needs you when non-empty, else All — auto-derived until the user picks.
   const lens: ChatsLens = lensChoice ?? (!bothLoaded || needsYouRows.length > 0 ? "needs-you" : "all");
 
-  const lensRows = useMemo(() => mergeConversations(threads, sessions, lens), [threads, sessions, lens]);
+  // In-session stickiness (Justin, 2026-07-10): every id that qualifies for the lens during
+  // this visit stays pinned into it until the lens changes — opening (and thereby reading) a
+  // chat, or resolving a thread, must not make the row vanish mid-triage. Ref mutation during
+  // render is safe here: adds are idempotent and only new data/lens values change the set.
+  const lensPinsRef = useRef<{ lens: ChatsLens; ids: Set<string> }>({ lens, ids: new Set() });
+  if (lensPinsRef.current.lens !== lens) lensPinsRef.current = { lens, ids: new Set() };
+  for (const row of mergeConversations(threads, sessions, lens)) {
+    lensPinsRef.current.ids.add(conversationRowId(row));
+  }
+
+  const lensRows = useMemo(
+    () => mergeConversations(threads, sessions, lens, "all", lensPinsRef.current.ids),
+    [threads, sessions, lens],
+  );
   const rows = useMemo(
-    () => (filter === "all" ? lensRows : mergeConversations(threads, sessions, lens, filter)),
+    () => (filter === "all" ? lensRows : mergeConversations(threads, sessions, lens, filter, lensPinsRef.current.ids)),
     [filter, lens, lensRows, threads, sessions],
   );
 

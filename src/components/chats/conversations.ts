@@ -90,25 +90,34 @@ export function mergeConversations(
   sessions: ChatSessionSummary[],
   lens: ChatsLens,
   kind: ConversationKindFilter = "all",
+  // In-session stickiness (Justin, 2026-07-10): ids that qualified for this lens earlier in
+  // the visit bypass the lens check — reading a chat or resolving a thread must not reshuffle
+  // the list under the cursor mid-triage. Pins never bypass de-dupe or the kind filter.
+  pinnedIds?: ReadonlySet<string>,
 ): ConversationRow[] {
   const attached = threadAttachedChatIds(threads);
   const rows: ConversationRow[] = [];
 
   for (const thread of threads) {
-    if (!threadInLens(thread, lens)) continue;
+    if (!threadInLens(thread, lens) && !pinnedIds?.has(thread.id)) continue;
     if (kind !== "all" && threadFilterKind(thread.target) !== kind) continue;
     rows.push({ type: "thread", thread, updatedAtMs: parseTimeMs(thread.updated_at) });
   }
 
   for (const session of sessions) {
     if (attached.has(session.id)) continue;
-    if (!chatInLens(session, lens)) continue;
+    if (!chatInLens(session, lens) && !pinnedIds?.has(session.id)) continue;
     if (kind !== "all" && session.context.kind !== kind) continue;
     rows.push({ type: "chat", session, updatedAtMs: session.updatedAt });
   }
 
   rows.sort((a, b) => b.updatedAtMs - a.updatedAtMs);
   return rows;
+}
+
+/** The id a row pins/selects by — thread id for thread rows, session id for chat rows. */
+export function conversationRowId(row: ConversationRow): string {
+  return row.type === "thread" ? row.thread.id : row.session.id;
 }
 
 /** Default lens: Needs you when it has rows, otherwise All. */

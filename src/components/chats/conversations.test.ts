@@ -4,6 +4,7 @@ import type { ThreadSummary } from "@/lib/threads/types";
 import {
   conversationKindCounts,
   defaultLens,
+  conversationRowId,
   mergeConversations,
   threadAttachedChatIds,
   threadFilterKind,
@@ -174,5 +175,34 @@ describe("default lens", () => {
     const threads = [makeThread({ id: "th-1", status: "resolved", chat_ids: ["chat-a"] })];
     const sessions = [makeSession({ id: "chat-a", status: "sending" })];
     expect(defaultLens(threads, sessions)).toBe("all");
+  });
+});
+
+describe("in-session lens pins", () => {
+  it("a pinned row that no longer qualifies stays in the lens", () => {
+    const read = makeSession({ id: "chat-read", unreadCount: 0 });
+    const unpinned = mergeConversations([], [read], "needs-you");
+    expect(unpinned).toHaveLength(0);
+    const pinned = mergeConversations([], [read], "needs-you", "all", new Set(["chat-read"]));
+    expect(pinned.map(conversationRowId)).toEqual(["chat-read"]);
+  });
+
+  it("pins never bypass de-dupe or the kind filter", () => {
+    const threads = [makeThread({ id: "th-1", status: "resolved", chat_ids: ["chat-att"] })];
+    const sessions = [makeSession({ id: "chat-att", unreadCount: 0 })];
+    // attached chat stays excluded even when pinned
+    expect(mergeConversations(threads, sessions, "needs-you", "all", new Set(["chat-att", "th-1"])))
+      .toHaveLength(1); // only the pinned resolved thread re-enters
+    // kind filter still narrows a pinned row out
+    const libChat = makeSession({ id: "chat-lib", unreadCount: 0 });
+    expect(mergeConversations([], [libChat], "needs-you", "task", new Set(["chat-lib"])))
+      .toHaveLength(0);
+  });
+
+  it("a resolved-while-pinned thread stays visible in needs-you", () => {
+    const resolved = makeThread({ id: "th-done", status: "resolved" });
+    expect(mergeConversations([resolved], [], "needs-you")).toHaveLength(0);
+    expect(mergeConversations([resolved], [], "needs-you", "all", new Set(["th-done"])))
+      .toHaveLength(1);
   });
 });

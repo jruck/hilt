@@ -333,11 +333,19 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
             {displayTitle}
           </span>
           <OwnerChip owner={owner} className="flex-shrink-0" />
-          {statusBadge && (
+          {/* ONE badge slot: a just-clicked verdict and a task-file status are the same
+              decision seen from two data reps — rendering them in different positions made
+              one click look like two outcomes (Justin, 2026-07-10). Verdict wins when both
+              could apply (it is the fresher signal). */}
+          {localVerdict ? (
+            <span className={`flex-shrink-0 inline-flex items-center whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${verdictBadgeClass(localVerdict)}`}>
+              {verdictBadgeLabel(localVerdict)}
+            </span>
+          ) : statusBadge ? (
             <span className={`flex-shrink-0 px-1.5 py-0.5 rounded text-xs font-medium ${statusBadge.className}`}>
               {statusBadge.label}
             </span>
-          )}
+          ) : null}
           {task.due && <DueBadge due={task.due} />}
           {/* Open-pane affordance — BridgeTaskItem's chevron idiom, hover-revealed. */}
           {onOpen && (
@@ -361,14 +369,6 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
               </>
             )}
           </p>
-        )}
-
-        {localVerdict && (
-          <div className="mt-1.5">
-            <span className={`inline-flex items-center whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${verdictBadgeClass(localVerdict)}`}>
-              {verdictBadgeLabel(localVerdict)}
-            </span>
-          </div>
         )}
 
         {onVerdict && !localVerdict && (

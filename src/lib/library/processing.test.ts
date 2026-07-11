@@ -4,19 +4,22 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { findCandidateByUrl, listCandidates } from "./candidate-cache";
-import { libraryPollBackoffMs, librarySourcePollDue } from "./intake";
+import { libraryPollBackoffMs, librarySourcePollDue, runLibraryIntake } from "./intake";
 import { getLibraryArtifact } from "./library";
 import {
   enqueueLibraryArtifact,
   libraryProcessingQueuePath,
   listProcessingQueue,
+  processingQueueSummary,
   readProcessingQueueRecord,
+  retryProcessingArtifact,
+  writeProcessingQueueRecord,
 } from "./processing";
 import { drainLibraryProcessingQueue, processLibraryQueueRecord } from "./processing-worker";
 import { promoteCandidateImmediately } from "./promotion";
 import { markLibraryArtifactsRead } from "./read-state";
 import { scoreArtifacts } from "./recommendations";
-import { parseReferenceFile } from "./references";
+import { listSavedReferences, parseReferenceFile } from "./references";
 import type { LibrarySourceConfig, RawArtifact } from "./types";
 
 process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
@@ -93,6 +96,20 @@ test("processing retains stable identity and removes only a ready queue record",
   assert.equal(fs.existsSync(libraryProcessingQueuePath(vault, intake.artifact_uid)), false);
 });
 
+test("queue health identifies the active artifact", () => {
+  const vault = tempVault();
+  const intake = enqueueLibraryArtifact(vault, raw(), source(), { useSummarize: false });
+  const record = readProcessingQueueRecord(libraryProcessingQueuePath(vault, intake.artifact_uid));
+  assert.ok(record);
+  writeProcessingQueueRecord({ ...record, status: "active" });
+
+  assert.deepEqual(processingQueueSummary(vault).active_item, {
+    artifact_uid: intake.artifact_uid,
+    title: "Introducing GPT-4.1",
+    path: intake.path,
+  });
+});
+
 test("an explicit save promotes an active candidate and its queue follows the UID", async () => {
   const vault = tempVault();
   const intake = enqueueLibraryArtifact(vault, raw(), source("discovery"), { useSummarize: false });
@@ -111,24 +128,74 @@ test("an explicit save promotes an active candidate and its queue follows the UI
   assert.equal(saved?.processing?.state, "ready");
 });
 
+test("foreground intake does not re-promote a candidate after its durable reference exists", async () => {
+  const vault = tempVault();
+  const intake = enqueueLibraryArtifact(vault, raw(), source("discovery"), { useSummarize: false });
+  const candidate = findCandidateByUrl(vault, raw().url);
+  assert.ok(candidate);
+  promoteCandidateImmediately(vault, candidate, source(), raw());
+  fs.writeFileSync(path.join(vault, "meta", "sources", "fixture-saves.yaml"), `
+id: fixture-saves
+name: Fixture saves
+channel: fixture
+url: fixture://library-processing
+enabled: true
+cadence: hourly
+intent: explicit_save
+signal: fixture_save
+metadata:
+  incremental_mode: window
+fixtures:
+  - url: ${raw().url}
+    title: Introducing GPT-4.1
+    date: 2026-07-09T12:00:00.000Z
+    content: A repeated explicit save of the already-promoted candidate.
+    metadata:
+      format: article
+`, "utf-8");
+
+  for (let index = 0; index < 2; index += 1) {
+    const report = await runLibraryIntake(vault, { force: true, sourceIds: ["fixture-saves"] });
+    assert.equal(report.promoted, 0);
+    assert.equal(report.queued, 0);
+    assert.equal(report.duplicates, 1);
+  }
+  assert.equal(listSavedReferences(vault).filter((artifact) => artifact.url === raw().url).length, 1);
+  assert.equal(listCandidates(vault)[0].status, "promoted");
+  assert.equal(fs.existsSync(libraryProcessingQueuePath(vault, intake.artifact_uid)), true);
+});
+
 test("capture exhaustion becomes terminal blocked and remains retryable by explicit action", async () => {
   const vault = tempVault();
   const empty = { ...raw("https://openai.com/index/missing-fixture/"), content: "" };
   const intake = enqueueLibraryArtifact(vault, empty, source(), { useSummarize: false });
   const firstRecord = listProcessingQueue(vault)[0];
-  const first = await processLibraryQueueRecord(firstRecord);
+  const attemptStartedAt = new Date("2026-07-10T12:00:00.000Z");
+  const attemptFailedAt = new Date("2026-07-10T12:03:00.000Z");
+  const firstClock = [attemptStartedAt, attemptFailedAt];
+  const first = await processLibraryQueueRecord(firstRecord, { now: () => firstClock.shift() || attemptFailedAt });
   assert.equal(first.status, "retry_scheduled");
   const secondRecord = readProcessingQueueRecord(libraryProcessingQueuePath(vault, intake.artifact_uid));
   assert.ok(secondRecord);
+  assert.equal(secondRecord.next_retry_at, "2026-07-10T12:08:00.000Z");
   const second = await processLibraryQueueRecord(secondRecord);
   assert.equal(second.status, "blocked");
   const artifact = getLibraryArtifact(vault, intake.artifact_uid);
   assert.equal(artifact?.processing?.state, "blocked");
+  assert.equal(artifact?.processing?.stage, "capture");
+  assert.deepEqual(artifact?.processing?.completed_stages, ["metadata"]);
   assert.equal(artifact?.processing?.last_error?.code, "needs_source");
   assert.equal(readProcessingQueueRecord(libraryProcessingQueuePath(vault, intake.artifact_uid))?.status, "blocked");
+
+  assert.ok(retryProcessingArtifact(vault, intake.artifact_uid));
+  const retried = getLibraryArtifact(vault, intake.artifact_uid);
+  assert.equal(retried?.processing?.state, "queued");
+  assert.equal(retried?.processing?.stage, "metadata");
+  assert.deepEqual(retried?.processing?.completed_stages, []);
+  assert.equal(retried?.processing?.completed_at, null);
 });
 
-test("processing artifacts cannot be read or scored until ready", async () => {
+test("processing and deferred-reweave artifacts cannot be read or scored as complete", async () => {
   const vault = tempVault();
   const intake = enqueueLibraryArtifact(vault, raw(), source(), { useSummarize: false });
   assert.equal(markLibraryArtifactsRead(vault, [intake.artifact_uid]).marked, 0);
@@ -140,7 +207,12 @@ test("processing artifacts cannot be read or scored until ready", async () => {
   assert.equal(markLibraryArtifactsRead(vault, [intake.artifact_uid]).marked, 1);
   const ready = getLibraryArtifact(vault, intake.artifact_uid);
   assert.ok(ready);
-  assert.equal(scoreArtifacts(vault, [ready]).length, 1);
+  assert.equal(ready.raw_frontmatter.reweave_pending, true);
+  assert.equal(scoreArtifacts(vault, [ready]).length, 0);
+  assert.equal(scoreArtifacts(vault, [{
+    ...ready,
+    raw_frontmatter: { ...ready.raw_frontmatter, reweave_pending: undefined },
+  }]).length, 1);
 });
 
 test("poll scheduling persists cadence and rate-limit backoff overrides force", () => {

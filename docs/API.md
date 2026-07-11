@@ -1788,7 +1788,7 @@ Lists saved references and, by default, unexpired candidates.
 
 When no lifecycle `status` is requested, the list returns saved references plus active `candidate` review items. Skipped, expired, and promoted candidate-cache records stay hidden from the active Library feed unless requested explicitly with `status=skipped`, `status=expired`, or `status=promoted`. When no `mode` is requested, the list defaults to `study` so quiet keep-mode items remain durable and searchable without crowding the main review feed.
 
-Study-mode artifacts include dynamic `eval_attrs` when the list can score them. `eval_attrs.worth` is the compact priority score; `relevance`, `substance`, `freshness`, `lifecycle`, and `why` are the progressive-disclosure breakdown. Keep-mode artifacts omit `eval_attrs`.
+Study-mode artifacts include dynamic `eval_attrs` when the list can score them. `eval_attrs.worth` is the compact priority score (`relevance × substance × freshness`), not a source-capture health indicator; `relevance`, `substance`, `freshness`, `lifecycle`, and `why` are the progressive-disclosure breakdown. Keep-mode artifacts and study items with incomplete processing or `reweave_pending: true` omit `eval_attrs`, so a degraded L1 digest never presents a provisional worth score as final.
 
 **Response**
 
@@ -1908,7 +1908,7 @@ Source summaries include source-native child facets under `facets`: Raindrop col
 
 ### POST /api/sources/ingest
 
-Runs the shared source runner for selected sources or every enabled source. Credential-gated sources return `424` with blocked source details instead of pretending live access succeeded.
+Runs the compatibility ingestion path for selected sources or every enabled source: placeholder intake followed by an awaited queue drain. Credential-gated sources return `424` with blocked source details instead of pretending live access succeeded.
 
 ```typescript
 {
@@ -1925,7 +1925,41 @@ Runs the shared source runner for selected sources or every enabled source. Cred
 
 The response includes `dry_run`, `use_cursor`, `limit`, aggregate counts, per-source `cursor`/`next_cursor`, per-source counts, and per-artifact statuses. In dry-run mode, `saved`, `candidate`, `promoted`, and `skipped` mean "would write" outcomes; the vault is not mutated.
 
-The Library UI uses this route for `Check sources`, separate from local list revalidation and `/api/library/health` status refresh. If a source is selected in the Library source rail, the check runs only that source. Otherwise it runs enabled hourly sources with a small batch limit. Manual UI checks pass a short `reweaveTimeoutMs` so long transcript/vault-weave work can fall back to `reweave_pending` instead of blocking visible source refresh; scheduler/backfill jobs may omit it to use the deeper default.
+CLI/scheduler callers that require completed results continue to use this route. Interactive Library refresh uses the faster intake route below.
+
+### POST /api/sources/intake
+
+Checks enabled, non-manual sources and returns as soon as all discovered placeholders and durable queue records are written. It never waits for capture, transcription, digest, or reweave.
+
+```typescript
+{
+  sourceIds?: string[];
+  force?: boolean;        // defaults true; provider backoff still wins
+  explicitOnly?: boolean; // defaults true
+  limit?: number;
+}
+
+// 200, or 207 when at least one source is blocked/errored
+interface LibraryIntakeReport {
+  checked: number;
+  queued: number;
+  duplicates: number;
+  promoted: number;
+  blocked: Array<{ source_id: string; reason: string }>;
+  errors: string[];
+  artifacts: Array<{ artifact_uid: string; path: string; status: "queued" | "duplicate" | "promoted" }>;
+}
+```
+
+The toolbar and Library pull-to-refresh first revalidate local SWR state, then call this route. The request spinner ends with intake; placeholder and stage updates continue independently over the Library WebSocket channel.
+
+### POST /api/library/:id/processing/retry
+
+Requeues a retained blocked processing record, resets its automatic attempt count, clears the visible error, and returns `404` when no queue record exists. Queue watchers start the on-demand child worker.
+
+```typescript
+{ ok: true; artifact_uid: string; status: "queued" }
+```
 
 ### GET /api/sources/status
 
@@ -1933,7 +1967,7 @@ Returns current source configs and checkpoint state without running ingestion.
 
 ### GET /api/library/health
 
-Returns the operational Reference Library dashboard contract: launchd scheduler job load state, source last-success/blocker status, and dead-letter counts.
+Returns the operational Reference Library dashboard contract: launchd scheduler state, source status, dead letters, reweave backlog, and live intake/processing state.
 
 ```typescript
 {
@@ -1969,6 +2003,18 @@ Returns the operational Reference Library dashboard contract: launchd scheduler 
     last_at: string | null;
     by_source: Array<{ source_id: string; count: number }>;
   };
+  intake: {
+    enabled: boolean;
+    running: boolean;
+    foreground: boolean;
+    last_polled_at: string | null;
+    next_poll_at: string | null;
+    queue_depth: number;
+    active: number;
+    blocked: number;
+    oldest_queued_at: string | null;
+    active_item: { artifact_uid: string; title: string; path: string } | null;
+  };
 }
 ```
 
@@ -2003,7 +2049,7 @@ Newsletters use the `superhuman-news` source id and `mcp-remote` against `https:
 
 ### GET /api/library/recommendations
 
-Returns the file-native For You ranking over recent saved references and unexpired candidates. The v0 ranker caps responses at eight items, scores against active projects, current weekly tasks, North Stars, people notes, recent saves, and persisted `connection_suggestions`, and returns numeric eval fields (`worth`, `relevance`, `substance`, `freshness`, `lifecycle`, `eval_attrs`), `why`, and `matched_terms`. It does not return artificial priority labels such as `must_read`, `recommended`, or `interesting`.
+Returns the file-native For You ranking over recent saved references and unexpired candidates. The v0 ranker caps responses at eight items, excludes incomplete and `reweave_pending` study items, scores the remaining artifacts against active projects, current weekly tasks, North Stars, people notes, recent saves, and persisted `connection_suggestions`, and returns numeric eval fields (`worth`, `relevance`, `substance`, `freshness`, `lifecycle`, `eval_attrs`), `why`, and `matched_terms`. It does not return artificial priority labels such as `must_read`, `recommended`, or `interesting`.
 
 ### GET /api/search
 

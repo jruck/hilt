@@ -1,6 +1,6 @@
 # Live Library Intake Handoff
 
-Status: paused safely on 2026-07-09. The implementation is work in progress and is not committed.
+Status: completed and verified on 2026-07-10. The foundational implementation was committed in `65663ad`; the final verification hardening is in the current worktree.
 
 ## Implemented
 
@@ -20,36 +20,29 @@ Status: paused safely on 2026-07-09. The implementation is work in progress and 
 
 ## Verification
 
-- `node --import tsx --test src/lib/library/**/*.test.ts`: 147 tests, 144 passed, 0 failed, 3 pre-existing skips.
+- `node --import tsx --test src/lib/library/**/*.test.ts`: 148 tests, 145 passed, 0 failed, 3 pre-existing skips.
 - `node --import tsx --test server/watchers/library-watcher.test.ts`: 2 passed, 0 failed.
-- `npx tsc --noEmit` passed at the final handoff check.
-- The isolated E2E harness deletes its temporary home, vault, data directory, and Next.js build in `finally`, restores `tsconfig.json`, and verifies the real Library tree is unchanged.
-- No `.next-library-live-e2e-*` or `/tmp/hilt-library-live-e2e-*` artifacts remain.
+- `npx tsc --noEmit`: passed.
+- `LIVE_SMOKE=0 npm run test:library:e2e`: passed the complete isolated desktop/mobile journey.
+- `npm run rebuild`: passed, including TypeScript, route generation, and `check:build-artifacts` (with the existing optional `sqlite-vec` and broad NFT trace warnings).
+- The retained screenshot run was inspected for media stability, action overlap, processing/blocked clarity, and reduced-motion behavior, then its sentinel workspace was removed.
+- The separate live OpenAI smoke reached the public URL but received upstream HTTP 403; this is reported independently and did not replace the deterministic source fixture.
+- Live acceptance on 2026-07-10 recovered a real Raindrop save (`Introducing GPT-Live`): after reloading the stale pre-feature ws-server, foreground intake discovered it immediately, the card rendered in Recent, processing reached `ready` in about five seconds, and the next one-minute poll completed cleanly. The headless supervisor now reloads ws-server on rebuild stamps so this deployment gap does not recur.
+- The harness deletes temporary home/vault/data/build artifacts, restores `tsconfig.json`, and compares the real Library tree before/after.
 
-`npm run test:library` cannot create the `tsx` IPC socket in the current sandbox (`listen EPERM`), so the equivalent Node loader command above was used successfully.
+## Completion Hardening
 
-## Exact Resume Point
-
-The deterministic Playwright run now proves that placeholders appear and the queue worker takes the ready fixture through processing. It stops at one brittle reader-content assertion:
-
-```text
-scripts/library-live-intake-e2e.ts:135
-getByText(/stronger coding|instruction following/i)
-```
-
-The ready item had already detached its processing state and only the intentionally blocked fixture remained in the queue. Replace that content-specific assertion with a robust in-place reader update check: retain the stable artifact ID, observe processing disappear, and assert non-placeholder digest/content. Then continue the existing E2E assertions instead of debugging the worker again.
-
-After that:
-
-1. Run `LIVE_SMOKE=0 node --import tsx scripts/library-live-intake-e2e.ts`.
-2. Run the isolated reachable OpenAI blog smoke test.
-3. Finish the Architecture, Data Models, API, Design Philosophy, and Changelog documentation.
-4. Rerun TypeScript and Library/server tests.
-5. Run `npm run rebuild` so the production daily-driver app receives the changes.
+- Replaced fixture-prose matching with a reader contract assertion: stable ID, processing detaches, and the placeholder body becomes a rendered digest.
+- Fixed deep-scroll restoration so an event anchor waits for the arriving stable ID instead of being consumed by the notice render.
+- Preserved watcher `add` semantics when immediate processing writes arrive inside the same debounce window.
+- Tested the blocked detail Retry action through requeue and terminal exhaustion.
+- Added the active artifact to queue health and UI status.
+- Corrected the mobile synthetic pull gesture to span a render frame and made the E2E cleanup resilient to failed response waits.
+- Closed the real-live follow-up failures: status-aware candidate promotion prevents repeated foreground polls from creating suffixed copies; the supervised PATH and Claude resolver support `~/.local/bin`; pending reweaves show static status and no provisional worth; successful repair reweaves complete the processing timeline. The 22 generated YouTube copies were backed up to `/tmp/hilt-library-duplicate-recovery-20260710-100914.tar.gz`, removed, and their canonical originals retained with stable IDs.
 
 ## Safety Notes
 
 - The E2E refuses to use a vault outside its sentinel temporary directory.
-- The latest run verified that the real Library tree did not change.
+- The final runs verified that the real Library tree did not change.
 - Preserve all pre-existing dirty-worktree changes, including the candidate-promotion/series work.
 - Untracked `--full-page` and `.gate-shots/` were present before this work and were left untouched.

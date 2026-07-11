@@ -1046,6 +1046,45 @@ interface IngestionReport {
 }
 ```
 
+### Live Library Processing
+
+New placeholders carry an `artifact_uid` in markdown. `LibraryArtifact.id` resolves to that UID when present and falls back to the historical path hash for existing files, so no migration is required. Promotion, retitling, and file moves preserve the UID. `source_title` retains source provenance separately from the title Hilt presents in the Library.
+
+```typescript
+type LibraryProcessingStateName = "queued" | "active" | "ready" | "blocked";
+type LibraryProcessingStage = "metadata" | "capture" | "transcribe" | "digest" | "reweave";
+
+interface LibraryProcessingState {
+  state: LibraryProcessingStateName;
+  stage: LibraryProcessingStage;
+  completed_stages: LibraryProcessingStage[];
+  started_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+  attempt: number;
+  next_retry_at: string | null;
+  last_error: { code: string; message: string; retryable: boolean } | null;
+}
+
+interface LibraryProcessingQueueRecord {
+  version: 1;
+  artifact_uid: string;
+  vault_path: string;
+  target_path: string;
+  lifecycle_status: "saved" | "candidate";
+  source_title: string;
+  raw: RawArtifact;
+  source: LibrarySourceConfig;
+  queued_at: string;
+  updated_at: string;
+  attempt: number;
+  status: "queued" | "active" | "blocked";
+  next_retry_at: string | null;
+}
+```
+
+Markdown is the user-visible source of truth for progress. Queue records live under `${DATA_DIR}/library-processing/<vault-hash>/`, survive crashes, and retain the raw provider payload needed to resume. Ready records are removed; terminal blocked records remain addressable for Retry.
+
 ### LibraryArtifact
 
 Digestion produces connections through LLM judgment (the Claude CLI), not deterministic token overlap. A connection is a directional relationship to an existing piece of the user's work — including baseline, contrast, and foundational ties — and a clean "no connection / just file it" verdict is a first-class outcome. The judge returns a `ConnectionJudgment`; its surviving connections are stored as structured `ConnectionSuggestion` entries:
@@ -1118,13 +1157,29 @@ For X/Twitter bookmarks, `title` is source-normalized before file writes: short 
 
 For X/Twitter video posts, `video_url` is persisted when discovered from bookmark URL entities, attached X media, linked X posts, or legacy Raw Content links. The canonical source cache is the video transcript, not the wrapper tweet. Successful transcript captures use `cached_source_extractor: x-video-subtitles` or `x-video-audio` with `source_cache.kind: "transcript"` and may stamp `source_recovered_from: <video_url>` plus `x_video_transcript_status: captured` / `x_video_transcript_method: subtitles|audio`. Terminal non-transcriptable videos are explicit: `x_video_transcript_status: unavailable_no_audio` for silent/no-audio media and `unavailable_source` for suspended/private/deleted/unavailable sources. Any X video without a transcript cache or terminal unavailable status is treated as a capture-health failure and routes to `needs_refetch`.
 
+Thin saved pages with a detected primary embedded video use the same transcript-as-source contract. `SourceCache.extractor` also accepts `embedded-video-subtitles` and `embedded-video-audio`. References/candidates may persist `embedded_video_page_url`, `embedded_video_provider`, `embedded_video_source`, `embedded_video_title`, `embedded_video_required`, `embedded_video_transcript_status`, and `embedded_video_transcript_method`, plus the normalized player/download URL in `video_url`. Once `embedded_video_required: true` is stamped, capture health requires a captured embedded-video transcript; wrapper prose alone cannot complete the item.
+
+```typescript
+interface SourceCache {
+  kind: "article" | "transcript" | "source" | "document";
+  extractor:
+    | "summarize-cli" | "source-metadata" | "raindrop-cache" | "raindrop-pdf" | "pdftotext"
+    | "x-video-subtitles" | "x-video-audio"
+    | "embedded-video-subtitles" | "embedded-video-audio";
+  captured_at: string;
+  content: string;
+  chars: number;
+}
+```
+
 Login-walled captures (LinkedIn pulse, and any source whose fetched content is dominated by a sign-in gate) are detected by `loginWallVerdict` in `capture-health.ts` (shared phrase set + a prose-word threshold, env `LIBRARY_LOGIN_WALL_MIN_PROSE_WORDS`, default 50). A capture that leads with sign-in chrome but carries the real article underneath — the common Raindrop case, since Raindrop's permanent copy is a logged-in full-DOM snapshot — is summarized and woven normally. A capture that is *only* a wall (no article) is never graded `hot`; it is stamped `needs_auth_recovery: true`, treated as a `captureFailed` item (excluded from reweave), and routed to authenticated browser recovery (`npm run library:recover`), which clears the flag once real content is recovered. Source acquisition prefers a fresh live extract, then the Raindrop permanent copy, then source-metadata; the text summarizer runs on whichever full source is acquired (not the short Raindrop excerpt).
 
 PDF sources (a file uploaded to Raindrop, or any bookmarked `.pdf` URL) are extracted to text rather than stored as binary. The cache is read as **bytes** and, when a PDF is detected (content-type `application/pdf` or the `%PDF` magic), run through `pdftotext` (`src/lib/library/pdf.ts`, `extractPdfText`; poppler, `PDFTOTEXT_BIN` override) — producing `source_cache.kind: "document"` with `cached_source_extractor: "raindrop-pdf"` (Raindrop cache) or `"pdftotext"` (a direct `.pdf` URL via `extractSourceContent`). The clean text then flows through the normal summarize + reweave path. A backstop, `looksLikeBinaryGarbage` (capture-health, wired into `captureFailed`), treats any undecodable binary dumped as text — a PDF/image read with the wrong reader — as a failed capture so it routes to re-extraction instead of landing as garbage.
 
 ```typescript
 interface LibraryArtifact {
-  id: string;
+  id: string;              // artifact_uid when present; otherwise the legacy path-derived hash
+  source_title?: string | null; // Source-native title retained when the display title improves
   title: string;
   description: string;
   url: string;
@@ -1152,6 +1207,7 @@ interface LibraryArtifact {
   destination?: string;
   is_unread: boolean;      // Hilt-local read state, not markdown frontmatter
   read_at: string | null;  // ISO timestamp when the current user last marked it read
+  processing?: LibraryProcessingState;
   eval_attrs?: LibraryEvalAttrs; // Dynamic worth eval for study items; absent for keep items
   connections: string[];
   raw_frontmatter?: {
@@ -1164,6 +1220,8 @@ interface LibraryArtifact {
   };
 }
 ```
+
+Processing artifacts are excluded from recommendation/eval scoring and cannot be marked read until `processing.state` is `ready`. A readable digest is ready even when `reweave_pending` remains true; `blocked` is terminal and non-animating until an explicit retry or alternate recovery action.
 
 ```typescript
 interface LibrarySeriesMetadata {

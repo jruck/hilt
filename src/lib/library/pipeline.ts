@@ -20,17 +20,19 @@
  * Never keep runnable copies of old versions — git history is the archive.
  */
 
-export const PIPELINE_VERSION = "v2.2";
+export const PIPELINE_VERSION = "v2.5";
 
 /**
  * Versions that count as "current" for reweave purposes. An item stamped with any of these is NOT
  * re-reweaved when the live PIPELINE_VERSION bumps a decimal — the digest protocol is identical; the
- * onion (v2.1) only added the candidate path, and v2.2 only ADDS the attention_judgment field (judge
- * layer) without changing digest/connection behavior, so older items are not version-behind. The
- * published saved baseline of record is "v2". Shared by the backfill orchestrator AND the health
- * backlog metric so the two can never drift.
+ * onion (v2.1) only added the candidate path, v2.2 only added the attention_judgment field, v2.3
+ * gates downstream work on capture health while adding X Article source acquisition, v2.4 makes the
+ * same reweave contract use Claude's native structured output, and v2.5 adds a gated embedded-video
+ * transcript capture path. None changes the published digest voice, so older items are not
+ * version-behind. The published saved baseline of record is "v2". Shared by the backfill orchestrator
+ * AND the health backlog metric so the two can never drift.
  */
-export const CURRENT_PIPELINE_VERSIONS: ReadonlySet<string> = new Set([PIPELINE_VERSION, "v2.1", "v2"]);
+export const CURRENT_PIPELINE_VERSIONS: ReadonlySet<string> = new Set([PIPELINE_VERSION, "v2.4", "v2.3", "v2.2", "v2.1", "v2"]);
 
 // The L1 digest prompt is no longer owned here. capture-voice.ts is the single source of the shared
 // voice core (CAPTURE_VOICE) and the body-only DIGEST_PROMPT that wraps it; both layers compose it.

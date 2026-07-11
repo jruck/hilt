@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Check, Loader2 } from "lucide-react";
+import { AlertTriangle, Check, Clock3, Loader2 } from "lucide-react";
 import type { LibraryProcessingStage, LibraryProcessingState } from "@/lib/library/types";
 import { processingStageLabel } from "@/lib/library/processing-state";
 
@@ -28,7 +28,25 @@ export function ProcessingStatus({
   compact?: boolean;
   standalone?: boolean;
 }) {
-  if (processing.state === "ready") return null;
+  const deferredReweave = processing.state === "ready"
+    && processing.stage === "reweave"
+    && !processing.completed_stages.includes("reweave");
+  if (processing.state === "ready") {
+    if (!deferredReweave) return null;
+    return (
+      <div
+        className={`${standalone ? "" : "border-t border-[var(--border-default)]"} ${standalone ? "" : compact ? "pt-2" : "pt-3"}`}
+        role="status"
+        data-processing-state="ready"
+        data-processing-stage="reweave"
+      >
+        <div className="flex min-w-0 items-center gap-2 text-[var(--text-tertiary)]">
+          <Clock3 className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 truncate text-xs font-medium">Ready · Connections pending</span>
+        </div>
+      </div>
+    );
+  }
   const blocked = processing.state === "blocked";
   const stageText = processing.state === "queued"
     ? `Queued · ${processingStageLabel(processing.stage)}`

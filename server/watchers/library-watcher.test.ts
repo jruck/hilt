@@ -30,7 +30,9 @@ test("saved and hidden candidate writes each emit one debounced Library artifact
     const candidate = path.join(vault, "references", ".cache", "library-candidates", "candidate.md");
     fs.writeFileSync(candidate, stringifyMarkdown({ type: "reference-candidate", artifact_uid: "stable-candidate", title: "Candidate", url: "https://example.com/candidate", status: "candidate" }, "# Candidate\n"));
     await settle();
-    assert.equal(events.filter((event) => event.id === "stable-saved").length, 1);
+    const savedEvents = events.filter((event) => event.id === "stable-saved");
+    assert.equal(savedEvents.length, 1);
+    assert.equal(savedEvents[0].operation, "add", "a fast placeholder enrichment must preserve the add event");
     assert.equal(events.filter((event) => event.id === "stable-candidate").length, 1);
   } finally {
     watcher.stop();

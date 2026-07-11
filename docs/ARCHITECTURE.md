@@ -443,11 +443,13 @@ Client subscribes to channels:
   - { channel: "file", params: { scope } }    → file content changes
   - { channel: "inbox", params: { scope } }   → Todo.md changes
   - { channel: "bridge" }                     → vault file changes
+  - { channel: "library" }                    → reference/candidate/queue changes
 
 Server watchers detect filesystem changes:
   scope-watcher.ts  → chokidar watches scope directory
   inbox-watcher.ts  → chokidar watches Todo.md files
   bridge-watcher.ts → chokidar watches bridge vault
+  library-watcher.ts → watches saved refs, hidden candidates, and processing queue
 
 EventServer broadcasts matching events to subscribed clients
          │
@@ -457,13 +459,41 @@ Components receive events and trigger SWR revalidation
 
 ### 10. Reference Library Digestion & Connection Data Flow
 
-The digest / connection / reweave logic is a **single versioned skill**: `src/lib/library/pipeline.ts` (which exports `PIPELINE_VERSION` and re-exports the active `REWEAVE_PROMPT` / `CONNECTION_PROMPT` / `DIGEST_PROMPT`) plus the digestion glue in `digestion.ts` / `connections.ts`. Only the current version is runnable — prior versions are recovered from git history, not kept as parallel files. Every ingested item is **stamped** with the version that produced it: `pipeline_version` is written into the durable reference and the candidate frontmatter and surfaced on `LibraryArtifact`, giving each note a provenance trail. On any change to the digest/connection/reweave logic, bump `PIPELINE_VERSION` and add a row to **[`docs/PIPELINE-VERSIONS.md`](./PIPELINE-VERSIONS.md)** (the non-executable version registry; current = `v1.3`, `v1.4` concision pending).
+Library ingestion is split into a fast **intake** boundary and resumable **processing**. Enabled explicit-save sources are checked by the existing `ws-server`: immediately when the first Library client subscribes, every 60 seconds while at least one Library client remains subscribed, and every five minutes otherwise. Source state persists `last_polled_at`, `next_poll_at`, errors, and provider rate-limit backoff, so a restart does not reset provider pressure. Discovery/newsletter cadence remains scheduler-owned; the existing hourly launchd ingestion stays the fallback when the WebSocket server is unavailable. Candidate promotion is status-aware and checks durable/archived references first: a promoted candidate may remain as provenance, but subsequent window polls report the existing reference as a duplicate instead of minting another suffixed file.
+
+```
+External explicit-save source
+         │ adaptive poll or POST /api/sources/intake
+         ▼
+intake.ts fetches the complete source batch, deduplicates it, then writes
+ALL markdown placeholders before processing begins
+         │ artifact_uid stays stable across retitle, promotion, and file move
+         ├── references/**/*.md or references/.cache/library-candidates/*.md
+         └── ${DATA_DIR}/library-processing/<vault-hash>/<artifact_uid>.json
+                           │ durable raw payload + retry/checkpoint state
+                           ▼
+LibraryProcessingRunner starts one detached child on demand
+         │ serial drain; no idle worker process
+         │ digestArtifact reports metadata → capture/transcribe → digest → reweave
+         │ capture health gates digest/reweave; wrappers never reach connection work
+         │ source capture uses the existing two-attempt automatic policy
+         ├── readable digest → processing.state = ready; queue record removed
+         │                    reweave_pending may remain for the nightly pass
+         └── exhausted source → processing.state = blocked; queue record retained
+                               for explicit Retry/manual recovery
+```
+
+The user-visible checkpoint is stored in markdown frontmatter as `processing`; the queue record holds the resumable raw work payload. `digestArtifact` remains the compatibility wrapper used by scripts and the awaited `/api/sources/ingest` path. Capture health is evaluated before starting the expensive in-vault reweave: a t.co/X Article wrapper or other metadata stub retries capture and eventually becomes `Needs source`, while a readable L1 digest may be `ready` with `reweave_pending`. That deferred state is static (`Ready · Connections pending`), excluded from worth/recommendation scoring, and becomes fully complete only when a successful reweave clears the flag and stamps the `reweave` processing stage. A failed reweave never checks off the Connections stage, including in manual redigest runs. Automatic retry delay is measured from failure time, not attempt start, so a slow phase cannot collapse the intended cooldown. The supervised worker resolves Claude from explicit config and standard local install locations, including `~/.local/bin/claude`. The dedicated Library watcher emits debounced `library:artifact-changed` events (`add`/`change`/`unlink`, stable id, path, processing state) and `library:queue-changed` summaries. Library SWR hooks patch by stable id and use five-second polling only while WebSocket delivery is disconnected. Deep-feed insertions preserve the first visible card until the user activates the quiet new-items control; Recent/New pin active work, while other rankings expose only a processing count.
+
+Thin pages can be wrappers around their real source: a native or embedded video. After normal live/Raindrop text capture, `embedded-video.ts` runs only for study-mode explicit saves by default and only when the recovered prose remains below the thin-content gate (default `<2400` characters and `<8` substantive sentences). It discovers `<video>`/`<source>` tags, iframe players, Open Graph/Twitter video metadata, known provider URLs, and serialized Vimeo directives; muted looping decoration is ignored. Recoverable videos are probed with the page as referrer, videos under 20 seconds are skipped, captions are preferred, and audio is downloaded/transcribed only when captions are absent. The transcript becomes the canonical `SourceCache`, the page and video provenance remain in frontmatter, and the reader embeds supported Vimeo/direct-video media. At most three candidates are attempted. A detected primary video whose transcript fails becomes a capture-health failure and uses the existing two-attempt policy rather than allowing a tagline to become a confident digest. Discovery-source video fallback requires explicit `LIBRARY_EMBEDDED_VIDEO_DISCOVERY=1`; all embedded-video recovery can be disabled with `LIBRARY_EMBEDDED_VIDEO_TRANSCRIPT_DISABLED=1`.
+
+The digest / connection / reweave logic is a **single versioned skill**: `src/lib/library/pipeline.ts` (which exports `PIPELINE_VERSION` and re-exports the active `REWEAVE_PROMPT` / `CONNECTION_PROMPT` / `DIGEST_PROMPT`) plus the digestion glue in `digestion.ts` / `connections.ts`. Only the current version is runnable — prior versions are recovered from git history, not kept as parallel files. Every ingested item is **stamped** with the version that produced it: `pipeline_version` is written into the durable reference and the candidate frontmatter and surfaced on `LibraryArtifact`, giving each note a provenance trail. On any change to the digest/connection/reweave logic, bump `PIPELINE_VERSION` and add a row to **[`docs/PIPELINE-VERSIONS.md`](./PIPELINE-VERSIONS.md)** (the non-executable version registry; current = `v2.5`).
 
 The **"Updated" review lane** isolates evaluation from organic ingestion. When a batch is regenerated by a new pipeline version (e.g. a `library-reweave --write` pass), `src/lib/library/review-queue.ts` records each regenerated item in a Hilt-local manifest under `${DATA_DIR}/library-review-queue/<vault-hash>.json` (a `LibraryReviewQueue` of `ReviewQueueEntry { path, pipeline_version, batch, status, … }`). This keeps a human-reviewable set of pipeline-version evaluation batches separate from the steady stream of newly ingested artifacts — the manifest is Hilt-local state, never written into vault markdown, so re-running a batch resets it to `pending` without touching the reference files themselves.
 
 `src/lib/library/taxonomy.ts` runs before reference/candidate writes. It separates semantic display tags from source-native taxonomy (`source_tags`, `source_collection`, `source_folder`) and classifies each item as `library_mode: "study"` or `"keep"`. Study is the default path for material that should be reviewed, recommended, and woven into Bridge context. Keep is a quiet durable-save path for products, shopping, clothing, furniture, recipes, restaurants, and similar saved-for-later objects; keep items are searchable and durable, but the default Library list hides them and digestion skips forced connection weaving.
 
-Study-mode references and candidates are produced by a single **reweave** pass: one in-vault, read-only Claude run that both digests the source and discovers its connections. The summarize CLI is narrowed to *extraction* (recovering source text), while the model owns the *shaping* of the note. When an already-reweaved candidate is later explicitly saved, promotion is a lifecycle transition: it preserves the candidate's free-form digest, connection metadata, and positive `reconnected_at` marker while adding the explicit-save relevance signal. The old `suggestArtifactConnections` keyword scorer was removed; `judgeConnections` remains as the offline-safe fallback when reweave can't run.
+Study-mode references and candidates are produced by a single **reweave** pass: one in-vault, read-only Claude run that both digests the source and discovers its connections, but only after source capture passes the shared health gate. The CLI call uses Claude's native `--json-schema` structured output and reads the envelope's `structured_output` object before the legacy text result; quoted prose can no longer invalidate an otherwise complete weave and silently defer it. X bookmark intake requests `tweet.fields=article`; long-form `article.title` and `article.plain_text` become the canonical title/source instead of the wrapper t.co link, with browser recovery remaining the fallback when X omits the field. The summarize CLI is narrowed to *extraction* (recovering source text), while the model owns the *shaping* of the note. When an already-reweaved candidate is later explicitly saved, promotion is a lifecycle transition: it preserves the candidate's free-form digest, connection metadata, and positive `reconnected_at` marker while adding the explicit-save relevance signal. The old `suggestArtifactConnections` keyword scorer was removed; `judgeConnections` remains as the offline-safe fallback when reweave can't run.
 
 ```
 Ingestion adapter → digestion.ts (digestArtifact)
@@ -472,6 +502,8 @@ Ingestion adapter → digestion.ts (digestArtifact)
          │ X/Twitter video posts are a special source-capture path: yt-dlp resolves
          │ captions first, then audio transcription, and the transcript becomes the
          │ canonical Raw Content. Wrapper tweet text is context, not source completion.
+         │ Thin explicit study pages get the same captions-first treatment when a
+         │ credible primary embedded video is detected after normal text capture.
          │
          │ Reweave runs ONLY for durable saves:
          │   source.intent === "explicit_save"  OR  saveRecommendation === "file"
@@ -982,9 +1014,12 @@ a KeepAlive LaunchAgent owns app-server (:3000) + ws-server (:3100; events, file
 watchers, Calendar sync, and Granola sync),
 restarts crashed children with capped exponential backoff, detects **wedged** servers
 (live pid, ~4 consecutive failed HTTP probes after a 90s startup grace) and restarts
-them, acts on mode intents and rebuild stamps exactly like Electron-as-supervisor
-(a stamp written by a switch's own rebuild is absorbed, never double-restarted),
-persists its children's pids (`app-supervisor-children.json`) so a supervisor crash
+them, and acts on mode intents and rebuild stamps. A successful external rebuild stamp
+restarts both app-server and ws-server in prod (ws-server only while the app remains in
+dev), so newly shipped watcher/daemon behavior cannot remain resident from an older
+checkout; a stamp written by a switch's own rebuild is absorbed and that switch reloads
+ws-server explicitly, avoiding a double restart. The supervisor persists its children's
+pids (`app-supervisor-children.json`) so a supervisor crash
 **re-adopts** still-healthy children instead of double-spawning (with one policy check:
 when `HILT_GRANOLA_SYNC_DAEMON=1`, ws-server adoption requires a fresh Granola daemon
 heartbeat with a live pid), and **stands by**
@@ -994,7 +1029,7 @@ default 12, 0 disables) returns a forgotten dev switch to prod automatically. En
 `HILT_SUPERVISOR_PORT` (default 3000), `HILT_SUPERVISOR_CHILDREN` (default
 `appServer,wsServer`; scratch/test instances set `appServer` to avoid the machine's
 singleton ws-server lock). The wrapper (`scripts/hilt-supervisor.sh`) sets the same PATH
-discipline as the .app launcher (Homebrew before /usr/local, nvm wins) because launchd hands agents a
+discipline as the .app launcher (`~/.local/bin` for Claude, Homebrew before `/usr/local`, nvm wins) because launchd hands agents a
 minimal environment — the exact trap that broke Mercury's spawns — and exports
 `HILT_GRANOLA_SYNC_DAEMON=1` by default so the supervised ws-server keeps meeting-note
 sync alive after reboot/cutover. Install/uninstall/status via
@@ -1017,12 +1052,14 @@ supervisor's.
 *The rebuild loop (prod mode).* `npm run rebuild` (~30s) builds into `.next-prod` with
 normal Next output (no `.next-prod/standalone`), runs `check:build-artifacts`, and touches
 `.next-prod/.hilt-rebuild-stamp` as the build-complete signal (BUILD_ID is written
-mid-build and can't be trusted). The running Electron main watches the stamp,
-restarts only its owned Next.js children on their existing ports
+mid-build and can't be trusted). The headless supervisor restarts its owned Next.js and
+WebSocket children; the running Electron main restarts only its owned Next.js children
+on their existing ports
 (`spawnSourceServerProcess`/`spawnPrimaryServerProcess` are shared between startup and
 restart), and reloads the window — the Electron wrapper itself never restarts. A stamp
-change while in dev mode is deliberately ignored (the refreshed build is picked up on
-the next switch to prod). Electron-side changes (`electron/*.ts`) still require
+change while in dev mode leaves the dev Next.js child alone; the headless supervisor
+still reloads ws-server, while Electron picks the refreshed production bundle up on its
+next switch to prod. Electron-side changes (`electron/*.ts`) still require
 re-running `npm run app` / `app:prod`. If prod mode is active but `.next-prod/BUILD_ID`
 is missing, startup falls back to the dev server with a console warning. Note: prod
 builds inline `next.config.ts` `env` flags (graph/semantic) at build time — flipping

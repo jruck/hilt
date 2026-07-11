@@ -19,6 +19,16 @@ const NEWSLETTERS_SOURCE_NAME = "Newsletters";
 const BOOK_CAPTURE_SOURCE_ID = "book-capture";
 const BOOK_CAPTURE_SOURCE_NAME = "Books";
 
+function truncateDescription(value: string, limit: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= limit) return normalized;
+  const clipped = normalized.slice(0, limit).trimEnd();
+  const sentenceBoundary = Math.max(clipped.lastIndexOf(". "), clipped.lastIndexOf("! "), clipped.lastIndexOf("? "));
+  if (sentenceBoundary >= Math.floor(limit * 0.55)) return clipped.slice(0, sentenceBoundary + 1);
+  const wordBoundary = clipped.replace(/\s+\S*$/, "").trimEnd();
+  return `${wordBoundary || clipped}...`;
+}
+
 export function referencesDir(vaultPath: string): string {
   return path.join(vaultPath, REFERENCES_DIR);
 }
@@ -257,7 +267,7 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
     pipeline_version: PIPELINE_VERSION,
     // Prefer the reweave's feed-card description when present, else the summary. The reweave
     // description is allowed a touch more room (300) than the legacy summary slice.
-    description: (processed.description || processed.summary).slice(0, processed.digest_markdown ? 300 : 180),
+    description: truncateDescription(processed.description || processed.summary, processed.digest_markdown ? 300 : 180),
     url: raw.url,
     format: processed.format,
     author: raw.author || undefined,
@@ -278,6 +288,13 @@ export function buildDurableReferenceMarkdown(processed: ProcessedArtifact, reas
     video_duration_seconds: processed.video_duration_seconds,
     x_video_transcript_status: typeof raw.metadata.x_video_transcript_status === "string" ? raw.metadata.x_video_transcript_status : undefined,
     x_video_transcript_method: typeof raw.metadata.x_video_transcript_method === "string" ? raw.metadata.x_video_transcript_method : undefined,
+    embedded_video_page_url: typeof raw.metadata.embedded_video_page_url === "string" ? raw.metadata.embedded_video_page_url : undefined,
+    embedded_video_provider: typeof raw.metadata.embedded_video_provider === "string" ? raw.metadata.embedded_video_provider : undefined,
+    embedded_video_source: typeof raw.metadata.embedded_video_source === "string" ? raw.metadata.embedded_video_source : undefined,
+    embedded_video_title: typeof raw.metadata.embedded_video_title === "string" ? raw.metadata.embedded_video_title : undefined,
+    embedded_video_required: raw.metadata.embedded_video_required === true ? true : undefined,
+    embedded_video_transcript_status: typeof raw.metadata.embedded_video_transcript_status === "string" ? raw.metadata.embedded_video_transcript_status : undefined,
+    embedded_video_transcript_method: typeof raw.metadata.embedded_video_transcript_method === "string" ? raw.metadata.embedded_video_transcript_method : undefined,
     thumbnail: raw.thumbnail || undefined,
     source_recovered_from: typeof raw.metadata.source_recovered_from === "string" ? raw.metadata.source_recovered_from : undefined,
     tags: processed.tags,

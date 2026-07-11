@@ -13,6 +13,13 @@ export function isYouTubeUrl(url: string | null | undefined): boolean {
   return Boolean(getYouTubeVideoId(url));
 }
 
+export function getVimeoVideoId(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return url.match(/player\.vimeo\.com\/video\/(\d+)/i)?.[1]
+    || url.match(/vimeo\.com\/(?:video\/)?(\d+)/i)?.[1]
+    || null;
+}
+
 export function getXPostId(url: string | null | undefined): string | null {
   if (!url) return null;
   return url.match(/^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/[^/]+\/status\/(\d+)/i)?.[1] || null;
@@ -86,6 +93,21 @@ export function buildMediaMarkdown(raw: RawArtifact): string {
     return `## Media
 
 <iframe width="560" height="315" src="https://www.youtube.com/embed/${videoId}" title="${escapeHtml(raw.title)}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+`;
+  }
+
+  const vimeoId = getVimeoVideoId(embeddedMediaUrl);
+  if (vimeoId) {
+    return `## Media
+
+<iframe width="560" height="315" src="https://player.vimeo.com/video/${vimeoId}" title="${escapeHtml(raw.title)}" frameborder="0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>
+`;
+  }
+
+  if (/^https?:\/\/[^\s]+\.(?:mp4|m4v|webm|mov)(?:[?#].*)?$/i.test(embeddedMediaUrl)) {
+    return `## Media
+
+<video controls preload="metadata" src="${escapeHtml(embeddedMediaUrl)}" title="${escapeHtml(raw.title)}"></video>
 `;
   }
 

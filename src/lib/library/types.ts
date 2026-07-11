@@ -106,7 +106,7 @@ export interface RawArtifact {
 
 export interface SourceCache {
   kind: "article" | "transcript" | "source" | "document";
-  extractor: "summarize-cli" | "source-metadata" | "raindrop-cache" | "raindrop-pdf" | "pdftotext" | "x-video-subtitles" | "x-video-audio";
+  extractor: "summarize-cli" | "source-metadata" | "raindrop-cache" | "raindrop-pdf" | "pdftotext" | "x-video-subtitles" | "x-video-audio" | "embedded-video-subtitles" | "embedded-video-audio";
   captured_at: string;
   content: string;
   chars: number;
@@ -488,6 +488,7 @@ export interface LibraryIntakeHealthSummary {
   active: number;
   blocked: number;
   oldest_queued_at: string | null;
+  active_item: { artifact_uid: string; title: string; path: string } | null;
 }
 
 export interface LibraryReweaveBacklogSummary {

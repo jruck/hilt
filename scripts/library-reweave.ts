@@ -323,10 +323,25 @@ ${rawContentSection}
     else delete nextData.connection_suggestions;
     // The judge layer: the agent's direct attention-worthiness verdict, stamped alongside the weave.
     if (reweave.attention_judgment) nextData.attention_judgment = reweave.attention_judgment;
-    nextData.reconnected_at = new Date().toISOString();
+    const reconnectedAt = new Date().toISOString();
+    nextData.reconnected_at = reconnectedAt;
     nextData.pipeline_version = PIPELINE_VERSION;
     // A successful reweave upgrades a degraded (L1-only) item — clear the re-upgrade flag.
     delete nextData.reweave_pending;
+    if (data.processing && typeof data.processing === "object" && !Array.isArray(data.processing)) {
+      const current = data.processing as Record<string, unknown>;
+      const completed = Array.isArray(current.completed_stages) ? current.completed_stages.map(String) : [];
+      nextData.processing = {
+        ...current,
+        state: "ready",
+        stage: "reweave",
+        completed_stages: Array.from(new Set([...completed, "reweave"])),
+        updated_at: reconnectedAt,
+        completed_at: reconnectedAt,
+        next_retry_at: null,
+        last_error: null,
+      };
+    }
     for (const key of Object.keys(nextData)) {
       if (nextData[key] === undefined) delete nextData[key];
     }

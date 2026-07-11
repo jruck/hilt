@@ -15,9 +15,10 @@ import { artifactTaxonomy } from "./taxonomy";
 import { getVideoDurationSeconds, isLikelyVideoUrl } from "./video-duration";
 import { extractXVideoTranscript } from "./x-video-transcript";
 import { detectYouTubeContentForm } from "./youtube-clip-detector";
-import { loginWallVerdict, looksLikeBinaryGarbage } from "./capture-health";
+import { loginWallVerdict, looksLikeBinaryGarbage, sourceMetadataCaptureHasEnoughProse } from "./capture-health";
 import { extractPdfText, isPdfUrl, looksLikePdf } from "./pdf";
 import { seriesFromRaw } from "./series";
+import { recoverEmbeddedVideoTranscript, shouldAttemptEmbeddedVideoFallback } from "./embedded-video";
 
 const execFileAsync = promisify(execFile);
 
@@ -91,10 +92,9 @@ function isXUrl(url: string): boolean {
   return /^https?:\/\/(www\.)?(x|twitter)\.com\//i.test(url);
 }
 
-/** An X Article share (x.com/i/article/<id>): a login-walled long-form post the API can't read. The
- *  bookmarked tweet is just a wrapper whose only text is a t.co link to the article — the user's
- *  intent is to save the article itself, so we classify it as an x-article and route it to browser
- *  recovery rather than landing it as a bare metadata stub. */
+/** An X Article share (x.com/i/article/<id>). The bookmarked tweet can be only a t.co wrapper, so the
+ *  article field from the authenticated tweet lookup is the canonical source; when X omits it we
+ *  retain this URL as the explicit browser-recovery target. */
 function isXArticleUrl(url: string | null | undefined): boolean {
   return Boolean(url && /^https?:\/\/(?:www\.)?x\.com\/i\/article\/\d+/i.test(url));
 }
@@ -162,6 +162,10 @@ export function looksLikeRawTranscriptDump(text: string | null | undefined): boo
   if (!t) return false;
   // Strongest signal: summarize's video passthrough labels the verbatim transcript.
   if (/^transcript:\s/i.test(t)) return true;
+  // Short videos can be below the old 12k wall-of-text threshold while still being a verbatim
+  // timestamped transcript. Three or more timestamp-led lines are source evidence, not a digest.
+  if ((t.match(/^\s*\[\d{1,2}:\d{2}(?::\d{2})?\]\s+\S/gm) || []).length >= 3) return true;
+  if ((t.match(/^\s*\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?\s+-->\s+/gm) || []).length >= 3) return true;
   // Backstop: a genuine digest is bounded and structured (headings or several bullets); a raw
   // transcript is a very long wall of spoken text with essentially no markdown structure.
   const veryLong = t.length > 12000;
@@ -276,6 +280,7 @@ async function resolveLinkedUrl(raw: RawArtifact): Promise<string | null> {
 interface XPostFetch {
   text: string;
   partialThread: boolean;
+  articleTitle?: string;
   videoUrl?: string;
   thumbnail?: string;
   videoDurationSeconds?: number;
@@ -286,7 +291,7 @@ async function fetchXPostText(url: string, source: LibrarySourceConfig): Promise
   if (!id) return null;
   const xurlBin = String(source.metadata.xurl_path || process.env.XURL_BIN || "");
   if (!xurlBin) return null;
-  const apiPath = `/2/tweets/${id}?tweet.fields=note_tweet,conversation_id,created_at,entities,attachments&expansions=author_id,attachments.media_keys&user.fields=username,name&media.fields=media_key,type,url,preview_image_url,duration_ms`;
+  const apiPath = `/2/tweets/${id}?tweet.fields=article,note_tweet,conversation_id,created_at,entities,attachments&expansions=author_id,attachments.media_keys&user.fields=username,name&media.fields=media_key,type,url,preview_image_url,duration_ms`;
   try {
     const { stdout } = await execFileAsync(xurlBin, ["-X", "GET", apiPath, "--auth", "oauth2"], { timeout: 30000, maxBuffer: 1024 * 1024 * 4 });
     const parsed = JSON.parse(stripInvisibleTracking(stdout)) as {
@@ -296,6 +301,7 @@ async function fetchXPostText(url: string, source: LibrarySourceConfig): Promise
         created_at?: string;
         conversation_id?: string;
         note_tweet?: { text?: string };
+        article?: { title?: string; plain_text?: string; preview_text?: string; cover_media?: string };
         entities?: { urls?: Array<{ expanded_url?: string; display_url?: string; url?: string }> };
         attachments?: { media_keys?: string[] };
       };
@@ -304,13 +310,15 @@ async function fetchXPostText(url: string, source: LibrarySourceConfig): Promise
         media?: Array<{ media_key?: string; type?: string; preview_image_url?: string; duration_ms?: number }>;
       };
     };
-    // Prefer the long-form note_tweet body (up to 25k chars) over the 280-char truncation.
-    const fullText = stripInvisibleCharacters(parsed.data?.note_tweet?.text || parsed.data?.text || "");
+    const articleText = stripInvisibleCharacters(parsed.data?.article?.plain_text || "");
+    // X Articles are the canonical long-form source. Otherwise prefer note_tweet (up to 25k chars)
+    // over the 280-character public post text.
+    const fullText = articleText || stripInvisibleCharacters(parsed.data?.note_tweet?.text || parsed.data?.text || "");
     if (!fullText) return null;
     const isThreadRoot = Boolean(parsed.data?.conversation_id && parsed.data.conversation_id === parsed.data.id);
     // A long-form note_tweet usually carries the whole thread inline; a short root tweet that looks
     // like a thread means the rest is in unreachable reply tweets.
-    const partialThread = isThreadRoot && !parsed.data?.note_tweet?.text && looksLikeThreadRoot(fullText);
+    const partialThread = isThreadRoot && !parsed.data?.note_tweet?.text && !articleText && looksLikeThreadRoot(fullText);
     const user = parsed.includes?.users?.[0];
     const links = (parsed.data?.entities?.urls || [])
       .map((item) => item.expanded_url || item.display_url || item.url)
@@ -337,6 +345,7 @@ async function fetchXPostText(url: string, source: LibrarySourceConfig): Promise
     return {
       text,
       partialThread,
+      articleTitle: articleText ? stripInvisibleCharacters(parsed.data?.article?.title || "").trim() || undefined : undefined,
       videoUrl,
       thumbnail: attachedVideo?.preview_image_url,
       videoDurationSeconds: typeof attachedVideo?.duration_ms === "number" ? Math.round(attachedVideo.duration_ms / 1000) : undefined,
@@ -383,7 +392,7 @@ async function summarizeUrl(url: string): Promise<string | null> {
   return runSummarize(args, { timeout: durationToMs(timeoutValue, 210000) + 5000, maxBuffer: 1024 * 1024 * 4 });
 }
 
-async function summarizeText(title: string, content: string): Promise<string | null> {
+async function summarizeText(title: string, content: string, options: { length?: string } = {}): Promise<string | null> {
   if (process.env.LIBRARY_SUMMARIZE_DISABLED === "1") return null;
   const trimmed = content.trim();
   if (trimmed.length < 400) return null;
@@ -395,7 +404,7 @@ async function summarizeText(title: string, content: string): Promise<string | n
     "--plain",
     "--no-color",
     "--length",
-    process.env.LIBRARY_SUMMARIZE_LENGTH || "medium",
+    options.length || process.env.LIBRARY_SUMMARIZE_LENGTH || "medium",
     "--timeout",
     timeoutValue,
     "--prompt",
@@ -672,20 +681,24 @@ export async function digestArtifact(
     const fetchedLength = cleanSourceForDigest(directXContent).length;
     const originalLength = cleanSourceForDigest(raw.content || "").length;
     const directIsRicher = fetchedLength > originalLength + 80 || originalLength < 400;
-    extractionNotes.push(directIsRicher
-      ? fetchedLength > originalLength + 80
-        ? "Fetched full X post text for digest context."
-        : "Verified X post text for digest context."
-      : "Kept richer cached X source text; direct post text was only wrapper metadata.");
+    extractionNotes.push(directX?.articleTitle
+      ? "Fetched full X Article text for digest context."
+      : directIsRicher
+        ? fetchedLength > originalLength + 80
+          ? "Fetched full X post text for digest context."
+          : "Verified X post text for digest context."
+        : "Kept richer cached X source text; direct post text was only wrapper metadata.");
     if (directX?.partialThread) {
       extractionNotes.push("X post is the root of a multi-tweet thread; only the opening post was captured (current X API plan has no thread/search access).");
     }
     if (directIsRicher) {
       raw = {
         ...raw,
+        title: directX?.articleTitle || raw.title,
         content: directXContent,
         metadata: {
           ...raw.metadata,
+          ...(directX?.articleTitle ? { x_article_title: directX.articleTitle, x_article_captured: true } : {}),
           ...(directX?.partialThread ? { partial_thread: true } : {}),
         },
       };
@@ -696,9 +709,9 @@ export async function digestArtifact(
     if (linkedX?.partialThread) {
       extractionNotes.push("Linked X post is the root of a multi-tweet thread; only the opening post was captured (current X API plan has no thread/search access).");
     }
-  } else if (xArticleUrl) {
-    extractionNotes.push("X Article share — full text is login-walled and the API can't read it; run browser recovery (npm run library:x:recover) to fetch the article body.");
-  } else if (xSource && linkedUrl && isXUrl(linkedUrl) && !xStatusId(linkedUrl)) {
+  } else if (xArticleUrl && !directX?.articleTitle) {
+    extractionNotes.push("X Article share — the authenticated API did not return article text; run browser recovery (npm run library:x:recover) to fetch the article body.");
+  } else if (xSource && linkedUrl && isXUrl(linkedUrl) && !xStatusId(linkedUrl) && !directX?.articleTitle) {
     extractionNotes.push("Linked X URL is not a standard post URL; source text remains metadata-limited.");
   }
   if (xSource && raw.metadata.partial_thread && !directX?.partialThread && !linkedX?.partialThread) {
@@ -820,6 +833,79 @@ export async function digestArtifact(
       extractionNotes.push("Used Raindrop permanent copy as cached source fallback.");
     }
   }
+  // A thin article/product page can be only a wrapper around its actual source: a native video.
+  // Probe this expensive fallback only for explicit saves (unless discovery is opted in), only when
+  // normal readable text is thin, and never for the dedicated YouTube/X transcript paths above.
+  const embeddedFallbackText = cleanSourceForDigest(sourceCache?.content || cleanedRawContent);
+  const shouldTryEmbeddedVideo = shouldAttemptEmbeddedVideoFallback({
+    pageUrl: raw.url,
+    capturedText: embeddedFallbackText,
+    explicitSave: source.intent === "explicit_save",
+    studyMode: artifactTaxonomy(raw, source).library_mode === "study",
+    alreadyVideo: source.channel === "youtube" || isYouTubeUrl(raw.url) || Boolean(xVideoUrl),
+  });
+  let embeddedVideoTranscriptCaptured = false;
+  if (shouldTryEmbeddedVideo) {
+    const media = Array.isArray(raw.metadata.media) ? raw.metadata.media : [];
+    const hintedUrls = [
+      metadataString(raw.metadata.video_url),
+      ...media.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const record = item as Record<string, unknown>;
+        if (record.type !== "video") return [];
+        return [metadataString(record.embed_url), metadataString(record.link)].filter(Boolean);
+      }),
+    ].filter((url): url is string => Boolean(url));
+    const embeddedVideo = await recoverEmbeddedVideoTranscript(raw.url, {
+      hintedUrls,
+      onTranscriptionStart: async () => reportProgress(options, "transcribe", "started", raw, {
+        source_cache: sourceCache || undefined,
+      }),
+    });
+    extractionNotes.push(...embeddedVideo.notes);
+    if (embeddedVideo.candidate && embeddedVideo.status !== "skipped_short") {
+      const hasVideo = media.some((item) => {
+        if (!item || typeof item !== "object") return false;
+        const record = item as Record<string, unknown>;
+        return record.link === embeddedVideo.candidate?.url || record.embed_url === embeddedVideo.candidate?.url;
+      });
+      raw = {
+        ...raw,
+        metadata: {
+          ...raw.metadata,
+          format: "video",
+          video_url: embeddedVideo.candidate.url,
+          video_duration_seconds: embeddedVideo.duration_seconds,
+          embedded_video_page_url: raw.url,
+          embedded_video_provider: embeddedVideo.candidate.provider,
+          embedded_video_source: embeddedVideo.candidate.source,
+          embedded_video_title: embeddedVideo.title,
+          embedded_video_required: true,
+          embedded_video_transcript_status: embeddedVideo.status,
+          embedded_video_transcript_method: embeddedVideo.method,
+          media: hasVideo ? media : [
+            { link: embeddedVideo.candidate.url, embed_url: embeddedVideo.candidate.url, type: "video", source: "embedded_video" },
+            ...media,
+          ],
+        },
+      };
+    }
+    if (embeddedVideo.cache && embeddedVideo.candidate) {
+      sourceCache = embeddedVideo.cache;
+      embeddedVideoTranscriptCaptured = true;
+      summarized = null;
+      raw = {
+        ...raw,
+        content: embeddedVideo.cache.content,
+        metadata: {
+          ...raw.metadata,
+          source_recovered_from: embeddedVideo.candidate.url,
+          embedded_video_transcript_status: "captured",
+        },
+      };
+      await reportProgress(options, "transcribe", "completed", raw, { source_cache: sourceCache });
+    }
+  }
   // Low-sentence guard: source text that yields fewer than 2 real sentences is treated as
   // site navigation / chrome and is not allowed to become the cached source or the summary.
   const cleanedRawContentLooksLikeChrome = Boolean(cleanedRawContent)
@@ -850,7 +936,9 @@ export async function digestArtifact(
       : cleanedRawContent;
     const inputVerdict = loginWallVerdict(summarizeInput);
     if (summarizeInput.length >= 400 && !(inputVerdict.isWall && !inputVerdict.hasRealContent)) {
-      summarized = await summarizeText(raw.title, summarizeInput);
+      summarized = await summarizeText(raw.title, summarizeInput, embeddedVideoTranscriptCaptured
+        ? { length: process.env.LIBRARY_EMBEDDED_VIDEO_SUMMARY_LENGTH || "600" }
+        : {});
       if (summarized) {
         extractionNotes.push(preferCachedSource
           ? "Preferred cached source text; summarized it with summarize CLI (no network re-extraction)."
@@ -885,7 +973,17 @@ export async function digestArtifact(
     || (cleanedRawContentLooksLikeChrome ? "" : raw.content)
     || metadataExcerpt
     || raw.title;
-  const sourceText = cleanSourceForDigest(stripMarkdown(digestSource));
+  const cleanedDigestSource = cleanSourceForDigest(stripMarkdown(digestSource));
+  // Keep timing cues in the canonical transcript cache, but remove them from deterministic digest
+  // fallbacks. If summarize/reweave is unavailable, the visible summary should still read like prose
+  // instead of leaking subtitle notation such as "[0:08]" into the card and reader.
+  const sourceText = sourceCache?.kind === "transcript"
+    ? cleanedDigestSource
+      .replace(/\[\d{1,2}:\d{2}(?::\d{2})?\]\s*/g, " ")
+      .replace(/\b\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?\s+-->\s+\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+    : cleanedDigestSource;
   const sourceSentences = sentences(sourceText);
   const fallbackSummary = sourceSentences.slice(0, 4).join(" ") || raw.title;
   // Login-wall verdict on the FINAL digest source: chrome-only means the capture is just a sign-in gate
@@ -937,6 +1035,11 @@ export async function digestArtifact(
     sourceCacheComplete ||
     xSourceComplete
   );
+  const captureSupportsReweave = !chromeOnly && Boolean(
+    summarized
+      || (sourceCache && sourceCache.extractor !== "source-metadata")
+      || sourceMetadataCaptureHasEnoughProse(sourceText),
+  );
   const score = scoreArtifact(raw, source, summary);
   const saveRecommendation = recommendation(score, source);
   const taxonomy = artifactTaxonomy(raw, source);
@@ -971,7 +1074,10 @@ export async function digestArtifact(
     source_cache: sourceCache || undefined,
   });
   const vaultPath = options.vaultPath || process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER;
-  if (shouldWeaveConnections && process.env.LIBRARY_CONNECTIONS_DISABLED !== "1" && vaultPath) {
+  if (shouldWeaveConnections && !captureSupportsReweave) {
+    reweavePending = true;
+    extractionNotes.push("Skipped reweave because usable source content was not captured.");
+  } else if (shouldWeaveConnections && process.env.LIBRARY_CONNECTIONS_DISABLED !== "1" && vaultPath) {
     await reportProgress(options, "reweave", "started", raw, { summary, description, source_cache: sourceCache || undefined });
     const projectSlugs = projectSlugSet(vaultPath);
     const kbIndex = buildKbIndex(vaultPath);

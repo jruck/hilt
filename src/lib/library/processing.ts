@@ -423,10 +423,12 @@ export function retryProcessingArtifact(vaultPath: string, artifactUid: string):
         ...current,
         state: "queued",
         stage: "metadata",
+        completed_stages: [],
         updated_at: updated.updated_at,
         attempt: 0,
         next_retry_at: null,
         last_error: null,
+        completed_at: null,
       },
     }, parsed.body));
   }
@@ -438,14 +440,21 @@ export function processingQueueSummary(vaultPath: string): {
   active: number;
   blocked: number;
   oldest_queued_at: string | null;
+  active_item: { artifact_uid: string; title: string; path: string } | null;
 } {
   const records = listProcessingQueue(vaultPath, { includeBlocked: true });
   const queued = records.filter((record) => record.status !== "blocked");
+  const active = records.find((record) => record.status === "active") || null;
   return {
     queue_depth: queued.length,
     active: records.filter((record) => record.status === "active").length,
     blocked: records.filter((record) => record.status === "blocked").length,
     oldest_queued_at: queued[0]?.queued_at || null,
+    active_item: active ? {
+      artifact_uid: active.artifact_uid,
+      title: active.source_title || active.raw.title,
+      path: active.target_path,
+    } : null,
   };
 }
 

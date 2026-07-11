@@ -12,6 +12,8 @@
  *   3. An X video URL whose cached source is not an X-video transcript. The tweet wrapper is not the
  *      content; the video audio/captions are. Terminal unavailable states (silent/no-audio video or
  *      unavailable/suspended source) are explicit non-failures so they don't churn forever.
+ *   4. A thin page whose primary embedded video was detected but not transcribed. Once the fallback
+ *      declares the video required, page chrome/taglines cannot masquerade as the source.
  */
 
 export const NO_SOURCE_MARKER = "No cached source content available";
@@ -22,6 +24,10 @@ export const NO_SOURCE_MARKER = "No cached source content available";
  *  real words ("really solid, pasted it here if you want to try it"). Length alone misfires on both
  *  ends — short real tweets read as stubs, padded link-lists read as content. */
 const METADATA_STUB_MIN_PROSE_WORDS = 6;
+
+export function sourceMetadataCaptureHasEnoughProse(text: string): boolean {
+  return proseWordCount(text) >= METADATA_STUB_MIN_PROSE_WORDS;
+}
 
 export interface CaptureHealthInput {
   /** The rendered body (carries the Raw Content section). */
@@ -144,9 +150,15 @@ export function captureFailed(input: CaptureHealthInput): boolean {
     if (transcriptStatus === "unavailable_no_audio" || transcriptStatus === "unavailable_source") return false;
     if (extractor !== "x-video-subtitles" && extractor !== "x-video-audio") return true;
   }
+  if (fm.embedded_video_required === true) {
+    const extractor = typeof fm.cached_source_extractor === "string" ? fm.cached_source_extractor : "";
+    const transcriptStatus = typeof fm.embedded_video_transcript_status === "string" ? fm.embedded_video_transcript_status : "";
+    if (transcriptStatus !== "captured") return true;
+    if (extractor !== "embedded-video-subtitles" && extractor !== "embedded-video-audio") return true;
+  }
   // Only metadata-fallback captures are suspect; a real summarize/source-cache extract is trusted.
   if (fm.digested_with === "source-metadata") {
-    return proseWordCount(rawContentText(body)) < METADATA_STUB_MIN_PROSE_WORDS;
+    return !sourceMetadataCaptureHasEnoughProse(rawContentText(body));
   }
   return false;
 }

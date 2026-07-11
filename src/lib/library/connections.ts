@@ -4,7 +4,7 @@ import os from "os";
 import path from "path";
 import type { ConnectionJudgment, ReweaveResult } from "./types";
 import { CONNECTION_PROMPT, parseConnectionJudgment } from "./connection-prompt";
-import { REWEAVE_PROMPT, parseReweaveOutput } from "./reweave-prompt";
+import { REWEAVE_JSON_SCHEMA, REWEAVE_PROMPT, parseReweaveOutput } from "./reweave-prompt";
 
 // Re-export the vault folder-reading helpers (now living in kb-index.ts) so existing
 // import sites that reach for them via connections.ts keep working.
@@ -30,7 +30,16 @@ const MAX_SOURCE_EXCERPT_CHARS = 5_000;
 const MAX_REWEAVE_EXCERPT_CHARS = 8_000;
 
 export function resolveClaudeBin(): string {
-  return process.env.CLAUDE_PATH || process.env.CLAUDE_BIN || "claude";
+  const configured = process.env.CLAUDE_PATH || process.env.CLAUDE_BIN;
+  if (configured) return configured;
+  for (const candidate of [
+    path.join(os.homedir(), ".local", "bin", "claude"),
+    "/opt/homebrew/bin/claude",
+    "/usr/local/bin/claude",
+  ]) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return "claude";
 }
 
 /**
@@ -201,7 +210,10 @@ export function extractModelText(stdout: string): string {
   const trimmed = stdout.trim();
   if (!trimmed) return "";
   try {
-    const parsed = JSON.parse(trimmed) as { result?: unknown; is_error?: unknown };
+    const parsed = JSON.parse(trimmed) as { result?: unknown; structured_output?: unknown; is_error?: unknown };
+    if (parsed && typeof parsed === "object" && parsed.structured_output && typeof parsed.structured_output === "object") {
+      return JSON.stringify(parsed.structured_output);
+    }
     if (parsed && typeof parsed === "object" && typeof parsed.result === "string") {
       return parsed.result;
     }
@@ -345,6 +357,8 @@ export async function reweaveArtifact(
       vaultPath,
       "--output-format",
       "json",
+      "--json-schema",
+      JSON.stringify(REWEAVE_JSON_SCHEMA),
     ];
     if (model) args.push("--model", model);
 

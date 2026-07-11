@@ -222,6 +222,15 @@ async function waitForAppReady(timeoutMs: number): Promise<boolean> {
   return false;
 }
 
+async function waitForWsReady(timeoutMs: number): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (await probeHttp(WS_PORT, "/")) return true;
+    await sleep(250);
+  }
+  return false;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -434,6 +443,23 @@ async function swapAppServer(): Promise<boolean> {
   return waitForAppReady(90_000);
 }
 
+async function restartWsServer(reason: string): Promise<boolean> {
+  if (!MANAGED_CHILDREN.includes("wsServer")) return true;
+  const existing = children.get("wsServer");
+  if (existing) {
+    log(`restarting ws-server (${reason})`);
+    killGroup(existing.pid);
+    children.delete("wsServer");
+    persistChildrenRecord();
+  }
+  await waitForPortFree(WS_PORT, 15_000);
+  if (shuttingDown) return false;
+  spawnWsServer();
+  const ready = await waitForWsReady(30_000);
+  if (!ready) log("ws-server did not become ready after rebuild; health loop will retry it");
+  return ready;
+}
+
 async function switchMode(target: AppMode, reason: string): Promise<void> {
   if (transitionRunning) {
     log(`switch to ${target} ignored — transition already running`);
@@ -469,6 +495,8 @@ async function switchMode(target: AppMode, reason: string): Promise<void> {
       setState("idle", reverted ? `Switch to ${target} failed — reverted` : `Revert to ${previous} also failed — health loop will keep retrying`);
       return;
     }
+
+    if (target === "prod") await restartWsServer("production mode rebuild");
 
     persistAppMode(target, DATA_DIR);
     devModeSince = target === "dev" ? Date.now() : null;
@@ -519,18 +547,18 @@ function setupStampWatcher(): void {
       log("rebuild stamp changed during a transition — absorbing (the switch already serves this build)");
       return;
     }
-    if (currentMode !== "prod") {
-      log("rebuild stamp changed while in dev mode — ignoring (picked up on next prod switch)");
-      return;
-    }
-    log("rebuild stamp changed — restarting app-server on the new build");
+    const restartAppServer = currentMode === "prod";
+    log(restartAppServer
+      ? "rebuild stamp changed — restarting app-server and ws-server"
+      : "rebuild stamp changed in dev mode — restarting ws-server only");
     void (async () => {
       if (transitionRunning) return;
       transitionRunning = true;
       try {
-        setState("switching", "Restarting on the new build");
-        await swapAppServer();
-        setState("idle");
+        setState("switching", restartAppServer ? "Restarting on the new build" : "Reloading background services");
+        if (restartAppServer) await swapAppServer();
+        const wsReady = await restartWsServer("rebuild stamp");
+        setState("idle", wsReady ? undefined : "WebSocket restart still recovering");
       } finally {
         transitionRunning = false;
       }

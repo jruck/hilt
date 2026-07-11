@@ -24,11 +24,13 @@ export interface LibraryQueueChangedEvent {
   active: number;
   blocked: number;
   oldest_queued_at: string | null;
+  active_item: { artifact_uid: string; title: string; path: string } | null;
 }
 
 export class LibraryWatcher extends EventEmitter {
   private watcher: chokidar.FSWatcher | null = null;
   private artifactTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private pendingArtifactEvents = new Map<string, LibraryArtifactChangedEvent>();
   private queueTimer: ReturnType<typeof setTimeout> | null = null;
   private knownArtifacts = new Map<string, { id: string; processing?: LibraryProcessingState }>();
   private readyPromise: Promise<void> = Promise.resolve();
@@ -77,17 +79,31 @@ export class LibraryWatcher extends EventEmitter {
     const id = artifact?.id || previous?.id || hashId(relative);
     if (artifact) this.knownArtifacts.set(filePath, { id, processing: artifact.processing });
     else this.knownArtifacts.delete(filePath);
-    const event: LibraryArtifactChangedEvent = {
+    const nextEvent: LibraryArtifactChangedEvent = {
       operation: operation as LibraryArtifactChangedEvent["operation"],
       id,
       path: relative,
       processing: artifact?.processing || previous?.processing,
     };
+    const pending = this.pendingArtifactEvents.get(id);
+    const event: LibraryArtifactChangedEvent = {
+      ...nextEvent,
+      operation: nextEvent.operation === "unlink"
+        ? "unlink"
+        : pending?.operation === "add"
+          ? "add"
+          : pending?.operation === "unlink" && nextEvent.operation === "add"
+            ? "change"
+            : nextEvent.operation,
+    };
+    this.pendingArtifactEvents.set(id, event);
     const existing = this.artifactTimers.get(id);
     if (existing) clearTimeout(existing);
     this.artifactTimers.set(id, setTimeout(() => {
       this.artifactTimers.delete(id);
-      this.emit("artifact-changed", event);
+      const pendingEvent = this.pendingArtifactEvents.get(id);
+      this.pendingArtifactEvents.delete(id);
+      if (pendingEvent) this.emit("artifact-changed", pendingEvent);
     }, this.debounceMs));
   }
 
@@ -104,6 +120,7 @@ export class LibraryWatcher extends EventEmitter {
     this.watcher = null;
     for (const timer of this.artifactTimers.values()) clearTimeout(timer);
     this.artifactTimers.clear();
+    this.pendingArtifactEvents.clear();
     if (this.queueTimer) clearTimeout(this.queueTimer);
     this.queueTimer = null;
   }

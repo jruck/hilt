@@ -43,6 +43,7 @@ interface LibraryToast {
 interface FeedScrollAnchor {
   id: string;
   offsetTop: number;
+  waitForArtifactId?: string;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -264,6 +265,25 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
     useAnimationFrameWithResizeObserver: true,
   });
 
+  const captureFirstVisibleFeedAnchor = useCallback((waitForArtifactId: string) => {
+    if (density !== "feed") return;
+    const scroller = feedScrollRef.current;
+    if (!scroller) return;
+    const scrollerRect = scroller.getBoundingClientRect();
+    const card = Array.from(scroller.querySelectorAll<HTMLElement>("[data-library-artifact-id]"))
+      .find((candidate) => {
+        const rect = candidate.getBoundingClientRect();
+        return rect.bottom > scrollerRect.top + 8 && rect.top < scrollerRect.bottom;
+      });
+    const id = card?.dataset.libraryArtifactId;
+    if (!card || !id) return;
+    pendingFeedScrollAnchorRef.current = {
+      id,
+      offsetTop: card.getBoundingClientRect().top - scrollerRect.top,
+      waitForArtifactId,
+    };
+  }, [density]);
+
   useEffect(() => {
     subscribeEvents("library");
     const off = onEvent("library", "artifact-changed", (data) => {
@@ -273,24 +293,14 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
       if (density !== "feed" || (ranking !== "recent" && ranking !== "new")) return;
       const scroller = feedScrollRef.current;
       if (!scroller || scroller.scrollTop < 160) return;
-      const firstRow = feedVirtualizer.getVirtualItems().find((row) => row.index < items.length);
-      const anchor = firstRow ? items[firstRow.index] : null;
-      const card = anchor
-        ? scroller.querySelector<HTMLElement>(`[data-library-artifact-id="${CSS.escape(anchor.id)}"]`)
-        : null;
-      if (anchor && card) {
-        pendingFeedScrollAnchorRef.current = {
-          id: anchor.id,
-          offsetTop: card.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
-        };
-      }
+      captureFirstVisibleFeedAnchor(event.id);
       setNewItemNoticeCount((count) => count + 1);
     });
     return () => {
       off();
       unsubscribeEvents("library");
     };
-  }, [density, feedVirtualizer, items, onEvent, ranking, subscribeEvents, unsubscribeEvents]);
+  }, [captureFirstVisibleFeedAnchor, density, onEvent, ranking, subscribeEvents, unsubscribeEvents]);
 
   const refreshReadAwareData = useCallback(() => {
     void recent.mutate();
@@ -326,6 +336,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
   useLayoutEffect(() => {
     const anchor = pendingFeedScrollAnchorRef.current;
     if (!anchor || density !== "feed") return;
+    if (anchor.waitForArtifactId && !items.some((artifact) => artifact.id === anchor.waitForArtifactId)) return;
 
     let frame = 0;
     let attempts = 0;
@@ -808,7 +819,9 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
   const handleFeedScroll = useCallback(() => {
     const node = feedScrollRef.current;
     if (!node) return;
-    if (node.scrollTop < 80 && newItemNoticeCount) setNewItemNoticeCount(0);
+    if (node.scrollTop < 80 && newItemNoticeCount && !pendingFeedScrollAnchorRef.current) {
+      setNewItemNoticeCount(0);
+    }
     if (usesRecentPaging && recent.hasMore && !recent.isLoadingMore && node.scrollHeight - node.scrollTop - node.clientHeight < 900) {
       recent.loadMore();
     }

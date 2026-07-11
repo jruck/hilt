@@ -42,6 +42,34 @@ function cleanTweetTitle(text: string, tweetId: string, author?: string): string
   return author ? `X bookmark by ${author}` : `X bookmark ${tweetId}`;
 }
 
+interface XArticlePayload {
+  title?: string;
+  plain_text?: string;
+  preview_text?: string;
+  cover_media?: string;
+}
+
+interface TwitterTweetPayload {
+  id: string;
+  text?: string;
+  created_at?: string;
+  author_id?: string;
+  conversation_id?: string;
+  note_tweet?: { text?: string };
+  article?: XArticlePayload;
+  attachments?: { media_keys?: string[] };
+  entities?: { urls?: Array<{ expanded_url?: string; unwound_url?: string; url?: string }> };
+}
+
+interface TwitterBookmarksPayload {
+  data?: TwitterTweetPayload[];
+  includes?: {
+    users?: Array<{ id: string; username?: string; name?: string }>;
+    media?: Array<{ media_key: string; type?: string; url?: string; preview_image_url?: string; duration_ms?: number }>;
+  };
+  meta?: { next_token?: string; result_count?: number };
+}
+
 function xurlSetupMessage(xurlBin: string): string {
   return [
     "xurl has no OAuth app registered.",
@@ -58,13 +86,7 @@ export function formatXurlFailureMessage(xurlBin: string, error: Error & { stder
   return message;
 }
 
-export function parseTwitterBookmarks(source: LibrarySourceConfig, json: {
-  data?: Array<{ id: string; text?: string; created_at?: string; author_id?: string; conversation_id?: string; note_tweet?: { text?: string }; attachments?: { media_keys?: string[] }; entities?: { urls?: Array<{ expanded_url?: string; url?: string }> } }>;
-  includes?: {
-    users?: Array<{ id: string; username?: string; name?: string }>;
-    media?: Array<{ media_key: string; type?: string; url?: string; preview_image_url?: string; duration_ms?: number }>;
-  };
-}): RawArtifact[] {
+export function parseTwitterBookmarks(source: LibrarySourceConfig, json: TwitterBookmarksPayload): RawArtifact[] {
   const folderId = typeof source.metadata.folder_id === "string" ? source.metadata.folder_id : null;
   const folderName = typeof source.metadata.folder_name === "string" ? source.metadata.folder_name : null;
   const users = new Map((json.includes?.users || []).map((user) => [user.id, user]));
@@ -72,7 +94,8 @@ export function parseTwitterBookmarks(source: LibrarySourceConfig, json: {
   return (json.data || []).map((tweet) => {
     const user = tweet.author_id ? users.get(tweet.author_id) : undefined;
     const canonicalUrl = `https://x.com/${user?.username || "i"}/status/${tweet.id}`;
-    const expandedUrl = tweet.entities?.urls?.find((item) => item.expanded_url)?.expanded_url;
+    const expandedUrl = tweet.entities?.urls?.find((item) => item.expanded_url || item.unwound_url)?.expanded_url
+      || tweet.entities?.urls?.find((item) => item.unwound_url)?.unwound_url;
     const media = (tweet.attachments?.media_keys || [])
       .map((key) => mediaByKey.get(key))
       .filter((item): item is NonNullable<ReturnType<typeof mediaByKey.get>> => Boolean(item))
@@ -92,17 +115,20 @@ export function parseTwitterBookmarks(source: LibrarySourceConfig, json: {
       : attachedVideo
         ? `${canonicalUrl}/video/1`
         : undefined;
-    // Prefer the long-form note_tweet body (up to 25k chars) over the 280-char truncation.
-    const text = sanitizeUnicode(tweet.note_tweet?.text || tweet.text || `X bookmark ${tweet.id}`);
+    const articleTitle = sanitizeUnicode(tweet.article?.title || "").trim();
+    const articleText = sanitizeUnicode(tweet.article?.plain_text || "").trim();
+    // X Articles are the canonical long-form source. For ordinary posts, prefer note_tweet (up to
+    // 25k chars) over the 280-character public text field.
+    const text = articleText || sanitizeUnicode(tweet.note_tweet?.text || tweet.text || `X bookmark ${tweet.id}`);
     // conversation_id === id means the tweet is the root of its own thread; without a note_tweet body
     // and with thread markers, its continuation is in reply tweets we can't fetch (no search access).
     const partialThread = Boolean(
-      tweet.conversation_id && tweet.conversation_id === tweet.id && !tweet.note_tweet?.text && looksLikeThreadRoot(text),
+      tweet.conversation_id && tweet.conversation_id === tweet.id && !tweet.note_tweet?.text && !articleText && looksLikeThreadRoot(text),
     );
     const author = user?.name ? sanitizeUnicode(user.name) : user?.username;
     return {
       url: canonicalUrl,
-      title: cleanTweetTitle(text, tweet.id, author),
+      title: articleTitle || cleanTweetTitle(text, tweet.id, author),
       author,
       date: tweet.created_at || new Date().toISOString(),
       thumbnail,
@@ -110,6 +136,10 @@ export function parseTwitterBookmarks(source: LibrarySourceConfig, json: {
       metadata: {
         tweet_id: tweet.id,
         expanded_url: expandedUrl,
+        x_article_title: articleTitle || undefined,
+        x_article_preview: tweet.article?.preview_text || undefined,
+        x_article_cover_media: tweet.article?.cover_media || undefined,
+        x_article_captured: articleText ? true : undefined,
         video_url: videoUrl,
         video_duration_seconds: typeof attachedVideo?.duration_ms === "number" ? Math.round(attachedVideo.duration_ms / 1000) : undefined,
         folder_id: folderId,
@@ -121,6 +151,35 @@ export function parseTwitterBookmarks(source: LibrarySourceConfig, json: {
       },
     };
   });
+}
+
+async function enrichXurlArticleFields(
+  xurlBin: string,
+  json: TwitterBookmarksPayload,
+  username?: string,
+): Promise<TwitterBookmarksPayload> {
+  const articleIds = (json.data || [])
+    .filter((tweet) => !tweet.article?.plain_text && tweet.entities?.urls?.some((item) =>
+      /^https?:\/\/(?:www\.)?x\.com\/i\/article\/\d+/i.test(item.expanded_url || item.unwound_url || ""),
+    ))
+    .map((tweet) => tweet.id);
+  if (!articleIds.length) return json;
+
+  try {
+    const apiPath = `/2/tweets?ids=${articleIds.join(",")}&tweet.fields=article`;
+    const args = ["-X", "GET", apiPath, "--auth", "oauth2"];
+    if (username) args.push("--username", username);
+    const { stdout } = await execFileAsync(xurlBin, args, { timeout: 30000, maxBuffer: 1024 * 1024 * 16 });
+    const enriched = JSON.parse(stripAnsi(stdout)) as { data?: Array<{ id: string; article?: XArticlePayload }> };
+    const byId = new Map((enriched.data || []).map((tweet) => [tweet.id, tweet.article]));
+    return {
+      ...json,
+      data: (json.data || []).map((tweet) => ({ ...tweet, article: byId.get(tweet.id) || tweet.article })),
+    };
+  } catch (error) {
+    console.warn(`[library] X Article enrichment failed; keeping bookmark metadata: ${error instanceof Error ? error.message : String(error)}`);
+    return json;
+  }
 }
 
 async function fetchTwitterArtifactsWithToken(
@@ -136,18 +195,14 @@ async function fetchTwitterArtifactsWithToken(
     : `https://api.x.com/2/users/${userId}/bookmarks`);
   url.searchParams.set("max_results", String(options.limit || source.metadata.max_results || 50));
   if (options.cursor) url.searchParams.set("pagination_token", options.cursor);
-  url.searchParams.set("tweet.fields", "created_at,author_id,entities,attachments,note_tweet,conversation_id");
+  url.searchParams.set("tweet.fields", "created_at,author_id,entities,attachments,note_tweet,conversation_id,article");
   url.searchParams.set("expansions", "author_id,attachments.media_keys");
   url.searchParams.set("user.fields", "username,name");
   url.searchParams.set("media.fields", "media_key,type,url,preview_image_url,duration_ms");
 
   const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) throw new Error(`X bookmarks fetch failed: ${response.status} ${await response.text()}`);
-  const json = await response.json() as {
-    data?: Array<{ id: string; text?: string; created_at?: string; author_id?: string; attachments?: { media_keys?: string[] }; entities?: { urls?: Array<{ expanded_url?: string; url?: string }> } }>;
-    includes?: { users?: Array<{ id: string; username?: string; name?: string }>; media?: Array<{ media_key: string; type?: string; url?: string; preview_image_url?: string; duration_ms?: number }> };
-    meta?: { next_token?: string; result_count?: number };
-  };
+  const json = await response.json() as TwitterBookmarksPayload;
   return {
     artifacts: parseTwitterBookmarks(source, json),
     cursor: options.cursor || null,
@@ -174,11 +229,12 @@ async function fetchTwitterArtifactsWithXurl(
       throw new LibrarySourceBlockedError(xurlSetupMessage(xurlBin), source.id);
     }
     const { stdout } = await execFileAsync(xurlBin, args, { timeout: 30000, maxBuffer: 1024 * 1024 * 4 });
-    const json = JSON.parse(stripAnsi(stdout)) as {
-      data?: Array<{ id: string; text?: string; created_at?: string; author_id?: string; attachments?: { media_keys?: string[] }; entities?: { urls?: Array<{ expanded_url?: string; url?: string }> } }>;
-      includes?: { users?: Array<{ id: string; username?: string; name?: string }>; media?: Array<{ media_key: string; type?: string; url?: string; preview_image_url?: string; duration_ms?: number }> };
-      meta?: { next_token?: string; result_count?: number };
-    };
+    const parsed = JSON.parse(stripAnsi(stdout)) as TwitterBookmarksPayload;
+    const json = await enrichXurlArticleFields(
+      xurlBin,
+      parsed,
+      typeof source.metadata.xurl_username === "string" ? source.metadata.xurl_username : undefined,
+    );
     return {
       artifacts: parseTwitterBookmarks(source, json),
       cursor: options.cursor || null,

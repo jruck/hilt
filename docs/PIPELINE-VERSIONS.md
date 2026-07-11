@@ -53,19 +53,10 @@ Old versions are **never** kept as parallel runnable files. When the logic chang
 in place and the previous behavior is recovered from git. Mapping each version to a git ref (below) is
 how you "run" an old version: check out the ref.
 
-**Current = `v2.1` — a TEST iteration over the published `v2` baseline.** `v2` remains the published
-baseline; `v2.1` is **the onion**: a single shared voice core (`capture-voice.ts` →
-`CAPTURE_VOICE`) now feeds BOTH the cheap L1 `summarize` digest (`DIGEST_PROMPT`) and the in-vault L2
-`REWEAVE_PROMPT`, so candidates and saved items speak in the same voice. Processing is now **one path
-gated only by intent** (`shouldWeaveConnections = library_mode === "study"`): study items (candidate
-OR saved) get the full reweave (free-form digest + connections); `keep` items get the clean L1 digest
-only. A study reweave that can't run degrades to L1 and is flagged `reweave_pending` for re-upgrade.
-The daily `library:reweave:pending` scheduler job repairs that queue in small bounded batches; the
-backfill orchestrator also re-includes pending items during larger sweeps.
-(The earlier `LIBRARY_CANDIDATE_REWEAVE` flag and the candidate-vs-saved branch were removed.) It also
-folds in the earlier X long-post extraction + numbered-list preservation fixes.
-It is not a full-library backfill target unless later promoted; the candidate sweep runs via
-`scripts/library-backfill.ts --include-candidates`.
+**Current = `v2.5` — an embedded-video source-recovery TEST iteration over the published `v2`
+baseline.** It keeps the v2 digest voice and existing reweave contract unchanged, but gives thin
+explicit study saves a gated captions-first fallback when their actual substance is a native video.
+`v2` through `v2.4` remain current-compatible because existing good notes do not need regeneration.
 
 ## Version history
 
@@ -78,7 +69,10 @@ It is not a full-library backfill target unless later promoted; the candidate sw
 | v1.4 | test | Concision & density: executive-brief discipline (bullets/tables over prose walls), newsletter synthesis, connections lean first-party + deduped | uncommitted working tree (this session) |
 | v2 | **published baseline** | The `v1.4` protocol verbatim, promoted on full-library backfill. Every durable reference is being reanalyzed to v2 (`scripts/library-backfill.ts`); v1.4 items re-stamped without reweave | uncommitted working tree (this session) |
 | v2.1 | test | **The onion** — shared `CAPTURE_VOICE` core feeds both L1 digest and L2 reweave; candidates can be reweaved with connections (`LIBRARY_CANDIDATE_REWEAVE`); free-form candidate render drops the rigid Summary/Key Points/Assessment scaffold. Also: X long-post repair (verify via xurl, prefer `note_tweet`, preserve numbered findings) | uncommitted working tree (this session) |
-| **v2.2 (current)** | test | **The judge layer** (Library v2) — `REWEAVE_PROMPT` gains an `attention_judgment` field: the reweave agent's direct high/medium/low verdict on attention-worthiness for Justin's practice, with a one-line reason, stamped to frontmatter. Digest/connection behavior is UNCHANGED — v2/v2.1 items are NOT version-behind (all three are in `CURRENT_PIPELINE_VERSIONS`). Powers the judge–score agreement and For You precision metrics (`docs/plans/library-v2.md`) | uncommitted working tree (this session) |
+| v2.2 | test | **The judge layer** (Library v2) — `REWEAVE_PROMPT` gains an `attention_judgment` field: the reweave agent's direct high/medium/low verdict on attention-worthiness for Justin's practice, with a one-line reason, stamped to frontmatter. Digest/connection behavior is UNCHANGED — v2/v2.1 items are NOT version-behind (all three are in `CURRENT_PIPELINE_VERSIONS`). Powers the judge–score agreement and For You precision metrics (`docs/plans/library-v2.md`) | uncommitted working tree (this session) |
+| v2.3 | test | **Capture integrity** — X Article bookmarks acquire `article.title` + `article.plain_text`; the shared capture-health gate blocks metadata wrappers from digest/reweave, and retry cooldown starts at failure time. Digest voice and judge behavior are unchanged; v2/v2.1/v2.2 remain current-compatible. | uncommitted working tree (this session) |
+| v2.4 | test | **Structured-output reliability** — Reweave calls pass an explicit JSON Schema and consume Claude's `structured_output` envelope before the text fallback. Fixes a live Notion Ship OS pass whose useful completed weave was discarded because one quoted phrase made prompt-only JSON invalid. Digest voice and judge behavior are unchanged; v2 through v2.3 remain current-compatible. | uncommitted working tree (this session) |
+| **v2.5 (current)** | test | **Embedded-video source recovery** — Thin explicit study saves inspect page video tags/players/metadata only after normal text capture is insufficient; recoverable videos use captions first, audio transcription second, and store the transcript as canonical Raw Content with player provenance. Short/decorative video and keep/discovery items are gated out by default; a detected required video that cannot be transcribed follows the normal capture retry policy. Timestamped transcript passthrough can no longer become a visible digest, and failed reweaves cannot check off Connections. | uncommitted working tree (this session) |
 
 > **Re-base note (2026-06-01):** earlier this work was numbered v1–v5 as if each step shipped. It
 > didn't — only the *digest era* (now folded into **v1**) was ever applied across the whole library.

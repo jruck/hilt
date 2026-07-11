@@ -9,6 +9,7 @@ import {
   enqueueLibraryArtifact,
 } from "./processing";
 import { promoteCandidateImmediately } from "./promotion";
+import { findArchivedReferenceByUrl, findSavedReferenceByUrl } from "./references";
 import { loadSources, readSourceState, writeSourceState, type SourceState, type SourceStateEntry } from "./source-config";
 import type { LibraryIntakeReport, LibrarySourceConfig, RawArtifact } from "./types";
 import { canonicalUrl, isoNow } from "./utils";
@@ -187,8 +188,13 @@ export async function runLibraryIntake(
   if (pending.length) beginLibraryIntakeBatch(vaultPath);
   try {
     for (const { source, raw } of pending) {
-      const existingCandidate = source.intent === "explicit_save" ? findCandidateByUrl(vaultPath, raw.url) : null;
-      if (existingCandidate) {
+      const existingReference = source.intent === "explicit_save"
+        ? findSavedReferenceByUrl(vaultPath, raw.url) || findArchivedReferenceByUrl(vaultPath, raw.url)
+        : null;
+      const existingCandidate = source.intent === "explicit_save" && !existingReference
+        ? findCandidateByUrl(vaultPath, raw.url)
+        : null;
+      if (existingCandidate && existingCandidate.status !== "promoted") {
         const destination = promoteCandidateImmediately(vaultPath, existingCandidate, source, raw);
         report.promoted += 1;
         report.artifacts.push({

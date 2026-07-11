@@ -203,6 +203,7 @@ export function LibraryHealthPanel({
                   {` · last poll ${health.intake.last_polled_at ? `${relativeTime(health.intake.last_polled_at)} ago` : "never"}`}
                   {` · queue ${health.intake.queue_depth}`}
                   {health.intake.active ? ` (${health.intake.active} active)` : ""}
+                  {health.intake.active_item ? ` · working ${health.intake.active_item.title}` : ""}
                   {health.intake.blocked ? ` · ${health.intake.blocked} blocked` : ""}
                   {health.intake.oldest_queued_at ? ` · oldest ${relativeTime(health.intake.oldest_queued_at)}` : ""}
                 </div>

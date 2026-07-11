@@ -10,10 +10,10 @@ import { formatXurlFailureMessage, parseTwitterBookmarks } from "./adapters/twit
 import { fetchRaindropArtifacts } from "./adapters/raindrop";
 import { fetchYouTubeArtifacts } from "./adapters/youtube";
 import { buildCandidateMarkdown, listCandidates } from "./candidate-cache";
-import { captureFailed } from "./capture-health";
+import { captureFailed, sourceMetadataCaptureHasEnoughProse } from "./capture-health";
 import { parseConnectionJudgment } from "./connection-prompt";
 import { connectionPassState } from "./connection-state";
-import { detectRateLimit, detectRateLimitInEnvelope } from "./connections";
+import { detectRateLimit, detectRateLimitInEnvelope, extractModelText } from "./connections";
 import { unresolvedDeadLetterSources } from "./dead-letter";
 import * as digestion from "./digestion";
 import { digestArtifact } from "./digestion";
@@ -32,7 +32,7 @@ import { evaluateArtifact, structuralSubstance } from "./library-eval";
 import { artifactTaxonomy } from "./taxonomy";
 import { buildDurableReferenceMarkdown, findArchivedReferenceByUrl, listArchivedReferences, listSavedReferences, parseReferenceFile } from "./references";
 import { addToReviewQueue, getActiveBatchNotes, readReviewQueue, setReviewStatus } from "./review-queue";
-import { parseReweaveOutput } from "./reweave-prompt";
+import { REWEAVE_JSON_SCHEMA, parseReweaveOutput } from "./reweave-prompt";
 import { runIngestion } from "./runner";
 import { librarySchedulerJobs } from "./scheduler-jobs";
 import { loadSources } from "./source-config";
@@ -307,6 +307,46 @@ test("parses xurl bookmark responses into raw Twitter artifacts", () => {
   assert.deepEqual(artifact.metadata.media, [{ link: "https://img.example/tweet.jpg", type: "image", source: "x_bookmark" }]);
 });
 
+test("parses X Article title and full text instead of the wrapper shortlink", () => {
+  const source: LibrarySourceConfig = {
+    id: "twitter-bookmarks",
+    name: "X bookmarks",
+    channel: "twitter",
+    url: "x://bookmarks",
+    enabled: true,
+    cadence: "hourly",
+    intent: "explicit_save",
+    signal: "twitter_bookmark",
+    retention: { mode: "durable", candidate_ttl_days: 30, auto_promote_threshold: 0.85 },
+    backfill: { enabled: true, mode: "checkpointed" },
+    tags: [],
+    filters: { include_topics: [], exclude_topics: [] },
+    metadata: {},
+    path: "",
+  };
+  const articleBody = "A software factory starts from business intent, maintains coherence under continuous change, and owns the quality of its finished product.";
+  const [artifact] = parseTwitterBookmarks(source, {
+    data: [{
+      id: "2075514068064944593",
+      text: "https://t.co/y5Vezc6YSj",
+      author_id: "3291691",
+      article: {
+        title: "What Is a Software Factory? ",
+        plain_text: articleBody,
+        preview_text: "A production system that guarantees output.",
+      },
+      entities: { urls: [{ expanded_url: "https://x.com/i/article/2075511510223208448" }] },
+    }],
+    includes: { users: [{ id: "3291691", username: "chamath", name: "Chamath Palihapitiya" }] },
+  });
+
+  assert.equal(artifact.title, "What Is a Software Factory?");
+  assert.equal(artifact.content, articleBody);
+  assert.equal(artifact.metadata.x_article_captured, true);
+  assert.equal(artifact.metadata.x_article_title, "What Is a Software Factory?");
+  assert.equal(artifact.metadata.expanded_url, "https://x.com/i/article/2075511510223208448");
+});
+
 test("parses X video media previews and embed hints from bookmarks", () => {
   const source: LibrarySourceConfig = {
     id: "twitter-bookmarks",
@@ -464,6 +504,8 @@ https://t.co/Yp4MzETtYs Author: Matan Grinberg Published: 2026-06-15T17:46:26.00
       cached_source_extractor: "source-metadata",
     },
   }), true);
+  assert.equal(sourceMetadataCaptureHasEnoughProse("https://t.co/y5Vezc6YSj Author: Chamath Palihapitiya Published: 2026-07-10T09:34:49.000Z Links: https://x.com/i/article/2075511510223208448"), false);
+  assert.equal(sourceMetadataCaptureHasEnoughProse("A software factory starts from business intent and guarantees accountable production output."), true);
 });
 
 test("extracts representative Open Graph media for article captures", () => {
@@ -569,7 +611,9 @@ test("URL-only X bookmark digestion does not promote the URL to summary text", a
     // An x.com/i/article link is an X Article share: classify it as x-article (not a bare tweet) and
     // route it to browser recovery rather than emitting the generic metadata-limited note.
     assert.equal(processed.format, "x-article");
+    assert.equal(processed.reweave_pending, true);
     assert.match(processed.extraction_notes.join("\n"), /X Article share/);
+    assert.match(processed.extraction_notes.join("\n"), /Skipped reweave because usable source content was not captured/);
     assert.match(buildDurableReferenceMarkdown(processed), /format: x-article/);
     assert.doesNotMatch(buildDurableReferenceMarkdown(processed), /https:\/\/t\.co\/only/);
   } finally {
@@ -2904,6 +2948,38 @@ test("parseReweaveOutput parses clean JSON", () => {
   assert.equal(result.reweave_candidates?.[0].target, "areas/knowledge-base");
 });
 
+test("reweave structured output stays valid when digest prose contains quoted phrases", () => {
+  const structured = {
+    description: "Notion's agent-native product workflow bundle.",
+    proposed_title: "Notion Ship OS",
+    digest_markdown: 'Pressure-test the "replace Notion with Loft" hypothesis.',
+    connections_first_party: [],
+    connections_library: [],
+    reweave_candidates: [],
+    attention_judgment: { tier: "medium", reason: "Relevant to active product-system work." },
+  };
+  const envelope = JSON.stringify({
+    type: "result",
+    is_error: false,
+    result: "This fallback is deliberately not JSON.",
+    structured_output: structured,
+  });
+  const modelText = extractModelText(envelope);
+  const parsed = parseReweaveOutput(modelText);
+
+  assert.equal(parsed.digest_markdown, structured.digest_markdown);
+  assert.equal(parsed.attention_judgment?.tier, "medium");
+  assert.deepEqual(REWEAVE_JSON_SCHEMA.required, [
+    "description",
+    "proposed_title",
+    "digest_markdown",
+    "connections_first_party",
+    "connections_library",
+    "reweave_candidates",
+    "attention_judgment",
+  ]);
+});
+
 test("parseReweaveOutput parses JSON inside ```json fences", () => {
   const raw = "Here is the weave:\n```json\n" + JSON.stringify({
     description: "Short feed card line.",
@@ -3034,6 +3110,22 @@ test("buildDurableReferenceMarkdown emits a free-form body when digest_markdown 
   // Raw Content is still appended for the source cache.
   assert.match(markdown, /## Raw Content/);
   assert.match(markdown, /00:30 A full transcript line/);
+});
+
+test("buildDurableReferenceMarkdown truncates feed descriptions at a word boundary", () => {
+  const base = processedYouTubeArtifact();
+  const markdown = buildDurableReferenceMarkdown({
+    ...base,
+    description: `A short lead followed by ${"accountability ".repeat(30)}unfinishedword`,
+    digest_markdown: "A real free-form digest.",
+  });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-description-boundary-"));
+  const file = path.join(dir, "reference.md");
+  fs.writeFileSync(file, markdown, "utf-8");
+  const description = String(parseMarkdownFile(file).data.description || "");
+  assert.ok(description.length <= 300);
+  assert.match(description, /\.\.\.$/);
+  assert.doesNotMatch(description, /unfinishedword/);
 });
 
 test("buildDurableReferenceMarkdown keeps the legacy Summary/Key Points body without digest_markdown", () => {

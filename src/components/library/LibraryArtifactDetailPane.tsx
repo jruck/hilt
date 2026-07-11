@@ -377,6 +377,12 @@ export function LibraryArtifactDetailPane({
   const hasTimedTranscript = transcriptSegments.length >= 2;
   const isCandidate = artifact.lifecycle_status === "candidate";
   const processingIncomplete = Boolean(artifact.processing && artifact.processing.state !== "ready");
+  const processingDeferred = Boolean(
+    artifact.processing
+      && artifact.processing.state === "ready"
+      && artifact.processing.stage === "reweave"
+      && !artifact.processing.completed_stages.includes("reweave"),
+  );
   const handleChanged = async () => {
     await mutate();
     onChanged?.();
@@ -491,7 +497,7 @@ export function LibraryArtifactDetailPane({
         </div>
         <h1 className="text-xl font-semibold leading-tight text-[var(--text-primary)] sm:text-2xl">{artifact.title}</h1>
         <LibrarySeriesPanel artifact={artifact} />
-        {artifact.processing && artifact.processing.state !== "ready" && (
+        {artifact.processing && (processingIncomplete || processingDeferred) && (
           <div className="mt-4 rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] p-3">
             <ProcessingStatus processing={artifact.processing} standalone />
             {artifact.processing.state === "blocked" && (
@@ -796,7 +802,7 @@ export function LibraryArtifactDetailPane({
           </div>
         </div>
 
-        <div className="mt-5">
+        <div data-testid="library-artifact-detail-content" className="mt-5">
           <MediaPreview artifact={artifact} seekRequest={seekRequest} onTimeChange={handleVideoTimeChange} onWikilinkNavigate={handleWikilinkNavigate} />
           {mode === "summary" ? (
             <LibraryMarkdown markdown={summaryMarkdown(artifact)} onWikilinkNavigate={handleWikilinkNavigate} />

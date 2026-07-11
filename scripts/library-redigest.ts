@@ -180,27 +180,68 @@ function mergeFrontmatter(existing: Record<string, unknown>, processed: Processe
     cached_source_chars: processed.digestion?.cached_source_chars,
     cached_source_extractor: processed.digestion?.cached_source_extractor,
     video_url: typeof processed.raw.metadata.video_url === "string" ? processed.raw.metadata.video_url : existing.video_url,
+    video_duration_seconds: processed.video_duration_seconds || existing.video_duration_seconds,
     x_video_transcript_status: typeof processed.raw.metadata.x_video_transcript_status === "string" ? processed.raw.metadata.x_video_transcript_status : existing.x_video_transcript_status,
     x_video_transcript_method: typeof processed.raw.metadata.x_video_transcript_method === "string" ? processed.raw.metadata.x_video_transcript_method : existing.x_video_transcript_method,
+    embedded_video_page_url: typeof processed.raw.metadata.embedded_video_page_url === "string" ? processed.raw.metadata.embedded_video_page_url : existing.embedded_video_page_url,
+    embedded_video_provider: typeof processed.raw.metadata.embedded_video_provider === "string" ? processed.raw.metadata.embedded_video_provider : existing.embedded_video_provider,
+    embedded_video_source: typeof processed.raw.metadata.embedded_video_source === "string" ? processed.raw.metadata.embedded_video_source : existing.embedded_video_source,
+    embedded_video_title: typeof processed.raw.metadata.embedded_video_title === "string" ? processed.raw.metadata.embedded_video_title : existing.embedded_video_title,
+    embedded_video_required: processed.raw.metadata.embedded_video_required === true ? true : existing.embedded_video_required,
+    embedded_video_transcript_status: typeof processed.raw.metadata.embedded_video_transcript_status === "string" ? processed.raw.metadata.embedded_video_transcript_status : existing.embedded_video_transcript_status,
+    embedded_video_transcript_method: typeof processed.raw.metadata.embedded_video_transcript_method === "string" ? processed.raw.metadata.embedded_video_transcript_method : existing.embedded_video_transcript_method,
     redigested_at: new Date().toISOString(),
     source_recovered_from: typeof processed.raw.metadata.source_recovered_from === "string" ? processed.raw.metadata.source_recovered_from : existing.source_recovered_from,
-    reweave_pending: processed.reweave_pending ? true : existing.reweave_pending,
+    reweave_pending: processed.reweave_pending ? true : processed.reconnected_at ? undefined : existing.reweave_pending,
     // Clear on a successful redigest: if the (re-acquired) content is no longer login-wall-only, the
     // item is recovered and should drop the flag; only re-stamp when it's still chrome-only.
     needs_auth_recovery: processed.needs_auth_recovery ? true : undefined,
   };
+  if (processed.reconnected_at) {
+    merged.connected_projects = processed.connected_projects.length ? processed.connected_projects : undefined;
+    merged.connection_suggestions = processed.connection_suggestions?.length ? processed.connection_suggestions : undefined;
+    merged.connection_reasoning = processed.connection_reasoning || undefined;
+    merged.reconnected_at = processed.reconnected_at;
+    merged.reweave_candidates = processed.reweave_candidates?.length ? processed.reweave_candidates : undefined;
+    merged.attention_judgment = processed.attention_judgment || undefined;
+  }
+  if (
+    processed.raw.metadata.embedded_video_transcript_status === "captured"
+    && existing.processing && typeof existing.processing === "object" && !Array.isArray(existing.processing)
+  ) {
+    const current = existing.processing as Record<string, unknown>;
+    const completed = Array.isArray(current.completed_stages) ? current.completed_stages.map(String) : [];
+    const reweaveCompleted = Boolean(processed.reconnected_at);
+    merged.processing = {
+      ...current,
+      state: "ready",
+      stage: reweaveCompleted ? "reweave" : "digest",
+      completed_stages: Array.from(new Set([
+        ...completed.filter((stage) => stage !== "reweave" || reweaveCompleted),
+        "transcribe",
+        "digest",
+        ...(reweaveCompleted ? ["reweave"] : []),
+      ])),
+      updated_at: processed.reconnected_at || new Date().toISOString(),
+      completed_at: processed.reconnected_at || new Date().toISOString(),
+      next_retry_at: null,
+      last_error: null,
+    };
+  }
   if (existing.type === "reference-candidate") {
     merged.score = processed.score;
     merged.save_recommendation = processed.assessment.save_recommendation;
     merged.proposed_destination = processed.proposed_destination;
-    merged.connected_projects = processed.connected_projects;
-    merged.connection_suggestions = processed.connection_suggestions?.length
-      ? processed.connection_suggestions
-      : existing.connection_suggestions;
-    merged.connection_reasoning = processed.connection_reasoning || existing.connection_reasoning;
-    merged.reweave_candidates = processed.reweave_candidates?.length
-      ? processed.reweave_candidates
-      : existing.reweave_candidates;
+    if (!processed.reconnected_at) {
+      merged.connected_projects = processed.connected_projects;
+      merged.connection_suggestions = processed.connection_suggestions?.length
+        ? processed.connection_suggestions
+        : existing.connection_suggestions;
+      merged.connection_reasoning = processed.connection_reasoning || existing.connection_reasoning;
+      merged.reweave_candidates = processed.reweave_candidates?.length
+        ? processed.reweave_candidates
+        : existing.reweave_candidates;
+    }
   }
   for (const key of Object.keys(merged)) {
     if (merged[key] === undefined) delete merged[key];

@@ -33,6 +33,65 @@ Return ONLY this JSON:
 }
 If nothing genuinely connects, return empty connection arrays — that is complete and correct.`;
 
+const CONNECTION_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    target: { type: "string" },
+    title: { type: "string" },
+    relationship: { type: "string" },
+  },
+  required: ["target", "title", "relationship"],
+} as const;
+
+/**
+ * Claude's native structured-output contract for the reweave pass. Prompt-only JSON occasionally
+ * contained an unescaped quote inside digest prose, which made an otherwise complete connection
+ * pass unparseable and silently deferred it. Keeping the schema beside the prompt makes the wire
+ * contract explicit and prevents prose punctuation from invalidating the result.
+ */
+export const REWEAVE_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    description: { type: "string" },
+    proposed_title: { type: "string" },
+    digest_markdown: { type: "string" },
+    connections_first_party: { type: "array", items: CONNECTION_SCHEMA },
+    connections_library: { type: "array", items: CONNECTION_SCHEMA },
+    reweave_candidates: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          target: { type: "string" },
+          why: { type: "string" },
+        },
+        required: ["target", "why"],
+      },
+    },
+    attention_judgment: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        tier: { type: "string", enum: ["high", "medium", "low"] },
+        reason: { type: "string" },
+      },
+      required: ["tier", "reason"],
+    },
+  },
+  required: [
+    "description",
+    "proposed_title",
+    "digest_markdown",
+    "connections_first_party",
+    "connections_library",
+    "reweave_candidates",
+    "attention_judgment",
+  ],
+} as const;
+
 const EMPTY_RESULT: ReweaveResult = {
   description: "",
   proposed_title: "",

@@ -442,6 +442,23 @@ This section tracks design decisions and refinements over time. Each entry shoul
 - Library eval metrics use progressive disclosure. Normal reading surfaces show only the compact worth score (`Zap` icon) as the priority signal in the card action row. It should look like an inline count/action, not a blue pill; clicking it opens the reference and expands the metadata panel. Store and compute eval metrics as 0–1 decimals, but render them in the UI as integer 0–100 scores (`0.87` → `87`) so cards and metadata stay legible. Admin/eval review contexts expand the same action row into component metrics: worth (`Zap`), relevance (`Network`), substance (`Layers`), and freshness (`Clock`), plus an `Archive?` lifecycle flag only when the eval suggests `to_archive`. Avoid artificial bucket labels such as `Must Read`, `Recommended`, or `Interesting`; the score is the truth, and the detail metadata panel is where labels, thresholds, and raw ranking explanations belong. Cards should not render the raw For You/eval `why` text.
 - Library local refresh and source ingestion must be visibly different operations. Local refresh should be fast and reread file-backed state; `Check sources` should clearly mean a live external-source poll, show in-flight state, and report whether it added items, found duplicates/no new items, or hit a credential/source blocker.
 
+### 2026-07-10: Library Intake Is Live, Progressive, and Position-Stable
+
+**Principle**: A save should become visible as soon as Hilt knows it exists. Enrichment is progressive work on the same item, not a reason to hide it or reload the application.
+
+**Pattern established**:
+- Write a useful placeholder before expensive processing. Prefer source title, author, date, and credible media immediately; reject generic platform art and URL/metadata dumps.
+- Keep one stable artifact identity through capture, transcription, digest, reweave, promotion, retitling, and file moves. Feed cards and an open reader update in place.
+- Animate one restrained stage line, never the whole card. Reserve media dimensions from the start, honor reduced motion, and stop all working animation when an item is blocked.
+- Treat a readable digest as ready. Deferred connections are `reweave_pending`, not an indefinite spinner. Missing usable source content becomes an explicit `Needs source` terminal state with Retry in the reader.
+- Downstream progress must prove upstream quality. A metadata wrapper may show that capture was attempted, but it must not enter digest/reweave or check off Connections; acquire the real source first or stop honestly at `Needs source`.
+- Treat the richest primary medium as the source, but escalate economically. If a saved study page has enough readable prose, use it. If it is thin and its substance is a native video, preserve the player and make the transcript canonical: captions first, audio transcription only when needed, short/decorative video ignored. Do not pay that cost for keep-mode items or routine discovery by default.
+- A completed model pass must survive transport syntax. Use native structured output for digest/connection contracts rather than trusting prompt-only JSON; punctuation inside prose must never turn completed work into an unexplained deferred state.
+- Keep lifecycle, processing, and evaluation visually honest. The green check means saved; it is not a quality badge. A readable item waiting for reweave shows a static `Ready · Connections pending` line with no spinner and no worth score; worth appears only after the connection pass completes, because a provisional 0–2 looks like failed capture even when the source cache is healthy.
+- New items insert immediately near the top. Deeper in the feed, preserve the first visible card and offer a quiet new-items control instead of moving the reader's place.
+- Toolbar refresh and mobile pull-to-refresh perform fast intake without a page reload. WebSocket events are primary; five-second polling exists only while that connection is unavailable.
+- Processing work is not reading material yet: do not mark it read or admit it into recommendation/eval scoring until ready.
+
 ### 2026-05-19: Map View — Controls as Operational Chrome
 
 **Change**: Map moved from a title/sidebar prototype to a compact top toolbar with activity, status, source, refresh, counts, and collapsed diagnostics.

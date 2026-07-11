@@ -25,7 +25,7 @@ export HILT_GRANOLA_SYNC_DAEMON="${HILT_GRANOLA_SYNC_DAEMON:-1}"
 # it runs the metrics collector and treats Hestia as the closet-sensor owner.
 export HILT_METRICS_COLLECTOR="${HILT_METRICS_COLLECTOR:-1}"
 export HILT_METRICS_CLOSET_MACHINE="${HILT_METRICS_CLOSET_MACHINE:-hestia}"
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 if [ -d "$HOME/.nvm/versions/node" ]; then
     NODE_DIR=$(ls -1 "$HOME/.nvm/versions/node" | tail -1)
     if [ -n "$NODE_DIR" ]; then

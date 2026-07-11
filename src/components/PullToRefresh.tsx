@@ -112,6 +112,12 @@ export function PullToRefresh({
     }
   }, [pullDistance, threshold, onRefresh]);
 
+  const handleTouchCancel = useCallback(() => {
+    isPulling.current = false;
+    crossedThreshold.current = false;
+    if (!isRefreshing) setPullDistance(0);
+  }, [isRefreshing]);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -119,13 +125,15 @@ export function PullToRefresh({
     container.addEventListener("touchstart", handleTouchStart, { passive: true });
     container.addEventListener("touchmove", handleTouchMove, { passive: false });
     container.addEventListener("touchend", handleTouchEnd, { passive: true });
+    container.addEventListener("touchcancel", handleTouchCancel, { passive: true });
 
     return () => {
       container.removeEventListener("touchstart", handleTouchStart);
       container.removeEventListener("touchmove", handleTouchMove);
       container.removeEventListener("touchend", handleTouchEnd);
+      container.removeEventListener("touchcancel", handleTouchCancel);
     };
-  }, [handleTouchStart, handleTouchMove, handleTouchEnd]);
+  }, [handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel]);
 
   const isOverThreshold = pullDistance >= threshold;
 

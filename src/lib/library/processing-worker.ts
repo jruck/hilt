@@ -43,13 +43,31 @@ export interface LibraryProcessingWorkerOptions {
   onRecordChange?: (record: LibraryProcessingQueueRecord) => void;
 }
 
-function completedStages(processed: ProcessedArtifact): LibraryProcessingStage[] {
-  const captureStage: LibraryProcessingStage = processed.source.channel === "youtube" || processed.format === "video"
+function captureStageFor(processed: ProcessedArtifact): LibraryProcessingStage {
+  return processed.source.channel === "youtube" || processed.format === "video"
     ? "transcribe"
     : "capture";
+}
+
+function completedStages(processed: ProcessedArtifact): LibraryProcessingStage[] {
+  const captureStage = captureStageFor(processed);
   const complete: LibraryProcessingStage[] = ["metadata", captureStage, "digest"];
   if (processed.library_mode === "study" && !processed.reweave_pending) complete.push("reweave");
   return complete;
+}
+
+function captureFailureProcessingState(record: LibraryProcessingQueueRecord, processed: ProcessedArtifact): LibraryProcessingState {
+  return {
+    state: "queued",
+    stage: captureStageFor(processed),
+    completed_stages: ["metadata"],
+    started_at: record.queued_at,
+    updated_at: isoNow(),
+    completed_at: null,
+    attempt: record.attempt,
+    next_retry_at: null,
+    last_error: null,
+  };
 }
 
 function processingState(record: LibraryProcessingQueueRecord, processed: ProcessedArtifact, state: "queued" | "ready"): LibraryProcessingState {
@@ -133,9 +151,15 @@ export async function processLibraryQueueRecord(
     if (isGenericLibraryThumbnail(processed.raw.thumbnail)) processed.raw.thumbnail = undefined;
 
     if (!usableCapture(record, processed)) {
-      processed.processing = processingState(record, processed, "queued");
+      processed.processing = captureFailureProcessingState(record, processed);
       writeProcessedAtTarget(record, processed);
-      return scheduleFailure(record, "needs_source", "No usable source content was captured.", true, now);
+      return scheduleFailure(
+        record,
+        "needs_source",
+        "No usable source content was captured.",
+        true,
+        options.now?.() || new Date(),
+      );
     }
 
     processed.processing = processingState(record, processed, "ready");
@@ -168,7 +192,13 @@ export async function processLibraryQueueRecord(
     removeProcessingQueueRecord(record);
     return { artifact_uid: record.artifact_uid, status: "ready", path: record.target_path, ingestion_status: ingestionStatus };
   } catch (error) {
-    return scheduleFailure(record, "processing_failed", error instanceof Error ? error.message : String(error), true, now);
+    return scheduleFailure(
+      record,
+      "processing_failed",
+      error instanceof Error ? error.message : String(error),
+      true,
+      options.now?.() || new Date(),
+    );
   }
 }
 

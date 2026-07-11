@@ -120,8 +120,8 @@ async function main(): Promise<void> {
     await readyCard.locator("[data-processing-state]").waitFor({ timeout: 5_000 });
     const stableId = await readyCard.getAttribute("data-library-artifact-id");
     assert.ok(stableId, "processing card has a stable artifact id");
-    const imageBefore = await readyCard.locator("img").boundingBox();
-    assert.ok(imageBefore && imageBefore.width > 100 && imageBefore.height > 60, "processing card reserves real media dimensions");
+    const initialImage = await readyCard.locator("img").boundingBox();
+    assert.ok(initialImage && initialImage.width > 100 && initialImage.height > 60, "processing card reserves real media dimensions");
     const firstCardText = await page.locator("article[data-library-artifact-id]").first().innerText();
     assert.match(firstCardText, /OpenAI/, "active intake cards are pinned above the baseline feed");
 
@@ -129,11 +129,22 @@ async function main(): Promise<void> {
     const detail = page.getByTestId("library-artifact-detail");
     await detail.getByText(READY_TITLE, { exact: true }).waitFor();
     await detail.locator("[data-processing-state]").waitFor();
+    const detailContent = detail.getByTestId("library-artifact-detail-content");
+    const placeholderDetailText = await detailContent.innerText();
+    assert.ok(placeholderDetailText.trim(), "processing reader exposes available placeholder content");
+    const imageBefore = await readyCard.locator("img").boundingBox();
+    assert.ok(imageBefore, "processing card media remains visible beside the open reader");
     await page.screenshot({ path: path.join(shots, "desktop-processing.png") });
 
-    await detail.locator("[data-processing-state]").waitFor({ state: "detached", timeout: 12_000 });
-    await detail.getByText(/stronger coding|instruction following/i).first().waitFor({ timeout: 5_000 });
-    await cardFor(page, BLOCKED_TITLE).locator('[data-processing-state="blocked"]').waitFor({ timeout: 15_000 });
+    const deferredStatus = detail.locator('[data-processing-state="ready"][data-processing-stage="reweave"]');
+    await deferredStatus.waitFor({ timeout: 12_000 });
+    assert.match(await deferredStatus.innerText(), /Connections pending/, "a readable deferred weave is static and explicit");
+    assert.equal(await readyCard.getByTitle(/^Worth:/).count(), 0, "deferred reweaves do not expose provisional worth scores");
+    await detailContent.locator("h2").filter({ hasText: "Summary" }).waitFor({ timeout: 5_000 });
+    const readyDetailText = await detailContent.innerText();
+    assert.notEqual(readyDetailText, placeholderDetailText, "open reader replaces placeholder content with the ready digest");
+    const blockedCard = cardFor(page, BLOCKED_TITLE);
+    await blockedCard.locator('[data-processing-state="blocked"]').waitFor({ timeout: 15_000 });
     assert.equal(await readyCard.getAttribute("data-library-artifact-id"), stableId, "card identity survives enrichment");
     const imageAfter = await readyCard.locator("img").boundingBox();
     assert.ok(imageAfter);
@@ -141,7 +152,20 @@ async function main(): Promise<void> {
     assert.equal(await navigationEntries(page), navigationCount, "toolbar intake does not reload the page");
     await page.screenshot({ path: path.join(shots, "desktop-ready-and-blocked.png") });
 
-    await readyCard.click();
+    await blockedCard.click();
+    await detail.getByRole("heading", { name: BLOCKED_TITLE, exact: true }).waitFor();
+    const retryButton = detail.getByRole("button", { name: "Retry" });
+    await retryButton.waitFor();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/processing/retry") && response.request().method() === "POST"),
+      retryButton.click(),
+    ]);
+    await detail.locator('[data-processing-state="queued"], [data-processing-state="active"]').waitFor({ timeout: 5_000 });
+    const blockedAgain = detail.locator('[data-processing-state="blocked"]');
+    await blockedAgain.waitFor({ timeout: 15_000 });
+    const blockedAnimation = await blockedAgain.locator("svg").first().evaluate((node) => getComputedStyle(node).animationName);
+    assert.equal(blockedAnimation, "none", "terminal blocked state stops animating");
+    await blockedCard.click();
     await page.getByTestId("library-feed-detail").waitFor({ state: "detached", timeout: 5_000 });
     const feed = page.getByTestId("library-feed-list");
     await feed.evaluate((node) => {
@@ -159,12 +183,14 @@ async function main(): Promise<void> {
     });
     writeFixtures(vault, fixtures);
     await forceIntake(baseUrl);
-    await page.getByRole("button", { name: "1 new item" }).waitFor({ timeout: 5_000 });
+    const newItemsButton = page.getByRole("button", { name: /^\d+ new items?$/ });
+    await newItemsButton.waitFor({ timeout: 5_000 });
     const afterAnchor = await anchorPosition(page, anchor!.id);
     assert.ok(afterAnchor !== null && Math.abs(afterAnchor - anchor!.top) < 6, "deep-scroll visible card stays anchored");
+    await newItemsButton.click();
+    await cardFor(page, STREAMED_TITLE).waitFor({ timeout: 5_000 });
     assert.match(await page.locator("article[data-library-artifact-id]").first().innerText(), /Structured Outputs/, "new active item pins in Recent");
-    await page.getByRole("button", { name: "1 new item" }).click();
-    await cardFor(page, STREAMED_TITLE).locator("[data-processing-state]").waitFor({ state: "detached", timeout: 8_000 });
+    await cardFor(page, STREAMED_TITLE).locator('[data-processing-state="ready"][data-processing-stage="reweave"]').waitFor({ timeout: 8_000 });
 
     await page.emulateMedia({ reducedMotion: "reduce" });
     fixtures.push({
@@ -178,7 +204,7 @@ async function main(): Promise<void> {
     await reducedCard.locator("[data-processing-state]").waitFor({ timeout: 5_000 });
     const animationName = await reducedCard.locator("[data-processing-state] svg").evaluate((node) => getComputedStyle(node).animationName);
     assert.equal(animationName, "none", "reduced-motion disables the processing rotation");
-    await reducedCard.locator("[data-processing-state]").waitFor({ state: "detached", timeout: 8_000 });
+    await reducedCard.locator('[data-processing-state="ready"][data-processing-stage="reweave"]').waitFor({ timeout: 8_000 });
 
     mobileContext = await browser.newContext({
       viewport: { width: 393, height: 852 },
@@ -202,17 +228,55 @@ async function main(): Promise<void> {
     await assertNoMobileOverlap(mobile, mobileStatus);
     await mobile.screenshot({ path: path.join(shots, "mobile-processing.png") });
     const mobileNavigationCount = await navigationEntries(mobile);
-    const pullResponse = mobile.waitForResponse((response) => response.url().includes("/api/sources/intake") && response.request().method() === "POST");
-    await mobile.getByTestId("pull-to-refresh").evaluate((node) => {
-      const target = node as HTMLElement;
-      const touch = (y: number) => new Touch({ identifier: 1, target, clientX: 180, clientY: y, radiusX: 4, radiusY: 4, rotationAngle: 0, force: 1 });
-      target.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [touch(20)], changedTouches: [touch(20)] }));
-      target.dispatchEvent(new TouchEvent("touchmove", { bubbles: true, cancelable: true, touches: [touch(220)], changedTouches: [touch(220)] }));
-      target.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [], changedTouches: [touch(220)] }));
-    });
-    await pullResponse;
+    const pullTarget = mobile.getByTestId("pull-to-refresh");
+    await Promise.all([
+      mobile.waitForResponse(
+        (response) => response.url().includes("/api/sources/intake") && response.request().method() === "POST",
+        { timeout: 7_000 },
+      ),
+      (async () => {
+        await pullTarget.evaluate((node) => {
+          const target = node as HTMLElement;
+          const startTouch = new Touch({ identifier: 1, target, clientX: 180, clientY: 20, radiusX: 4, radiusY: 4, rotationAngle: 0, force: 1 });
+          const moveTouch = new Touch({ identifier: 1, target, clientX: 180, clientY: 220, radiusX: 4, radiusY: 4, rotationAngle: 0, force: 1 });
+          target.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [startTouch], changedTouches: [startTouch] }));
+          target.dispatchEvent(new TouchEvent("touchmove", { bubbles: true, cancelable: true, touches: [moveTouch], changedTouches: [moveTouch] }));
+        });
+        await mobile.waitForTimeout(100);
+        await pullTarget.evaluate((node) => {
+          const target = node as HTMLElement;
+          const touch = new Touch({ identifier: 1, target, clientX: 180, clientY: 220, radiusX: 4, radiusY: 4, rotationAngle: 0, force: 1 });
+          target.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [], changedTouches: [touch] }));
+        });
+      })(),
+    ]);
     assert.equal(await navigationEntries(mobile), mobileNavigationCount, "mobile pull-to-refresh runs intake without reload");
-    await mobileStatus.waitFor({ state: "detached", timeout: 8_000 });
+    const mobileReadyStatus = mobileCard.locator('[data-processing-state="ready"][data-processing-stage="reweave"]');
+    await mobileReadyStatus.waitFor({ timeout: 8_000 });
+    await mobile.waitForFunction(() => {
+      const container = document.querySelector('[data-testid="pull-to-refresh"]');
+      const content = container?.children.item(1);
+      if (!(content instanceof HTMLElement)) return false;
+      const transform = getComputedStyle(content).transform;
+      if (transform === "none") return true;
+      return Math.abs(new DOMMatrixReadOnly(transform).m42) < 0.5;
+    }, undefined, { timeout: 5_000 });
+    const mobileReadyImage = mobileCard.locator("img").first();
+    await mobileReadyImage.waitFor({ timeout: 5_000 });
+    const readyImageWidth = await mobileReadyImage.evaluate(async (node) => {
+      const image = node as HTMLImageElement;
+      if (!image.complete) {
+        await new Promise<void>((resolve, reject) => {
+          image.addEventListener("load", () => resolve(), { once: true });
+          image.addEventListener("error", () => reject(new Error("mobile ready image failed to load")), { once: true });
+        });
+      }
+      await image.decode();
+      return image.naturalWidth;
+    });
+    assert.ok(readyImageWidth > 0, "mobile ready card preserves painted source media");
+    await assertNoMobileOverlap(mobile, mobileReadyStatus);
+    await mobile.waitForTimeout(100);
     await mobile.screenshot({ path: path.join(shots, "mobile-ready.png") });
 
     const liveSmoke = await liveOpenAISmoke(baseUrl, vault, fixtures);

@@ -231,8 +231,11 @@ export function OwnerChip({ owner, className = "" }: { owner: OwnerTag | null; c
 
 // Exported for the file-addressable task pane (TaskFilePanel) — one status voice everywhere.
 export const STATUS_BADGES: Partial<Record<TaskFile["status"], { label: string; className: string }>> = {
-  "accepted-me": { label: "Accepted", className: "bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]" },
-  "accepted-agent": { label: "Agent", className: "bg-blue-500/10 text-blue-600 dark:text-blue-300" },
+  // Same word + tint as verdictBadgeLabel("approve"): the verdict badge (live escalation lane)
+  // and this status badge (task-file lane) are the SAME decision seen from two data paths —
+  // "Approved" then "Accepted" read as two different outcomes of one click (Justin, 2026-07-10).
+  "accepted-me": { label: "Approved", className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300" },
+  "accepted-agent": { label: "Assigned to agent", className: "bg-blue-500/10 text-blue-600 dark:text-blue-300" },
   "in-progress": { label: "In progress", className: "bg-blue-500/10 text-blue-600 dark:text-blue-300" },
   done: { label: "Done", className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300" },
 };

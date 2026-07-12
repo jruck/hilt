@@ -50,6 +50,7 @@
     "test:library:recommendations:e2e": "node --import tsx scripts/library-recommendations-e2e.ts",
     "test:references": "tsx --test src/lib/references/**/*.test.ts",
     "test:briefing": "tsx --test src/lib/briefing/**/*.test.ts",
+    "test:briefing:decisions:e2e": "node --import tsx scripts/briefing-decisions-e2e.ts",
     "test:loops": "tsx --test src/lib/loops/**/*.test.ts",
     "test:tasks": "tsx --test src/lib/tasks/**/*.test.ts server/watchers/watch-ignore.test.ts",
     "test:objects": "tsx --test src/lib/objects/**/*.test.ts",

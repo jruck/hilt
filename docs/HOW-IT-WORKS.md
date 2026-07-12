@@ -64,17 +64,16 @@ YOU — verdicts & feedback flow down; escalations flow up
      ├─ 🤝 MEETINGS node          7:30 PM · shadow
      ├─ 📚 LIBRARY node           (a sub-team of jobs — see below) · live
      ├─ 🎯 GOALS node             5:40 AM · shadow — itself a roll-up:
-     │                            reads the meeting node's ledger + raw evidence
+     │                            reads broad git + meeting/ledger/library evidence
      ├─ 📈 SYSTEM node            5:45 AM · live — watches every job in this tree
-     └─ ── raw feeds (no node yet): calendar · task lists · reminders · git activity
+     └─ ── raw feeds (no node yet): code/session activity · calendar · task lists · reminders
 ```
 
-One gap worth naming: the "Work & product" section is an *activity* digest (git commit subjects,
-sessions, tasks, meetings) — your projects folder
-([$VAULT/projects]($VAULT/projects)) and roadmap documents are currently **not read by the
-briefing pipeline at all**. A future work/projects node is the natural fix: per-project status
-synthesis (docs + their diffs + mapped commits + ledger decisions), with goals then reading it
-instead of raw git.
+`Work & product` is currently editorial synthesis over the broad evidence gathered for the briefing,
+not a separate registered node. Code and agent activity, Bridge structure, loop artifacts, and
+consequential meeting/delivery evidence can all contribute. There is no project allowlist: Bridge's
+hierarchy and observed activity decide what is eligible. A deeper folder-native workstream discovery
+layer remains a future enhancement, not a prerequisite for today's briefing.
 
 Not a strict hierarchy: the goals node reads the meetings node's state sideways; the system node
 watches everything including the briefing itself. And the "raw feeds" line is the honest gap —
@@ -139,11 +138,13 @@ The one node whose scope is big enough to have its own workers underneath — el
 jobs in three roles. Its real output is continuous enrichment of the knowledge files; the daily
 artifact is the synthesis on top.
 
-**Intake workers** (collect, don't report): hourly ingest (every 60 min) · newsletters (7:10 AM)
+**Intake workers** (collect, don't report): live explicit-save intake (immediate/60 sec while Library
+is open, five minutes otherwise, with hourly fallback) · newsletters (7:10 AM)
 **Synthesis workers**: reweave — digests + cross-connections written into the reference files
-(3:35 AM) · morning report (5:10 AM) · editor's memo (5:30 AM weekdays)
-**Upkeep workers**: cleanup (4:15) · refetch (4:45) · retry (hourly) · recommendations (7:25) ·
-semantic index refit/gc (3:30 weekdays / 4:30)
+(3:35 AM) · morning report (5:10 AM) · For You editorial batch (5:20 AM) · editor's memo
+(Saturday 5:30 AM, before the weekend edition)
+**Upkeep workers**: cleanup (4:15) · refetch (4:45) · retry (hourly) · semantic index refit/gc
+(3:30 weekdays / 4:30)
 
 The knowledge itself:
 - [$VAULT/references/]($VAULT/references) — one file per saved reference; reweave edits these
@@ -155,7 +156,7 @@ The knowledge itself:
 
 Its reports (one home since the 2026-07-07 cutover):
 - [$VAULT/meta/loops/references/reports/]($VAULT/meta/loops/references/reports) — the daily
-  synthesis; what "Full library report" opens
+  synthesis; what "Daily library report" opens
 - [$VAULT/meta/loops/references/memos/]($VAULT/meta/loops/references/memos) — the weekly
   editor's essay behind "Read the memo" (older memos remain readable from the pre-cutover homes
   `meta/library-reports/` and `references/process/memos/`; nothing new lands there)
@@ -163,12 +164,15 @@ Its reports (one home since the 2026-07-07 cutover):
 Bookkeeping:
 - [$VAULT/meta/sources/.source-state.json]($VAULT/meta/sources/.source-state.json) — per-source
   fetch state
+- `$DATA/library-recommendations/<vault-key>/` — immutable For You batches, the latest-episode feed
+  projection, recommendation-only dismissals, and refresh/backoff state. Recommending an old item
+  again writes a new episode and moves the same Library card to the top with a new contextual pitch.
 
 ### 🎯 Goals node — shadow · runs 5:40 AM · home physically in $DATA · a roll-up node
 
 Compares your stated priorities ([$VAULT/areas/index.md]($VAULT/areas/index.md)) against where
-attention actually went. A "manager" node: it does no primary reading of its own — its evidence
-is the meeting node's ledger plus raw signals (commits, meeting titles, library saves).
+attention actually went. A "manager" node: it reads broad observed git activity alongside meeting
+titles, the open ledger, and Library saves. It does not gate evidence through a project registry.
 Contradictions escalate with evidence; keeps no state of its own.
 
 - [$VAULT/meta/loops-shadow/meta/loops/areas/reports/]($VAULT/meta/loops-shadow/meta/loops/areas/reports)
@@ -188,39 +192,47 @@ Its scope is *reading the other nodes* and rendering one morning synthesis — a
 is the loops. Today it runs as two jobs rather than a full node (it has a `feedback/` drawer but
 no artifact/health drawers of its own — a known gap in the pattern):
 
-1. **Gather** (per run): calendar, tasks, git, prior briefings, **plus every enabled node's
-   latest artifact** (trimmed; escalations and health always whole). Since B3, a meeting ask
-   that minted a proposal shows its task id in the artifact (`` `ma-…` → task `t-…` ``), so the
-   editor can place the task itself.
+1. **Gather** (per run): calendar, tasks, prior briefings, broad git/session activity, **plus every
+   enabled node's latest artifact** (trimmed; escalations and health always whole). Library contributes
+   up to three new unread recommendation episode IDs in current For You order, never padding with stale
+   material. Canonical pending meeting decisions are supplied separately with meeting summaries,
+   citations, and allowed task IDs; task titles are intentionally omitted.
 2. **Write**: one AI pass, newspaper-editor style — day-thesis lede, sections, and light prose
    over object IDs (**the briefing is a canvas**: the editor summarizes and places ids; the app
-   renders the live objects where the ids sit). Daily sections since B3: 🧠 *Don't drop this* is
-   pure forward-looking (deadlines, commitments coming due — never a pile of meeting asks), and
-   a new **⏭ Next steps** section owns looking backward: one entry per recent meeting with
-   pending proposals — a substance lead, the meeting citation, then that meeting's pending
-   proposal task ids, one per line. 📅 *Today* is the day's **shape**, not its inventory (gate-B
+   renders the live objects where the ids sit). For **⏭ Decisions awaiting you**, the editor chooses
+   and orders featured meetings, writes substantive meeting context, and places only supplied IDs
+   beneath exact meeting citations. The harness then preserves that prose/order, corrects canonical
+   source-meeting membership, and appends omissions. `Work & product` selects consequential movement
+   across all observed local evidence without a configured project roster or item quota. Library recommendation IDs use the canvas pattern inside
+   three explicit modules: `Recommended for you` holds a 40–90 word editorial set lead, frozen
+   `rec:<episode-id>` rows, and attached `View all`; the Saturday-anchored weekend edition may add a
+   full-width `Editor's memo`; and `Library health` closes quietly with the exact day's deterministic
+   health summary and report link. Weekdays omit the memo, missing daily reports never fall back to
+   an older link, and historical flat Library sections still render generically. Opening a
+   recommendation row is the first real Library open. 📅 *Today* is the day's **shape**, not its inventory (gate-B
    feedback): the editor groups blocks into arcs, names the day's pivot, flags conflicts and
    prep needs, and compresses routine events into a clause — the calendar and HUD already list
    every event, so a flat enumeration is a regression. The writing pass has **no file access**;
    it can only hand text back.
-3. **Validate**: length floors, required links, structure (the spine now accepts ⏭ between 🧠
-   and 💼; older briefings without it validate unchanged). Rejects are kept as `.invalid-draft`.
+3. **Validate**: length floors, required links, section order, exact decision membership and
+   source-meeting grouping. Pending proposal IDs outside Decisions, queue prose repeated in Work/Closed loops,
+   duplicate or unsupported queue IDs, and invented citations reject publication. Rejects are
+   kept as `.invalid-draft`; older briefings without the new contract still render unchanged.
 4. **Render** (the canvas): the Briefings view hydrates the ids in the editor's lines —
    - a **task id** (`t-…`) becomes the live task card: title, verbatim quote, due date, and the
      same Approve / Assign to agent / Dismiss / Revise buttons as everywhere else while it's a
      proposal; once accepted it shows read-only with its status badge (approve something at
      8 AM and the 6 AM briefing already reflects it).
-   - a **⏭ meeting entry** becomes an expandable meeting card showing that meeting's live
-     pending cards — the same join the meeting view's "Next steps" accordion uses, so deciding
-     in either place updates both. The card's header IS the meeting reference (title + date),
-     so the editor's own-meeting citation line is suppressed inside the expansion as redundant;
-     citations pointing at any *other* source still render. Since B5 the header lead also
-     carries the meeting's chip — click it to preview the meeting or jump to it in People.
+   - a **Decisions meeting entry** is collapsed by default and hydrates exactly its stamped proposal
+     IDs. The active daily/weekend briefing may append new canonical proposals; history cannot.
+     The header shows meeting/date, editorial or stored meeting context, and live pending count. When
+     context is unavailable it shows identity and count only, never synthesized task-title prose. Accepted/dismissed items
+     leave the count and move behind `Resolved · N`; urgent groups alone receive amber treatment.
    - a **ledger item id** with no task file (older asks, signals, insights) keeps the original
      treatment: verdict buttons attach to exactly the editor's sentence (amber marker =
      escalated). Old briefings carry no task ids and render exactly as they always did.
-   - **library items** stay prose + the report link — deliberately not hydrated into cards yet
-     (the by-id fetch records an "opened" event, which passive rendering would pollute).
+   - **library recommendations** passively hydrate frozen episode IDs into compact cards without
+     recording an open; clicking one is the first real Library open.
    - **object pills** (new at B5): when the editor cites an object as a `hilt:` link
      (`[OC planning](hilt:meeting/meetings/…/OC planning.md)`), it renders as a small inline
      chip with the object's icon. Click the chip to preview the object's card in a popover —
@@ -385,8 +397,8 @@ Old `System → Threads` / `System → Chats` links still work — they redirect
 | minutes after each meeting | meetings node (post-meeting trigger, just that meeting) |
 | 7:30 PM | meetings node (nightly sweep — the safety net) |
 | 3:30–4:45 AM | library synthesis + upkeep (reweave, cleanup, refetch, semantic) |
-| 5:10–5:30 AM | library morning report + memo |
+| 5:10–5:20 AM daily; 5:30 AM Saturday | daily library report → For You editorial batch; weekly memo before the weekend edition |
 | 5:40 AM | goals node |
 | 5:45 AM | system node |
 | 6:00 AM | the briefing (the tree's synthesis) |
-| 7:10–7:25 AM | library newsletters + recommendations |
+| 7:10 AM | library newsletters |

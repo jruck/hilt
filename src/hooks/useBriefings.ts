@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useEventSocketContext } from "@/contexts/EventSocketContext";
 import { withBasePath } from "@/lib/base-path";
 
 export type BriefingKind = "daily" | "weekend";
@@ -50,14 +51,17 @@ export interface BriefingRunFailure {
 }
 
 export function useBriefings() {
+  const { connected, subscribe, unsubscribe, on } = useEventSocketContext();
   const [briefings, setBriefings] = useState<BriefingSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [briefing, setBriefing] = useState<BriefingDetail | null>(null);
+  const briefingRef = useRef<BriefingDetail | null>(null);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isLoadingContent, setIsLoadingContent] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
   const [retryStatus, setRetryStatus] = useState<"idle" | "queued" | "error">("idle");
   const [retryMessage, setRetryMessage] = useState<string | null>(null);
+  const [contentRevision, setContentRevision] = useState(0);
 
   // Fetch briefing list
   const fetchList = useCallback(async () => {
@@ -92,6 +96,20 @@ export function useBriefings() {
       setIsLoadingList(false);
     }
   }, [selectedId]);
+
+  // A task-file event can append canonical decisions to the active briefing after it is open.
+  // Re-fetch the markdown so stored/model meeting context replaces the identity-only live fallback.
+  useEffect(() => {
+    if (!connected) return;
+    subscribe("bridge", {});
+    const unsub = on("bridge", "briefings-changed", () => {
+      setContentRevision((revision) => revision + 1);
+    });
+    return () => {
+      unsub();
+      unsubscribe("bridge");
+    };
+  }, [connected, on, subscribe, unsubscribe]);
 
   const retryBriefing = useCallback(async () => {
     const id = briefing?.id ?? selectedId;
@@ -132,12 +150,14 @@ export function useBriefings() {
   // Fetch single briefing content
   useEffect(() => {
     if (!selectedId) {
+      briefingRef.current = null;
       setBriefing(null);
       return;
     }
 
     let cancelled = false;
-    setIsLoadingContent(true);
+    const refreshingOpenBriefing = briefingRef.current?.id === selectedId;
+    if (!refreshingOpenBriefing) setIsLoadingContent(true);
 
     fetch(withBasePath(`/api/bridge/briefings/${encodeURIComponent(selectedId)}`))
       .then((res) => {
@@ -151,6 +171,7 @@ export function useBriefings() {
             id: data.date,
             kind: "daily",
           };
+          briefingRef.current = normalized;
           setBriefing(normalized);
           // Mark as read via server (syncs across devices)
           setHasUnread(false);
@@ -165,17 +186,18 @@ export function useBriefings() {
       .catch((err) => {
         if (!cancelled) {
           console.error("Failed to fetch briefing:", err);
+          briefingRef.current = null;
           setBriefing(null);
         }
       })
       .finally(() => {
-        if (!cancelled) setIsLoadingContent(false);
+        if (!cancelled && !refreshingOpenBriefing) setIsLoadingContent(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [selectedId]);
+  }, [selectedId, contentRevision]);
 
   // Fetch list on mount
   useEffect(() => {

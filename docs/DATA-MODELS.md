@@ -183,6 +183,21 @@ interface BriefingDetail extends BriefingSummary {
   content: string;         // Empty for failed synthetic rows
 }
 
+interface BriefingDecisionQueue {
+  as_of: string;
+  artifact_date: string | null; // bounded meeting-actions artifact used for urgency
+  groups: Array<{
+    meeting: string;             // vault-relative canonical meeting path
+    title: string;
+    date: string | null;
+    summary?: string;            // evidence-bound meeting context for appended groups
+    urgent: boolean;
+    tasks: Array<{ id: string; title: string; created_at: string; due?: string; urgent: boolean }>;
+  }>;
+  task_ids: string[];            // exact generated markdown membership, in group order
+  warnings: string[];
+}
+
 interface BriefingNativeLinkTarget {
   kind: "library-morning-report" | "library-editors-memo";
   view: "docs" | "library";
@@ -210,6 +225,8 @@ interface LoopEscalationsResponse {
   }>;
 }
 ```
+
+The queue includes only canonical `status: proposed` task files whose `origin.loop` is `meeting-actions` and whose `origin.meeting` exists. The model receives the allowed meeting citations, stored summaries, and IDs but not task titles. It owns substantive context and featured ordering; the composer owns exact membership, source-meeting association, and completion. Generated markdown freezes task IDs. Current daily/weekend briefings may append newly-created proposal IDs; historical membership cannot grow. Accepted/dismissed stamped IDs remain in markdown and hydrate behind a `Resolved` disclosure, while the visible pending count uses current task state.
 
 ### Calendar
 

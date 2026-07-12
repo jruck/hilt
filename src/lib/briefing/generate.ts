@@ -7,6 +7,8 @@ import { atomicWriteFile } from "@/lib/library/utils";
 import { resolveBriefingTarget, type BriefingMode, type BriefingTarget } from "./target-file";
 import { buildBriefingPrompt } from "./prompt";
 import { validateBriefing, type ValidationResult } from "./validator";
+import { extractRecommendationEpisodeIds } from "./canvas";
+import { collectBriefingDecisionQueue, composeBriefingDecisions, renderBriefingDecisionPromptData, sanitizeBriefingGatherForDecisions } from "./decisions";
 import { commitBriefing } from "./vault-commit";
 
 const execFileAsync = promisify(execFile);
@@ -111,13 +113,32 @@ function stripFences(text: string): string {
   return (fenced ? fenced[1] : t).trim();
 }
 
+export function ensureBriefingH1(markdown: string, mode: BriefingMode, targetDate: string): string {
+  if (/^#\s+\S/m.test(markdown)) return markdown;
+  const date = new Date(`${targetDate}T12:00:00`);
+  const title = mode === "daily"
+    ? `# Morning Briefing — ${date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}`
+    : `# Weekend Briefing — ${date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+  const lines = markdown.split("\n");
+  if (lines[0] === "---") {
+    const frontmatterEnd = lines.indexOf("---", 1);
+    if (frontmatterEnd !== -1) {
+      lines.splice(frontmatterEnd + 1, 0, "", title);
+      return lines.join("\n");
+    }
+  }
+  return `${title}\n\n${markdown}`;
+}
+
 export async function generateBriefing(opts: GenerateOptions): Promise<GenerateResult> {
   const baseDate = opts.date || new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD, local tz
   const target = resolveBriefingTarget(opts.vaultPath, opts.mode, baseDate, opts.outputOverride);
 
   const gathered = await runGather(opts, baseDate);
+  const decisionQueue = collectBriefingDecisionQueue(opts.vaultPath, baseDate);
   const skill = fs.readFileSync(path.join(opts.vaultPath, SKILL_REL), "utf-8");
-  const prompt = buildBriefingPrompt(opts.mode, skill, gathered);
+  const editorialGather = sanitizeBriefingGatherForDecisions(gathered);
+  const prompt = buildBriefingPrompt(opts.mode, skill, `${editorialGather.trimEnd()}\n\n${renderBriefingDecisionPromptData(decisionQueue)}\n`);
 
   // The briefing model gets NO tools — the gather is inlined in the prompt and the HARNESS
   // writes the file (validation-gated). Without this, the model can act on the SKILL's
@@ -149,8 +170,27 @@ export async function generateBriefing(opts: GenerateOptions): Promise<GenerateR
     return { status: "rate_limited" };
   }
 
-  const markdown = stripFences(extractModelText(stdout));
-  const validation = validateBriefing(markdown, opts.mode);
+  const markdown = composeBriefingDecisions(
+    ensureBriefingH1(stripFences(extractModelText(stdout)), opts.mode, target.targetDate),
+    opts.mode,
+    decisionQueue,
+  );
+  const libraryReportAvailable = /## Daily Library health[\s\S]*?Available:\s*yes/i.test(gathered);
+  const libraryHealthSummary = gathered.match(/Use this exact summary:\s*(.+)/)?.[1]?.trim() || null;
+  const libraryMemoExpected = /## Weekly editor's memo[\s\S]*?Memo date:\s*\d{4}-\d{2}-\d{2}/i.test(gathered);
+  const validation = validateBriefing(markdown, opts.mode, {
+    allowedRecommendationEpisodeIds: extractRecommendationEpisodeIds(gathered),
+    libraryReportAvailable,
+    libraryHealthSummary,
+    libraryMemoExpected,
+    allowedDecisionTaskIds: decisionQueue.task_ids,
+    decisionGroups: decisionQueue.groups.map((group) => ({
+      meeting: group.meeting,
+      taskIds: group.tasks.map((task) => task.id),
+      taskTitles: group.tasks.map((task) => task.title),
+    })),
+  });
+  validation.warnings.push(...decisionQueue.warnings.map((warning) => `decision queue: ${warning}`));
 
   if (!validation.pass) {
     // Don't publish a structurally-broken briefing; write a draft alongside for inspection.

@@ -745,4 +745,15 @@ This section tracks design decisions and refinements over time. Each entry shoul
 
 ---
 
+### 2026-07-12: Let the Vault Define Work; Separate Judgment From State
+
+**Principle**: Bridge's file hierarchy and observed activity are the record of eligible work. A central project allowlist must never gate briefing discovery; projects change shape too often, and the briefing's value comes from noticing whatever actually moved.
+
+- `Work & product` is broad editorial synthesis across code, agent sessions, roadmap/project files, delivery evidence, loops, and consequential meetings. Select by importance, not by a configured roster or fixed item quota.
+- A future project-intelligence layer may follow folder-native structure and activity more deeply, but registration cannot be a prerequisite for visibility.
+- `Decisions awaiting you` is a separate operational card, but its context remains editorial: the model chooses and orders featured meetings and explains what happened. Code owns canonical task membership, source-meeting association, live counts, and current state.
+- Decision groups stay collapsed and compact. Lead with substantive meeting context, never a concatenation of task titles; reserve amber for actual urgency, not merely pending state.
+- Generated IDs freeze historical membership, while current state hydrates in place. Resolved decisions leave the pending count and remain available behind one quiet disclosure.
+- When nothing materially moved, one honest sentence is better than padding, commit logs, or a general meeting recap.
+
 *This document should grow as design work continues. After UI changes are committed, consider what preferences or principles the changes reveal and add them here.*

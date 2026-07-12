@@ -20,6 +20,7 @@ import { getVaultPathSync } from "../src/lib/bridge/vault";
 import { LibraryProcessingRunner } from "../src/lib/library/processing-trigger";
 import { LibraryRecommendationRunner } from "../src/lib/library/recommendation-trigger";
 import { startLibraryIntakeDaemon } from "../src/lib/library/intake-daemon";
+import { appendActiveBriefingDecisions } from "../src/lib/briefing/decision-append";
 
 loadEnvConfig(process.cwd());
 
@@ -280,9 +281,30 @@ async function startServer() {
 
   // Task files (tasks/ + tasks/.proposals/) — the only broadcast path for /api/tasks
   // mutations: routes never broadcast; the file write lands here via chokidar.
+  let decisionAppendTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleDecisionAppend = () => {
+    if (decisionAppendTimer) clearTimeout(decisionAppendTimer);
+    decisionAppendTimer = setTimeout(() => {
+      decisionAppendTimer = null;
+      try {
+        const appended = appendActiveBriefingDecisions(
+          getVaultPathSync(),
+          new Date().toLocaleDateString("en-CA"),
+        );
+        if (appended.length) {
+          console.log("[BriefingDecisions] appended", appended);
+          eventServer.broadcast("bridge", "briefings-changed", { files: appended.map((result) => result.file) });
+        }
+      } catch (error) {
+        console.warn("[BriefingDecisions] append failed:", error instanceof Error ? error.message : error);
+      }
+    }, 400);
+  };
   bridgeWatcher.on("tasks-changed", () => {
     eventServer.broadcast("bridge", "tasks-changed", {});
+    scheduleDecisionAppend();
   });
+  scheduleDecisionAppend();
 
   bridgeWatcher.on("projects-changed", () => {
     eventServer.broadcast("bridge", "projects-changed", {});

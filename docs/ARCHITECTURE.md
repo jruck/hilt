@@ -670,6 +670,14 @@ The **third derived cache** (`src/lib/semantic/`, flag-gated `HILT_SEMANTIC_ENAB
 | Briefing v2 loop artifacts/responses | Bridge vault `meta/loops/*` for live loops; `${DATA_DIR}/loops-shadow/meta/loops/*` for shadow loops | Markdown artifacts + append-only JSONL | Loop escalations shown in Briefing; verdict and feedback logs remain file-native under each loop home |
 | Scope path | URL + ScopeContext | URL state | Current folder scope |
 
+### Briefing Work and decisions
+
+`Work & product` has no central project allowlist or separate persisted project-status layer. The briefing editor synthesizes consequential movement across the broad evidence already gathered from Bridge, including local code and agent activity, project and roadmap files represented by that activity, loop artifacts, delivery changes, and meetings that materially alter the work story. Bridge's hierarchy and observed activity define eligibility; ordinary folders and workstreams do not require registration. `goals-areas` likewise continues to compare stated priorities against broad git, meeting, ledger, and Library evidence.
+
+Meeting proposals combine editorial context with canonical state. The generator reads bounded `meeting-actions` summary state plus canonical `tasks/.proposals/` and supplies the model with allowed meeting citations and task IDs, deliberately excluding task-title prose. Before synthesis it also removes proposal-card escalations, prior Decisions/Next steps sections, and meeting-ledger inventory from the broad gather while retaining substantive meeting summaries. The model selects and orders featured meetings and writes substantive meeting leads. Afterward, the composer preserves that prose and order, places each canonical ID under its source meeting, appends omitted groups using stored meeting summaries when available, and rejects invented, duplicate, misplaced, or leaked proposal IDs. It also removes known legacy embedded Pending-verdict tails. A hidden post-footer contract marker lets the WebSocket server append newly-created proposal IDs only to the active daily/weekend file; after the atomic write it broadcasts `bridge:briefings-changed` so an open reader refreshes the stored context without navigation. Legacy and historical briefings are never rewritten. Markdown freezes membership while the client hydrates current proposal, accepted, and dismissed state through existing task APIs and WebSocket events.
+
+Weekend refresh gathers the full source window again but never includes the target weekend briefing's generated body as evidence; this prevents a prior synthesis from becoming its own source of truth. Required heading boilerplate is harness-owned: if the model omits the H1, the generator inserts the date-correct heading before the unchanged structural and editorial validators run.
+
 ## API Routes
 
 | Route | Method | Purpose | Key Params |

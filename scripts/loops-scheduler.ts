@@ -2,9 +2,8 @@
  * Loops launchd scheduler — registers the `com.hilt.loops.*` jobs via the shared `runScheduler`
  * helper (ruling R10 pattern: same shape as library/semantic/briefing schedulers).
  *
- * Currently one job: the runtime loop (watchdog) at 05:45 — after the overnight chain
- * (03:35 reweave, 05:10 steering) and before gather (~06:00), so its artifact reflects the
- * night's outcomes in this morning's briefing.
+ * Installs the runtime watchdog, nightly meeting extraction sweep, and goals/areas alignment.
+ * The briefing itself still runs separately after the morning loop chain.
  *
  *   npm run loops:scheduler:plan        # dry-run
  *   npm run loops:scheduler:install

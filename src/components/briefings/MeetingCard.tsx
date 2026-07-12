@@ -76,7 +76,10 @@ export function MeetingCard({ title, date, summary, pendingCount, urgent, meetin
     setOpen((value) => !value);
   };
   const statusNode = (
-    <span className={`${meetingFirst ? "col-start-2 row-start-1 sm:col-start-3" : ""} mt-1 flex shrink-0 items-center gap-1.5 text-[var(--text-tertiary)]`}>
+    <span
+      data-decision-status={meetingFirst ? "true" : undefined}
+      className={`${meetingFirst ? "col-start-2 row-start-1 justify-self-end" : ""} mt-1 flex shrink-0 items-center gap-1.5 text-[var(--text-tertiary)]`}
+    >
       {actions && (
         // Children self-gate their hover reveal (W1: a pilled comment trigger must stay
         // visible without hover; see BriefingContent's action clusters).
@@ -107,19 +110,29 @@ export function MeetingCard({ title, date, summary, pendingCount, urgent, meetin
           toggleOpen();
         }}
         className={meetingFirst
-          ? "group grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 py-0.5 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
+          ? "group grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1.5 py-0.5"
           : "group flex flex-wrap items-start justify-between gap-2 py-0.5 cursor-pointer"}
+        data-decision-row={meetingFirst ? "true" : undefined}
         title={date ? `${title} · ${date}` : title}
       >
         {meetingFirst ? (
           <>
-            {meetingRel ? (
-              <span className="min-w-0 sm:col-start-1" onClick={(e) => e.stopPropagation()}>
+            <span
+              data-decision-meeting-meta="true"
+              className="col-start-1 row-start-1 min-w-0 overflow-hidden"
+              onClick={meetingRel ? (event) => event.stopPropagation() : undefined}
+            >
+              {meetingRel ? (
                 <ObjectPill refr={{ kind: "meeting", id: meetingRel }} showDate>{title}</ObjectPill>
-              </span>
-            ) : null}
+              ) : (
+                <strong className="font-semibold text-[var(--text-primary)]">{title}</strong>
+              )}
+            </span>
             {summary ? (
-              <span className="col-span-2 min-w-0 leading-relaxed briefing-inline-md sm:col-span-1 sm:col-start-2 sm:row-start-1">
+              <span
+                data-decision-context="true"
+                className="col-span-2 row-start-2 min-w-0 leading-relaxed briefing-inline-md"
+              >
                 {summary}
               </span>
             ) : null}

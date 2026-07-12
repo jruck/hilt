@@ -46,6 +46,7 @@ async function main(): Promise<void> {
   let app: RunningProcess | null = null;
   let ws: RunningProcess | null = null;
   let browser: Browser | null = null;
+  let compactDesktopContext: BrowserContext | null = null;
   let mobileContext: BrowserContext | null = null;
 
   for (const dir of [home, vault, data, shots]) fs.mkdirSync(dir, { recursive: true });
@@ -113,6 +114,7 @@ async function main(): Promise<void> {
     assert.doesNotMatch(collapsed, /Alpha task one|Alpha task two|Omitted task title/);
     assert.doesNotMatch(collapsed, /decisions? across/i);
     assert.doesNotMatch(await page.locator('[data-briefing-work="true"]').innerText(), /pending verdicts|decisions awaiting you|task-/i);
+    await assertDecisionLayout(decisions, "wide desktop");
     await page.screenshot({ path: path.join(shots, "desktop-weekend-collapsed-light.png"), fullPage: true });
 
     const alpha = meetingLocator(decisions, fixture.meetings.alpha);
@@ -164,12 +166,23 @@ async function main(): Promise<void> {
     await historical.getByText("Resolved · 1", { exact: true }).waitFor();
     await historical.screenshot({ path: path.join(shots, "desktop-historical-frozen-dark.png") });
 
+    compactDesktopContext = await browser.newContext({ viewport: { width: 987, height: 1100 }, colorScheme: "dark" });
+    const compactDesktop = await compactDesktopContext.newPage();
+    await openBriefing(compactDesktop, baseUrl);
+    await selectBriefing(compactDesktop, fixture.weekendId);
+    const compactDecisions = compactDesktop.locator('[data-briefing-decisions="true"]');
+    await compactDecisions.waitFor({ timeout: 30_000 });
+    await assertDecisionLayout(compactDecisions, "987px desktop");
+    assert.equal(await compactDesktop.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "compact desktop has no horizontal overflow");
+    await compactDecisions.screenshot({ path: path.join(shots, "compact-desktop-decisions-dark.png") });
+
     mobileContext = await browser.newContext({ viewport: { width: 393, height: 852 }, colorScheme: "light", isMobile: true, hasTouch: true });
     const mobile = await mobileContext.newPage();
     await openBriefing(mobile, baseUrl);
     await selectBriefing(mobile, fixture.weekendId);
     const mobileDecisions = mobile.locator('[data-briefing-decisions="true"]');
     await mobileDecisions.waitFor({ timeout: 30_000 });
+    await assertDecisionLayout(mobileDecisions, "393px mobile");
     assert.equal(await mobile.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "mobile briefing has no horizontal overflow");
     await mobileDecisions.screenshot({ path: path.join(shots, "mobile-decisions-light.png") });
     await toggleMeeting(meetingLocator(mobileDecisions, fixture.meetings.omitted));
@@ -180,6 +193,8 @@ async function main(): Promise<void> {
     await mobileDecisions.screenshot({ path: path.join(shots, "mobile-decisions-expanded-dark.png") });
 
     await desktop.close();
+    await compactDesktopContext.close();
+    compactDesktopContext = null;
     await mobileContext.close();
     mobileContext = null;
     console.log(`[briefing-decisions-e2e] PASS. Screenshots: ${shots}`);
@@ -188,6 +203,7 @@ async function main(): Promise<void> {
     console.error(`[briefing-decisions-e2e] App log tail:\n${app?.logs() || "(stopped)"}`);
     throw error;
   } finally {
+    if (compactDesktopContext) await compactDesktopContext.close().catch(() => {});
     if (mobileContext) await mobileContext.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});
     if (ws) await stopProcess(ws, "SIGINT");
@@ -217,7 +233,7 @@ function seedVault(vault: string): Fixture {
 
   const meetings = {
     alpha: "meetings/2026-07-10/Alpha planning.md",
-    beta: "meetings/2026-07-11/Beta launch review.md",
+    beta: "meetings/2026-07-11/Resolving billing issues from the Listen360 platform migration.md",
     omitted: "meetings/2026-07-11/Omitted scope review.md",
     arriving: "meetings/2026-07-12/A newly arriving launch review.md",
   };
@@ -413,6 +429,38 @@ async function selectBriefing(page: Page, id: string): Promise<void> {
 
 function meetingLocator(decisions: ReturnType<Page["locator"]>, meeting: string) {
   return decisions.locator(`[data-briefing-meeting="${meeting.replace(/["\\]/g, "\\$&")}"]`);
+}
+
+async function assertDecisionLayout(decisions: ReturnType<Page["locator"]>, label: string): Promise<void> {
+  const measurements = await decisions.locator("[data-decision-row=true]").evaluateAll((rows) => rows.map((row) => {
+    const meeting = row.querySelector<HTMLElement>("[data-decision-meeting-meta=true]")?.getBoundingClientRect();
+    const context = row.querySelector<HTMLElement>("[data-decision-context=true]")?.getBoundingClientRect();
+    const status = row.querySelector<HTMLElement>("[data-decision-status=true]")?.getBoundingClientRect();
+    const header = row.getBoundingClientRect();
+    return {
+      headerWidth: header.width,
+      headerHeight: header.height,
+      meetingRight: meeting?.right ?? null,
+      statusLeft: status?.left ?? null,
+      contextWidth: context?.width ?? null,
+      contextLeft: context?.left ?? null,
+      contextRight: context?.right ?? null,
+      headerLeft: header.left,
+      headerRight: header.right,
+    };
+  }));
+
+  assert.ok(measurements.length > 0, `${label}: expected decision rows`);
+  for (const [index, measurement] of measurements.entries()) {
+    assert.ok(measurement.headerHeight < 320, `${label} row ${index}: collapsed row is implausibly tall (${measurement.headerHeight}px)`);
+    if (measurement.meetingRight !== null && measurement.statusLeft !== null) {
+      assert.ok(measurement.meetingRight <= measurement.statusLeft, `${label} row ${index}: meeting metadata overlaps status`);
+    }
+    if (measurement.contextWidth !== null && measurement.contextLeft !== null && measurement.contextRight !== null) {
+      assert.ok(measurement.contextWidth >= measurement.headerWidth - 2, `${label} row ${index}: context lost full-row width (${measurement.contextWidth}px of ${measurement.headerWidth}px)`);
+      assert.ok(measurement.contextLeft >= measurement.headerLeft - 1 && measurement.contextRight <= measurement.headerRight + 1, `${label} row ${index}: context escapes the row`);
+    }
+  }
 }
 
 async function toggleMeeting(meeting: ReturnType<Page["locator"]>): Promise<void> {

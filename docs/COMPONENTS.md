@@ -233,7 +233,7 @@ Reference Library workspace backed by markdown reference files and hidden candid
 
 - `⏭ Decisions awaiting you` is a separate top-level briefing card, not part of Work. Its header owns the current unresolved count; markdown does not repeat a generated count sentence.
 - Each meeting group stays collapsed by default and leads with the dated meeting pill, model-written or stored meeting context, unresolved count, and a restrained amber marker only when overdue or explicitly escalated. A group with no available context shows identity and count only; task titles are never concatenated into preview prose.
-- On narrow screens the meeting pill and unresolved count form a compact metadata row, with editorial context on a full-width second row; desktop keeps the denser pill/context/count scan line.
+- At every width the meeting pill and unresolved count form a compact metadata row, with editorial context on a full-width second row. Long meeting names truncate inside the pill instead of taking width from the prose; the context is never a leftover grid track.
 - Generated task IDs define historical membership. The current daily or Saturday-anchored weekend briefing may absorb newly-created canonical proposal files, including a new meeting group; older briefings hydrate only their stamped IDs.
 - A successful active-file append broadcasts `briefings-changed`; the open briefing reloads its Markdown in place so the new group advances from identity-only fallback to stored meeting context without a page refresh.
 - Expansion renders existing `TaskCard` verdict controls. Accepted and dismissed stamped items stop contributing to pending counts and move behind one compact `Resolved · N` disclosure.

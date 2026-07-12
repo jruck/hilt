@@ -753,6 +753,7 @@ This section tracks design decisions and refinements over time. Each entry shoul
 - A future project-intelligence layer may follow folder-native structure and activity more deeply, but registration cannot be a prerequisite for visibility.
 - `Decisions awaiting you` is a separate operational card, but its context remains editorial: the model chooses and orders featured meetings and explains what happened. Code owns canonical task membership, source-meeting association, live counts, and current state.
 - Decision groups stay collapsed and compact. Lead with substantive meeting context, never a concatenation of task titles; reserve amber for actual urgency, not merely pending state.
+- Decision rows must remain readable under worst-case titles at the actual content-container width. Keep meeting identity and live count on the metadata line, then give editorial context the full second line; never make prose compete with a max-content object pill for leftover grid width.
 - Generated IDs freeze historical membership, while current state hydrates in place. Resolved decisions leave the pending count and remain available behind one quiet disclosure.
 - When nothing materially moved, one honest sentence is better than padding, commit logs, or a general meeting recap.
 

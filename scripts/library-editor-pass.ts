@@ -32,7 +32,7 @@ const argValue = (name: string): string | null => { const i = args.indexOf(name)
 const vaultPath = argValue("--vault") || process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || process.cwd();
 const rawKind = argValue("--kind") || "morning";
 const kind: RecommendationBatchKind = rawKind === "refresh" || rawKind === "fixture" ? rawKind : "morning";
-const timeoutMs = Number(process.env.LIBRARY_EDITOR_TIMEOUT_MS || 180_000);
+const timeoutMs = Number(process.env.LIBRARY_EDITOR_TIMEOUT_MS || 600_000);
 const fixturePath = argValue("--fixture") || process.env.LIBRARY_RECOMMENDATION_FIXTURE || null;
 const now = process.env.LIBRARY_RECOMMENDATION_NOW ? new Date(process.env.LIBRARY_RECOMMENDATION_NOW) : new Date();
 if (!Number.isFinite(timeoutMs) || Number.isNaN(now.getTime())) { console.error("Invalid recommendation runtime configuration."); process.exit(64); }

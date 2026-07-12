@@ -13,6 +13,7 @@ import { hashId, isoNow } from "../src/lib/library/utils";
 import { emitLoopArtifact } from "../src/lib/loops/emit";
 import { loadRegistry } from "../src/lib/loops/registry";
 import type { LoopItem } from "../src/lib/loops/types";
+import { libraryBriefingHealthSummary } from "../src/lib/library/briefing-health";
 
 loadEnvConfig(process.cwd());
 const execFileAsync = promisify(execFile);
@@ -298,6 +299,7 @@ async function main(): Promise<void> {
         });
       });
       const sc = (scorecard?.json || {}) as Record<string, any>;
+      const proposalIds = items.filter((i) => i.kind === "proposal").map((i) => i.id);
       loopArtifactPath = emitLoopArtifact({
         vaultPath,
         loop,
@@ -313,7 +315,8 @@ async function main(): Promise<void> {
           notes: clusters === "rate_limited"
             ? `${unprocessed.length} comment(s) pending clustering — Claude window closed`
             : `${unprocessed.length} newly clustered, ${alreadyProposed} previously proposed awaiting verdict`,
-          proposal_ids: items.filter((i) => i.kind === "proposal").map((i) => i.id),
+          proposal_ids: proposalIds,
+          briefing_summary: libraryBriefingHealthSummary({ scorecard: scorecard?.json || null, proposalCount: proposalIds.length }),
         },
         contentBody: lines.join("\n"),
       });

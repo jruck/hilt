@@ -196,12 +196,17 @@ Reference Library workspace backed by markdown reference files and hidden candid
 - The filter rail owns `Mode` at the bottom: `Study` is the default review/weaving surface, and `Keep` is the quiet durable archive for products, shopping, recipes, restaurants, clothing, furniture, and similar saved-for-later material. Keep-mode items remain searchable but do not light the top-level Library unread dot.
 - Selected sources can expose child facets from source-native taxonomy. Raindrop uses collection names and bookmark tags where available; X/Twitter can use bookmark-folder metadata when configured. YouTube sources are grouped under a single `YouTube` parent with Bookmarks, Watch Later, liked videos, and channel sources beneath it. Email sources are grouped under `Newsletters`, with sender facets such as `AI News` or `Lenny` beneath the group. These facets are distinct from the source label itself, so cards show useful chips like `AI`, `furniture`, or `agents` rather than plumbing labels like `bookmark` or `raindrop`.
 - `Recent` ranks by source publication/capture date first, then uses precise ingestion metadata such as `captured_at` and `digested_at` only as a same-day tie-breaker.
+- `For You` is one cursor-paginated feed, not an eight-item score view or a set of daily sections. Pages deduplicate by stable artifact id; a new episode for an existing artifact updates the same card's recommendation pitch, shows a restrained `Recommended again` marker, and moves it to the top.
+- `FeedCard` has explicit `standard` and `recommendation` variants. For You renders the episode pitch as the sole unlabeled description. Recent/New/Search render only the evergreen source description; a current recommendation adds a quiet sparkle with an `In For You · recommended …` tooltip rather than injecting a second paragraph. Numeric eval scores stay in detail/admin disclosure.
+- Recommendation dismiss/comment actions are distinct from Save, Skip, and Archive. Dismissal hides only the recommendation episode, accepts optional thread-backed feedback, and uses a toast Undo. Impressions fire only after a card is visible.
+- WebSocket recommendation batches insert immediately near the top. When the feed is scrolled deeper, the first visible card remains anchored and a quiet `N new items` control defers the jump.
 - Feed density stays full-width until an item is selected. Selecting the active Feed card again clears the reader and restores the full-width feed.
 - List density gives the old Browse/inbox scanning behavior, always reserves the reader slot on desktop, auto-selects the first visible row when possible, and shows a placeholder when no item is selected.
 - Unread indicators are deliberately quiet: Feed cards and List rows show a small blue dot, the toolbar shows a `new` count beside the current item/pick count, and the source rail shows per-status/per-source unread badges.
 - Feed/List scrolling never marks unread items read. A Library item becomes read only after it has been opened and the reader moves away from it by selecting another item, closing the reader, or backing out of detail. Auto-selection does not count as reading.
 - Desktop filter/content columns use slim persisted resize handles; defaults keep the filter rail narrow, the list/feed pane scannable, and the detail reader as the largest pane. On narrower widths the filter rail floats as a popover with its own shadow and no page-dimming backdrop.
 - `LibraryArtifactDetailPane` is shared across densities so rendered Markdown, media embeds, cache/source tabs, Save/Dismiss, and archive behavior stay consistent.
+- The detail pane separates both copy roles: an unframed `Recommended for you` callout carries the pitch and recommendation date, followed by the normal source digest. Links from For You and Briefing carry `rec=<episode-id>` and passively hydrate that exact historical pitch; ordinary Library opens use the current active episode. Neither standard-feed indicators nor detail hydration report recommendation impressions.
 - `LibraryArtifactDetailPane` strips legacy manual-capture body chrome before rendering summaries, so old `← References` links and bold source/author/date clusters do not leak into the reader. The underlying repair CLI removes the same cruft from markdown files.
 - YouTube media is rendered through `YouTubeEmbed`, which uses the YouTube IFrame API plus direct embed commands to prefer 2x playback, keep the same iframe alive as a floating mini-player only while playback is active after the inline embed scrolls away, and accept seek requests from transcript rows. The floating player has hover controls to move, resize, or return it inline, and the reader adds bottom clearance while it is visible.
 - X/Twitter media is rendered through `XPostEmbed`, which lets the X widgets API size the embedded post at its native tweet width. Do not wrap X embeds in an additional Hilt card/border; the third-party embed already owns that chrome, and fixed-height iframe wrappers can crop text or video footers.
@@ -213,8 +218,38 @@ Reference Library workspace backed by markdown reference files and hidden candid
 - Detail panes expose icon buttons for copying the Hilt item link and the underlying markdown path.
 - Candidate Dismiss is an active review operation: it marks the candidate `skipped`, removes it from the active Feed/List immediately, and shows an undo toast. Skipped/expired/promoted candidate cache records are excluded from default Library lists so dismissed candidates do not linger as ordinary feed items.
 - Header includes a compact health panel backed by `/api/library/health` for scheduler, source, and dead-letter visibility. Health refresh is status-only; the separate `Check sources` action runs a bounded live ingest for the selected source or all hourly sources, then revalidates the local Library view.
-- Uses `/api/library`, `/api/library/unread`, `/api/library/candidates/*`, `/api/library/sources`, `/api/library/recommendations`, `/api/library/health`, and `/api/search`.
+- Uses `/api/library`, `/api/library/unread`, `/api/library/candidates/*`, `/api/library/sources`, the recommendation feed/episode/impression/dismiss/restore APIs, `/api/library/health`, and `/api/search`.
 - Manual, explicit-save, and discovery records share the same artifact shape, so UI actions do not need source-specific handling.
+
+### BriefingContent.tsx Library modules
+
+**File**: `src/components/briefings/BriefingContent.tsx`
+
+- A dedicated partitioner recognizes `### Recommended for you`, `### Editor's memo`, and `### Library health` inside `Library & knowledge`; historical briefings without this contract retain generic rendering.
+- Recommendations render as an editorial lead, compact Library cards, and an attached native `View all`. The lead explains the shared tension or consequence instead of recapping card titles.
+- The weekly memo is a prominent full-width band, not another nested card. Health is the quiet final footer and links only to that day's report; missing reports render an explicit unavailable warning.
+
+### BriefingContent.tsx Decisions queue
+
+- `⏭ Decisions awaiting you` is a separate top-level briefing card, not part of Work. Its header owns the current unresolved count; markdown does not repeat a generated count sentence.
+- Each meeting group stays collapsed by default and leads with the dated meeting pill, model-written or stored meeting context, unresolved count, and a restrained amber marker only when overdue or explicitly escalated. A group with no available context shows identity and count only; task titles are never concatenated into preview prose.
+- On narrow screens the meeting pill and unresolved count form a compact metadata row, with editorial context on a full-width second row; desktop keeps the denser pill/context/count scan line.
+- Generated task IDs define historical membership. The current daily or Saturday-anchored weekend briefing may absorb newly-created canonical proposal files, including a new meeting group; older briefings hydrate only their stamped IDs.
+- A successful active-file append broadcasts `briefings-changed`; the open briefing reloads its Markdown in place so the new group advances from identity-only fallback to stored meeting context without a page refresh.
+- Expansion renders existing `TaskCard` verdict controls. Accepted and dismissed stamped items stop contributing to pending counts and move behind one compact `Resolved · N` disclosure.
+- Legacy `⏭ Next steps` sections retain their prior live meeting join and rendering behavior.
+
+### BriefingRecommendationRow.tsx
+
+**File**: `src/components/briefings/BriefingRecommendationRow.tsx`
+
+Compact Library recommendation card presentation inside the Briefing's Library section.
+
+- Hydrates the exact frozen `rec:<episode-id>` placement through the passive episode endpoint; later batches do not replace the morning's pitch.
+- Uses current artifact title, source metadata, thumbnail, lifecycle, and read state. The stored episode pitch is the card's only description: no visible `Why now` label and no repeated source summary.
+- Reports a briefing impression only when visible. Clicking the card navigates natively to Library with `rank=for-you` and opens the artifact; hydration itself is never treated as an open.
+- Reuses recommendation comment and dismiss controls. A dismissed placement becomes a quiet inline Undo state instead of collapsing the whole Library section.
+- Cards use the standard Hilt content-card border, radius, and action-row treatment while staying denser than full Library FeedCards. Long pitches clamp on mobile, media dimensions stay reserved, and action controls remain above the bottom navigation.
 
 ### SecondaryToolbar.tsx
 

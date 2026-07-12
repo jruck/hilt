@@ -112,7 +112,17 @@ function proxyEventsUpgrade(req: http.IncomingMessage, socket: Duplex, head: Buf
   proxyReq.end();
 }
 
-const app = next({ dev, hostname, port });
+// The isolated browser suites run from a temporary source copy with node_modules symlinked back to
+// this checkout. Turbopack rejects dependencies outside its filesystem root; Webpack handles that
+// topology and keeps the real supervised dev server untouched.
+const useWebpackDev = dev && process.env.HILT_NEXT_DEV_BUNDLER === "webpack";
+const app = next({
+  dev,
+  hostname,
+  port,
+  webpack: useWebpackDev || undefined,
+  turbopack: dev && !useWebpackDev ? true : undefined,
+});
 const handleRequest = app.getRequestHandler();
 
 app.prepare().then(() => {

@@ -1119,7 +1119,7 @@ interface ReweaveConnection {
 }
 
 interface ReweaveResult {
-  description: string;           // 1–2 plain sentences for the feed card
+  description: string;           // 1–2 evergreen, source-centric sentences for standard cards
   proposed_title: string;        // Clean descriptive title (files are NOT auto-renamed from this)
   digest_markdown: string;       // Free-form digest body; model picks ## sections per source
   connections_first_party: ReweaveConnection[]; // Justin's own authored work — surface all genuine ties
@@ -1181,7 +1181,7 @@ interface LibraryArtifact {
   id: string;              // artifact_uid when present; otherwise the legacy path-derived hash
   source_title?: string | null; // Source-native title retained when the display title improves
   title: string;
-  description: string;
+  description: string;       // Evergreen source description; never the contextual recommendation pitch
   url: string;
   path: string;
   source_type: "reference" | "reference-candidate";
@@ -1209,6 +1209,7 @@ interface LibraryArtifact {
   read_at: string | null;  // ISO timestamp when the current user last marked it read
   processing?: LibraryProcessingState;
   eval_attrs?: LibraryEvalAttrs; // Dynamic worth eval for study items; absent for keep items
+  recommendation?: RecommendationPresentation; // Current active episode, joined at read time when available
   connections: string[];
   raw_frontmatter?: {
     thumbnail?: string;
@@ -1222,6 +1223,8 @@ interface LibraryArtifact {
 ```
 
 Processing artifacts are excluded from recommendation/eval scoring and cannot be marked read until `processing.state` is `ready`. A readable digest is ready even when `reweave_pending` remains true; `blocked` is terminal and non-animating until an explicit retry or alternate recovery action.
+
+`description` and `recommendation.why_now` are intentionally different content roles. The description is durable source metadata: it explains what the item contains, argues, demonstrates, or teaches without timing, active-work, personal, or recommendation language. `why_now` belongs to an immutable recommendation episode and explains the current contextual reason to spend attention. List and detail APIs may join the latest active presentation without persisting it back into markdown; dismissed episodes are omitted from that join, while exact historical episodes remain addressable by episode id.
 
 ```typescript
 interface LibrarySeriesMetadata {
@@ -1317,6 +1320,7 @@ Notes are authored as `docs/review-notes/<version>.md` and carried into the queu
 
 ```typescript
 interface RecommendedArtifact extends LibraryArtifact {
+  // Compatibility eval fields remain available to detail/admin surfaces.
   why: string;
   worth: number;
   relevance: number;
@@ -1324,8 +1328,62 @@ interface RecommendedArtifact extends LibraryArtifact {
   freshness: number;
   lifecycle: "active" | "to_archive" | "archived";
   matched_terms: string[];
+  recommendation?: RecommendationPresentation;
+}
+
+interface RecommendationTrigger {
+  id: string;
+  kind: "artifact" | "meeting" | "task" | "project" | "area" | "briefing" | "legacy";
+  label: string;
+  occurred_at: string;
+  fingerprint: string;
+}
+
+interface RecommendationEpisode {
+  id: string;
+  batch_id: string;
+  artifact_id: string;
+  recommended_at: string;
+  rank: number;
+  why_now: string;
+  triggers: RecommendationTrigger[];
+  scores: { worth: number; relevance: number; substance: number; freshness: number };
+  is_resurface: boolean;
+  previous_episode_id: string | null;
+  previous_recommended_at: string | null;
+}
+
+interface RecommendationBatch {
+  version: 1;
+  id: string;
+  kind: "morning" | "refresh" | "legacy" | "fixture";
+  generated_at: string;
+  context_window: { start: string; end: string };
+  pool_size: number;
+  episodes: RecommendationEpisode[];
+}
+
+interface RecommendationDismissal {
+  artifact_id: string;
+  episode_id: string;
+  dismissed_at: string;
+  restored_at: string | null;
+  note: string | null;
+}
+
+interface RecommendationPresentation {
+  episode_id: string;
+  batch_id: string;
+  recommended_at: string;
+  rank: number;
+  why_now: string;
+  triggers: RecommendationTrigger[];
+  is_resurface: boolean;
+  previous_recommended_at: string | null;
 }
 ```
+
+Recommendation state is Hilt-local under `${DATA_DIR}/library-recommendations/<vault-hash>/`. Batch files are immutable. `feed.json` is a derived latest-episode-per-artifact projection, `verdicts.json` suppresses recommendation episodes without changing saved/candidate lifecycle, and `runtime.json` persists pending refresh reasons, rate-limit backoff, the last successful batch, and per-day automated-run counts. Existing editor-cache picks may bootstrap one legacy batch; reliable episode history begins at rollout.
 
 ### LibraryOperationalHealth
 
@@ -1363,6 +1421,16 @@ interface LibraryOperationalHealth {
     unresolved: number; // Failures whose source has not succeeded since — drives the warning count + ok flag
     last_at: string | null;
     by_source: Array<{ source_id: string; count: number }>;
+  };
+  recommendations: {
+    last_success_at: string | null;
+    last_batch_id: string | null;
+    last_batch_size: number;
+    last_run_kind: RecommendationBatch["kind"] | null;
+    pending: boolean;
+    pending_reasons: string[];
+    next_retry_at: string | null;
+    last_error: string | null;
   };
 }
 ```

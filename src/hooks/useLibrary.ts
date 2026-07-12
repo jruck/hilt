@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import type { IngestionReport, LibraryArtifact, LibraryArtifactDetail, LibraryIntakeReport, LibraryOperationalHealth, LibrarySourceConfig, LibrarySourceSummary, PromotionReason, RecommendedArtifact } from "@/lib/library/types";
@@ -69,18 +69,31 @@ interface LibraryArtifactEvent {
 function useLibraryEvents(
   onArtifactChanged: (event: LibraryArtifactEvent) => void,
   onQueueChanged?: () => void,
+  onRecommendationsChanged?: () => void,
 ): boolean {
   const { connected, subscribe, unsubscribe, on } = useEventSocketContext();
+  const artifactChangedRef = useRef(onArtifactChanged);
+  const queueChangedRef = useRef(onQueueChanged);
+  const recommendationsChangedRef = useRef(onRecommendationsChanged);
+  artifactChangedRef.current = onArtifactChanged;
+  queueChangedRef.current = onQueueChanged;
+  recommendationsChangedRef.current = onRecommendationsChanged;
+  const listensForQueue = Boolean(onQueueChanged);
+  const listensForRecommendations = Boolean(onRecommendationsChanged);
   useEffect(() => {
     subscribe("library");
-    const off = on("library", "artifact-changed", (data) => onArtifactChanged(data as LibraryArtifactEvent));
-    const offQueue = onQueueChanged ? on("library", "queue-changed", onQueueChanged) : null;
+    const off = on("library", "artifact-changed", (data) => artifactChangedRef.current(data as LibraryArtifactEvent));
+    const offQueue = listensForQueue ? on("library", "queue-changed", () => queueChangedRef.current?.()) : null;
+    const offRecommendations = listensForRecommendations
+      ? on("library", "recommendations-changed", () => recommendationsChangedRef.current?.())
+      : null;
     return () => {
       off();
       offQueue?.();
+      offRecommendations?.();
       unsubscribe("library");
     };
-  }, [on, onArtifactChanged, onQueueChanged, subscribe, unsubscribe]);
+  }, [listensForQueue, listensForRecommendations, on, subscribe, unsubscribe]);
   return connected;
 }
 
@@ -122,7 +135,7 @@ export function useLibrary(options: UseLibraryOptions = {}) {
   const key = `/api/library?${params.toString()}`;
   const { data, error, isLoading, mutate } = useSWR<LibraryListResponse>(key, fetcher);
   const onChanged = useCallback(() => { void mutate(); }, [mutate]);
-  const connected = useLibraryEvents(onChanged);
+  const connected = useLibraryEvents(onChanged, undefined, onChanged);
   useEffect(() => {
     if (connected) return;
     const timer = setInterval(() => { void mutate(); }, 5_000);
@@ -142,7 +155,7 @@ export function useInfiniteLibrary(options: UseLibraryOptions = {}, pageSize = 8
     revalidateFirstPage: false,
   });
   const onChanged = useCallback(() => { void mutate(); }, [mutate]);
-  const connected = useLibraryEvents(onChanged);
+  const connected = useLibraryEvents(onChanged, undefined, onChanged);
   useEffect(() => {
     if (connected) return;
     const timer = setInterval(() => { void mutate(); }, 5_000);
@@ -187,7 +200,8 @@ export function useLibraryArtifact(id: string | null, artifactPath?: string | nu
   const onChanged = useCallback((event: LibraryArtifactEvent) => {
     if (event.id === id) void mutate();
   }, [id, mutate]);
-  const connected = useLibraryEvents(onChanged);
+  const onRecommendationsChanged = useCallback(() => { void mutate(); }, [mutate]);
+  const connected = useLibraryEvents(onChanged, undefined, onRecommendationsChanged);
   useEffect(() => {
     if (connected || !id) return;
     const timer = setInterval(() => { void mutate(); }, 5_000);
@@ -196,9 +210,110 @@ export function useLibraryArtifact(id: string | null, artifactPath?: string | nu
   return { artifact: data || null, error, isLoading, mutate };
 }
 
-export function useRecommendations(limit = 10) {
-  const { data, error, isLoading, mutate } = useSWR<{ items: RecommendedArtifact[]; generated_at: string; context_summary: string }>(`/api/library/recommendations?limit=${limit}`, fetcher);
-  return { items: data?.items || [], generatedAt: data?.generated_at || null, contextSummary: data?.context_summary || "", error, isLoading, mutate };
+interface RecommendationFeedResponse {
+  items: RecommendedArtifact[];
+  total: number;
+  next_cursor: string | null;
+  generated_at: string;
+  context_summary: string;
+}
+
+export function useInfiniteRecommendations(options: UseLibraryOptions = {}, pageSize = 40) {
+  const getKey = (_pageIndex: number, previous: RecommendationFeedResponse | null) => {
+    if (previous && !previous.next_cursor) return null;
+    const params = libraryParams(options, undefined, pageSize);
+    if (previous?.next_cursor) params.set("cursor", previous.next_cursor);
+    return `/api/library/recommendations?${params.toString()}`;
+  };
+  const { data, error, isLoading, isValidating, size, setSize, mutate } = useSWRInfinite<RecommendationFeedResponse>(getKey, fetcher, {
+    revalidateFirstPage: false,
+  });
+  const onChanged = useCallback(() => { void mutate(); }, [mutate]);
+  const connected = useLibraryEvents(onChanged, undefined, onChanged);
+  useEffect(() => {
+    if (connected) return;
+    const timer = setInterval(() => { void mutate(); }, 5_000);
+    return () => clearInterval(timer);
+  }, [connected, mutate]);
+  const seen = new Set<string>();
+  const items = (data?.flatMap((page) => page.items) || []).filter((item) => {
+    // Stable artifact identity wins across stale pagination pages: a resurfaced episode moves the
+    // existing card to page one and the old cached page copy disappears instead of duplicating it.
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+  const last = data?.at(-1) || null;
+  return {
+    items,
+    total: data?.[0]?.total || 0,
+    generatedAt: data?.[0]?.generated_at || null,
+    contextSummary: data?.[0]?.context_summary || "",
+    error,
+    isLoading,
+    isValidating,
+    hasMore: Boolean(last?.next_cursor),
+    isLoadingMore: Boolean(isLoading || (size > 0 && data && typeof data[size - 1] === "undefined")),
+    loadMore: () => setSize(size + 1),
+    mutate,
+  };
+}
+
+interface RecommendationEpisodePreviewResponse {
+  items: RecommendedArtifact[];
+  dismissed_episode_ids: string[];
+  missing_episode_ids: string[];
+}
+
+/** Passive briefing hydration. Unlike GET /api/library/[id], this never records an open. */
+export function useRecommendationEpisodes(episodeIds: string[]) {
+  const ids = [...new Set(episodeIds)].slice(0, 20);
+  const key = ids.length
+    ? `/api/library/recommendations/episodes?${new URLSearchParams({ ids: ids.join(",") }).toString()}`
+    : null;
+  const { data, error, isLoading, mutate } = useSWR<RecommendationEpisodePreviewResponse>(key, fetcher, {
+    keepPreviousData: true,
+  });
+  const onChanged = useCallback(() => { void mutate(); }, [mutate]);
+  const connected = useLibraryEvents(onChanged, undefined, onChanged);
+  useEffect(() => {
+    if (connected || !key) return;
+    const timer = setInterval(() => { void mutate(); }, 5_000);
+    return () => clearInterval(timer);
+  }, [connected, key, mutate]);
+  return {
+    items: data?.items || [],
+    dismissedEpisodeIds: new Set(data?.dismissed_episode_ids || []),
+    missingEpisodeIds: new Set(data?.missing_episode_ids || []),
+    error,
+    isLoading,
+    mutate,
+  };
+}
+
+export async function recordRecommendationImpressions(episodeIds: string[], surface: "for_you" | "briefing") {
+  if (!episodeIds.length) return;
+  await fetch(withBasePath("/api/library/recommendations/impressions"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ episode_ids: episodeIds, surface }),
+  });
+}
+
+export async function dismissLibraryRecommendation(episodeId: string, note?: string, surface: "for_you" | "briefing" = "for_you") {
+  const response = await fetch(withBasePath(`/api/library/recommendations/${encodeURIComponent(episodeId)}/dismiss`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note: note || "", surface }),
+  });
+  if (!response.ok) throw new Error(`Failed to dismiss recommendation: ${response.status}`);
+  return response.json();
+}
+
+export async function restoreLibraryRecommendation(episodeId: string) {
+  const response = await fetch(withBasePath(`/api/library/recommendations/${encodeURIComponent(episodeId)}/restore`), { method: "POST" });
+  if (!response.ok) throw new Error(`Failed to restore recommendation: ${response.status}`);
+  return response.json();
 }
 
 export function useLibraryHealth() {
@@ -208,7 +323,8 @@ export function useLibraryHealth() {
   });
   const onArtifactChanged = useCallback(() => { void mutate(); }, [mutate]);
   const onQueueChanged = useCallback(() => { void mutate(); }, [mutate]);
-  useLibraryEvents(onArtifactChanged, onQueueChanged);
+  const onRecommendationsChanged = useCallback(() => { void mutate(); }, [mutate]);
+  useLibraryEvents(onArtifactChanged, onQueueChanged, onRecommendationsChanged);
   const refresh = () => mutate(fetcher(`${key}?refresh=${Date.now()}`), { revalidate: false });
   return { health: data || null, error, isLoading, isValidating, mutate, refresh };
 }

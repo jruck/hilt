@@ -1,6 +1,16 @@
 import fs from "fs";
 import path from "path";
-import type { ConnectionSuggestion, LibraryArtifactDetail, LibraryEvalAttrs, RecommendedArtifact } from "./types";
+import type {
+  ConnectionSuggestion,
+  LibraryArtifact,
+  LibraryArtifactDetail,
+  LibraryEvalAttrs,
+  RecommendationBatchKind,
+  RecommendationEpisode,
+  RecommendationEpisodeScores,
+  RecommendationPresentation,
+  RecommendedArtifact,
+} from "./types";
 import { listLibraryArtifactDetails } from "./library";
 import { markdownToPlain } from "./markdown";
 import { evaluateArtifact, structuralSubstance } from "./library-eval";
@@ -8,9 +18,15 @@ import { buildSemanticContext, scoreArtifactSemantic, type SemanticContext } fro
 import { loadScoringConfig } from "./scoring-config-loader";
 import type { LibraryScoringConfig } from "./scoring-config";
 import { readLibraryEvents } from "./events";
-import { hashId } from "./utils";
 import { captureFailed } from "./capture-health";
 import { connectionSuggestionsFromFrontmatter, hasConnectionPass } from "./connection-state";
+import { contentTypeForArtifact } from "./content-type";
+import {
+  bootstrapLegacyRecommendationCache,
+  projectedRecommendationEpisodes,
+  readRecommendationRuntime,
+  recommendationEpisodesById,
+} from "./recommendation-store";
 
 interface ContextSignal {
   kind: "project" | "task" | "area" | "person" | "recent_save";
@@ -326,34 +342,11 @@ export function evalAttrsForArtifact(vaultPath: string, artifact: LibraryArtifac
 }
 
 // ---------------------------------------------------------------------------
-// For You v2 — the staged funnel (Library v2, Workstream 4):
-//   stage 1 (cheap, here): worth-ranked pool minus recent negative signals;
-//   stage 2 (LLM): the daily editor pass (scripts/library-editor-pass.ts) picks with stated reasons,
-//     cached in DATA_DIR and consumed below — the formula proposes, the editor disposes;
-//   stage 3 (deterministic, here): source-diversity cap, near-duplicate dedup, exploration slot.
+// For You v3: scoring proposes candidates; immutable recommendation episodes decide feed position.
+// Ordinary score changes never reorder the feed. Only a new editorial episode can move an artifact.
 // ---------------------------------------------------------------------------
 
-export interface EditorPick { id: string; reason: string }
-export interface EditorPicksCache { generated_at: string; picks: EditorPick[] }
-
-export function editorPicksPath(vaultPath: string): string {
-  return path.join(process.env.DATA_DIR || path.join(process.cwd(), "data"), "library-for-you", `${hashId(path.resolve(vaultPath), 16)}.json`);
-}
-
-/** The cached editor picks, or null when absent/stale (>30h — one missed daily run is tolerated). */
-export function readEditorPicks(vaultPath: string, maxAgeHours = 30): EditorPicksCache | null {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(editorPicksPath(vaultPath), "utf-8")) as EditorPicksCache;
-    if (!parsed || !Array.isArray(parsed.picks)) return null;
-    const age = Date.now() - Date.parse(parsed.generated_at);
-    return Number.isFinite(age) && age <= maxAgeHours * 3_600_000 ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Stage 1: the worth-ranked candidate pool minus recently negatively-signaled items (skip /
- *  archive-confirm within the suppression window — the heaviest-weighted signals we have). */
+/** Candidate generation for the editorial pass. The durable feed itself is episode-ordered. */
 export function buildForYouPool(vaultPath: string): { pool: RecommendedArtifact[]; config: LibraryScoringConfig } {
   const config = loadScoringConfig(vaultPath);
   const since = new Date(Date.now() - config.for_you.negative_suppress_days * 86_400_000).toISOString();
@@ -362,14 +355,13 @@ export function buildForYouPool(vaultPath: string): { pool: RecommendedArtifact[
       .filter((event) => event.type === "skipped" || event.type === "archived_confirmed")
       .map((event) => event.artifact_id),
   );
-  // Full study corpus (not a recency window): the exploration slot exists to resurface items the
-  // ranking under-values, which a newest-200 pre-cut would silently defeat.
+  // Full corpus stays available for context-triggered resurfacing; the editor receives a bounded
+  // candidate set and must cite fresh trigger evidence before an old item can move again.
   const pool = evaluateLibrary(vaultPath, { limit: 3000 })
     .sort((a, b) => (b.worth || 0) - (a.worth || 0))
     .filter((item) => !negative.has(item.id))
     // A stub-graded item must never be recommended — its digest may describe a cover blurb.
-    .filter((item) => item.lifecycle !== "needs_refetch")
-    .slice(0, config.for_you.pool);
+    .filter((item) => item.lifecycle !== "needs_refetch");
   return { pool, config };
 }
 
@@ -378,7 +370,7 @@ function titleTokenSet(title: string): Set<string> {
 }
 
 /** Near-duplicate titles (the same story from two sources) — Jaccard over title tokens. */
-function nearDuplicate(a: string, b: string): boolean {
+export function nearDuplicateRecommendationTitles(a: string, b: string): boolean {
   const ta = titleTokenSet(a);
   const tb = titleTokenSet(b);
   if (!ta.size || !tb.size) return false;
@@ -386,65 +378,164 @@ function nearDuplicate(a: string, b: string): boolean {
   return overlap / (ta.size + tb.size - overlap) > 0.6;
 }
 
-export function getRecommendations(vaultPath: string, limit = 10): { items: RecommendedArtifact[]; generated_at: string; context_summary: string } {
-  const { pool, config } = buildForYouPool(vaultPath);
-  const maxItems = Math.max(1, Math.min(limit, config.for_you.max_items));
-  const explorationSlots = Math.min(config.for_you.exploration_slots, Math.max(0, maxItems - 1));
-  const headSlots = maxItems - explorationSlots;
-  const editor = readEditorPicks(vaultPath);
-  const byId = new Map(pool.map((item) => [item.id, item]));
+export interface RecommendationFeedOptions {
+  limit?: number;
+  cursor?: string | null;
+  source?: string | null;
+  channel?: string | null;
+  status?: "saved" | "candidate" | null;
+  mode?: "study" | "keep" | null;
+  tag?: string | null;
+  q?: string | null;
+  content_type?: string | null;
+}
 
-  const final: RecommendedArtifact[] = [];
-  const used = new Set<string>();
-  const sourceCounts = new Map<string, number>();
-  const tryAdd = (item: RecommendedArtifact, reason?: string): boolean => {
-    if (used.has(item.id)) return false;
-    const source = item.source_id || "unknown";
-    if ((sourceCounts.get(source) || 0) >= config.for_you.source_cap) return false;
-    if (final.some((picked) => nearDuplicate(picked.title, item.title))) return false;
-    used.add(item.id);
-    sourceCounts.set(source, (sourceCounts.get(source) || 0) + 1);
-    // The stated reason is the user-facing "why" (zero "why am I seeing this" — spec success gate).
-    final.push(reason ? { ...item, why: reason } : item);
-    return true;
-  };
+export interface RecommendationFeedResult {
+  items: RecommendedArtifact[];
+  total: number;
+  cursor: string | null;
+  next_cursor: string | null;
+  generated_at: string;
+  context_summary: string;
+  batch: {
+    id: string;
+    generated_at: string;
+    size: number;
+    kind: RecommendationBatchKind | null;
+  } | null;
+}
 
-  // Stage 2 picks lead; stage 1 order fills the remaining head slots when the editor is absent/stale.
-  if (editor) {
-    for (const pick of editor.picks) {
-      if (final.length >= headSlots) break;
-      const item = byId.get(pick.id);
-      if (item) tryAdd(item, pick.reason);
-    }
-  }
-  for (const item of pool) {
-    if (final.length >= headSlots) break;
-    tryAdd(item);
-  }
+function scoresOf(item: RecommendedArtifact): RecommendationEpisodeScores {
+  return { worth: item.worth, relevance: item.relevance, substance: item.substance, freshness: item.freshness };
+}
 
-  // Stage 3 exploration: rotate daily through the tail beyond the head ranks — how miscalibration
-  // gets discovered (an item the formula under-ranks gets a periodic shot at the user's attention).
-  const tail = pool.slice(headSlots);
-  if (tail.length && explorationSlots > 0) {
-    const dayIndex = Math.floor(Date.now() / 86_400_000);
-    for (let slot = 0; slot < explorationSlots && final.length < maxItems; slot += 1) {
-      for (let probe = 0; probe < tail.length; probe += 1) {
-        const item = tail[(dayIndex + slot + probe) % tail.length];
-        if (tryAdd(item, "Exploration pick — ranked outside the top; flag it if the library misjudged it")) break;
-      }
-    }
-  }
-  // Backfill if exploration couldn't place (deduped/capped out).
-  for (const item of pool) {
-    if (final.length >= maxItems) break;
-    tryAdd(item);
-  }
+function ensureRecommendationProjection(vaultPath: string, scored: RecommendedArtifact[]): RecommendationEpisode[] {
+  const scores = new Map(scored.map((item) => [item.id, scoresOf(item)]));
+  bootstrapLegacyRecommendationCache(vaultPath, scores);
+  return projectedRecommendationEpisodes(vaultPath);
+}
 
+export function recommendationPresentation(episode: RecommendationEpisode): RecommendationPresentation {
   return {
-    items: final,
-    generated_at: new Date().toISOString(),
-    context_summary: editor
-      ? "Editor's picks (daily LLM pass over the worth-ranked pool) with stated reasons, plus diversity rules and an exploration slot."
-      : "Worth-ranked (relevance × substance × freshness) with diversity rules and an exploration slot — no fresh editor pass.",
+    episode_id: episode.id,
+    batch_id: episode.batch_id,
+    recommended_at: episode.recommended_at,
+    rank: episode.rank,
+    why_now: episode.why_now,
+    triggers: episode.triggers,
+    is_resurface: episode.is_resurface,
+    previous_recommended_at: episode.previous_recommended_at,
   };
+}
+
+export function currentRecommendationPresentations(vaultPath: string): Map<string, RecommendationPresentation> {
+  return new Map(projectedRecommendationEpisodes(vaultPath).map((episode) => (
+    [episode.artifact_id, recommendationPresentation(episode)]
+  )));
+}
+
+/** Add recommendation context without changing markdown or score/order semantics. */
+export function attachCurrentRecommendations<T extends LibraryArtifact>(vaultPath: string, items: T[]): T[] {
+  const byArtifact = currentRecommendationPresentations(vaultPath);
+  return items.map((item) => {
+    const recommendation = byArtifact.get(item.id);
+    return recommendation ? { ...item, recommendation } : item;
+  });
+}
+
+function materializeRecommendation(item: RecommendedArtifact, episode: RecommendationEpisode): RecommendedArtifact {
+  return {
+    ...item,
+    why: episode.why_now,
+    worth: episode.scores.worth,
+    relevance: episode.scores.relevance,
+    substance: episode.scores.substance,
+    freshness: episode.scores.freshness,
+    recommendation: recommendationPresentation(episode),
+  };
+}
+
+function matchesFeedOptions(item: RecommendedArtifact, options: RecommendationFeedOptions): boolean {
+  if (options.source && item.source_id !== options.source) return false;
+  if (options.channel && item.channel !== options.channel) return false;
+  if (options.status && item.lifecycle_status !== options.status) return false;
+  if (options.mode && item.library_mode !== options.mode) return false;
+  if (options.tag && !item.tags.includes(options.tag) && !item.source_tags.includes(options.tag)) return false;
+  if (options.content_type && contentTypeForArtifact(item) !== options.content_type) return false;
+  if (options.q) {
+    const q = options.q.trim().toLowerCase();
+    if (q && ![item.title, item.summary, item.why, item.source_name, item.author, ...item.tags]
+      .filter(Boolean).join(" ").toLowerCase().includes(q)) return false;
+  }
+  return true;
+}
+
+function encodeCursor(episode: RecommendationEpisode): string {
+  return Buffer.from(JSON.stringify({ at: episode.recommended_at, rank: episode.rank, id: episode.id })).toString("base64url");
+}
+
+function cursorIndex(episodes: RecommendationEpisode[], cursor?: string | null): number {
+  if (!cursor) return 0;
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf-8")) as { id?: string };
+    const index = episodes.findIndex((episode) => episode.id === parsed.id);
+    return index >= 0 ? index + 1 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function getRecommendationFeed(vaultPath: string, options: RecommendationFeedOptions = {}): RecommendationFeedResult {
+  // Score order is only used for one-time rollout/bootstrap candidate selection. Once episodes
+  // exist, their immutable recommendation time/rank is the sole feed ordering authority.
+  const scored = evaluateLibrary(vaultPath, { limit: 3000 })
+    .sort((a, b) => (b.worth || 0) - (a.worth || 0) || b.created_at.localeCompare(a.created_at));
+  const byId = new Map(scored.map((item) => [item.id, item]));
+  const projected = ensureRecommendationProjection(vaultPath, scored)
+    .filter((episode) => byId.has(episode.artifact_id));
+  const materialized = projected
+    .map((episode) => materializeRecommendation(byId.get(episode.artifact_id)!, episode))
+    .filter((item) => matchesFeedOptions(item, options));
+  const episodeByItem = new Map(materialized.map((item) => [item.id, item.recommendation!.episode_id]));
+  const filteredEpisodes = projected.filter((episode) => episodeByItem.get(episode.artifact_id) === episode.id);
+  const start = cursorIndex(filteredEpisodes, options.cursor);
+  const limit = Math.max(1, Math.min(100, options.limit || 40));
+  const pageEpisodes = filteredEpisodes.slice(start, start + limit);
+  const pageIds = new Set(pageEpisodes.map((episode) => episode.id));
+  const items = materialized.filter((item) => pageIds.has(item.recommendation!.episode_id));
+  const last = pageEpisodes.at(-1);
+  const runtime = readRecommendationRuntime(vaultPath);
+  return {
+    items,
+    total: materialized.length,
+    cursor: options.cursor || null,
+    next_cursor: start + pageEpisodes.length < filteredEpisodes.length && last ? encodeCursor(last) : null,
+    generated_at: runtime.last_success_at || new Date().toISOString(),
+    context_summary: "Editorial recommendation episodes ordered by when they were selected; only a new episode can move an item.",
+    batch: runtime.last_batch_id && runtime.last_success_at
+      ? {
+          id: runtime.last_batch_id,
+          generated_at: runtime.last_success_at,
+          size: runtime.last_batch_size,
+          kind: runtime.last_run_kind,
+        }
+      : null,
+  };
+}
+
+export function getRecommendationEpisodeArtifacts(vaultPath: string, episodeIds: string[]): RecommendedArtifact[] {
+  const episodes = recommendationEpisodesById(vaultPath, episodeIds);
+  const scored = evaluateLibrary(vaultPath, { limit: 3000 });
+  const byId = new Map(scored.map((item) => [item.id, item]));
+  return episodes
+    .map((episode) => {
+      const item = byId.get(episode.artifact_id);
+      return item ? materializeRecommendation(item, episode) : null;
+    })
+    .filter((item): item is RecommendedArtifact => Boolean(item));
+}
+
+/** Compatibility wrapper for scripts and callers that still pass a numeric limit. */
+export function getRecommendations(vaultPath: string, limit = 10): RecommendationFeedResult {
+  return getRecommendationFeed(vaultPath, { limit });
 }

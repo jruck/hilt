@@ -13,6 +13,7 @@ import { AppHud, AppHudCollapsedBar } from "@/components/AppHud";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { CommentPopover } from "@/components/comments/CommentPopover";
 import type { CalendarEventOpenDetail } from "@/lib/calendar/deeplink";
+import { isBriefingActive } from "@/lib/briefing/decision-presentation";
 
 interface BriefingsViewProps {
   onBridgeModeChange?: (mode: BridgeMode) => void;
@@ -55,6 +56,9 @@ export function BriefingsView({
   // Escalations nest inside their owning briefing sections (Justin, 2026-07-02); loops with no
   // matching section fall back to a fold above the content.
   const { items: escalations, mutate: mutateEscalations } = useEscalations();
+  const activeBriefing = briefing
+    ? isBriefingActive(briefing, new Date().toLocaleDateString("en-CA"))
+    : false;
 
   const mobileHud = isMobile && onHudVisibleChange ? (
     hudVisible ? (
@@ -147,6 +151,7 @@ export function BriefingsView({
                   content={briefing.content}
                   date={briefing.date}
                   absPath={briefing.absPath}
+                  activeBriefing={activeBriefing}
                   escalations={escalations}
                   onEscalationsChanged={mutateEscalations}
                 />

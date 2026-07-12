@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { useHaptics } from "@/hooks/useHaptics";
-import { formatHiltWeekdayDate } from "@/lib/display-date";
+import { formatHiltWeekdayDate, formatHiltWeekRange } from "@/lib/display-date";
 import type { BriefingDateRange, BriefingKind } from "@/hooks/useBriefings";
 
 interface BriefingHeaderProps {
@@ -41,19 +41,7 @@ function formatDateShort(dateStr: string): string {
 function formatBriefingRange(range: BriefingDateRange, includeYear: boolean): string {
   const start = new Date(`${range.start}T00:00:00`);
   const end = new Date(`${range.end}T00:00:00`);
-  const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
-  const sameYear = start.getFullYear() === end.getFullYear();
-  const startLabel = new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: includeYear && !sameYear ? "numeric" : undefined,
-  }).format(start);
-  const endLabel = new Intl.DateTimeFormat("en-US", {
-    month: sameMonth ? undefined : "short",
-    day: "numeric",
-    year: includeYear ? "numeric" : undefined,
-  }).format(end);
-  return `${startLabel}-${endLabel}`;
+  return formatHiltWeekRange(start, end, { includeYear });
 }
 
 function formatBriefingOption(
@@ -101,6 +89,9 @@ export function BriefingHeader({
         {hasMultiple ? (
           <button
             onClick={() => { dropdownOpen ? haptics.rigid() : haptics.light(); setDropdownOpen(!dropdownOpen); }}
+            data-briefing-selector
+            aria-haspopup="listbox"
+            aria-expanded={dropdownOpen}
             className="flex items-center gap-1.5 text-lg font-semibold hover:text-[var(--text-secondary)] transition-colors"
           >
             {selectedLabel}
@@ -117,6 +108,7 @@ export function BriefingHeader({
             {availableBriefings.map((b, i) => (
               <button
                 key={b.id}
+                data-briefing-option-id={b.id}
                 onClick={() => {
                   haptics.selection();
                   onBriefingChange(b.id);

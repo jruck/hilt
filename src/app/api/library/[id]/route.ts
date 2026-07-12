@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getVaultPath } from "@/lib/bridge/vault";
 import { getLibraryArtifact, getLibraryArtifactByPath, getLibraryComments } from "@/lib/library/library";
-import { evalAttrsForArtifact } from "@/lib/library/recommendations";
+import { attachCurrentRecommendations, evalAttrsForArtifact } from "@/lib/library/recommendations";
 import { appendLibraryEvents } from "@/lib/library/events";
 
 export const dynamic = "force-dynamic";
@@ -22,9 +22,10 @@ export async function GET(
       return NextResponse.json({ error: "Artifact not found" }, { status: 404 });
     }
     const eval_attrs = evalAttrsForArtifact(vaultPath, artifact) || undefined;
+    const [withRecommendation] = attachCurrentRecommendations(vaultPath, [artifact]);
     const comments = getLibraryComments(vaultPath, artifact.id);
     appendLibraryEvents(vaultPath, [{ type: "opened", artifact_id: artifact.id, surface: "detail" }]);
-    return NextResponse.json({ ...artifact, eval_attrs, comments });
+    return NextResponse.json({ ...withRecommendation, eval_attrs, comments });
   } catch (error) {
     console.error("[library] detail failed:", error);
     return NextResponse.json({ error: "Failed to read artifact" }, { status: 500 });

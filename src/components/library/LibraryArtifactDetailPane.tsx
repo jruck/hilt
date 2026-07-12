@@ -1,14 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Archive, ArrowLeft, Check, ChevronDown, Clock, Copy, FileText, Layers, Link2, Loader2, MessageCircle, Network, Play, Plus, RotateCcw, ThumbsDown, X, Zap, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Archive, ArrowLeft, Check, ChevronDown, Clock, Copy, FileText, Layers, Link2, Loader2, MessageCircle, Network, Play, Plus, RotateCcw, Sparkles, ThumbsDown, X, Zap, type LucideIcon } from "lucide-react";
 import type { ReviewQueueStatus } from "@/lib/library/review-queue";
 import type { ChatSessionSummary } from "@/lib/chat/types";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { useScope } from "@/contexts/ScopeContext";
 import { isGraphEnabled } from "@/lib/graph/config";
 import { buildGraphScope } from "@/components/graph/graph-deeplink";
-import { retryLibraryProcessing, useLibraryArtifact } from "@/hooks/useLibrary";
+import { retryLibraryProcessing, useLibraryArtifact, useRecommendationEpisodes } from "@/hooks/useLibrary";
 import { attentionJudgmentFromFrontmatter, connectionPassEvidence, connectionPassState, connectionSuggestionsFromFrontmatter } from "@/lib/library/connection-state";
 import { stripLegacyReferenceBodyCruft } from "@/lib/library/legacy-cleanup";
 import { getYouTubeVideoId } from "@/lib/library/media";
@@ -21,6 +21,7 @@ import { LoadingState } from "@/components/ui/LoadingState";
 import { CommentPopover } from "@/components/comments/CommentPopover";
 import { ThreadView } from "@/components/threads/ThreadView";
 import { withBasePath } from "@/lib/base-path";
+import { readerRecommendationContext } from "@/lib/library/card-copy";
 import { EvalMetricPill, evalMetricTitle, formatEvalScore } from "./EvalMetricPills";
 import { LibraryMarkdown } from "./LibraryMarkdown";
 import { LibraryLifecycleMenu } from "./LibraryLifecycleMenu";
@@ -235,6 +236,7 @@ function MediaPreview({
 export function LibraryArtifactDetailPane({
   id,
   artifactPath,
+  recommendationEpisodeId,
   onBack,
   onClose,
   showBack = false,
@@ -251,6 +253,7 @@ export function LibraryArtifactDetailPane({
 }: {
   id: string | null;
   artifactPath?: string | null;
+  recommendationEpisodeId?: string | null;
   onBack?: () => void;
   onClose?: () => void;
   showBack?: boolean;
@@ -266,6 +269,7 @@ export function LibraryArtifactDetailPane({
   closeClassName?: string;
 }) {
   const { artifact, isLoading, mutate } = useLibraryArtifact(id, artifactPath);
+  const recommendationEpisodes = useRecommendationEpisodes(recommendationEpisodeId ? [recommendationEpisodeId] : []);
   const { navigateTo } = useScope();
   const graphEnabled = isGraphEnabled();
   const [mode, setMode] = useState<"summary" | "cache">("summary");
@@ -383,6 +387,19 @@ export function LibraryArtifactDetailPane({
       && artifact.processing.stage === "reweave"
       && !artifact.processing.completed_stages.includes("reweave"),
   );
+  const frozenRecommendation = recommendationEpisodeId
+    ? recommendationEpisodes.items.find((item) => item.recommendation?.episode_id === recommendationEpisodeId)?.recommendation
+    : null;
+  const exactRecommendationUnavailable = Boolean(
+    recommendationEpisodeId
+      && (recommendationEpisodes.error || recommendationEpisodes.missingEpisodeIds.has(recommendationEpisodeId)),
+  );
+  const recommendation = readerRecommendationContext({
+    requestedEpisodeId: recommendationEpisodeId,
+    exactRecommendation: frozenRecommendation,
+    currentRecommendation: artifact.recommendation,
+    exactUnavailable: exactRecommendationUnavailable,
+  });
   const handleChanged = async () => {
     await mutate();
     onChanged?.();
@@ -405,8 +422,8 @@ export function LibraryArtifactDetailPane({
     }
   };
   const hiltUrl = typeof window === "undefined"
-    ? buildLibraryItemUrl(artifact.id)
-    : new URL(buildLibraryItemUrl(artifact.id), window.location.origin).toString();
+    ? buildLibraryItemUrl(artifact.id, undefined, { recommendationEpisodeId })
+    : new URL(buildLibraryItemUrl(artifact.id, undefined, { recommendationEpisodeId }), window.location.origin).toString();
   // abs_path = vaultRoot + "/" + path — recover the root so chat files-touched chips
   // (vault-relative) resolve to absolute Docs paths without threading workingFolder here.
   const vaultRoot = artifact.abs_path.endsWith(artifact.path)
@@ -497,6 +514,17 @@ export function LibraryArtifactDetailPane({
         </div>
         <h1 className="text-xl font-semibold leading-tight text-[var(--text-primary)] sm:text-2xl">{artifact.title}</h1>
         <LibrarySeriesPanel artifact={artifact} />
+        {recommendation && (
+          <div data-testid="library-recommendation-context" className="mt-4 border-l-2 border-[var(--accent-primary)] bg-[var(--bg-secondary)] px-3 py-2.5">
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-[var(--text-tertiary)]">
+              <Sparkles className="h-3.5 w-3.5 text-[var(--accent-primary)]" aria-hidden />
+              <span className="text-[var(--text-primary)]">Recommended for you</span>
+              <span>· {recommendation.recommended_at.slice(0, 10)}</span>
+              {recommendation.is_resurface && <span>· Recommended again</span>}
+            </div>
+            <p data-library-recommendation-pitch className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">{recommendation.why_now}</p>
+          </div>
+        )}
         {artifact.processing && (processingIncomplete || processingDeferred) && (
           <div className="mt-4 rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] p-3">
             <ProcessingStatus processing={artifact.processing} standalone />

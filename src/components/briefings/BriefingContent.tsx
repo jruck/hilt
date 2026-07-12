@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback, type MouseEvent, type ReactN
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
-import { ChevronRight, ChevronsUpDown, ChevronsDownUp } from "lucide-react";
+import { Activity, ArrowRight, BookOpenText, ChevronRight, ChevronsUpDown, ChevronsDownUp, RotateCcw, Sparkles } from "lucide-react";
 import { CommentPopover } from "@/components/comments/CommentPopover";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useScope } from "@/contexts/ScopeContext";
@@ -20,8 +20,10 @@ import {
 import {
   cleanLoopTokens,
   extractMeetingRelPath,
+  extractRecommendationEpisodeIds,
   extractTaskIds,
   isConsumedTaskId,
+  isDecisionsHeading,
   isNextStepsHeading,
   isRedundantMeetingCitationLine,
   isTaskIdOnlyLine,
@@ -29,10 +31,13 @@ import {
   stampedIdLineDisposition,
   normalizeHiltLinks,
   parseBriefing,
+  partitionBriefingLibrarySection,
   stripDateAfterMeetingPill,
   stripTaskTokens,
   type BriefingItem,
+  type BriefingLibraryPartition,
 } from "@/lib/briefing/canvas";
+import { BriefingRecommendationRow } from "./BriefingRecommendationRow";
 import { MeetingCard, useExpandSignal, type ExpandSignal } from "./MeetingCard";
 import { ObjectPill } from "@/components/objects/ObjectPill";
 import { parseHiltUri } from "@/lib/objects/uri";
@@ -43,6 +48,14 @@ import { askToTaskFile, joinMeetingNextSteps, mergeDismissed } from "@/lib/tasks
 import { requestTaskOpen } from "@/lib/tasks/deeplink";
 import type { TaskFile } from "@/lib/tasks/types";
 import type { Verdict } from "@/lib/loops/types";
+import { dismissLibraryRecommendation, restoreLibraryRecommendation, useRecommendationEpisodes } from "@/hooks/useLibrary";
+import { buildLibraryUrl, defaultLibraryUrlControls } from "@/lib/library/url";
+import type { RecommendedArtifact } from "@/lib/library/types";
+import {
+  activeDecisionMeetingGroups,
+  decisionPendingProposals as selectDecisionPendingProposals,
+  isDecisionQueueSummary,
+} from "@/lib/briefing/decision-presentation";
 interface BriefingContentProps {
   content: string;
   date?: string;
@@ -54,6 +67,8 @@ interface BriefingContentProps {
    * runtime → System, …). Loops with no matching section render in a fallback fold above. */
   escalations?: EscalatedLoopItem[];
   onEscalationsChanged?: () => void;
+  /** Only the current daily or current weekend briefing may append newly-created proposals. */
+  activeBriefing?: boolean;
 }
 
 /** Replace [^N] citation markers with superscript HTML */
@@ -149,6 +164,167 @@ function BriefingLink({
     >
       {children}
     </a>
+  );
+}
+
+function BriefingModuleMarkdown({ markdown, date, className = "" }: { markdown: string; date?: string; className?: string }) {
+  return (
+    <div className={`briefing-inline-md text-sm leading-6 text-[var(--text-secondary)] ${className}`}>
+      <ReactMarkdown
+        urlTransform={briefingUrlTransform}
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw]}
+        components={{
+          p: ({ children }) => <p className="!my-0">{children}</p>,
+          strong: ({ children }) => <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>,
+          a: ({ href, children, className: linkClassName }) => <BriefingLink href={href} className={linkClassName} date={date}>{children}</BriefingLink>,
+        }}
+      >
+        {markdown}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+function BriefingRecommendationPlacement({
+  episodeId,
+  artifact,
+  dismissed,
+  unavailable,
+  onDismiss,
+  onRestore,
+}: {
+  episodeId: string;
+  artifact?: RecommendedArtifact;
+  dismissed: boolean;
+  unavailable: boolean;
+  onDismiss: (note?: string) => void | Promise<void>;
+  onRestore: () => void | Promise<void>;
+}) {
+  if (dismissed) {
+    return (
+      <div data-recommendation-episode-id={episodeId} className="hilt-card hilt-card-static mx-3 my-2 flex items-center justify-between gap-3 px-3 py-2.5 text-xs text-[var(--text-tertiary)]">
+        <span>Recommendation dismissed</span>
+        <button
+          type="button"
+          onClick={() => { void onRestore(); }}
+          className="inline-flex min-h-7 items-center gap-1 rounded-md px-2 font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+          title="Restore recommendation"
+        >
+          <RotateCcw className="h-3.5 w-3.5" /> Undo
+        </button>
+      </div>
+    );
+  }
+  if (artifact) return <BriefingRecommendationRow artifact={artifact} onDismiss={onDismiss} />;
+  return (
+    <div data-recommendation-episode-id={episodeId} className="hilt-card hilt-card-static mx-3 my-2 px-3 py-3 text-xs text-[var(--text-tertiary)]">
+      {unavailable ? "Recommendation no longer available" : "Loading recommendation…"}
+    </div>
+  );
+}
+
+function BriefingLibraryModules({
+  partition,
+  recommendationByEpisode,
+  dismissedEpisodeIds,
+  missingEpisodeIds,
+  recommendationError,
+  locallyDismissedEpisodes,
+  date,
+  onDismiss,
+  onRestore,
+  onOpenForYou,
+  healthActions,
+}: {
+  partition: BriefingLibraryPartition;
+  recommendationByEpisode: Map<string, RecommendedArtifact>;
+  dismissedEpisodeIds: Set<string>;
+  missingEpisodeIds: Set<string>;
+  recommendationError: unknown;
+  locallyDismissedEpisodes: Set<string>;
+  date?: string;
+  onDismiss: (episodeId: string, note?: string) => void | Promise<void>;
+  onRestore: (episodeId: string) => void | Promise<void>;
+  onOpenForYou: () => void;
+  healthActions?: ReactNode;
+}) {
+  const recommendationItems = partition.modules.recommendations?.items || [];
+  const recommendationIds = [...new Set(recommendationItems.flatMap((item) => (
+    extractRecommendationEpisodeIds(`${item.headline}\n${item.details}`)
+  )))];
+  const leadItems = recommendationItems.filter((item) => extractRecommendationEpisodeIds(`${item.headline}\n${item.details}`).length === 0);
+  const memoItems = partition.modules.memo?.items || [];
+  const healthItems = partition.modules.health?.items || [];
+  const renderItems = (items: BriefingItem[]) => items.map((item, index) => (
+    <BriefingModuleMarkdown key={`${item.headline}-${index}`} markdown={[item.headline, item.details].filter(Boolean).join("\n")} date={date} />
+  ));
+
+  return (
+    <div data-briefing-library-modules>
+      <section data-briefing-library-module="recommendations" aria-label="Recommended for you">
+        <div className="flex items-center gap-2 px-4 pt-3 text-xs font-medium text-[var(--text-tertiary)]">
+          <Sparkles className="h-3.5 w-3.5 text-[var(--accent-primary)]" aria-hidden />
+          Recommended for you
+        </div>
+        <div data-briefing-recommendation-lead className="space-y-2 px-4 pb-1 pt-2">
+          {leadItems.length ? renderItems(leadItems) : (
+            <p className="text-sm leading-6 text-[var(--text-secondary)]">Nothing new was selected for this briefing.</p>
+          )}
+        </div>
+        <div className="pb-1">
+          {recommendationIds.map((episodeId) => (
+            <BriefingRecommendationPlacement
+              key={episodeId}
+              episodeId={episodeId}
+              artifact={recommendationByEpisode.get(episodeId)}
+              dismissed={locallyDismissedEpisodes.has(episodeId) || dismissedEpisodeIds.has(episodeId)}
+              unavailable={missingEpisodeIds.has(episodeId) || Boolean(recommendationError)}
+              onDismiss={(note) => onDismiss(episodeId, note)}
+              onRestore={() => onRestore(episodeId)}
+            />
+          ))}
+        </div>
+        <div className="flex items-center border-t border-[var(--border-default)] px-4 py-2">
+          <button
+            type="button"
+            onClick={onOpenForYou}
+            className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+          >
+            View all <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
+      </section>
+
+      {partition.modules.memo && (
+        <section data-briefing-library-module="memo" aria-label="Editor's memo" className="border-t border-[var(--border-default)] bg-[var(--bg-secondary)] px-4 py-3">
+          <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--text-tertiary)]">
+            <BookOpenText className="h-3.5 w-3.5" aria-hidden />
+            Weekly editor&apos;s memo
+          </div>
+          <div className="space-y-2">{renderItems(memoItems)}</div>
+        </section>
+      )}
+
+      <section data-briefing-library-module="health" aria-label="Library health" className="border-t border-[var(--border-default)] px-4 py-3">
+        <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--text-tertiary)]">
+          <Activity className="h-3.5 w-3.5" aria-hidden />
+          Library health
+        </div>
+        <div className="space-y-2">
+          {healthItems.length ? renderItems(healthItems) : (
+            <p className="text-sm leading-6 text-amber-600 dark:text-amber-300">Daily library report unavailable for this briefing.</p>
+          )}
+          {healthActions}
+        </div>
+      </section>
+
+      {partition.ungrouped.length > 0 && (
+        <div className="border-t border-[var(--border-default)] px-4 py-3 space-y-2">
+          {renderItems(partition.ungrouped)}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -269,7 +445,7 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
   const footnoteId = footnoteMatch ? `fn-${footnoteMatch[1]}` : undefined;
 
   return (
-    <li id={footnoteId} className={`${headlineBound.length ? "group/askrow " : ""}relative text-[var(--text-secondary)] ${item.prose ? "list-none py-1" : ""} ${hasDetails ? `briefing-expandable${expanded ? " briefing-expanded" : ""}` : ""} ${escalatedHere ? "briefing-escalated" : ""}`}>
+    <li id={footnoteId} className={`${headlineBound.length ? "group/askrow " : ""}relative text-[var(--text-secondary)] ${item.prose ? "!list-none py-1 [&::marker]:content-none" : ""} ${hasDetails ? `briefing-expandable${expanded ? " briefing-expanded" : ""}` : ""} ${escalatedHere ? "briefing-escalated" : ""}`}>
       <div
         onClick={() => {
           if (!hasDetails) return;
@@ -413,7 +589,7 @@ function CollapsibleItem({ item, section, date, absPath, feedbackable, boundLoop
  * view (B2) uses, so a verdict given in either place is reflected in both. The editor's id-only
  * sub-bullet lines are consumed by their cards; every other sub-line renders above the cards.
  */
-function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedbackable, canvas, boundLoopItems = [], defaultOpen, expandSignal }: {
+function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedbackable, canvas, boundLoopItems = [], decisionQueue = false, activeBriefing = false, defaultOpen, expandSignal }: {
   item: BriefingItem;
   meetingRel: string;
   section: string;
@@ -422,6 +598,8 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
   feedbackable?: boolean;
   canvas: CanvasContext;
   boundLoopItems?: EscalatedLoopItem[];
+  decisionQueue?: boolean;
+  activeBriefing?: boolean;
   defaultOpen?: boolean;
   expandSignal?: ExpandSignal;
 }) {
@@ -438,6 +616,13 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
   const stampedIds = useMemo(
     () => extractTaskIds(`${item.headline}\n${item.details}`),
     [item.headline, item.details],
+  );
+  const stampedIdSet = useMemo(() => new Set(stampedIds), [stampedIds]);
+  const pendingProposals = useMemo(
+    () => decisionQueue
+      ? selectDecisionPendingProposals(join.proposals, stampedIdSet, activeBriefing)
+      : join.proposals,
+    [activeBriefing, decisionQueue, join.proposals, stampedIdSet],
   );
   // Landed lane: ONLY ids the editor stamped this morning — an id approved between 6:00 and
   // reading shows as a read-only "Accepted" card (live feedback), but the meeting's whole
@@ -457,9 +642,17 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
       && loopItem.verdict !== "dismiss"
       && !joined.has(`${loopItem.loop}:${loopItem.id}`),
   );
-  const pendingCount = join.proposals.length
-    + join.unmintedAsks.filter((ask) => !ask.verdict).length
-    + extraBoundAsks.filter((ask) => !ask.verdict).length;
+  const pendingCount = pendingProposals.length
+    + (decisionQueue ? 0 : join.unmintedAsks.filter((ask) => !ask.verdict).length)
+    + (decisionQueue ? 0 : extraBoundAsks.filter((ask) => !ask.verdict).length);
+  const urgent = decisionQueue && pendingProposals.some((task) => {
+    if (task.due && task.due <= new Date().toLocaleDateString("en-CA")) return true;
+    return canvas.escalations.some((item) => (
+      item.loop === task.origin?.loop
+      && (item.task_id === task.id || item.id === task.origin?.item_id)
+      && Boolean(item.escalated)
+    ));
+  });
 
   // Dismissed-but-never-gone (gate-B), the same "Dismissed · N" tail as the meeting view (B2):
   // this meeting's ledger-backed dismissals merged with limbo ones from the escalations feed
@@ -469,6 +662,21 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
   const meetingDismissed = useMemo(
     () => mergeDismissed(dismissed, canvas.escalations.filter((e) => e.loop === PROPOSAL_LOOP), meetingRel),
     [dismissed, canvas.escalations, meetingRel],
+  );
+  const resolvedDismissedIds = useMemo(() => {
+    if (!decisionQueue) return new Set(meetingDismissed.map((item) => item.id));
+    const ids = new Set<string>();
+    for (const record of dismissed) {
+      if (record.task_id && stampedIdSet.has(record.task_id)) ids.add(record.id);
+    }
+    for (const escalation of canvas.escalations) {
+      if (escalation.verdict === "dismiss" && escalation.task_id && stampedIdSet.has(escalation.task_id)) ids.add(escalation.id);
+    }
+    return ids;
+  }, [canvas.escalations, decisionQueue, dismissed, meetingDismissed, stampedIdSet]);
+  const resolvedDismissed = useMemo(
+    () => meetingDismissed.filter((item) => resolvedDismissedIds.has(item.id)),
+    [meetingDismissed, resolvedDismissedIds],
   );
   const [dismissedExpanded, setDismissedExpanded] = useState(false);
   const toggleDismissed = useCallback(() => {
@@ -518,6 +726,9 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
       <BriefingLink href={href} className={className} date={date}>{children}</BriefingLink>
     ),
   };
+  const summaryMarkdown = decisionQueue && isRedundantMeetingCitationLine(item.headline, meetingRel)
+    ? ""
+    : renderCitations(stripTaskTokens(cleanLoopTokens(item.headline)));
 
   return (
     <MeetingCard
@@ -526,6 +737,8 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
       meetingRel={meetingRel}
       suppressHeaderPill={item.headline.includes(`hilt:meeting/${meetingRel}`)}
       pendingCount={pendingCount}
+      urgent={decisionQueue ? urgent : undefined}
+      meetingFirst={decisionQueue}
       defaultOpen={defaultOpen}
       expandSignal={expandSignal}
       actions={(
@@ -540,11 +753,11 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
           )}
         </>
       )}
-      summary={(
+      summary={summaryMarkdown ? (
         <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents} urlTransform={briefingUrlTransform}>
-          {renderCitations(stripTaskTokens(cleanLoopTokens(item.headline)))}
+          {summaryMarkdown}
         </ReactMarkdown>
-      )}
+      ) : undefined}
     >
       {leftoverLines.map((line, index) => (
         <div key={`line-${index}`} className="leading-relaxed briefing-inline-md text-[var(--text-secondary)]">
@@ -553,7 +766,7 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
           </ReactMarkdown>
         </div>
       ))}
-      {join.proposals.map((task) => (
+      {pendingProposals.map((task) => (
         <TaskCard
           key={task.id}
           flush
@@ -563,7 +776,7 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
           onOpen={() => requestTaskOpen(task.id)}
         />
       ))}
-      {[...join.unmintedAsks, ...extraBoundAsks].map((ask) => (
+      {!decisionQueue && [...join.unmintedAsks, ...extraBoundAsks].map((ask) => (
         <TaskCard
           key={`${ask.loop}:${ask.id}`}
           flush
@@ -573,12 +786,42 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
           onVerdict={ask.verdict ? undefined : canvas.makeVerdictHandler(ask.loop, ask.id)}
         />
       ))}
-      {landedStamped.map((task) => (
+      {!decisionQueue && landedStamped.map((task) => (
         <TaskCard key={task.id} flush hideMeeting showStatus task={task} onOpen={() => requestTaskOpen(task.id)} />
       ))}
+      {decisionQueue && landedStamped.length + resolvedDismissed.length > 0 && (
+        <div>
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-[var(--border-default)]" />
+            <button
+              type="button"
+              onClick={toggleDismissed}
+              className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
+              title={dismissedExpanded ? "Hide resolved decisions" : "View resolved decisions"}
+            >
+              <ChevronRight className={`h-3.5 w-3.5 transition-transform ${dismissedExpanded ? "rotate-90" : ""}`} />
+              Resolved · {landedStamped.length + resolvedDismissed.length}
+            </button>
+            <div className="h-px flex-1 bg-[var(--border-default)]" />
+          </div>
+          {dismissedExpanded && (
+            <div className="mt-2 space-y-0.5">
+              {landedStamped.map((task) => (
+                <TaskCard key={task.id} flush hideMeeting showStatus task={task} onOpen={() => requestTaskOpen(task.id)} />
+              ))}
+              {resolvedDismissed.map((dismissedItem) => (
+                <div key={dismissedItem.id} className="flex items-baseline gap-2 px-3 py-1">
+                  <span className="min-w-0 flex-1 truncate text-xs text-[var(--text-tertiary)]" title={dismissedItem.action}>{dismissedItem.action}</span>
+                  <span className="shrink-0 text-xs text-[var(--text-quaternary)]">Dismissed</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {/* Dismissed asks FROM THIS MEETING — the quiet reveal-tail idiom, classes copied exactly
           from the meeting view (B2) / Proposals section (A6). Renders only when N > 0. */}
-      {meetingDismissed.length > 0 && (
+      {!decisionQueue && meetingDismissed.length > 0 && (
         <div>
           <div className="flex items-center gap-3">
             <div className="h-px flex-1 bg-[var(--border-default)]" />
@@ -612,7 +855,7 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
   );
 }
 
-export function BriefingContent({ content, date, absPath, feedbackable = true, escalations = [], onEscalationsChanged = () => {} }: BriefingContentProps) {
+export function BriefingContent({ content, date, absPath, feedbackable = true, escalations = [], onEscalationsChanged = () => {}, activeBriefing = false }: BriefingContentProps) {
   // Repair bare hilt: destinations (spaces/parens break CommonMark link parsing) BEFORE parse
   // so every downstream render site sees pill-able links — then strip any literal date token
   // bolted on after a meeting pill (the DATED pill carries the date inside the chip now; this
@@ -621,6 +864,52 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
     () => parseBriefing(stripDateAfterMeetingPill(normalizeHiltLinks(content))),
     [content],
   );
+  const recommendationEpisodeIds = useMemo(
+    () => [...new Set(sections.flatMap((section) => section.items.flatMap((item) => (
+      extractRecommendationEpisodeIds(`${item.headline}\n${item.details}`)
+    ))))],
+    [sections],
+  );
+  const recommendationPreviews = useRecommendationEpisodes(recommendationEpisodeIds);
+  const recommendationByEpisode = useMemo(() => new Map(
+    recommendationPreviews.items
+      .filter((artifact) => artifact.recommendation?.episode_id)
+      .map((artifact) => [artifact.recommendation!.episode_id, artifact]),
+  ), [recommendationPreviews.items]);
+  const [locallyDismissedEpisodes, setLocallyDismissedEpisodes] = useState<Set<string>>(new Set());
+  useEffect(() => setLocallyDismissedEpisodes(new Set()), [content]);
+  const dismissRecommendation = useCallback(async (episodeId: string, note?: string) => {
+    setLocallyDismissedEpisodes((previous) => new Set(previous).add(episodeId));
+    try {
+      await dismissLibraryRecommendation(episodeId, note, "briefing");
+      void recommendationPreviews.mutate();
+    } catch (error) {
+      setLocallyDismissedEpisodes((previous) => {
+        const next = new Set(previous);
+        next.delete(episodeId);
+        return next;
+      });
+      console.warn("[briefings] failed to dismiss recommendation", error);
+    }
+  }, [recommendationPreviews]);
+  const restoreRecommendationEpisode = useCallback(async (episodeId: string) => {
+    setLocallyDismissedEpisodes((previous) => {
+      const next = new Set(previous);
+      next.delete(episodeId);
+      return next;
+    });
+    await restoreLibraryRecommendation(episodeId);
+    void recommendationPreviews.mutate();
+  }, [recommendationPreviews]);
+  const { navigateTo } = useScope();
+  const openForYou = useCallback(() => {
+    navigateTo("library", "");
+    window.history.replaceState(
+      { scope: "" },
+      "",
+      buildLibraryUrl("", { ...defaultLibraryUrlControls, ranking: "for-you" }),
+    );
+  }, [navigateTo]);
 
   // ── Per-section expand-all / collapse-all ─────────────────────────────────────────────────
   // One header button per section broadcasts an ExpandSignal to every expandable child
@@ -801,17 +1090,36 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
       <EscalationsFallbackFold items={unmatched} onChanged={onEscalationsChanged} />
       {sections.map((section, si) => {
         const isSourcesSection = /sources/i.test(section.heading);
+        const isLibrarySection = section.heading.includes("📚") || /library/i.test(section.heading);
+        const libraryPartition = isLibrarySection ? partitionBriefingLibrarySection(section) : null;
+        const sectionRecommendationIds = isLibrarySection
+          ? [...new Set(section.items.flatMap((item) => extractRecommendationEpisodeIds(`${item.headline}\n${item.details}`)))]
+          : [];
         const sectionEscalations = bySection.get(si) || [];
         // B3: inside ⏭ Next steps, a bullet carrying a meeting citation renders as a
         // MeetingCard (expandable to that meeting's live task cards). Keyed on the ⏭ marker +
         // the citation — pre-B3 briefings have neither, so they render exactly as before.
         const isNextSteps = isNextStepsHeading(section.heading);
+        const isDecisionQueue = isDecisionsHeading(section.heading);
         const meetingRels = section.items.map((item) =>
           isNextSteps && !item.prose ? extractMeetingRelPath(`${item.headline}\n${item.details}`) : null);
         const meetingEntryCount = meetingRels.filter(Boolean).length;
+        const stampedDecisionIds = new Set(section.items.flatMap((item) => extractTaskIds(`${item.headline}\n${item.details}`)));
+        const decisionPending = isDecisionQueue
+          ? selectDecisionPendingProposals(proposals, stampedDecisionIds, activeBriefing)
+          : [];
+        const activeDecisionGroups = isDecisionQueue
+          ? activeDecisionMeetingGroups(
+              proposals,
+              new Set(meetingRels.filter((rel): rel is string => Boolean(rel))),
+              activeBriefing,
+            )
+          : [];
         // Escalation rows the block will actually render (⏭ filters out already-featured
         // meetings) — computed here so the header knows whether ANYTHING is expandable.
-        const blockItems = isNextSteps
+        const blockItems = isDecisionQueue
+          ? []
+          : isNextSteps
           ? sectionEscalations.filter((it) => {
               const src = it.citations?.[0]?.source || "";
               return !meetingRels.some((rel) => rel && src.includes(rel));
@@ -820,34 +1128,98 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
         // All-prose sections get no button — a control that can't do anything is dead chrome.
         const hasExpandable = !isSourcesSection && (
           meetingEntryCount > 0
+          || activeDecisionGroups.length > 0
           || blockItems.length > 0
           || section.items.some((item, ii) => !meetingRels[ii] && item.details.trim().length > 0)
         );
         const signal = expandSignals[si];
         const nextExpand = !(signal?.expanded ?? false);
+        if (libraryPartition?.structured) {
+          return (
+            <div
+              key={si}
+              data-briefing-decisions={isDecisionQueue ? "true" : undefined}
+              data-briefing-work={section.heading.includes("💼") ? "true" : undefined}
+              className="hilt-card hilt-card-static overflow-visible"
+            >
+              <div className="rounded-t-lg px-4 py-3 border-b border-[var(--border-default)] bg-[var(--bg-secondary)] flex items-center justify-between gap-3">
+                <h2 className="text-base font-semibold text-[var(--text-primary)] !m-0">{section.heading}</h2>
+                {hasExpandable && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      nextExpand ? haptics.soft() : haptics.rigid();
+                      toggleSectionExpand(si);
+                    }}
+                    title={nextExpand ? "Expand all" : "Collapse all"}
+                    className="shrink-0 rounded-md p-0.5 text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-primary)]"
+                  >
+                    {nextExpand ? <ChevronsUpDown className="h-4 w-4" /> : <ChevronsDownUp className="h-4 w-4" />}
+                  </button>
+                )}
+              </div>
+              <BriefingLibraryModules
+                partition={libraryPartition}
+                recommendationByEpisode={recommendationByEpisode}
+                dismissedEpisodeIds={recommendationPreviews.dismissedEpisodeIds}
+                missingEpisodeIds={recommendationPreviews.missingEpisodeIds}
+                recommendationError={recommendationPreviews.error}
+                locallyDismissedEpisodes={locallyDismissedEpisodes}
+                date={date}
+                onDismiss={dismissRecommendation}
+                onRestore={restoreRecommendationEpisode}
+                onOpenForYou={openForYou}
+                healthActions={blockItems.length > 0 ? (
+                  <ul className="briefing-list !m-0 pl-5 pt-1">
+                    <EscalationsBlock
+                      items={blockItems}
+                      onChanged={onEscalationsChanged}
+                      expandSignal={signal}
+                      taskById={canvas.taskById}
+                      makeVerdictHandler={canvas.makeVerdictHandler}
+                    />
+                  </ul>
+                ) : undefined}
+              />
+            </div>
+          );
+        }
         return (
-          <div key={si} className="hilt-card hilt-card-static overflow-visible">
+          <div
+            key={si}
+            data-briefing-decisions={isDecisionQueue ? "true" : undefined}
+            data-briefing-work={section.heading.includes("💼") ? "true" : undefined}
+            className="hilt-card hilt-card-static overflow-visible"
+          >
             <div className="rounded-t-lg px-4 py-3 border-b border-[var(--border-default)] bg-[var(--bg-secondary)] flex items-center justify-between gap-3">
               <h2 className="text-base font-semibold text-[var(--text-primary)] !m-0">
                 {section.heading}
               </h2>
-              {hasExpandable && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    nextExpand ? haptics.soft() : haptics.rigid();
-                    toggleSectionExpand(si);
-                  }}
-                  title={nextExpand ? "Expand all" : "Collapse all"}
-                  className="shrink-0 rounded-md p-0.5 text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-primary)]"
-                >
-                  {nextExpand ? <ChevronsUpDown className="h-4 w-4" /> : <ChevronsDownUp className="h-4 w-4" />}
-                </button>
-              )}
+              <div className="flex shrink-0 items-center gap-2">
+                {isDecisionQueue && (
+                  <span data-decision-pending-count className="rounded-full bg-[var(--bg-primary)] px-2 py-0.5 text-xs tabular-nums text-[var(--text-tertiary)]">
+                    {decisionPending.length} pending
+                  </span>
+                )}
+                {hasExpandable && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      nextExpand ? haptics.soft() : haptics.rigid();
+                      toggleSectionExpand(si);
+                    }}
+                    title={nextExpand ? "Expand all" : "Collapse all"}
+                    className="shrink-0 rounded-md p-0.5 text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-primary)]"
+                  >
+                    {nextExpand ? <ChevronsUpDown className="h-4 w-4" /> : <ChevronsDownUp className="h-4 w-4" />}
+                  </button>
+                )}
+              </div>
             </div>
             {isSourcesSection ? (
               <div className="px-4 py-2 space-y-0.5 !m-0 text-sm text-[var(--text-secondary)]">
                 {section.items.map((item, ii) => {
+                  if (isDecisionQueue && item.prose && isDecisionQueueSummary(item.headline)) return null;
                   const fnMatch = item.headline.match(/^\[(\d+)\]\s/);
                   return (
                     <div key={ii} id={fnMatch ? `fn-${fnMatch[1]}` : undefined} className="py-0.5 leading-relaxed">
@@ -869,6 +1241,56 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
             ) : (
               <ul className="briefing-list pl-9 pr-4 py-2 space-y-0 !m-0">
                 {section.items.map((item, ii) => {
+                  if (isDecisionQueue && item.prose && isDecisionQueueSummary(item.headline)) return null;
+                  const isRecommendationReportLink = isLibrarySection
+                    && sectionRecommendationIds.length > 0
+                    && `${item.headline}\n${item.details}`.includes("/api/reports/morning");
+                  if (isRecommendationReportLink) return null;
+                  const recommendationIds = isLibrarySection
+                    ? extractRecommendationEpisodeIds(`${item.headline}\n${item.details}`)
+                    : [];
+                  if (recommendationIds.length > 0) {
+                    return recommendationIds.map((episodeId) => {
+                      const artifact = recommendationByEpisode.get(episodeId);
+                      const dismissed = locallyDismissedEpisodes.has(episodeId)
+                        || recommendationPreviews.dismissedEpisodeIds.has(episodeId);
+                      if (dismissed) {
+                        return (
+                          <li key={episodeId} className="-ml-9 -mr-4 !list-none [&::marker]:content-none">
+                            <div className="hilt-card hilt-card-static mx-3 my-2 flex items-center justify-between gap-3 px-3 py-2.5 text-xs text-[var(--text-tertiary)]">
+                              <span>Recommendation dismissed</span>
+                              <button
+                                type="button"
+                                onClick={() => void restoreRecommendationEpisode(episodeId)}
+                                className="inline-flex min-h-7 items-center gap-1 rounded-md px-2 font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                                title="Restore recommendation"
+                              >
+                                <RotateCcw className="h-3.5 w-3.5" /> Undo
+                              </button>
+                            </div>
+                          </li>
+                        );
+                      }
+                      if (artifact) {
+                        return (
+                          <li key={episodeId} className="-ml-9 -mr-4 !list-none [&::marker]:content-none">
+                            <BriefingRecommendationRow
+                              artifact={artifact}
+                              onDismiss={(note) => dismissRecommendation(episodeId, note)}
+                            />
+                          </li>
+                        );
+                      }
+                      const unavailable = recommendationPreviews.missingEpisodeIds.has(episodeId) || recommendationPreviews.error;
+                      return (
+                        <li key={episodeId} className="-ml-9 -mr-4 !list-none [&::marker]:content-none">
+                          <div className="hilt-card hilt-card-static mx-3 my-2 px-3 py-3 text-xs text-[var(--text-tertiary)]">
+                            {unavailable ? "Recommendation no longer available" : "Loading recommendation…"}
+                          </div>
+                        </li>
+                      );
+                    });
+                  }
                   const meetingRel = meetingRels[ii];
                   if (meetingRel) {
                     return (
@@ -882,13 +1304,37 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
                         feedbackable={feedbackable}
                         canvas={canvas}
                         boundLoopItems={byBullet.get(`${si}:${ii}`)}
-                        defaultOpen={meetingEntryCount === 1}
+                        decisionQueue={isDecisionQueue}
+                        activeBriefing={activeBriefing}
+                        defaultOpen={isDecisionQueue ? false : meetingEntryCount === 1}
                         expandSignal={signal}
                       />
                     );
                   }
                   return (
                     <CollapsibleItem key={ii} item={item} section={section.heading} date={date} absPath={absPath} feedbackable={feedbackable} boundLoopItems={byBullet.get(`${si}:${ii}`)} onLoopItemsChanged={onEscalationsChanged} canvas={canvas} expandSignal={signal} />
+                  );
+                })}
+                {activeDecisionGroups.map((group) => {
+                  const syntheticItem: BriefingItem = {
+                    headline: `*${group.meeting}*`,
+                    details: group.tasks.map((task) => `- \`${task.id}\``).join("\n"),
+                  };
+                  return (
+                    <NextStepsMeetingItem
+                      key={`active-decision:${group.meeting}`}
+                      item={syntheticItem}
+                      meetingRel={group.meeting}
+                      section={section.heading}
+                      date={date}
+                      absPath={absPath}
+                      feedbackable={feedbackable}
+                      canvas={canvas}
+                      decisionQueue
+                      activeBriefing
+                      defaultOpen={false}
+                      expandSignal={signal}
+                    />
                   );
                 })}
                 {/* Loop items the editor did NOT feature: bullets in the SAME list — urgency is
@@ -906,6 +1352,20 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
                   makeVerdictHandler={canvas.makeVerdictHandler}
                 />
               </ul>
+            )}
+            {sectionRecommendationIds.length > 0 && (
+              <div className="flex flex-col items-start gap-1 border-t border-[var(--border-default)] px-4 py-2.5">
+                <button
+                  type="button"
+                  onClick={openForYou}
+                  className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                >
+                  View all <ArrowRight className="h-4 w-4" />
+                </button>
+                <BriefingLink href="/api/reports/morning" date={date} className="inline-flex min-h-8 items-center rounded-md px-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]">
+                  Full library report
+                </BriefingLink>
+              </div>
             )}
           </div>
         );

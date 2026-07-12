@@ -18,6 +18,7 @@ import type { GraphRunner } from "../src/lib/graph/runner";
 import type { SemanticRunner } from "../src/lib/semantic/runner";
 import { getVaultPathSync } from "../src/lib/bridge/vault";
 import { LibraryProcessingRunner } from "../src/lib/library/processing-trigger";
+import { LibraryRecommendationRunner } from "../src/lib/library/recommendation-trigger";
 import { startLibraryIntakeDaemon } from "../src/lib/library/intake-daemon";
 
 loadEnvConfig(process.cwd());
@@ -176,18 +177,31 @@ async function startServer() {
 
   const libraryVaultPath = getVaultPathSync();
   const libraryProcessingRunner = new LibraryProcessingRunner(libraryVaultPath);
+  const libraryRecommendationRunner = new LibraryRecommendationRunner(
+    libraryVaultPath,
+    () => eventServer.broadcast("library", "recommendations-changed", { at: new Date().toISOString() }),
+  );
   const libraryWatcher = getLibraryWatcher(libraryVaultPath);
   const libraryIntakeDaemon = startLibraryIntakeDaemon(libraryVaultPath, () => libraryProcessingRunner.kick());
 
   libraryWatcher.on("artifact-changed", (event) => {
     eventServer.broadcast("library", "artifact-changed", event);
+    libraryRecommendationRunner.noteArtifact(event.path, event.became_ready === true);
   });
   libraryWatcher.on("queue-changed", (event) => {
     eventServer.broadcast("library", "queue-changed", event);
     libraryProcessingRunner.kick();
   });
+  libraryWatcher.on("context-changed", (event) => {
+    libraryRecommendationRunner.noteContext(event.path);
+  });
+  libraryWatcher.on("recommendations-changed", (event) => {
+    eventServer.broadcast("library", "recommendations-changed", event);
+    if (!event.affects_feed) libraryRecommendationRunner.resume();
+  });
   libraryWatcher.start();
   libraryProcessingRunner.kick();
+  libraryRecommendationRunner.resume();
 
   // Scope watcher for docs tree/file events (per-client subscription)
   const scopeWatcher = getScopeWatcher();
@@ -442,6 +456,7 @@ async function startServer() {
     bridgeWatcher.stop();
     libraryWatcher.stop();
     libraryIntakeDaemon.stop();
+    libraryRecommendationRunner.stop();
     stopCalendarSyncDaemon();
     fs.unwatchFile(CALENDAR_MARKER_FILE);
     eventServer.close();

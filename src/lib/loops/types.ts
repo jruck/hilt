@@ -79,6 +79,8 @@ export interface LoopHealth {
   proposal_ids?: string[];
   /** Operational notes — anything the runtime loop or a human debugger should see. */
   notes?: string;
+  /** Deterministic compact sentence for the Library health footer in a briefing. */
+  briefing_summary?: string;
 }
 
 // ── Artifact (scope §3.2) ─────────────────────────────────────────────────────────────────────

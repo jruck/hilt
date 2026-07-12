@@ -289,7 +289,9 @@ async function main(): Promise<void> {
   }
 
   const now = isoNow();
-  const today = now.slice(0, 10);
+  // The memo is a calendar artifact for the local Saturday briefing. A late manual rerun can cross
+  // midnight UTC while it is still Saturday in New York, so do not derive its anchor from ISO UTC.
+  const today = new Date(now).toLocaleDateString("en-CA");
   const suggestions = referencedSuggestions(memo, items);
   const frontmatter: Record<string, unknown> = {
     type: "reference",
@@ -318,7 +320,7 @@ async function main(): Promise<void> {
   fs.writeFileSync(memoPath, stringifyMarkdown(frontmatter, body), "utf-8");
 
   // Remote surface: render to ~/.hilt/reports/memo/ so the memo is always readable at
-  // /api/reports/memo (in Hilt and over the tailnet); the Sunday briefing links here. The vault
+  // /api/reports/memo (in Hilt and over the tailnet); the weekend briefing links here. The vault
   // copy carries YAML frontmatter report-html.ts would render literally, so render from a plain
   // markdown scratch copy (same pattern as the steering report). Best-effort.
   try {

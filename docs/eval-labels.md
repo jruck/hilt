@@ -10,6 +10,20 @@ Format: `date · item · user verdict · root cause · resolution · round`
 
 ## Labels
 
+### 2026-07-10 · For You/briefing attention model — replace evergreen score resurfacing
+- **User verdict:** For You and the Library briefing should be the same personal attention feed: rank
+  what is newly worth seeing in light of recent saves, conversations, meetings, and project movement;
+  retain prior recommendations below; resurface an older item only when something materially new
+  makes it timely, with an updated explanation. Do not repeatedly float high-score evergreen items.
+- **Root cause:** scoring config `s1` treated For You as a temporary eight-item ranking with an
+  exploration slot and source caps. It had no durable recommendation episodes, evidence novelty,
+  exposure history, or separation between source summary and recommendation pitch.
+- **Resolution:** scoring config `s2` uses an editorial 0–12 batch over a larger pool, seven-day fresh
+  intake plus 72-hour novel context evidence, one latest episode per artifact, and 7/14/30-day
+  exposure/read/dismissal cooldowns. Repeated trigger fingerprints and materially unchanged pitches
+  are rejected. Briefing cards consume the same frozen episodes; numeric eval remains diagnostic.
+- **Round:** direct product steering, implemented and isolated-E2E verified.
+
 ### 2026-06-10 · Steering round 1 — both proposals approved and applied
 - **User ruling on fetch failures (verbatim spirit):** "when source fetch fails, that suggests an issue
   with our summarize pipeline, not an issue with the quality of the content" — route to a needs-re-fetch

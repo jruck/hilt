@@ -11,12 +11,14 @@ import {
 import type { LibraryProcessingState } from "../../src/lib/library/types";
 import { ensureDir, hashId } from "../../src/lib/library/utils";
 import { relativeVaultPath } from "../../src/lib/library/markdown";
+import { recommendationRoot } from "../../src/lib/library/recommendation-store";
 
 export interface LibraryArtifactChangedEvent {
   operation: "add" | "change" | "unlink";
   id: string;
   path: string;
   processing?: LibraryProcessingState;
+  became_ready?: boolean;
 }
 
 export interface LibraryQueueChangedEvent {
@@ -27,11 +29,24 @@ export interface LibraryQueueChangedEvent {
   active_item: { artifact_uid: string; title: string; path: string } | null;
 }
 
+export interface LibraryContextChangedEvent {
+  path: string;
+  kind: "meeting" | "task" | "project" | "area";
+}
+
+export interface LibraryRecommendationsChangedEvent {
+  path: string | null;
+  affects_feed: boolean;
+}
+
 export class LibraryWatcher extends EventEmitter {
   private watcher: chokidar.FSWatcher | null = null;
   private artifactTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private pendingArtifactEvents = new Map<string, LibraryArtifactChangedEvent>();
   private queueTimer: ReturnType<typeof setTimeout> | null = null;
+  private recommendationTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingRecommendationPath: string | null = null;
+  private pendingRecommendationAffectsFeed = false;
   private knownArtifacts = new Map<string, { id: string; processing?: LibraryProcessingState }>();
   private readyPromise: Promise<void> = Promise.resolve();
 
@@ -44,6 +59,11 @@ export class LibraryWatcher extends EventEmitter {
     const watchPaths = [
       path.join(this.vaultPath, "references"),
       libraryProcessingDir(this.vaultPath),
+      recommendationRoot(this.vaultPath),
+      path.join(this.vaultPath, "meetings"),
+      path.join(this.vaultPath, "tasks"),
+      path.join(this.vaultPath, "projects"),
+      path.join(this.vaultPath, "areas"),
     ];
     for (const watchPath of [...watchPaths, path.join(this.vaultPath, CANDIDATE_CACHE_DIR)]) ensureDir(watchPath);
     this.watcher = chokidar.watch(watchPaths, {
@@ -69,8 +89,30 @@ export class LibraryWatcher extends EventEmitter {
 
   private handle(operation: string, filePath: string): void {
     const relative = relativeVaultPath(this.vaultPath, filePath);
+    if (filePath.startsWith(recommendationRoot(this.vaultPath))) {
+      if (path.basename(filePath) === "editor.lock") return;
+      if (["add", "change", "unlink"].includes(operation) && !path.basename(filePath).includes(".tmp.")) {
+        this.debounceRecommendations(relative);
+      }
+      return;
+    }
     if (filePath.startsWith(libraryProcessingDir(this.vaultPath))) {
       this.debounceQueue();
+      return;
+    }
+    const contextKind = relative.startsWith("meetings/")
+      ? "meeting"
+      : relative.startsWith("tasks/")
+        ? "task"
+        : relative.startsWith("projects/")
+          ? "project"
+          : relative.startsWith("areas/")
+            ? "area"
+            : null;
+    if (contextKind) {
+      if (filePath.endsWith(".md") && ["add", "change"].includes(operation)) {
+        this.emit("context-changed", { path: relative, kind: contextKind } satisfies LibraryContextChangedEvent);
+      }
       return;
     }
     if (!filePath.endsWith(".md") || !["add", "change", "unlink"].includes(operation)) return;
@@ -84,10 +126,13 @@ export class LibraryWatcher extends EventEmitter {
       id,
       path: relative,
       processing: artifact?.processing || previous?.processing,
+      became_ready: artifact?.processing?.state === "ready"
+        && (operation === "add" || (Boolean(previous?.processing) && previous?.processing?.state !== "ready")),
     };
     const pending = this.pendingArtifactEvents.get(id);
     const event: LibraryArtifactChangedEvent = {
       ...nextEvent,
+      became_ready: Boolean(nextEvent.became_ready || pending?.became_ready),
       operation: nextEvent.operation === "unlink"
         ? "unlink"
         : pending?.operation === "add"
@@ -115,6 +160,23 @@ export class LibraryWatcher extends EventEmitter {
     }, this.debounceMs);
   }
 
+  private debounceRecommendations(relativePath: string): void {
+    this.pendingRecommendationPath = relativePath;
+    const parts = relativePath.split("/");
+    this.pendingRecommendationAffectsFeed = this.pendingRecommendationAffectsFeed
+      || parts.includes("batches")
+      || ["feed.json", "verdicts.json"].includes(path.basename(relativePath));
+    if (this.recommendationTimer) clearTimeout(this.recommendationTimer);
+    this.recommendationTimer = setTimeout(() => {
+      this.recommendationTimer = null;
+      const changedPath = this.pendingRecommendationPath;
+      const affectsFeed = this.pendingRecommendationAffectsFeed;
+      this.pendingRecommendationPath = null;
+      this.pendingRecommendationAffectsFeed = false;
+      this.emit("recommendations-changed", { path: changedPath, affects_feed: affectsFeed } satisfies LibraryRecommendationsChangedEvent);
+    }, this.debounceMs);
+  }
+
   stop(): void {
     void this.watcher?.close();
     this.watcher = null;
@@ -123,6 +185,10 @@ export class LibraryWatcher extends EventEmitter {
     this.pendingArtifactEvents.clear();
     if (this.queueTimer) clearTimeout(this.queueTimer);
     this.queueTimer = null;
+    if (this.recommendationTimer) clearTimeout(this.recommendationTimer);
+    this.recommendationTimer = null;
+    this.pendingRecommendationPath = null;
+    this.pendingRecommendationAffectsFeed = false;
   }
 }
 

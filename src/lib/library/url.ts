@@ -30,6 +30,10 @@ export interface LibraryUrlControls {
   tag: string | null;
 }
 
+export interface LibraryUrlContext {
+  recommendationEpisodeId?: string | null;
+}
+
 export const defaultLibraryUrlControls: LibraryUrlControls = {
   density: "feed",
   ranking: "recent",
@@ -70,7 +74,7 @@ export function parseLibraryControls(search: string): LibraryUrlControls {
   };
 }
 
-export function buildLibrarySearch(controls: LibraryUrlControls): string {
+export function buildLibrarySearch(controls: LibraryUrlControls, context: LibraryUrlContext = {}): string {
   const params = new URLSearchParams();
   if (controls.density !== defaultLibraryUrlControls.density) params.set("view", controls.density);
   if (controls.ranking !== defaultLibraryUrlControls.ranking) params.set("rank", controls.ranking);
@@ -78,8 +82,15 @@ export function buildLibrarySearch(controls: LibraryUrlControls): string {
   if (controls.mode !== defaultLibraryUrlControls.mode) params.set("mode", controls.mode);
   if (controls.source) params.set("source", controls.source);
   if (controls.tag) params.set("tag", controls.tag);
+  if (context.recommendationEpisodeId) params.set("rec", context.recommendationEpisodeId);
   const search = params.toString();
   return search ? `?${search}` : "";
+}
+
+export function recommendationEpisodeIdFromSearch(search: string): string | null {
+  const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  const value = params.get("rec");
+  return value && /^rec-[a-z0-9][a-z0-9-]*$/i.test(value) ? value : null;
 }
 
 export function libraryItemScope(id: string): string {
@@ -96,10 +107,10 @@ export function libraryItemIdFromScope(scope: string): string | null {
   }
 }
 
-export function buildLibraryUrl(scope: string, controls: LibraryUrlControls = defaultLibraryUrlControls): string {
-  return `${buildViewUrl("library", scope)}${buildLibrarySearch(controls)}`;
+export function buildLibraryUrl(scope: string, controls: LibraryUrlControls = defaultLibraryUrlControls, context: LibraryUrlContext = {}): string {
+  return `${buildViewUrl("library", scope)}${buildLibrarySearch(controls, context)}`;
 }
 
-export function buildLibraryItemUrl(id: string, controls: LibraryUrlControls = defaultLibraryUrlControls): string {
-  return buildLibraryUrl(libraryItemScope(id), controls);
+export function buildLibraryItemUrl(id: string, controls: LibraryUrlControls = defaultLibraryUrlControls, context: LibraryUrlContext = {}): string {
+  return buildLibraryUrl(libraryItemScope(id), controls, context);
 }

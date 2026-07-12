@@ -1,18 +1,24 @@
 "use client";
 
-import { useEffect, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { LibraryArtifact, RecommendedArtifact } from "@/lib/library/types";
 import type { PromotionReason } from "@/lib/library/types";
 import type { ReviewQueueStatus } from "@/lib/library/review-queue";
 import { formatVideoDuration } from "@/lib/library/media";
 import { artifactDisplayTags } from "@/lib/library/taxonomy";
-import { Check, ChevronDown, ExternalLink, FileText, MoreHorizontal, Play, ThumbsDown } from "lucide-react";
+import { Check, ChevronDown, ExternalLink, FileText, MoreHorizontal, Play, Sparkles, ThumbsDown } from "lucide-react";
 import { contentTypeForArtifact } from "@/lib/library/content-type";
 import { ContentTypeIcon } from "./ContentTypeIcon";
 import { EvalMetricPills } from "./EvalMetricPills";
 import { LibraryLifecycleMenu } from "./LibraryLifecycleMenu";
 import { SeriesBadge } from "./SeriesBadge";
 import { ProcessingStatus } from "./ProcessingStatus";
+import { RecommendationDismissPopover } from "./RecommendationDismissPopover";
+import { CommentPopover } from "@/components/comments/CommentPopover";
+import { recordRecommendationImpressions } from "@/hooks/useLibrary";
+import { libraryCardCopy, type LibraryCardVariant } from "@/lib/library/card-copy";
+
+const impressedRecommendationEpisodes = new Set<string>();
 
 function clipPolicyLabel(policy: string): string {
   if (policy === "label_review") return "Clip review";
@@ -32,6 +38,13 @@ function clipSignalSummary(signals: string[]): string {
   return signals.slice(0, 3).map((signal) => signal.replace(/_/g, " ")).join(" · ");
 }
 
+function recommendationIndicatorTitle(recommendedAt: string): string {
+  const ageMs = Date.now() - Date.parse(recommendedAt);
+  if (Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 24 * 60 * 60_000) return "In For You · recommended today";
+  if (Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 48 * 60 * 60_000) return "In For You · recommended yesterday";
+  return `In For You · recommended ${recommendedAt.slice(0, 10)}`;
+}
+
 export function FeedCard({
   artifact,
   showEvalBreakdown = false,
@@ -44,7 +57,8 @@ export function FeedCard({
   onReviewStatus,
   active = false,
   wideLayout = false,
-  reason,
+  variant = "standard",
+  onDismissRecommendation,
 }: {
   artifact: LibraryArtifact | RecommendedArtifact;
   showEvalBreakdown?: boolean;
@@ -57,8 +71,8 @@ export function FeedCard({
   onReviewStatus?: (id: string, status: ReviewQueueStatus, note?: string) => void | Promise<void>;
   active?: boolean;
   wideLayout?: boolean;
-  /** The editor's stated pick reason (For You v2) — every pick explains itself on the card. */
-  reason?: string;
+  variant?: LibraryCardVariant;
+  onDismissRecommendation?: (artifact: LibraryArtifact | RecommendedArtifact, note?: string) => void | Promise<void>;
 }) {
   const isCandidate = artifact.lifecycle_status === "candidate";
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
@@ -81,7 +95,11 @@ export function FeedCard({
   const displayTags = artifactDisplayTags(artifact).slice(0, 4);
   const clipReview = artifact.youtube_clip && artifact.youtube_clip.policy_action !== "process" ? artifact.youtube_clip : null;
   const processingIncomplete = Boolean(artifact.processing && artifact.processing.state !== "ready");
-  const hasCardActionRow = !processingIncomplete && Boolean(artifact.lifecycle_status || artifact.eval_attrs || hasUpdatedReviewActions || hasGeneralActions);
+  const recommendation = artifact.recommendation;
+  const recommendationCard = variant === "recommendation";
+  const cardCopy = libraryCardCopy(artifact, variant);
+  const hasCardActionRow = !processingIncomplete && Boolean(artifact.lifecycle_status || artifact.eval_attrs || hasUpdatedReviewActions || hasGeneralActions || (recommendationCard && recommendation));
+  const cardRef = useRef<HTMLElement>(null);
   const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.target !== event.currentTarget) return;
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -102,11 +120,28 @@ export function FeedCard({
     setLifecycleOpen(false);
   }, [artifact.id]);
 
+  useEffect(() => {
+    const episodeId = recommendation?.episode_id;
+    const node = cardRef.current;
+    if (!recommendationCard || !episodeId || !node || impressedRecommendationEpisodes.has(episodeId)) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting && entry.intersectionRatio >= 0.5)) return;
+      impressedRecommendationEpisodes.add(episodeId);
+      void recordRecommendationImpressions([episodeId], "for_you");
+      observer.disconnect();
+    }, { threshold: 0.5 });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [recommendation?.episode_id, recommendationCard]);
+
   return (
     <article
+      ref={cardRef}
       role="button"
       tabIndex={0}
       data-library-artifact-id={artifact.id}
+      data-library-card-copy={variant}
+      data-recommendation-episode-id={recommendationCard ? recommendation?.episode_id : undefined}
       aria-label={`Open ${artifact.title}`}
       aria-current={active ? "true" : undefined}
       onClick={() => openArtifact()}
@@ -131,6 +166,16 @@ export function FeedCard({
             <ContentTypeIcon type={contentTypeForArtifact(artifact)} />
             <span className="truncate">{artifact.source_name || artifact.channel || "Reference"}</span>
             <span className="shrink-0">{artifact.created_at?.slice(0, 10)}</span>
+            {recommendationCard && recommendation?.is_resurface && <span className="shrink-0">Recommended again</span>}
+            {!recommendationCard && recommendation && (
+              <span
+                className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--accent-primary)]"
+                aria-label="In For You"
+                title={recommendationIndicatorTitle(recommendation.recommended_at)}
+              >
+                <Sparkles className="h-3.5 w-3.5" aria-hidden />
+              </span>
+            )}
           </div>
         </div>
 
@@ -140,12 +185,11 @@ export function FeedCard({
             <SeriesBadge artifact={artifact} />
           </div>
         )}
-        {reason && (
-          <p className="text-[13px] italic leading-5 text-[var(--text-tertiary)]">
-            {reason}
+        {cardCopy.description && (
+          <p data-library-card-description className={`${recommendationCard ? "line-clamp-4" : "line-clamp-3"} text-sm leading-6 text-[var(--text-secondary)]`}>
+            {cardCopy.description}
           </p>
         )}
-        {artifact.summary && <p className="line-clamp-3 text-sm leading-6 text-[var(--text-secondary)]">{artifact.summary}</p>}
         {displayTags.length > 0 && (
           <div className="flex min-w-0 flex-wrap items-center gap-1">
             {displayTags.map((tag) => (
@@ -168,12 +212,14 @@ export function FeedCard({
         {hasCardActionRow && (
           <div className="flex flex-wrap items-center justify-start gap-1 border-t border-[var(--border-default)] pt-3">
             <div className="flex shrink-0 items-center gap-1">
-              <EvalMetricPills
-                evalAttrs={artifact.eval_attrs}
-                breakdown={showEvalBreakdown}
-                showArchiveFlag={showEvalBreakdown}
-                onWorthClick={openArtifactMetadata}
-              />
+              {(!recommendationCard || showEvalBreakdown) && (
+                <EvalMetricPills
+                  evalAttrs={artifact.eval_attrs}
+                  breakdown={showEvalBreakdown}
+                  showArchiveFlag={showEvalBreakdown}
+                  onWorthClick={openArtifactMetadata}
+                />
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-1">
               <LibraryLifecycleMenu
@@ -269,6 +315,19 @@ export function FeedCard({
                 </div>
               )}
             </div>
+            {recommendationCard && recommendation && (
+              <div className="ml-auto flex shrink-0 items-center gap-1">
+                <CommentPopover
+                  compact
+                  target={{ kind: "library", id: artifact.id }}
+                  placeholder="Feedback on this recommendation"
+                  triggerTitle="Comment on this recommendation"
+                />
+                {onDismissRecommendation && (
+                  <RecommendationDismissPopover onDismiss={(note) => onDismissRecommendation(artifact, note)} />
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

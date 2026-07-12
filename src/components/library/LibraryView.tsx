@@ -7,9 +7,8 @@ import { useSWRConfig } from "swr";
 import { useScope } from "@/contexts/ScopeContext";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
 import type { LibraryArtifact, RecommendedArtifact } from "@/lib/library/types";
-import { artifactDisplayTags } from "@/lib/library/taxonomy";
-import { buildLibraryUrl, libraryConcreteSource, libraryItemIdFromScope, libraryItemScope, librarySourceChannel, parseLibraryControls, type LibraryDensity, type LibraryModeControl, type LibraryRanking, type LibraryStatusFilter, type LibraryUrlControls } from "@/lib/library/url";
-import { archiveArtifact, intakeLibrarySources, markLibraryArtifactsRead, markLibraryArtifactsUnread, restoreCandidate, setReviewStatus, skipCandidate, useInfiniteLibrary, useRecommendations, useReviewQueue } from "@/hooks/useLibrary";
+import { buildLibraryUrl, libraryConcreteSource, libraryItemIdFromScope, libraryItemScope, librarySourceChannel, parseLibraryControls, recommendationEpisodeIdFromSearch, type LibraryDensity, type LibraryModeControl, type LibraryRanking, type LibraryStatusFilter, type LibraryUrlControls } from "@/lib/library/url";
+import { archiveArtifact, dismissLibraryRecommendation, intakeLibrarySources, markLibraryArtifactsRead, markLibraryArtifactsUnread, restoreCandidate, restoreLibraryRecommendation, setReviewStatus, skipCandidate, useInfiniteLibrary, useInfiniteRecommendations, useReviewQueue } from "@/hooks/useLibrary";
 import type { ReviewQueueStatus } from "@/lib/library/review-queue";
 import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
 import { SECONDARY_CHROME_BODY_GUTTER_CLASS, SECONDARY_CHROME_MOBILE_OFFSET, SecondaryIconButton, SecondarySegmentedButton, SecondarySegmentedControl, SecondaryToolbar } from "@/components/layout/SecondaryToolbar";
@@ -44,6 +43,7 @@ interface FeedScrollAnchor {
   id: string;
   offsetTop: number;
   waitForArtifactId?: string;
+  settleFrames: number;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -68,41 +68,8 @@ function storedBoolean(key: string, fallback: boolean): boolean {
 
 function initialLibraryControls(): LibraryUrlControls {
   if (typeof window === "undefined") return { density: "feed", ranking: "recent", status: "all", mode: "study", source: null, tag: null };
-  return parseLibraryControls(window.location.search);
-}
-
-function artifactMatchesFilter(artifact: LibraryArtifact, {
-  source,
-  status,
-  mode,
-  tag,
-  query,
-}: {
-  source: string | null;
-  status: LibraryStatusFilter;
-  mode: LibraryModeControl;
-  tag: string | null;
-  query: string;
-}) {
-  const channel = librarySourceChannel(source);
-  const sourceId = libraryConcreteSource(source);
-  if (sourceId && artifact.source_id !== sourceId) return false;
-  if (channel && artifact.channel !== channel) return false;
-  if (status !== "all" && artifact.lifecycle_status !== status) return false;
-  if (artifact.library_mode !== mode) return false;
-  if (tag && !artifactDisplayTags(artifact).some((item) => item.toLowerCase() === tag.toLowerCase())) return false;
-  if (!query) return true;
-  const haystack = [
-    artifact.title,
-    artifact.summary || "",
-    artifact.source_name || "",
-    artifact.channel || "",
-    artifact.tags.join(" "),
-    artifact.source_tags.join(" "),
-    artifact.source_collection || "",
-    artifact.source_folder || "",
-  ].join(" ").toLowerCase();
-  return haystack.includes(query);
+  const controls = parseLibraryControls(window.location.search);
+  return controls.ranking === "for-you" ? { ...controls, density: "feed" } : controls;
 }
 
 function applyLocalReadState<T extends LibraryArtifact | RecommendedArtifact>(items: T[], localReadIds: Set<string>): T[] {
@@ -138,6 +105,9 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
   const [selectedSource, setSelectedSourceState] = useState<string | null>(() => initialLibraryControls().source);
   const [selectedTag, setSelectedTagState] = useState<string | null>(() => initialLibraryControls().tag);
   const [selectedId, setSelectedId] = useState<string | null>(() => libraryItemIdFromScope(scopePath));
+  const [selectedRecommendationEpisodeId, setSelectedRecommendationEpisodeId] = useState<string | null>(() => (
+    typeof window === "undefined" ? null : recommendationEpisodeIdFromSearch(window.location.search)
+  ));
   const [mobileDetailOpen, setMobileDetailOpen] = useState(() => Boolean(libraryItemIdFromScope(scopePath)));
   const [sourceWidth, setSourceWidth] = useState(() => storedWidth(SOURCE_WIDTH_KEY, DEFAULT_SOURCE_WIDTH, MIN_SOURCE_WIDTH, MAX_SOURCE_WIDTH));
   const [contentWidth, setContentWidth] = useState(() => storedWidth(CONTENT_WIDTH_KEY, DEFAULT_CONTENT_WIDTH, MIN_CONTENT_WIDTH, MAX_CONTENT_WIDTH));
@@ -164,6 +134,9 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const pendingFeedScrollAnchorRef = useRef<FeedScrollAnchor | null>(null);
   const noticedArtifactIdsRef = useRef<Set<string>>(new Set());
+  const noticedRecommendationEpisodesRef = useRef<Set<string>>(new Set());
+  const latestRecommendationAtRef = useRef<string | null>(null);
+  const recommendationDeepInsertRef = useRef(false);
   const pendingReadIdsRef = useRef<Set<string>>(new Set());
   const readFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const readEligibleIdsRef = useRef<Set<string>>(new Set());
@@ -180,7 +153,6 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
     tag: selectedTag,
   }), [density, modeFilter, ranking, selectedSource, selectedTag, statusFilter]);
 
-  const normalizedQuery = searchQuery.trim().toLowerCase();
   const recent = useInfiniteLibrary({
     source: selectedSourceId,
     channel: selectedChannel,
@@ -192,18 +164,20 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
     content_type: typeFilter,
     ...evalFilters,
   }, density === "list" ? 80 : 40);
-  const recommendations = useRecommendations(20);
+  const recommendations = useInfiniteRecommendations({
+    source: selectedSourceId,
+    channel: selectedChannel,
+    tag: selectedTag,
+    mode: modeFilter,
+    status: statusFilter === "all" ? null : statusFilter,
+    q: searchQuery || null,
+    content_type: typeFilter,
+  }, density === "list" ? 80 : 40);
+  const recommendationItemsRef = useRef(recommendations.items);
+  const recommendationMutateRef = useRef(recommendations.mutate);
+  recommendationItemsRef.current = recommendations.items;
+  recommendationMutateRef.current = recommendations.mutate;
   const reviewQueue = useReviewQueue();
-  const filteredRecommendations = useMemo(
-    () => recommendations.items.filter((artifact) => artifactMatchesFilter(artifact, {
-      source: selectedSource,
-      status: statusFilter,
-      mode: modeFilter,
-      tag: selectedTag,
-      query: normalizedQuery,
-    })),
-    [modeFilter, normalizedQuery, recommendations.items, selectedSource, selectedTag, statusFilter],
-  );
 
   const localRecentUnreadReads = recent.artifacts.filter((artifact) => artifact.is_unread && localReadIds.has(artifact.id)).length;
   const localUnreadExcludedCount = recent.artifacts.filter((artifact) => (
@@ -212,7 +186,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
   const localUpdatedHiddenCount = reviewQueue.items.filter((artifact) => localHiddenIds.has(artifact.id)).length;
   const recentRankedItems = ranking === "recent" || ranking === "new" ? pinProcessing(recent.artifacts) : recent.artifacts;
   const rawItems: LibraryArtifact[] = ranking === "for-you"
-    ? filteredRecommendations
+    ? recommendations.items
     : ranking === "updated"
       ? reviewQueue.items
       : ranking === "new"
@@ -222,7 +196,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
   const items = useMemo(() => applyLocalReadState(visibleRawItems, localReadIds), [visibleRawItems, localReadIds]);
   const localHiddenCount = rawItems.length - visibleRawItems.length;
   const total = ranking === "for-you"
-    ? Math.max(0, filteredRecommendations.length - localHiddenCount)
+    ? Math.max(0, recommendations.total - localHiddenCount)
     : ranking === "updated"
       ? Math.max(0, reviewQueue.total - localHiddenCount)
       : ranking === "new"
@@ -231,7 +205,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
   // Per-ranking counts shown inside each toggle (independent of which ranking is active), so the
   // toggle itself carries its label + count — consolidating the separate count/unread chips.
   const recentCount = recent.total;
-  const forYouCount = filteredRecommendations.length;
+  const forYouCount = recommendations.total;
   const newCount = Math.max(0, recent.unreadTotal - localUnreadExcludedCount);
   const updatedCount = Math.max(0, reviewQueue.total - localUpdatedHiddenCount);
   const processingCount = recent.artifacts.filter(isActivelyProcessing).length;
@@ -241,8 +215,9 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
       ? reviewQueue.isLoading
       : recent.isLoading;
   const usesRecentPaging = ranking === "recent" || ranking === "new";
-  const hasMore = usesRecentPaging && recent.hasMore;
-  const isLoadingMore = usesRecentPaging && recent.isLoadingMore;
+  const usesRecommendationPaging = ranking === "for-you";
+  const hasMore = usesRecentPaging ? recent.hasMore : usesRecommendationPaging ? recommendations.hasMore : false;
+  const isLoadingMore = usesRecentPaging ? recent.isLoadingMore : usesRecommendationPaging ? recommendations.isLoadingMore : false;
   const adminEvalActive = Boolean(evalFilters.lifecycle || evalFilters.connection_state || evalFilters.digested_with || evalFilters.pipeline_version || evalFilters.substance_graded || evalFilters.feedback || evalFilters.youtube_clip_policy || (typeof evalFilters.worth_min === "number" && evalFilters.worth_min > 0));
   const selectedVisible = selectedId ? items.some((artifact) => artifact.id === selectedId) : false;
   const selectedArtifact = selectedId ? items.find((artifact) => artifact.id === selectedId) || null : null;
@@ -255,7 +230,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
   // DOM. Review notes stay outside the virtual container (sticky positioning
   // breaks inside transformed rows); the trailing "x of y loaded" row rides
   // along as the last virtual row.
-  const feedFooterCount = usesRecentPaging && items.length > 0 ? 1 : 0;
+  const feedFooterCount = (usesRecentPaging || usesRecommendationPaging) && items.length > 0 ? 1 : 0;
   const feedRowCount = items.length + feedFooterCount;
   const feedVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: density === "feed" ? feedRowCount : 0,
@@ -265,8 +240,9 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
     useAnimationFrameWithResizeObserver: true,
   });
 
-  const captureFirstVisibleFeedAnchor = useCallback((waitForArtifactId: string) => {
+  const captureFirstVisibleFeedAnchor = useCallback((waitForArtifactId?: string) => {
     if (density !== "feed") return;
+    if (pendingFeedScrollAnchorRef.current) return;
     const scroller = feedScrollRef.current;
     if (!scroller) return;
     const scrollerRect = scroller.getBoundingClientRect();
@@ -281,6 +257,9 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
       id,
       offsetTop: card.getBoundingClientRect().top - scrollerRect.top,
       waitForArtifactId,
+      // Virtualized cards can be remeasured after thumbnails and ResizeObserver settle. Keep
+      // correcting for one second so a late height update cannot jump a deep reader downward.
+      settleFrames: 60,
     };
   }, [density]);
 
@@ -290,17 +269,54 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
       const event = data as { operation?: string; id?: string };
       if (event.operation !== "add" || !event.id || noticedArtifactIdsRef.current.has(event.id)) return;
       noticedArtifactIdsRef.current.add(event.id);
+      if (ranking === "for-you") return;
       if (density !== "feed" || (ranking !== "recent" && ranking !== "new")) return;
       const scroller = feedScrollRef.current;
       if (!scroller || scroller.scrollTop < 160) return;
       captureFirstVisibleFeedAnchor(event.id);
       setNewItemNoticeCount((count) => count + 1);
     });
+    const offRecommendations = onEvent("library", "recommendations-changed", (data) => {
+      if (ranking !== "for-you") return;
+      const scroller = feedScrollRef.current;
+      void recommendationMutateRef.current();
+      const event = data as { affects_feed?: boolean };
+      if (event.affects_feed === false) return;
+      if (!scroller || scroller.scrollTop < 160) {
+        recommendationDeepInsertRef.current = false;
+        return;
+      }
+      recommendationDeepInsertRef.current = true;
+      captureFirstVisibleFeedAnchor();
+    });
     return () => {
       off();
+      offRecommendations();
       unsubscribeEvents("library");
     };
   }, [captureFirstVisibleFeedAnchor, density, onEvent, ranking, subscribeEvents, unsubscribeEvents]);
+
+  useEffect(() => {
+    const current = recommendations.items
+      .map((item) => item.recommendation)
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry?.episode_id));
+    const previousLatestAt = latestRecommendationAtRef.current;
+    const added = previousLatestAt
+      ? current.filter((entry) => (
+          entry.recommended_at > previousLatestAt
+          && !noticedRecommendationEpisodesRef.current.has(entry.episode_id)
+        )).length
+      : 0;
+    if (added > 0 && ranking === "for-you" && recommendationDeepInsertRef.current) {
+      setNewItemNoticeCount((count) => count + added);
+      recommendationDeepInsertRef.current = false;
+    }
+    for (const entry of current) noticedRecommendationEpisodesRef.current.add(entry.episode_id);
+    const latestAt = current.reduce<string | null>((latest, entry) => (
+      !latest || entry.recommended_at > latest ? entry.recommended_at : latest
+    ), previousLatestAt);
+    latestRecommendationAtRef.current = latestAt;
+  }, [ranking, recommendations.items]);
 
   const refreshReadAwareData = useCallback(() => {
     void recent.mutate();
@@ -330,6 +346,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
     pendingFeedScrollAnchorRef.current = {
       id,
       offsetTop: card.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
+      settleFrames: 3,
     };
   }, [density]);
 
@@ -341,6 +358,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
     let frame = 0;
     let attempts = 0;
     const restore = () => {
+      if (pendingFeedScrollAnchorRef.current !== anchor) return;
       const scroller = feedScrollRef.current;
       const card = scroller?.querySelector<HTMLElement>(`[data-library-artifact-id="${CSS.escape(anchor.id)}"]`);
       if (scroller && card) {
@@ -354,7 +372,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
         if (anchorIndex !== -1) feedVirtualizer.scrollToIndex(anchorIndex, { align: "start" });
       }
       attempts += 1;
-      if (attempts < 3) {
+      if (attempts < anchor.settleFrames) {
         frame = window.requestAnimationFrame(restore);
       } else {
         pendingFeedScrollAnchorRef.current = null;
@@ -413,19 +431,19 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
     refreshReadAwareData();
   }, [refreshReadAwareData]);
 
-  const replaceLibraryHistory = useCallback((scope: string, controls: LibraryUrlControls) => {
+  const replaceLibraryHistory = useCallback((scope: string, controls: LibraryUrlControls, recommendationEpisodeId?: string | null) => {
     if (typeof window === "undefined") return;
-    window.history.replaceState({ scope }, "", buildLibraryUrl(scope, controls));
+    window.history.replaceState({ scope }, "", buildLibraryUrl(scope, controls, { recommendationEpisodeId }));
   }, []);
 
-  const pushLibraryHistory = useCallback((scope: string, controls: LibraryUrlControls) => {
+  const pushLibraryHistory = useCallback((scope: string, controls: LibraryUrlControls, recommendationEpisodeId?: string | null) => {
     if (typeof window === "undefined") return;
-    window.history.pushState({ scope }, "", buildLibraryUrl(scope, controls));
+    window.history.pushState({ scope }, "", buildLibraryUrl(scope, controls, { recommendationEpisodeId }));
   }, []);
 
-  const navigateLibrary = useCallback((scope: string, controls: LibraryUrlControls) => {
+  const navigateLibrary = useCallback((scope: string, controls: LibraryUrlControls, recommendationEpisodeId?: string | null) => {
     navigateTo("library", scope);
-    replaceLibraryHistory(scope, controls);
+    replaceLibraryHistory(scope, controls, recommendationEpisodeId);
   }, [navigateTo, replaceLibraryHistory]);
 
   const pushControlChange = useCallback((controls: LibraryUrlControls) => {
@@ -462,13 +480,15 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
 
   useEffect(() => {
     const handlePopState = () => {
-      const controls = parseLibraryControls(window.location.search);
+      const parsed = parseLibraryControls(window.location.search);
+      const controls = parsed.ranking === "for-you" ? { ...parsed, density: "feed" as const } : parsed;
       setDensityState(controls.density);
       setRankingState(controls.ranking);
       setStatusFilterState(controls.status);
       setModeFilterState(controls.mode);
       setSelectedSourceState(controls.source);
       setSelectedTagState(controls.tag);
+      setSelectedRecommendationEpisodeId(recommendationEpisodeIdFromSearch(window.location.search));
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -478,9 +498,11 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
     const itemId = libraryItemIdFromScope(scopePath);
     if (itemId) {
       setSelectedId(itemId);
+      setSelectedRecommendationEpisodeId(typeof window === "undefined" ? null : recommendationEpisodeIdFromSearch(window.location.search));
       setMobileDetailOpen(true);
       return;
     }
+    setSelectedRecommendationEpisodeId(null);
     if (density === "feed") {
       setSelectedId(null);
       setMobileDetailOpen(false);
@@ -735,21 +757,79 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
     refreshReadAwareData();
   }, [captureFeedScrollAnchor, libraryControls, navigateLibrary, refreshReadAwareData, selectedId]);
 
+  const dismissRecommendation = useCallback(async (artifact: LibraryArtifact | RecommendedArtifact, note?: string) => {
+    const episodeId = "recommendation" in artifact ? artifact.recommendation?.episode_id : undefined;
+    if (!episodeId) return;
+    setLocalHiddenIds((previous) => new Set(previous).add(artifact.id));
+    if (selectedId === artifact.id) {
+      captureFeedScrollAnchor(artifact.id);
+      setSelectedId(null);
+      setMobileDetailOpen(false);
+      navigateLibrary("", libraryControls);
+    }
+    try {
+      await dismissLibraryRecommendation(episodeId, note, "for_you");
+    } catch (error) {
+      setLocalHiddenIds((previous) => {
+        const next = new Set(previous);
+        next.delete(artifact.id);
+        return next;
+      });
+      setToast({
+        id: `recommendation-dismiss-error:${Date.now()}`,
+        title: artifact.title,
+        message: error instanceof Error ? error.message : "Dismiss failed",
+      });
+      return;
+    }
+    setToast({
+      id: `recommendation-dismiss:${episodeId}:${Date.now()}`,
+      title: artifact.title,
+      message: "Recommendation dismissed",
+      undo: async () => {
+        try {
+          await restoreLibraryRecommendation(episodeId);
+          setLocalHiddenIds((previous) => {
+            const next = new Set(previous);
+            next.delete(artifact.id);
+            return next;
+          });
+          setToast(null);
+          void recommendations.mutate();
+        } catch (error) {
+          setToast({ id: `recommendation-restore-error:${Date.now()}`, title: artifact.title, message: error instanceof Error ? error.message : "Restore failed" });
+        }
+      },
+    });
+    void recommendations.mutate().then((pages) => {
+      const episodeStillPresent = pages?.some((page) => page.items.some((item) => item.recommendation?.episode_id === episodeId));
+      if (episodeStillPresent) return;
+      setLocalHiddenIds((previous) => {
+        const next = new Set(previous);
+        next.delete(artifact.id);
+        return next;
+      });
+    }).catch(() => {});
+  }, [captureFeedScrollAnchor, libraryControls, navigateLibrary, recommendations, selectedId]);
+
   const openArtifact = useCallback((artifact: LibraryArtifact | RecommendedArtifact, intent: "default" | "metadata" = "default") => {
     // Do NOT mark read on open — an opened item stays in the unread view while you read it. It's
     // marked read only when you move off it (see the deselect effect below), so it doesn't vanish.
+    const recommendationEpisodeId = ranking === "for-you" ? artifact.recommendation?.episode_id || null : null;
     if (intent === "metadata") {
       try { window.localStorage.setItem(LIBRARY_META_OPEN_KEY, "1"); } catch { /* ignore */ }
       captureFeedScrollAnchor(artifact.id);
       if (isReadableArtifact(artifact)) readEligibleIdsRef.current.add(artifact.id);
       setSelectedId(artifact.id);
+      setSelectedRecommendationEpisodeId(recommendationEpisodeId);
       setMobileDetailOpen(true);
-      navigateLibrary(libraryItemScope(artifact.id), libraryControls);
+      navigateLibrary(libraryItemScope(artifact.id), libraryControls, recommendationEpisodeId);
       return;
     }
     if (density === "feed" && selectedId === artifact.id) {
       captureFeedScrollAnchor(artifact.id);
       setSelectedId(null);
+      setSelectedRecommendationEpisodeId(null);
       setMobileDetailOpen(false);
       navigateLibrary("", libraryControls);
       return;
@@ -757,9 +837,10 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
     captureFeedScrollAnchor(artifact.id);
     if (isReadableArtifact(artifact)) readEligibleIdsRef.current.add(artifact.id);
     setSelectedId(artifact.id);
+    setSelectedRecommendationEpisodeId(recommendationEpisodeId);
     setMobileDetailOpen(true);
-    navigateLibrary(libraryItemScope(artifact.id), libraryControls);
-  }, [captureFeedScrollAnchor, density, libraryControls, navigateLibrary, selectedId]);
+    navigateLibrary(libraryItemScope(artifact.id), libraryControls, recommendationEpisodeId);
+  }, [captureFeedScrollAnchor, density, libraryControls, navigateLibrary, ranking, selectedId]);
 
   const selectDensity = useCallback((nextDensity: LibraryDensity) => {
     const nextControls = { ...libraryControls, density: nextDensity };
@@ -768,10 +849,12 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
   }, [libraryControls, pushControlChange]);
 
   const selectRanking = useCallback((nextRanking: LibraryRanking) => {
-    const nextControls = { ...libraryControls, ranking: nextRanking };
+    const nextDensity = nextRanking === "for-you" ? "feed" : density;
+    const nextControls = { ...libraryControls, ranking: nextRanking, density: nextDensity };
+    if (nextDensity !== density) setDensityState(nextDensity);
     setRankingState(nextRanking);
     pushControlChange(nextControls);
-  }, [libraryControls, pushControlChange]);
+  }, [density, libraryControls, pushControlChange]);
 
   useEffect(() => {
     if (ranking === "new" && !recent.isLoading && newCount === 0) {
@@ -822,10 +905,11 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
     if (node.scrollTop < 80 && newItemNoticeCount && !pendingFeedScrollAnchorRef.current) {
       setNewItemNoticeCount(0);
     }
-    if (usesRecentPaging && recent.hasMore && !recent.isLoadingMore && node.scrollHeight - node.scrollTop - node.clientHeight < 900) {
-      recent.loadMore();
+    if (node.scrollHeight - node.scrollTop - node.clientHeight < 900) {
+      if (usesRecentPaging && recent.hasMore && !recent.isLoadingMore) recent.loadMore();
+      if (usesRecommendationPaging && recommendations.hasMore && !recommendations.isLoadingMore) recommendations.loadMore();
     }
-  }, [newItemNoticeCount, recent, usesRecentPaging]);
+  }, [newItemNoticeCount, recent, recommendations, usesRecentPaging, usesRecommendationPaging]);
 
   const startResize = useCallback((kind: "source" | "content", width: number) => (event: React.MouseEvent) => {
     event.preventDefault();
@@ -862,7 +946,9 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
                   onClick={() => selectDensity("list")}
                   active={density === "list"}
                   icon={<FileText className="h-4 w-4" />}
-                  title="List view"
+                  title={ranking === "for-you" ? "For You uses recommendation cards" : "List view"}
+                  disabled={ranking === "for-you"}
+                  className={ranking === "for-you" ? "cursor-default opacity-40" : ""}
                 >
                   List
                 </SecondarySegmentedButton>
@@ -1007,6 +1093,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
                     <button
                       type="button"
                       onClick={() => {
+                        pendingFeedScrollAnchorRef.current = null;
                         feedVirtualizer.scrollToOffset(0, { align: "start" });
                         setNewItemNoticeCount(0);
                       }}
@@ -1042,7 +1129,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
                               virtualRow={virtualRow}
                               className="py-2 text-center text-xs text-[var(--text-tertiary)]"
                             >
-                              {isLoadingMore ? <LoadingState label="Loading more" size="sm" className="py-0 text-xs" /> : `${items.length} of ${recent.total} loaded`}
+                              {isLoadingMore ? <LoadingState label="Loading more" size="sm" className="py-0 text-xs" /> : `${items.length} of ${total} loaded`}
                             </VirtualFeedRow>
                           );
                         }
@@ -1059,6 +1146,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
                           >
                             <FeedCard
                               artifact={artifact}
+                              variant={ranking === "for-you" ? "recommendation" : "standard"}
                               showEvalBreakdown={adminEvalActive}
                               promoteReason={ranking === "for-you" ? "for_you_selected" : "manual_save"}
                               onChanged={refresh}
@@ -1067,6 +1155,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
                               onDismissCandidate={dismissCandidate}
                               onArchiveReference={archiveReference}
                               onReviewStatus={ranking === "updated" ? handleReviewStatus : undefined}
+                              onDismissRecommendation={ranking === "for-you" ? dismissRecommendation : undefined}
                               active={artifact.id === selectedId}
                               wideLayout={!desktopReaderVisible}
                             />
@@ -1086,7 +1175,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
                 isLoading={loading}
                 hasMore={hasMore}
                 isLoadingMore={isLoadingMore}
-                onLoadMore={recent.loadMore}
+                onLoadMore={ranking === "for-you" ? recommendations.loadMore : recent.loadMore}
                 header={ranking === "updated" && reviewQueue.notes.length > 0 ? (
                   <div className="flex flex-col gap-3">
                     {reviewQueue.notes.map((note) => (
@@ -1116,9 +1205,10 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
           {desktopReaderVisible && (
             <div data-testid="library-feed-detail" className={`${mobileReaderVisible ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 lg:flex`}>
               <LibraryArtifactDetailPane
-                key={selectedId ?? "empty"}
+                key={`${selectedId ?? "empty"}:${selectedRecommendationEpisodeId || "current"}`}
                 id={selectedId}
                 artifactPath={selectedArtifact?.path || null}
+                recommendationEpisodeId={selectedRecommendationEpisodeId}
                 showBack
                 controlsClassName="lg:hidden"
                 backClassName="lg:hidden"

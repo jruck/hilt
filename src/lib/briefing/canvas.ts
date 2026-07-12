@@ -17,10 +17,10 @@
  *   3. MEETING citations — a vault-relative `meetings/<date>/<file>.md` path inside the line
  *      (the citation form the loop stamps). Inside the "⏭ Next steps" section this is the join
  *      key that turns the editor's meeting entry into an expandable MeetingCard.
- *   4. LIBRARY item ids — deliberately NOT in the contract (deferred): the gathered data never
- *      exposes library artifact ids (the references artifact carries loop-item ids and titles),
- *      and the only by-id fetch (`GET /api/library/[id]`) stamps an `opened` engagement event
- *      per call, so passive hydration would corrupt read-state. No new API surface was built.
+ *   4. RECOMMENDATION episode ids — `rec:<episode-id>`. The UI passively hydrates these through
+ *      the read-only recommendation preview API, then renders the frozen episode pitch with the
+ *      artifact's current metadata. Hydration never stamps an `opened` event; clicking the row
+ *      navigates to Library and lets the normal reader path record the real open.
  */
 
 import { formatHiltMonthDay } from "../display-date";
@@ -30,6 +30,8 @@ export interface BriefingItem {
   details: string; // sub-bullets as markdown
   /** True when this "item" is a paragraph/standalone-link line, not a bullet (renders unmarked). */
   prose?: boolean;
+  /** A level-three heading used as a semantic module boundary inside a briefing section. */
+  subheading?: string;
 }
 
 export interface BriefingSection {
@@ -90,6 +92,21 @@ export function parseBriefing(content: string): { lede: string; sections: Briefi
         heading: line.replace(/^##\s+/, "").trim(),
         items: [],
       };
+      continue;
+    }
+
+    // ### Subheading — preserved as a semantic boundary. Library & knowledge uses these to group
+    // recommendations, the weekly memo, and daily health without changing the top-level spine.
+    if (line.match(/^###\s+/)) {
+      flushItem();
+      if (currentSection) {
+        currentSection.items.push({
+          headline: line.replace(/^###\s+/, "").trim(),
+          details: "",
+          prose: true,
+          subheading: line.replace(/^###\s+/, "").trim(),
+        });
+      }
       continue;
     }
 
@@ -199,6 +216,82 @@ export function stripTaskTokens(text: string): string {
     .replace(/ {2,}/g, " ");
 }
 
+// ── The recommendation-episode contract ──────────────────────────────────────────────────────
+
+/** Recommendation placement token, e.g. `rec:rec-20260710052000-01-ab12cd34`. */
+const RECOMMENDATION_EPISODE_RE = /\brec:(rec-[a-z0-9][a-z0-9-]*)\b/gi;
+
+/** Frozen recommendation episode ids in first-appearance order. */
+export function extractRecommendationEpisodeIds(text: string): string[] {
+  const seen = new Set<string>();
+  for (const match of text.matchAll(RECOMMENDATION_EPISODE_RE)) seen.add(match[1]);
+  return [...seen];
+}
+
+/** Remove recommendation placement tokens from display prose. */
+export function stripRecommendationTokens(text: string): string {
+  return text
+    .replace(/`?rec:rec-[a-z0-9][a-z0-9-]*`?/gi, "")
+    .replace(/[ \t]+$/gm, "")
+    .replace(/ {2,}/g, " ");
+}
+
+/** True when the line is only a recommendation placement token plus markdown dressing. */
+export function isRecommendationEpisodeOnlyLine(line: string): boolean {
+  if (extractRecommendationEpisodeIds(line).length === 0) return false;
+  const residue = stripRecommendationTokens(line)
+    .replace(/^\s*-\s*/, "")
+    .replace(/[`—–\-·,.;:()\s]/g, "");
+  return residue.length === 0;
+}
+
+export type BriefingLibraryModuleKind = "recommendations" | "memo" | "health";
+
+export interface BriefingLibraryModule {
+  kind: BriefingLibraryModuleKind;
+  heading: string;
+  items: BriefingItem[];
+}
+
+export interface BriefingLibraryPartition {
+  structured: boolean;
+  modules: Partial<Record<BriefingLibraryModuleKind, BriefingLibraryModule>>;
+  ungrouped: BriefingItem[];
+}
+
+function libraryModuleKind(heading: string): BriefingLibraryModuleKind | null {
+  const normalized = heading.toLowerCase().replace(/[’']/g, "'").replace(/[^a-z' ]/g, "").trim();
+  if (normalized === "recommended for you") return "recommendations";
+  if (normalized === "editor's memo" || normalized === "editors memo") return "memo";
+  if (normalized === "library health") return "health";
+  return null;
+}
+
+/** Partition only explicitly headed Library sections; old flat briefings stay on the legacy path. */
+export function partitionBriefingLibrarySection(section: BriefingSection): BriefingLibraryPartition {
+  const modules: BriefingLibraryPartition["modules"] = {};
+  const ungrouped: BriefingItem[] = [];
+  let current: BriefingLibraryModule | null = null;
+  let structured = false;
+  for (const item of section.items) {
+    if (item.subheading) {
+      const kind = libraryModuleKind(item.subheading);
+      if (!kind) {
+        current = null;
+        ungrouped.push(item);
+        continue;
+      }
+      structured = true;
+      current = { kind, heading: item.subheading, items: [] };
+      modules[kind] = current;
+      continue;
+    }
+    if (current) current.items.push(item);
+    else ungrouped.push(item);
+  }
+  return { structured, modules, ungrouped };
+}
+
 /**
  * Is this detail line JUST a task-id placement (the SKILL's "one id per line, nothing else")?
  * List marker, backticks, an optional trailing italic citation, and punctuation are tolerated —
@@ -257,6 +350,11 @@ export function stampedIdLineDisposition(
 export function extractMeetingRelPath(text: string): string | null {
   const match = text.match(/meetings\/\d{4}-\d{2}-\d{2}\/[^*`\n]+?\.md/);
   return match ? match[0] : null;
+}
+
+/** Canonical live-decisions heading. Legacy `⏭ Next steps` remains a canvas-compatible alias. */
+export function isDecisionsHeading(heading: string): boolean {
+  return heading.startsWith("⏭") && /decisions awaiting you/i.test(heading);
 }
 
 /**

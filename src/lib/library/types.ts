@@ -348,6 +348,8 @@ export interface LibraryArtifact {
   eval_attrs?: LibraryEvalAttrs;
   /** Dynamic YouTube clip review attributes. Computed on read, never stamped by the filter UI. */
   youtube_clip?: YouTubeClipReviewAttrs;
+  /** Current active For You episode, joined from the derived recommendation projection. */
+  recommendation?: RecommendationPresentation;
 }
 
 /** A single feedback comment on a library item. Stored as a list in frontmatter `feedback`. */
@@ -476,6 +478,18 @@ export interface LibraryOperationalHealth {
   dead_letters: LibraryDeadLetterSummary;
   reweave: LibraryReweaveBacklogSummary;
   intake: LibraryIntakeHealthSummary;
+  recommendations: LibraryRecommendationHealthSummary;
+}
+
+export interface LibraryRecommendationHealthSummary {
+  last_success_at: string | null;
+  last_batch_id: string | null;
+  last_batch_size: number;
+  last_run_kind: RecommendationBatchKind | null;
+  pending: boolean;
+  pending_reasons: string[];
+  next_retry_at: string | null;
+  last_error: string | null;
 }
 
 export interface LibraryIntakeHealthSummary {
@@ -612,4 +626,65 @@ export interface RecommendedArtifact extends LibraryArtifact {
   freshness: number;
   lifecycle: LibraryLifecycle;
   matched_terms: string[];
+  recommendation?: RecommendationPresentation;
+}
+
+export type RecommendationBatchKind = "morning" | "refresh" | "legacy" | "fixture";
+
+export interface RecommendationTrigger {
+  id: string;
+  kind: "artifact" | "meeting" | "task" | "project" | "area" | "briefing" | "legacy";
+  label: string;
+  occurred_at: string;
+  fingerprint: string;
+}
+
+export interface RecommendationEpisodeScores {
+  worth: number;
+  relevance: number;
+  substance: number;
+  freshness: number;
+}
+
+export interface RecommendationEpisode {
+  id: string;
+  batch_id: string;
+  artifact_id: string;
+  recommended_at: string;
+  rank: number;
+  why_now: string;
+  triggers: RecommendationTrigger[];
+  scores: RecommendationEpisodeScores;
+  is_resurface: boolean;
+  previous_episode_id: string | null;
+  previous_recommended_at: string | null;
+}
+
+export interface RecommendationBatch {
+  version: 1;
+  id: string;
+  kind: RecommendationBatchKind;
+  generated_at: string;
+  context_window: { start: string; end: string };
+  pool_size: number;
+  episodes: RecommendationEpisode[];
+}
+
+export interface RecommendationDismissal {
+  artifact_id: string;
+  episode_id: string;
+  dismissed_at: string;
+  restored_at: string | null;
+  note: string | null;
+}
+
+export interface RecommendationPresentation {
+  episode_id: string;
+  batch_id: string;
+  recommended_at: string;
+  rank: number;
+  why_now: string;
+  triggers: RecommendationTrigger[];
+  is_resurface: boolean;
+  previous_recommended_at: string | null;
 }

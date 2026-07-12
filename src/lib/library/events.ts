@@ -18,7 +18,10 @@ export type LibraryEventType =
   | "skipped"
   | "rescued"
   | "archived_confirmed"
-  | "feedback_left";
+  | "feedback_left"
+  | "recommended"
+  | "recommendation_dismissed"
+  | "recommendation_restored";
 
 export type LibraryEventSurface = "for_you" | "feed" | "search" | "briefing" | "detail" | "api";
 

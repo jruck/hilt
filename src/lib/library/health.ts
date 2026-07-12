@@ -8,6 +8,7 @@ import { countReweaveBacklog } from "./reweave-pending";
 import { readSourceState } from "./source-config";
 import { readLibraryIntakeDaemonState } from "./intake-daemon-state";
 import { processingQueueSummary } from "./processing";
+import { readRecommendationRuntime } from "./recommendation-store";
 import type { LibraryDeadLetterSummary, LibraryOperationalHealth, LibraryReweaveBacklogSummary, LibrarySchedulerJobSummary, LibrarySourceHealthSummary } from "./types";
 import { isoNow } from "./utils";
 
@@ -231,10 +232,6 @@ export function getLibraryOperationalHealth(vaultPath: string, options: HealthOp
   const state = readSourceState(vaultPath);
   const sources = sourceHealth(vaultPath, state);
   const deadLetters = deadLetterSummary(vaultPath, state);
-  const ok = jobs.every((job) => job.status !== "blocked")
-    && sources.every((source) => source.status !== "blocked")
-    && deadLetters.unresolved === 0;
-
   const backlog = countReweaveBacklog(vaultPath);
   const nightly = definitions.find((job) => job.id === "reweave-pending");
   const reweave: LibraryReweaveBacklogSummary = {
@@ -246,6 +243,11 @@ export function getLibraryOperationalHealth(vaultPath: string, options: HealthOp
   };
   const daemon = readLibraryIntakeDaemonState(vaultPath);
   const queue = processingQueueSummary(vaultPath);
+  const recommendations = readRecommendationRuntime(vaultPath);
+  const ok = jobs.every((job) => job.status !== "blocked")
+    && sources.every((source) => source.status !== "blocked")
+    && deadLetters.unresolved === 0
+    && !recommendations.last_error;
 
   return {
     checked_at: isoNow(),
@@ -265,6 +267,16 @@ export function getLibraryOperationalHealth(vaultPath: string, options: HealthOp
       next_poll_at: daemon?.next_poll_at ?? null,
       foreground: daemon?.foreground ?? false,
       ...queue,
+    },
+    recommendations: {
+      last_success_at: recommendations.last_success_at,
+      last_batch_id: recommendations.last_batch_id,
+      last_batch_size: recommendations.last_batch_size,
+      last_run_kind: recommendations.last_run_kind,
+      pending: recommendations.pending,
+      pending_reasons: recommendations.pending_reasons,
+      next_retry_at: recommendations.next_retry_at,
+      last_error: recommendations.last_error,
     },
   };
 }

@@ -7,6 +7,8 @@ ${CAPTURE_VOICE}
 
 DIGEST — write the capture body following the voice above. Do NOT write Connections, Raw Content, or Media sections — those are added separately. Where the source genuinely bears on his active work, a short "why it matters to your work" tie-in is welcome.
 
+CARD DESCRIPTION — this is the stable, source-facing explanation shown in ordinary Library feeds. Say only what the source is, argues, demonstrates, or contains. Keep it evergreen: never mention Justin, his work, current timing, why he should read it, or whether it deserves attention. Recommendation context is written later by a separate editorial pass.
+
 CONNECTIONS — DISCIPLINED. Explore the vault comprehensively (Grep/Glob/Read across projects/, areas/, thoughts/, libraries/ incl. */strategy and */references, references/, people/) for the source's core concepts and vocabulary. The test for EVERY connection: "would Justin be glad I surfaced this when looking at this note, or is it noise he'd scroll past?"
 - FIRST-PARTY ties (his OWN authored work: projects/*, areas/*, thoughts/*, writing, his strategy docs like libraries/*/strategy/* and libraries/*/projects/*/index): surface ALL the genuine ones — these almost always earn attention.
 - IMPORTANT: items listed in the INDEX under "LIBRARY PROJECTS" are also FIRST-PARTY active work, even though their paths start with libraries/*. Do not demote them to external library references. For sources about AI implementation, organizational adoption, agents, service delivery, de-SaaS, consulting, or client operating systems, explicitly check those collaborative projects before returning.
@@ -23,7 +25,7 @@ practice — not how well the digest came out. Be willing to say "low"; most sav
 
 Return ONLY this JSON:
 {
-  "description": "<1-2 plain, specific sentences about the ideas (or, for a product, what it is) — for his feed card; no meta, no selling>",
+  "description": "<1-2 evergreen, source-centric sentences about what it argues or contains (or, for a product, what it is); no personal relevance, timing, recommendation language, meta, or selling>",
   "proposed_title": "<clean, content-based title; echo the current if already good; never put process/state like 'unrecovered' in it>",
   "digest_markdown": "<the digest body as markdown, headings only if warranted; no Connections/Raw/Media>",
   "connections_first_party": [ { "target": "<vault path no .md>", "title": "<human title>", "relationship": "<predicate>" } ],

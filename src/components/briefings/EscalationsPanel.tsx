@@ -42,9 +42,10 @@ interface EscalationsResponse {
 /** Which briefing section owns each loop's escalations — FALLBACK ONLY. The primary join is the
  * briefing's own `loop:<id>` citations (see BriefingContent); this map covers briefings that
  * don't cite an escalating loop. Entries may repeat per loop in PRIORITY order: since B3,
- * unfeatured meeting asks prefer the ⏭ Next steps section (the canvas home for pending meeting
- * proposals) and fall back to 🧠 for pre-B3 briefings that have no ⏭ section. */
+ * unfeatured meeting asks prefer the canonical Decisions section, then legacy ⏭ Next steps,
+ * and fall back to 🧠 for pre-B3 briefings that have neither. */
 const LOOP_SECTION_PATTERNS: Array<{ loop: string; pattern: RegExp }> = [
+  { loop: "meeting-actions", pattern: /decisions awaiting you/i },
   { loop: "meeting-actions", pattern: /⏭/ },
   { loop: "meeting-actions", pattern: /don.?t\s+drop/i },
   { loop: "runtime", pattern: /system/i },

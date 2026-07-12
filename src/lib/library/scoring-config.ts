@@ -30,23 +30,35 @@ export interface LibraryScoringConfig {
     recent_save_manual: number;
   };
   for_you: {
-    /** Final picks served. */
-    max_items: number;
-    /** Stage-1 pool size handed to the editor pass / re-rank rules. */
+    /** Maximum episodes an editorial batch may contain. */
+    batch_max: number;
+    /** Stage-1 pool size handed to the editor after recency/context candidate generation. */
     pool: number;
-    /** Slots (of max_items) reserved for exploration picks. */
-    exploration_slots: number;
-    /** Max picks from a single source_id (diversity rule). */
-    source_cap: number;
+    /** Fresh ready-study window included without needing a contextual trigger. */
+    new_window_days: number;
+    /** Recent work/conversation evidence window used for older-item resurfacing. */
+    context_window_hours: number;
+    exposure_cooldown_days: number;
+    read_cooldown_days: number;
+    dismissal_cooldown_days: number;
     /** Days a negative signal (skip/rescue/negative feedback) suppresses an item from For You. */
     negative_suppress_days: number;
   };
 }
 
 export const DEFAULT_SCORING_CONFIG: LibraryScoringConfig = {
-  version: "s1",
+  version: "s2",
   to_archive_worth: 0.1,
   relevance: { first_party_coeff: 0.32, other_coeff: 0.08, context_fit_cap: 0.3 },
   signal_weights: { project: 1.25, task: 1.35, area: 1.0, person: 0.35, recent_save: 0.45, recent_save_manual: 0.65 },
-  for_you: { max_items: 8, pool: 30, exploration_slots: 1, source_cap: 2, negative_suppress_days: 7 },
+  for_you: {
+    batch_max: 12,
+    pool: 80,
+    new_window_days: 7,
+    context_window_hours: 72,
+    exposure_cooldown_days: 7,
+    read_cooldown_days: 14,
+    dismissal_cooldown_days: 30,
+    negative_suppress_days: 7,
+  },
 };

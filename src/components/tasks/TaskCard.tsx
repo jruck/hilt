@@ -310,6 +310,7 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
 
   return (
     <div
+      data-task-card={task.id}
       onClick={onOpen}
       className={`${flush
         ? "group/taskcard rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)]"

@@ -1790,6 +1790,8 @@ When no lifecycle `status` is requested, the list returns saved references plus 
 
 Study-mode artifacts include dynamic `eval_attrs` when the list can score them. `eval_attrs.worth` is the compact priority score (`relevance × substance × freshness`), not a source-capture health indicator; `relevance`, `substance`, `freshness`, `lifecycle`, and `why` are the progressive-disclosure breakdown. Keep-mode artifacts and study items with incomplete processing or `reweave_pending: true` omit `eval_attrs`, so a degraded L1 digest never presents a provisional worth score as final.
 
+When an artifact has a current non-dismissed recommendation episode, the response also includes an optional `recommendation: RecommendationPresentation`. This is a cheap read-time join from the active recommendation projection; it does not alter markdown, feed ordering, or impression state. `description` remains the evergreen source description, while `recommendation.why_now` is the contextual pitch.
+
 **Response**
 
 ```typescript
@@ -1806,11 +1808,15 @@ Study-mode artifacts include dynamic `eval_attrs` when the list can score them. 
 
 Returns a single saved reference or candidate with full summary, key points, assessment, metadata, and body content.
 
+The response uses the same optional active `recommendation` join as the list route. Recommendation history is retrieved through the passive episode endpoint rather than overloading this artifact route.
+
 Optional query parameter:
 
 | Param | Type | Description |
 |-------|------|-------------|
 | `path` | string | Vault-relative markdown path from the list response. When present and the path hash matches `:id`, the route parses that exact file directly instead of walking the whole Library tree. |
+
+Library item URLs may additionally carry `rec=<episode-id>`, for example `/library/item/<id>?rank=for-you&rec=<episode-id>`. `rec` is reader presentation context rather than an artifact API filter: the client hydrates that exact episode through `GET /api/library/recommendations/episodes`, preserving a frozen briefing or historical pitch. Ordinary opens use the current active recommendation.
 
 ### POST /api/library/resolve-wikilink
 
@@ -1967,7 +1973,7 @@ Returns current source configs and checkpoint state without running ingestion.
 
 ### GET /api/library/health
 
-Returns the operational Reference Library dashboard contract: launchd scheduler state, source status, dead letters, reweave backlog, and live intake/processing state.
+Returns the operational Reference Library dashboard contract: launchd scheduler state, source status, dead letters, reweave backlog, live intake/processing state, and recommendation editor state.
 
 ```typescript
 {
@@ -2015,6 +2021,16 @@ Returns the operational Reference Library dashboard contract: launchd scheduler 
     oldest_queued_at: string | null;
     active_item: { artifact_uid: string; title: string; path: string } | null;
   };
+  recommendations: {
+    last_success_at: string | null;
+    last_batch_id: string | null;
+    last_batch_size: number;
+    last_run_kind: "morning" | "refresh" | "legacy" | "fixture" | null;
+    pending: boolean;
+    pending_reasons: string[];
+    next_retry_at: string | null;
+    last_error: string | null;
+  };
 }
 ```
 
@@ -2049,7 +2065,37 @@ Newsletters use the `superhuman-news` source id and `mcp-remote` against `https:
 
 ### GET /api/library/recommendations
 
-Returns the file-native For You ranking over recent saved references and unexpired candidates. The v0 ranker caps responses at eight items, excludes incomplete and `reweave_pending` study items, scores the remaining artifacts against active projects, current weekly tasks, North Stars, people notes, recent saves, and persisted `connection_suggestions`, and returns numeric eval fields (`worth`, `relevance`, `substance`, `freshness`, `lifecycle`, `eval_attrs`), `why`, and `matched_terms`. It does not return artificial priority labels such as `must_read`, `recommended`, or `interesting`.
+Returns the durable For You stream in latest-recommendation order. The projection contains one current episode per artifact; a new episode for an older artifact updates its `why_now`, marks it as resurfaced, and moves the same stable card to the top. Read state never changes position.
+
+Query parameters:
+
+- `limit` — page size, clamped by the server.
+- `cursor` — opaque cursor from the previous response.
+- `source`, `channel`, `status`, `mode`, `tag`, `type`, `q` — server-side Library filters.
+
+The response keeps compatibility fields on each `RecommendedArtifact` while adding `recommendation` episode metadata plus top-level `total`, `cursor`, `next_cursor`, and latest-batch metadata. Archived, skipped, expired, blocked, missing, and currently dismissed artifacts are omitted without deleting their episode history. A GET is passive and never records an impression or open.
+
+### GET /api/library/recommendations/episodes
+
+Hydrates frozen briefing placements by comma-separated `ids`. Returns the supplied episodes in requested order with current artifact metadata, plus explicit missing/dismissed ID lists. This endpoint is read-only: hydration does not emit `opened` or impression events.
+
+### POST /api/library/recommendations/impressions
+
+Records an episode impression after the client confirms that the row/card is visible. Body:
+
+```json
+{ "episode_id": "rec-...", "surface": "for_you" }
+```
+
+`surface` is `for_you` or `briefing`. Each client surface deduplicates episode impressions for its current app session, so GET/revalidation and repeated intersection callbacks do not create extra events.
+
+### POST /api/library/recommendations/:episodeId/dismiss
+
+Dismisses the current recommendation episode without changing the underlying saved/candidate lifecycle. Optional JSON `{ "note": "..." }` appends the note to the existing `{ kind: "library", id }` thread and includes episode/batch IDs in Library event metadata. Returns the dismissal and broadcasts `library:recommendations-changed`.
+
+### POST /api/library/recommendations/:episodeId/restore
+
+Restores a dismissed recommendation episode and broadcasts `library:recommendations-changed`. A dismissal tied to an older episode cannot suppress a later valid resurface.
 
 ### GET /api/search
 
@@ -2144,6 +2190,7 @@ The EventServer provides a channel-based pub/sub system for real-time updates. C
 | `file` | `{ scope: string }` | `changed` | File content changed within scope |
 | `inbox` | `{ scope: string }` | `changed` | Todo.md file changed within scope |
 | `bridge` | *(none)* | `weekly-changed`, `projects-changed`, `people-changed`, `areas-changed`, `thoughts-changed`, `tasks-changed` | Vault weekly list, project, people/meeting, area, thought, or task files changed (`tasks-changed` covers `tasks/` **and** `tasks/.proposals/`) |
+| `library` | *(none)* | `artifact-changed`, `queue-changed`, `recommendations-changed` | Library markdown/processing state or durable recommendation state changed. Recommendation payloads include `affects_feed` so runtime/backoff-only writes refresh health without preparing a card insertion. |
 
 ### Client Usage (React Hook)
 

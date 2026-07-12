@@ -22,7 +22,7 @@ export interface LibraryEvalFilters {
   feedback?: string | null;
   youtube_clip_policy?: string | null;
 }
-import { Bookmark, Check, CircleDot, FileText } from "lucide-react";
+import { Bookmark, Check, CircleDot, FileText, Sparkles } from "lucide-react";
 import { SECONDARY_TOOLBAR_BODY_GUTTER_CLASS } from "@/components/layout/SecondaryToolbar";
 import { EvalMetricPills, formatEvalScore } from "./EvalMetricPills";
 import { LibraryArtifactDetailPane } from "./LibraryArtifactDetailPane";
@@ -619,6 +619,11 @@ export function ArtifactList({
                   <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-tertiary)]">
                     <span className="truncate">{artifact.source_name || artifact.channel}</span>
                     <span>{artifact.created_at?.slice(0, 10)}</span>
+                    {artifact.recommendation && (
+                      <span className="inline-flex items-center text-[var(--accent-primary)]" aria-label="In For You" title={`In For You · recommended ${artifact.recommendation.recommended_at.slice(0, 10)}`}>
+                        <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                      </span>
+                    )}
                     {artifact.series && <SeriesBadge artifact={artifact} compact />}
                     {artifact.processing && artifact.processing.state !== "ready" ? (
                       <ProcessingStatus processing={artifact.processing} compact standalone />

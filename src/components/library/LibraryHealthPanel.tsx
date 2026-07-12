@@ -46,9 +46,10 @@ function healthCounts(health: LibraryOperationalHealth | null) {
   const blockedJobs = health.scheduler.jobs.filter((job) => job.status === "blocked").length;
   const warningJobs = health.scheduler.jobs.filter((job) => job.status === "warning").length;
   const notices = health.scheduler.jobs.filter((job) => job.stderr_bytes > 0 && job.status === "ok").length;
+  const recommendationWarnings = health.recommendations.last_error ? 1 : 0;
   return {
     blocked: blockedSources + blockedJobs,
-    warnings: warningSources + warningJobs + health.dead_letters.unresolved,
+    warnings: warningSources + warningJobs + health.dead_letters.unresolved + recommendationWarnings,
     notices,
   };
 }
@@ -206,6 +207,19 @@ export function LibraryHealthPanel({
                   {health.intake.active_item ? ` · working ${health.intake.active_item.title}` : ""}
                   {health.intake.blocked ? ` · ${health.intake.blocked} blocked` : ""}
                   {health.intake.oldest_queued_at ? ` · oldest ${relativeTime(health.intake.oldest_queued_at)}` : ""}
+                </div>
+              )}
+              {health && (
+                <div data-testid="library-health-recommendations" className="mt-0.5 text-[var(--text-tertiary)]">
+                  Recommendations {health.recommendations.last_success_at
+                    ? relativeTime(health.recommendations.last_success_at) === "now"
+                      ? "updated now"
+                      : `updated ${relativeTime(health.recommendations.last_success_at)} ago`
+                    : "not run"}
+                  {health.recommendations.last_batch_id ? ` · ${health.recommendations.last_batch_size} selected` : ""}
+                  {health.recommendations.pending ? " · refresh pending" : ""}
+                  {health.recommendations.next_retry_at ? ` · retry at ${clockTime(health.recommendations.next_retry_at)}` : ""}
+                  {health.recommendations.last_error ? ` · ${health.recommendations.last_error}` : ""}
                 </div>
               )}
             </div>

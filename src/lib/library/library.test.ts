@@ -26,7 +26,8 @@ import { parseOpenGraphHtml } from "./media-enrichment";
 import { parseMarkdownFile, stringifyMarkdown } from "./markdown";
 import { markLibraryArtifactsRead } from "./read-state";
 import { PIPELINE_VERSION } from "./pipeline";
-import { getRecommendations, scoreArtifacts } from "./recommendations";
+import { buildForYouPool, getRecommendations, scoreArtifacts } from "./recommendations";
+import { writeRecommendationBatch } from "./recommendation-store";
 import { findReweavePendingTargets } from "./reweave-pending";
 import { evaluateArtifact, structuralSubstance } from "./library-eval";
 import { artifactTaxonomy } from "./taxonomy";
@@ -37,7 +38,7 @@ import { runIngestion } from "./runner";
 import { librarySchedulerJobs } from "./scheduler-jobs";
 import { loadSources } from "./source-config";
 import { parseTimedTranscript } from "./transcript";
-import { buildLibraryItemUrl, buildLibraryUrl, libraryItemIdFromScope, libraryItemScope, parseLibraryControls } from "./url";
+import { buildLibraryItemUrl, buildLibraryUrl, libraryItemIdFromScope, libraryItemScope, parseLibraryControls, recommendationEpisodeIdFromSearch } from "./url";
 import { buildWorkbenchRows } from "./workbench";
 import { cleanXVideoSubtitleContent } from "./x-video-transcript";
 import type { ConnectionSuggestion, LibrarySourceConfig, ProcessedArtifact, RawArtifact } from "./types";
@@ -177,6 +178,10 @@ test("library URL helpers encode item links and view controls", () => {
   assert.equal(libraryItemScope("abc/123"), "/item/abc%2F123");
   assert.equal(libraryItemIdFromScope("/item/abc%2F123"), "abc/123");
   assert.equal(buildLibraryItemUrl("abc123"), "/library/item/abc123");
+  const episode = "rec-20260710052000-01-ab12cd34";
+  assert.equal(buildLibraryItemUrl("abc123", undefined, { recommendationEpisodeId: episode }), `/library/item/abc123?rec=${episode}`);
+  assert.equal(recommendationEpisodeIdFromSearch(`?rec=${episode}`), episode);
+  assert.equal(recommendationEpisodeIdFromSearch("?rec=not-an-episode"), null);
   assert.equal(buildLibraryUrl("/item/abc123", {
     density: "list",
     ranking: "new",
@@ -2648,9 +2653,22 @@ ${fixtures.map((fixture) => `  - url: ${fixture.url}
 
   await runIngestion(vault, { useSummarize: false });
   markFixtureWeavesComplete(vault);
+  const editorialPool = buildForYouPool(vault).pool;
+  writeRecommendationBatch(vault, {
+    kind: "fixture",
+    generated_at: "2026-05-28T12:00:00.000Z",
+    context_window: { start: "2026-05-25T12:00:00.000Z", end: "2026-05-28T12:00:00.000Z" },
+    pool_size: editorialPool.length,
+    picks: editorialPool.map((item) => ({
+      artifact_id: item.id,
+      why_now: item.why,
+      triggers: [{ id: `artifact:${item.id}`, kind: "artifact", label: item.title, occurred_at: item.created_at, fingerprint: `fixture-${item.id}` }],
+      scores: { worth: item.worth, relevance: item.relevance, substance: item.substance, freshness: item.freshness },
+    })),
+  });
   const recommendations = getRecommendations(vault, 50);
   // The eval discriminates by worth: the on-topic item leads and outranks every off-topic filler item.
-  assert.ok(recommendations.items.length >= 1 && recommendations.items.length <= 8);
+  assert.ok(recommendations.items.length >= 1, "the fixture editor batch must seed a usable feed");
   assert.equal(recommendations.items[0].title, "Agentic Product Discovery Loops");
   const onTopic = recommendations.items.find((item) => item.title === "Agentic Product Discovery Loops");
   const offTopicMax = Math.max(0, ...recommendations.items.filter((item) => item.title.startsWith("Off Topic")).map((item) => item.worth || 0));
@@ -3331,6 +3349,16 @@ test("library scheduler includes a bounded deferred reweave repair job", () => {
   assert.deepEqual(job.schedule, { hour: 3, minute: 35 });
   assert.match(job.stdout, /reweave-pending\.out\.log$/);
   assert.match(job.stderr, /reweave-pending\.err\.log$/);
+});
+
+test("library recommendations run before the six AM briefing", () => {
+  const job = librarySchedulerJobs("/tmp/hilt-library-logs").find((candidate) => candidate.id === "recommendations");
+  assert.deepEqual(job?.schedule, { hour: 5, minute: 20 });
+});
+
+test("library editor memo runs Saturday before the first weekend briefing", () => {
+  const job = librarySchedulerJobs("/tmp/hilt-library-logs").find((candidate) => candidate.id === "weekly-memo");
+  assert.deepEqual(job?.schedule, { hour: 5, minute: 30, weekday: 6 });
 });
 
 test("library health summarizes scheduler, source, and dead-letter state", () => {

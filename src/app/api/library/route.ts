@@ -3,7 +3,7 @@ import { appendLibraryEvents } from "@/lib/library/events";
 import { CONTENT_TYPE_LABELS, type LibraryContentType } from "@/lib/library/content-type";
 import { getVaultPath } from "@/lib/bridge/vault";
 import { listLibraryArtifactDetails, summarizeArtifact, type LibraryListOptions } from "@/lib/library/library";
-import { scoreArtifacts } from "@/lib/library/recommendations";
+import { attachCurrentRecommendations, scoreArtifacts } from "@/lib/library/recommendations";
 import type { LibraryArtifact, LibraryArtifactDetail, LibraryLifecycle, LibraryLifecycleStatus, LibraryModeFilter } from "@/lib/library/types";
 
 export const dynamic = "force-dynamic";
@@ -18,11 +18,11 @@ function summarizeWithEval(vaultPath: string, artifacts: LibraryArtifactDetail[]
     scoreArtifacts(vaultPath, artifacts.filter((artifact) => artifact.library_mode !== "keep"))
       .map((artifact) => [artifact.id, artifact.eval_attrs]),
   );
-  return artifacts.map((artifact) => {
+  return attachCurrentRecommendations(vaultPath, artifacts.map((artifact) => {
     const summary = summarizeArtifact(artifact);
     const evalAttrs = scoredById.get(artifact.id);
     return evalAttrs ? { ...summary, eval_attrs: evalAttrs } : summary;
-  });
+  }));
 }
 
 export async function GET(request: NextRequest) {
@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
       const max = worthMax === null || worthMax === "" ? null : Number(worthMax);
       if (min !== null && Number.isFinite(min)) scored = scored.filter((item) => (item.worth ?? 0) >= min);
       if (max !== null && Number.isFinite(max)) scored = scored.filter((item) => (item.worth ?? 0) <= max);
-      const paged = scored.slice(offset, offset + limit);
+      const paged = attachCurrentRecommendations(vaultPath, scored.slice(offset, offset + limit));
       return NextResponse.json({
         artifacts: paged,
         total: scored.length,

@@ -99,10 +99,10 @@ export function librarySchedulerJobs(logDir = librarySchedulerLogDir()): Library
     {
       id: "weekly-memo",
       label: "com.hilt.library.weekly-memo",
-      // The editor's memo (Library v2 Workstream 3): Sunday synthesis of the week's intake into
-      // cross-item through-lines tied to active projects. One bounded agentic call.
+      // The editor's memo (Library v2 Workstream 3): Saturday synthesis of the week's intake into
+      // cross-item through-lines tied to active projects, before the first weekend briefing.
       script: "library:memo",
-      schedule: { hour: 5, minute: 30, weekday: 0 },
+      schedule: { hour: 5, minute: 30, weekday: 6 },
       stdout: path.join(logDir, "weekly-memo.out.log"),
       stderr: path.join(logDir, "weekly-memo.err.log"),
     },
@@ -110,7 +110,8 @@ export function librarySchedulerJobs(logDir = librarySchedulerLogDir()): Library
       id: "recommendations",
       label: "com.hilt.library.recommendations",
       script: "library:recommendations",
-      schedule: { hour: 7, minute: 25 },
+      // The attention feed must settle before the 06:00 briefing freezes its top episodes.
+      schedule: { hour: 5, minute: 20 },
       stdout: path.join(logDir, "recommendations.out.log"),
       stderr: path.join(logDir, "recommendations.err.log"),
     },

@@ -19,6 +19,7 @@ vi.mock("@/lib/bridge/vault", () => ({
 
 import { GET } from "./route";
 import type { Ledger, LedgerEntry } from "@/lib/loops/meeting-ledger";
+import { appendVerdict } from "@/lib/loops/stores";
 
 let vault: string;
 
@@ -95,7 +96,10 @@ afterEach(() => {
 describe("GET /api/loops/dismissed", () => {
   it("returns dismiss-verdict drops newest first, with the documented shape", async () => {
     seedLedger([
-      dismissedEntry("ma-2026-05-20-001", 8, { task_id: "t-20260520-001" }),
+      dismissedEntry("ma-2026-05-20-001", 8, {
+        task_id: "t-20260520-001",
+        verdict: { verdict: "dismiss", at: isoDaysAgo(8), note: "Duplicate work" },
+      }),
       dismissedEntry("ma-2026-05-20-002", 2),
       entry("ma-2026-05-20-003", {}), // open — excluded
       // Closure drop (no verdict) — excluded: this route is the record of JUSTIN's declines.
@@ -123,8 +127,23 @@ describe("GET /api/loops/dismissed", () => {
       dismissed_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
       opened_from: "meetings/2026-05-20/floyds.md",
       task_id: "t-20260520-001",
+      note: "Duplicate work",
     });
     expect(json.items[0].task_id).toBeUndefined();
+  });
+
+  it("hides a restored dismissal immediately, before the loop reopens the ledger entry", async () => {
+    seedLedger([dismissedEntry("ma-2026-05-20-030", 2, { task_id: "t-20260520-030" })]);
+    appendVerdict(path.join(vault, "meta", "loops", "meetings"), {
+      id: "v-restore",
+      author: "justin",
+      created_at: new Date().toISOString(),
+      loop: "meeting-actions",
+      item_id: "ma-2026-05-20-030",
+      verdict: "restore",
+    });
+    const json = await (await get("?loop=meeting-actions")).json();
+    expect(json.items).toEqual([]);
   });
 
   it("caps by ?days (default 30) and a wider window admits older dismissals", async () => {

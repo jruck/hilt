@@ -55,7 +55,8 @@ export interface TaskFile {
   provenance?: TaskProvenance;
   /** Unknown frontmatter keys, preserved across parse/serialize so foreign edits survive. */
   extra?: Record<string, unknown>;
-  /** Markdown body after the frontmatter — the running context/work ledger. Never reformatted. */
+  /** Markdown body after the frontmatter — user-editable task notes and audit History. Source
+   * evidence from a linked meeting action is joined live instead of copied here. */
   body: string;
 }
 

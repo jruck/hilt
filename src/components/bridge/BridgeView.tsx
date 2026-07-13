@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { Fragment, useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useBridgeWeekly } from "@/hooks/useBridgeWeekly";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
 import { useBridgeThoughts } from "@/hooks/useBridgeThoughts";
@@ -16,6 +16,7 @@ import { ThoughtBoard } from "./ThoughtBoard";
 import { RecycleModal } from "./RecycleModal";
 import { BridgeTaskPanel } from "./BridgeTaskPanel";
 import { TaskFilePanel } from "./TaskFilePanel";
+import { MeetingLedgerPanel } from "./MeetingLedgerPanel";
 import { ProposalsSection } from "@/components/tasks/ProposalsSection";
 import { AppHud, AppHudCollapsedBar } from "@/components/AppHud";
 import { LoadingState } from "@/components/ui/LoadingState";
@@ -83,6 +84,7 @@ export function BridgeView({
   // FILE-addressable selection (mutually exclusive with the weekly-positional one above):
   // a bare task-file id — proposals, done/dropped, past-week tasks with no weekly row.
   const [selectedFileTaskId, setSelectedFileTaskId] = useState<string | null>(null);
+  const [meetingLedgerOpen, setMeetingLedgerOpen] = useState(false);
   const [autoFocusPanel, setAutoFocusPanel] = useState(false);
   const [autoFocusTitleToken, setAutoFocusTitleToken] = useState(0);
   const [sheetVisible, setSheetVisible] = useState(false);
@@ -118,7 +120,7 @@ export function BridgeView({
   const resolvedTask = selectedTask && weekly
     ? weekly.tasks.find(t => t.id === selectedTask.id) ?? null
     : null;
-  const paneOpen = Boolean(resolvedTask) || Boolean(selectedFileTaskId);
+  const paneOpen = Boolean(resolvedTask) || Boolean(selectedFileTaskId) || meetingLedgerOpen;
   useMobileChromeVisibilityLock(paneOpen || showRecycleModal);
 
   // Animate bottom sheet in on mobile when task is selected
@@ -158,6 +160,7 @@ export function BridgeView({
       markTaskRead(selectedTask);
       setSelectedTask(null);
       setSelectedFileTaskId(null);
+      setMeetingLedgerOpen(false);
       setAutoFocusPanel(false);
     }, 300);
   }, [selectedTask, markTaskRead]);
@@ -166,6 +169,7 @@ export function BridgeView({
     // Select immediately — the optimistic task has id "task-0"
     setSelectedTask({ id: "task-0", title, done: false, details: [], rawLines: [`- [ ] ${title}`], projectPath: null, projectPaths: [], dueDate: null, group: null });
     setSelectedFileTaskId(null);
+    setMeetingLedgerOpen(false);
     setAutoFocusPanel(true);
     setAutoFocusTitleToken((token) => token + 1);
     addTask(title);
@@ -281,6 +285,7 @@ export function BridgeView({
       setSelectedTask(task);
     }
     setSelectedFileTaskId(null);
+    setMeetingLedgerOpen(false);
     setAutoFocusPanel(false);
   }, [selectedTask, markTaskRead]);
 
@@ -292,6 +297,7 @@ export function BridgeView({
     }
     setSelectedTask(task);
     setSelectedFileTaskId(null);
+    setMeetingLedgerOpen(false);
     setAutoFocusPanel(false);
   }, [weekly?.tasks, selectedTask, markTaskRead]);
 
@@ -306,6 +312,7 @@ export function BridgeView({
     if (selectedTask) markTaskRead(selectedTask);
     setSelectedTask(null);
     setSelectedFileTaskId(fileId);
+    setMeetingLedgerOpen(false);
     setAutoFocusPanel(false);
   }, [weekly?.tasks, openTaskById, selectedTask, markTaskRead]);
 
@@ -463,10 +470,19 @@ export function BridgeView({
           />
 
           <SecondaryInlineContent className="space-y-8">
-            {weeklySectionOrder.map(renderWeeklySection)}
-
-            {/* A6: loop-minted task proposals awaiting a verdict — renders only when any exist */}
-            <ProposalsSection searchQuery={q} onOpenTask={openTaskByFileId} />
+            {weeklySectionOrder.map((section) => (
+              <Fragment key={section}>
+                {section === "tasks" && (
+                  <ProposalsSection searchQuery={q} onOpenTask={openTaskByFileId} onViewLedger={() => {
+                    if (selectedTask) markTaskRead(selectedTask);
+                    setSelectedTask(null);
+                    setSelectedFileTaskId(null);
+                    setMeetingLedgerOpen(true);
+                  }} />
+                )}
+                {renderWeeklySection(section)}
+              </Fragment>
+            ))}
 
             {filteredAreas && hasFilteredAreas && (
               <AreaBoard
@@ -516,7 +532,16 @@ export function BridgeView({
       </div>
 
       {/* File-addressable task pane — no weekly row required (proposals, done, past weeks) */}
-      {!resolvedTask && selectedFileTaskId && !isMobile && (
+      {meetingLedgerOpen && !isMobile && (
+        <div className="w-[30rem] flex-shrink-0 overflow-hidden">
+          <MeetingLedgerPanel
+            onClose={() => setMeetingLedgerOpen(false)}
+            onOpenTask={(id) => { setMeetingLedgerOpen(false); openTaskByFileId(id); }}
+          />
+        </div>
+      )}
+
+      {!meetingLedgerOpen && !resolvedTask && selectedFileTaskId && !isMobile && (
         <div className="w-96 flex-shrink-0 overflow-visible">
           <TaskFilePanel
             taskId={selectedFileTaskId}
@@ -527,7 +552,7 @@ export function BridgeView({
       )}
 
       {/* Task detail panel — side panel on desktop, bottom sheet on mobile */}
-      {resolvedTask && !isMobile && (
+      {!meetingLedgerOpen && resolvedTask && !isMobile && (
         <div className="w-96 flex-shrink-0 overflow-visible">
           <BridgeTaskPanel
             task={resolvedTask}
@@ -573,7 +598,7 @@ export function BridgeView({
       )}
 
       {/* Mobile bottom sheet — weekly panel or the file-addressable pane */}
-      {(resolvedTask || selectedFileTaskId) && isMobile && (
+      {!meetingLedgerOpen && (resolvedTask || selectedFileTaskId) && isMobile && (
         <>
           {/* Backdrop */}
           <div
@@ -644,6 +669,15 @@ export function BridgeView({
             </div>
           </div>
         </>
+      )}
+
+      {meetingLedgerOpen && isMobile && (
+        <div className="fixed inset-0 z-[60] bg-[var(--bg-primary)] pt-[env(safe-area-inset-top)]">
+          <MeetingLedgerPanel
+            onClose={() => setMeetingLedgerOpen(false)}
+            onOpenTask={(id) => { setMeetingLedgerOpen(false); openTaskByFileId(id); }}
+          />
+        </div>
       )}
     </div>
   );

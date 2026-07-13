@@ -2,7 +2,7 @@
  * /api/tasks/[id] — one task object by id (v3 unit A2).
  *
  * GET → probes `tasks/` then `tasks/.proposals/`; the response says which store answered.
- * PUT → non-status patch via updateTask. JSON cannot carry `undefined`, so an explicit
+ * PUT → non-status patch for accepted tasks or proposals. JSON cannot carry `undefined`, so an explicit
  *       `null` translates to the lib's undefined-clears-the-key convention. Status changes
  *       are rejected here EXCEPT `{ transition: { to, via } }`, which routes through
  *       transitionTask — the shared audited path (history line in the file body).
@@ -12,7 +12,7 @@
 import { NextResponse } from "next/server";
 import { isValidTaskId, readTask, transitionTask, updateTask } from "@/lib/tasks/store";
 import type { TaskPatch } from "@/lib/tasks/store";
-import { readProposal } from "@/lib/tasks/proposals";
+import { readProposal, updateProposal } from "@/lib/tasks/proposals";
 import type { TaskOrigin, TaskProvenance } from "@/lib/tasks/types";
 import {
   errorMessage,
@@ -175,18 +175,22 @@ export async function PUT(
       }
     }
 
-    if (!readTask(baseDir, id)) {
-      return notFoundResponse(baseDir, id);
+    if (readTask(baseDir, id)) {
+      const task = updateTask(baseDir, id, patch);
+      return NextResponse.json({ task, store: "tasks" });
     }
-    const task = updateTask(baseDir, id, patch);
-    return NextResponse.json({ task, store: "tasks" });
+    if (readProposal(baseDir, id)) {
+      const task = updateProposal(baseDir, id, patch);
+      return NextResponse.json({ task, store: "proposals" });
+    }
+    return NextResponse.json({ error: `task not found: ${id}` }, { status: 404 });
   } catch (err) {
     console.error("[tasks/[id]] PUT error:", err);
     return NextResponse.json({ error: errorMessage(err) }, { status: 500 });
   }
 }
 
-/** PUT targets `tasks/` only; a proposal id gets a pointed 409, anything else a 404. */
+/** Audited status transitions target accepted tasks only; proposals use the verdict routes. */
 function notFoundResponse(baseDir: string, id: string): NextResponse {
   if (readProposal(baseDir, id)) {
     return NextResponse.json(

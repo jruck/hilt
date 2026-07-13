@@ -75,7 +75,8 @@ export function commentTargetToFeedback(target: CommentTarget): FeedbackTarget |
 
 /**
  * A thread mapped back to FeedbackRecord shape: one record per human message (agent:* consumption
- * notes are thread furniture, not feedback), all carrying the thread-level processed stamp.
+ * notes are thread furniture, not feedback), carrying its own handled stamp with a legacy
+ * thread-level processed fallback.
  */
 export function threadToFeedbackRecords(thread: Thread): FeedbackRecord[] {
   const target = commentTargetToFeedback(thread.target);
@@ -89,7 +90,11 @@ export function threadToFeedbackRecords(thread: Thread): FeedbackRecord[] {
       created_at: message.created_at,
       target,
       text: message.text,
-      ...(thread.processed ? { processed: thread.processed } : {}),
+      ...(message.handled_at
+        ? { processed: { at: message.handled_at, run_at: message.handled_at } }
+        : thread.processed
+          ? { processed: thread.processed }
+          : {}),
     });
   }
   return records;

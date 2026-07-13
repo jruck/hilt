@@ -7,9 +7,9 @@
  * proposal, a done/dropped task, or a past-week task opens even with no weekly row.
  *
  * Editability follows the store's own rules:
- * - accepted/in-progress → title + body editable (PUT /api/tasks/[id]; body edits preserve
+ * - proposed/accepted/in-progress → title + body editable (PUT /api/tasks/[id]; body edits preserve
  *   the `## History` audit section, which renders read-only below the editor).
- * - proposed → read-only fields + the SAME verdict actions as TaskCard, now in the house
+ * - proposed → editable task notes plus the SAME verdict actions as TaskCard, now in the house
  *   three-dot header menu (VerdictActionMenu; POST /api/loops/verdicts via origin). The pane
  *   stays open after a verdict showing the new state (approve → Accepted; dismiss → Dismissed
  *   badge over the last-known content — the file is deleted, SWR's stale data is the memory).
@@ -21,23 +21,22 @@
  * pinned project cards — resolved via useObjectCard so it matches the pill popover exactly.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { History } from "lucide-react";
+import { History, MessageSquare } from "lucide-react";
 import dynamic from "next/dynamic";
 import type { TaskFile } from "@/lib/tasks/types";
 import type { Verdict } from "@/lib/loops/types";
-import type { ObjectRef } from "@/lib/objects/types";
 import { useTaskFile } from "@/hooks/useTaskFile";
-import { useObjectCard } from "@/hooks/useObjectCard";
+import { useMeetingLedgerDetail } from "@/hooks/useMeetingLedger";
 import { useScope } from "@/contexts/ScopeContext";
 import { withBasePath } from "@/lib/base-path";
 import { parseLifecycle } from "@/lib/attribution";
 import { historyEntries, joinTaskBody, splitTaskBody } from "@/lib/tasks/task-body";
 import type { ImplementedCommentTarget } from "@/lib/comments/types";
 import { CommentPopover } from "@/components/comments/CommentPopover";
-import { ObjectCard } from "@/components/objects/ObjectCard";
-import { ObjectPill } from "@/components/objects/ObjectPill";
 import { useVerdictNote, VerdictNoteField } from "@/components/comments/VerdictNoteField";
 import { mutateThreadsForTarget, ThreadView } from "@/components/threads/ThreadView";
+import { TaskMeetingActionSection } from "./TaskMeetingActionSection";
+import { TaskMeetingLinkageCard } from "./TaskMeetingLinkageCard";
 import {
   DueBadge,
   STATUS_BADGES,
@@ -65,43 +64,23 @@ const PANE_STATUS_BADGES: typeof STATUS_BADGES = {
   dropped: { label: "Dropped", className: "bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]" },
 };
 
-/**
- * The pane's meeting linkage — a FULL MeetingObjectCard (the same card the pill popover
- * shows), resolved through the same useObjectCard hook so the data can't drift from the
- * popover. Occupies the pinned-attachment slot BridgeTaskPanel gives its project cards.
- * Title click navigates to the meeting (the resolver nav, as the popover does); a failed
- * resolve degrades to the meeting pill so the linkage never disappears.
- */
-function MeetingLinkageCard({ meetingId }: { meetingId: string }) {
-  const refr: ObjectRef = { kind: "meeting", id: meetingId };
-  // Eager (enabled: true): the pane is open and the card IS the linkage UI — one cached fetch.
-  const { resolved, error } = useObjectCard(refr, true);
-  const { navigateTo } = useScope();
-  const nav = resolved?.nav ?? null;
-
-  return (
-    <div className="flex-shrink-0 px-6 py-3 border-b border-[var(--border-default)]">
-      {resolved ? (
-        <ObjectCard card={resolved.card} onOpen={nav ? () => navigateTo(nav.view, nav.scope) : undefined} />
-      ) : error ? (
-        <span className="text-xs text-[var(--text-tertiary)]">
-          <ObjectPill refr={refr} />
-        </span>
-      ) : (
-        <div className="space-y-2 rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-2.5" aria-hidden>
-          <div className="h-3.5 w-2/3 animate-pulse rounded bg-[var(--bg-tertiary)]" />
-          <div className="h-3 w-1/2 animate-pulse rounded bg-[var(--bg-tertiary)]" />
-        </div>
-      )}
-    </div>
-  );
-}
-
 async function postVerdict(body: unknown): Promise<void> {
   const response = await fetch(withBasePath("/api/loops/verdicts"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(payload?.error || `Request failed: ${response.status}`);
+  }
+}
+
+async function postTaskVerdict(taskId: string, verdict: Verdict, note?: string): Promise<void> {
+  const response = await fetch(withBasePath(`/api/tasks/${encodeURIComponent(taskId)}/verdict`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ verdict, ...(note ? { note } : {}) }),
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { error?: string } | null;
@@ -122,6 +101,9 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
   const noteControl = useVerdictNote();
   const { reset: resetNote, setSaved: setNoteSaved } = noteControl;
   const task: TaskFile | null = rawTask && rawTask.id === taskId ? rawTask : null;
+  const ledgerId = task?.origin?.loop === "meeting-actions" ? task.origin.item_id ?? null : null;
+  const { data: ledgerDetail } = useMeetingLedgerDetail(ledgerId);
+  const { navigateTo } = useScope();
   const commentTarget: ImplementedCommentTarget = task?.origin?.loop && task.origin.item_id
     ? { kind: "loop-item", loop: task.origin.loop, itemId: task.origin.item_id }
     : { kind: "task", id: taskId };
@@ -144,7 +126,10 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
 
   const dismissed = localVerdict === "dismiss";
   const status = task?.status ?? null;
-  const editable = store === "tasks" && (status === "accepted-me" || status === "accepted-agent" || status === "in-progress") && !localVerdict;
+  const editable = (
+    (store === "proposals" && status === "proposed")
+    || (store === "tasks" && (status === "accepted-me" || status === "accepted-agent" || status === "in-progress"))
+  ) && !localVerdict;
   const proposed = status === "proposed" && !localVerdict;
 
   // Body sections: the editor edits content; History stays read-only and is re-attached on
@@ -204,16 +189,20 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
   }
 
   async function submitVerdict(verdict: Verdict, note?: string) {
-    if (!task?.origin?.loop || !task.origin.item_id) return;
+    if (!task) return;
     setBusyVerdict(verdict);
     setVerdictError(null);
     try {
-      await postVerdict({
-        loop: task.origin.loop,
-        item_id: task.origin.item_id,
-        verdict,
-        ...(note ? { note } : {}),
-      });
+      if (task.origin?.loop && task.origin.item_id) {
+        await postVerdict({
+          loop: task.origin.loop,
+          item_id: task.origin.item_id,
+          verdict,
+          ...(note ? { note } : {}),
+        });
+      } else {
+        await postTaskVerdict(task.id, verdict, note);
+      }
       // Revise keeps the item proposed (returns revised for a REAL verdict — TaskCard idiom).
       if (verdict !== "revise") setLocalVerdict(verdict);
       resetNote();
@@ -228,6 +217,8 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
   }
 
   const badge = status ? PANE_STATUS_BADGES[status] : undefined;
+  const visibleBadge = ledgerId && status === "proposed" ? undefined : badge;
+  const showStatusRow = Boolean(localVerdict || visibleBadge || task?.due);
   const history = historyEntries(split?.history ?? null);
   const notFound = !task && !isLoading && Boolean(error);
 
@@ -276,7 +267,7 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
 
         {/* Verdict actions — proposals only; the house three-dot menu (BridgeTaskPanel slot),
             items shared with TaskCard's proposal checkbox via VerdictActionMenu. */}
-        {proposed && task?.origin?.loop && task.origin.item_id && (
+        {proposed && task && (
           <VerdictActionMenu
             variant="kebab"
             busy={Boolean(busyVerdict)}
@@ -289,29 +280,45 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
       </div>
 
       {task ? (
-        <>
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {/* Status / due / verdict badges */}
-          <div className="flex-shrink-0 flex flex-wrap items-center gap-1.5 px-6 py-3 border-b border-[var(--border-default)]">
-            {localVerdict ? (
-              <span className={`inline-flex items-center whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${verdictBadgeClass(localVerdict)}`}>
-                {verdictBadgeLabel(localVerdict)}
-              </span>
-            ) : badge ? (
-              <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${badge.className}`}>
-                {badge.label}
-              </span>
-            ) : null}
-            {task.due && <DueBadge due={task.due} />}
-          </div>
+          {showStatusRow && (
+            <div className="flex flex-wrap items-center gap-1.5 px-6 pt-3">
+              {localVerdict ? (
+                <span className={`inline-flex items-center whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${verdictBadgeClass(localVerdict)}`}>
+                  {verdictBadgeLabel(localVerdict)}
+                </span>
+              ) : visibleBadge ? (
+                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${visibleBadge.className}`}>
+                  {visibleBadge.label}
+                </span>
+              ) : null}
+              {task.due && <DueBadge due={task.due} />}
+            </div>
+          )}
 
           {/* Meeting linkage — the full meeting card in the pinned-attachment slot (mirrors
               BridgeTaskPanel's project cards; the popover-identical card, resolver-fed). */}
-          {task.origin?.meeting && !dismissed && <MeetingLinkageCard meetingId={task.origin.meeting} />}
+          {task.origin?.meeting && !dismissed && <TaskMeetingLinkageCard meetingId={task.origin.meeting} />}
+
+          {task.origin?.thread && !dismissed && (
+            <div className="px-6 pt-3">
+              <button
+                type="button"
+                onClick={() => navigateTo("chats", `/${task.origin!.thread}`)}
+                className="hilt-card flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+              >
+                <MessageSquare className="h-4 w-4" />
+                <span>Feedback thread</span>
+                <span className="ml-auto font-mono text-[10px] text-[var(--text-quaternary)]">{task.origin.thread.slice(0, 8)}</span>
+              </button>
+            </div>
+          )}
 
           {/* The verdict note — reachable from the menu's "Add note"; a typed note rides the
               next verdict pick, or its own Send posts a pure comment. */}
-          {proposed && task.origin?.loop && task.origin?.item_id && (noteControl.open || verdictError) && (
-            <div className="flex-shrink-0 px-6 py-3 border-b border-[var(--border-default)]">
+          {proposed && task && (noteControl.open || verdictError) && (
+            <div className="px-6 pt-3">
               <VerdictNoteField
                 control={noteControl}
                 target={commentTarget}
@@ -323,60 +330,65 @@ export function TaskFilePanel({ taskId, vaultPath, onClose }: TaskFilePanelProps
             </div>
           )}
 
-          {/* Body — content editable when the store allows it; History is audit, not notes */}
-          <div className="flex-1 overflow-y-auto px-6 py-4">
-            {dismissed ? (
-              <div className="text-sm text-[var(--text-tertiary)] py-2">
-                Dismissed — the proposal file was removed; the loop remembers and won&apos;t re-propose it.
-              </div>
-            ) : (
-              <>
-                {/* Provenance — the verbatim quote this task was minted from, at body size
-                    (the house .bridge-task-editor blockquote styling, not tiny italic). */}
-                {task.provenance?.quote && (
-                  <blockquote
-                    className="mb-4 border-l-[3px] border-[var(--border-strong)] pl-4 text-sm leading-[1.6] text-[var(--text-tertiary)]"
-                    title={task.provenance.source}
-                  >
-                    &ldquo;{task.provenance.quote}&rdquo;
-                  </blockquote>
-                )}
-                <BridgeTaskEditor
-                  key={`${taskId}:${editable ? "rw" : "ro"}`}
-                  markdown={split?.content ?? ""}
-                  onChange={handleBodyChange}
-                  readOnly={!editable}
-                  vaultPath={vaultPath}
-                  filePath={vaultPath ? `${vaultPath}/tasks/${store === "proposals" ? ".proposals/" : ""}${taskId}.md` : undefined}
-                />
-              </>
-            )}
-            {history.length > 0 && !dismissed && (
-              <div className="mt-6 border-t border-[var(--border-default)] pt-3">
-                <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
-                  <History className="w-3 h-3" />
-                  History
+          {/* One stacked document: attachments, user notes, comments, then the canonical source
+              record. There is no copied source prose and no second independently scrolling dock. */}
+          <div className="px-6 py-4">
+              {dismissed ? (
+                <div className="text-sm text-[var(--text-tertiary)] py-2">
+                  Dismissed — the proposal file was removed; the loop remembers and won&apos;t re-propose it.
                 </div>
-                <ul className="mt-2 space-y-1">
-                  {history.map((entry, index) => (
-                    <li key={index} className="text-xs font-mono text-[var(--text-tertiary)] break-words">
-                      {entry}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {/* Comments — the task's thread(s) on its origin ask (or the task itself when
-                origin-less): the thread-under-object section. Renders nothing when empty. */}
-            {!dismissed && (
-              <ThreadView
-                target={commentTarget}
-                title="Comments"
-                className="mt-6 border-t border-[var(--border-default)] pt-3"
-              />
-            )}
+              ) : (
+                <>
+                  {/* Non-ledger proposals still need their source quote inline. A linked meeting
+                      task gets the same quote, plus every later sighting, in the record dock. */}
+                  {task.provenance?.quote && !ledgerDetail && (
+                    <blockquote
+                      className="mb-4 border-l-[3px] border-[var(--border-strong)] pl-4 text-sm leading-[1.6] text-[var(--text-tertiary)]"
+                      title={task.provenance.source}
+                    >
+                      &ldquo;{task.provenance.quote}&rdquo;
+                    </blockquote>
+                  )}
+                  <BridgeTaskEditor
+                    key={`${taskId}:${editable ? "rw" : "ro"}`}
+                    markdown={split?.content ?? ""}
+                    onChange={handleBodyChange}
+                    readOnly={!editable}
+                    className="task-notes-editor"
+                    vaultPath={vaultPath}
+                    filePath={vaultPath ? `${vaultPath}/tasks/${store === "proposals" ? ".proposals/" : ""}${taskId}.md` : undefined}
+                  />
+                </>
+              )}
+              {/* Comments are working context. The machine-written task transition trail remains
+                  available, but no longer competes with the linked meeting record. */}
+              {!dismissed && (
+                <ThreadView
+                  target={commentTarget}
+                  title="Comments"
+                  className="mt-6 border-t border-[var(--border-default)] pt-3"
+                />
+              )}
+              {history.length > 0 && !dismissed && !ledgerId && (
+                <details className="group mt-6 border-t border-[var(--border-default)] pt-3">
+                  <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">
+                    <History className="h-3 w-3" />
+                    Task history · {history.length}
+                  </summary>
+                  <ul className="mt-2 space-y-1 pl-4">
+                    {history.map((entry, index) => (
+                      <li key={index} className="break-words text-xs font-mono text-[var(--text-tertiary)]">
+                        {entry}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
           </div>
-        </>
+          {ledgerDetail && !dismissed && (
+            <TaskMeetingActionSection detail={ledgerDetail} taskTitle={displayTitle} />
+          )}
+        </div>
       ) : (
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {notFound ? (

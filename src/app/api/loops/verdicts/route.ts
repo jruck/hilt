@@ -1,16 +1,10 @@
-import fs from "fs";
-import path from "path";
 import { NextRequest, NextResponse } from "next/server";
-import { parseWeeklyFile } from "@/lib/bridge/weekly-parser";
-import { AGENT_SECTION_HEADING, insertWeeklyV2Line, insertWeeklyV2LineInSection } from "@/lib/bridge/weekly-v2-view";
-import { atomicWriteFile } from "@/lib/library/utils";
 import { appendVerdict } from "@/lib/loops/stores";
 import type { Verdict, VerdictRecord } from "@/lib/loops/types";
 import { approveProposal, dismissProposal, listProposals, reviseProposal } from "@/lib/tasks/proposals";
-import { listTasks, transitionTask, updateTask } from "@/lib/tasks/store";
+import { listTasks, transitionTask } from "@/lib/tasks/store";
 import { canTransition } from "@/lib/tasks/status";
-import type { TaskFile } from "@/lib/tasks/types";
-import { renderWeeklyV2Line } from "@/lib/tasks/weekly-v2";
+import { AGENT_SECTION_HEADING, mirrorAcceptedTaskIntoWeekly } from "@/lib/tasks/weekly-mirror";
 import {
   errorMessage,
   findEnabledLoop,
@@ -39,89 +33,6 @@ function isVerdict(value: unknown): value is Verdict {
  * "missing" = no proposal file exists for this item — normal for pre-A6 items and for loops
  * whose proposal sink is not the vault (shadow sinks live outside `tasks/.proposals/`). */
 export type VerdictFileEffect = "applied" | "already-applied" | "missing";
-
-// AGENT_SECTION_HEADING moved to @/lib/bridge/weekly-v2-view — the recycle orphan sweep
-// writes into the same "Ready for agents" section this route's mirror does.
-
-/**
- * Weekly-list visibility for verdict-promoted tasks (gate-B feedback + the "agent tasks get a
- * home" round): once the proposal lands in `tasks/`, splice its v2 line into the CURRENT
- * weekly list — the exact A4 machinery the manual add uses (renderWeeklyV2Line +
- * insertWeeklyV2Line; surgical splice, never the v1 serializer). Direct fs against the
- * resolved vaultPath, matching the store's style (the bridge vault helpers resolve the same
- * root via getVaultPath).
- *
- * Contract:
- * - v2 lists only (`list_format: 2` in the latest lists/now file) — a side effect must never
- *   format-upgrade a v1 list.
- * - Idempotent: a list already linking `tasks/<id>.md` is left untouched (repeat approve, or
- *   a line something else already mirrored).
- * - Mirror-failure = cosmetic: every failure here warns and returns — the task file is the
- *   truth and the verdict still succeeds; the weekly view self-heals from the file store.
- * - approve/assign_to_me splice at the top of Tasks (no `section`); assign_to_agent passes
- *   `section` and lands at the top of that `###` section, created at the bottom of the Tasks
- *   region when missing.
- */
-function mirrorAcceptedTaskIntoWeekly(vaultPath: string, task: TaskFile, options?: { section?: string; mark?: boolean }): void {
-  try {
-    const listsDir = path.join(vaultPath, "lists", "now");
-    if (!fs.existsSync(listsDir)) return; // no weekly lists at all — nothing to mirror into
-    const filename = fs.readdirSync(listsDir)
-      .filter((name) => name.endsWith(".md") && !name.startsWith("."))
-      .sort()
-      .at(-1);
-    if (!filename) return;
-    const listPath = path.join(listsDir, filename);
-    const content = fs.readFileSync(listPath, "utf-8");
-    if (parseWeeklyFile(content, filename).listFormat !== 2) return; // v1 stays byte-untouched
-    const relTaskPath = `tasks/${task.id}.md`;
-    if (content.includes(`](${relTaskPath})`)) return; // already linked — idempotent
-    // Mark 🆕 only NOW — past every gate — so a v1/absent week never strands a marker in the
-    // file with no v2 line (and hence no read-receipt) to ever strip it. Fresh promotions
-    // mark; the repeat-verdict self-heal passes mark:false so a viewed task's stripped title
-    // is never re-marked (both adversarial findings, 2026-07-07).
-    const marked = options?.mark ? markTaskFileNew(vaultPath, task) : task;
-    const line = renderWeeklyV2Line(marked, relTaskPath);
-    const inserted = options?.section !== undefined
-      ? insertWeeklyV2LineInSection(content, line, options.section) // never null — creates the section
-      : insertWeeklyV2Line(content, line);
-    if (inserted === null) {
-      console.warn(
-        `[loops/verdicts] weekly mirror skipped: no task-section anchor in ${filename} (task file ${task.id} is the truth)`,
-      );
-      return;
-    }
-    atomicWriteFile(listPath, inserted);
-  } catch (error) {
-    console.warn(
-      `[loops/verdicts] weekly mirror failed for ${task.id} (task file is the truth):`,
-      error,
-    );
-  }
-}
-
-/** Title prefix for the 🆕 lifecycle marker (parseLifecycle in src/lib/attribution.ts: a title
- * starting "🆕 " renders the amber "new" accent until Justin views the task, which strips it —
- * the read receipt). */
-const NEW_MARKER_PREFIX = "🆕 ";
-
-/**
- * Stamp the 🆕 marker into the task FILE title at verdict-apply time — BEFORE the weekly line
- * is rendered, so file and line agree (v2 hydration overlays the file title anyway; a
- * line-only marker would vanish on the first hydrated read). Idempotent: never double-prefixes.
- * Only fresh promotions call this — the repeat-verdict self-heal path must NOT re-mark a task
- * whose marker was already stripped by viewing. Failure degrades to the unmarked task (the
- * marker is cosmetic; the verdict and the accepted file are the truth).
- */
-function markTaskFileNew(vaultPath: string, task: TaskFile): TaskFile {
-  if (task.title.trimStart().startsWith("🆕")) return task; // already marked — never double-prefix
-  try {
-    return updateTask(vaultPath, task.id, { title: `${NEW_MARKER_PREFIX}${task.title}` });
-  } catch (error) {
-    console.warn(`[loops/verdicts] 🆕 marker write failed for ${task.id} (cosmetic):`, error);
-    return task;
-  }
-}
 
 /**
  * Apply the verdict's FILE effect against the vault proposal sink (`tasks/.proposals/`),

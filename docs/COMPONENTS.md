@@ -216,10 +216,34 @@ Reference Library workspace backed by markdown reference files and hidden candid
 - Item opens preserve the current Library context: desktop uses split panes, while mobile opens detail over the current list and returns with Back without losing scroll position.
 - Opened Library items are addressable at `/library/item/<id>`. Feed/List/Recent/For You/New/status/source controls are reflected as query state so browser Back/Forward works inside Library and direct item links can reopen the detail pane.
 - Detail panes expose icon buttons for copying the Hilt item link and the underlying markdown path.
+- Detail panes expose one comment icon, not separate comment/chat actions. Sending from its popover appends an asynchronous comment; `Process now` on the resulting conversation switches to the full Chats pane before model work begins.
 - Candidate Dismiss is an active review operation: it marks the candidate `skipped`, removes it from the active Feed/List immediately, and shows an undo toast. Skipped/expired/promoted candidate cache records are excluded from default Library lists so dismissed candidates do not linger as ordinary feed items.
 - Header includes a compact health panel backed by `/api/library/health` for scheduler, source, and dead-letter visibility. Health refresh is status-only; the separate `Check sources` action runs a bounded live ingest for the selected source or all hourly sources, then revalidates the local Library view.
 - Uses `/api/library`, `/api/library/unread`, `/api/library/candidates/*`, `/api/library/sources`, the recommendation feed/episode/impression/dismiss/restore APIs, `/api/library/health`, and `/api/search`.
 - Manual, explicit-save, and discovery records share the same artifact shape, so UI actions do not need source-specific handling.
+
+### Conversation surfaces
+
+**Files**: `src/components/threads/ThreadView.tsx`, `src/components/threads/ThreadDrawer.tsx`,
+`src/components/threads/ThreadConversationTimeline.tsx`, `src/components/chat/ConversationTurn.tsx`,
+`src/components/chat/ChatComposer.tsx`, `src/components/chat/ChatTracePanel.tsx`,
+`src/components/chats/ChatsView.tsx`, `src/components/comments/CommentPopover.tsx`
+
+- `CommentPopover` is the compact capture surface. Enter posts a pending message and closes the popover; it never starts Claude.
+- `ThreadView` renders an object's conversation in place. `Process now` navigates to `/chats/<thread-id>/process` instead of draining the processor stream invisibly.
+- `ThreadDrawer` is the live surface: `ThreadConversationTimeline` adapts file-native thread messages/outcomes and attached chat evidence into the same `ConversationTurn` grammar used by free chats. Human bubbles align right, assistant prose aligns left, and each run's `ChatTracePanel` sits directly under the assistant reply it explains. Its shared `ChatComposer` sends and starts a turn immediately; a message posted during an active turn is queued as the next volley.
+- A target normally owns one reusable thread and one attached chat/Claude session. `Close conversation` is the only user-visible fork boundary.
+- `ChatsView` derives attention from pending messages, dev-item state, running work, and unread replies. A merely open but handled conversation stays in All without polluting Needs you; Done means explicitly closed or archived.
+
+### MeetingLedgerPanel.tsx
+
+**File**: `src/components/bridge/MeetingLedgerPanel.tsx`
+
+- A compact `View ledger` action sits in the Proposals header. Priorities stays a bounded current decision queue; the ledger owns growing dismissed and resolved history.
+- The panel is read-only and cursor-paginated. Search and `Pending`, `Accepted`, `Not surfaced`, `Observed only`, `Dismissed`, and `Resolved` filters execute server-side, while the fixed-height virtual list keeps tens of thousands of entries responsive. `Not surfaced` is the un-escalated Justin/unclear pool; `Observed only` keeps other-owner evidence distinct. Every lens explains its membership in the UI.
+- Desktop uses the existing secondary detail pane. Mobile uses the established full-screen Bridge sheet pattern and reserves the floating navigation clearance, so actions and history never sit beneath the global nav.
+- Detail shows stable ledger identity, owner/dates, meeting summary, surrounding context, proposal/task linkage, source citations, sightings, status history, and immutable events. Existing proposal, Decisions, dismissed-recovery, and meeting surfaces continue to own all mutations.
+- `bridge:meeting-ledger-changed` revalidates an open list/detail after a committed extraction; the hook polls every five seconds only while WebSocket delivery is disconnected.
 
 ### BriefingContent.tsx Library modules
 
@@ -236,7 +260,8 @@ Reference Library workspace backed by markdown reference files and hidden candid
 - At every width the meeting pill and unresolved count form a compact metadata row, with editorial context on a full-width second row. Long meeting names truncate inside the pill instead of taking width from the prose; the context is never a leftover grid track.
 - Generated task IDs define historical membership. The current daily or Saturday-anchored weekend briefing may absorb newly-created canonical proposal files, including a new meeting group; older briefings hydrate only their stamped IDs.
 - A successful active-file append broadcasts `briefings-changed`; the open briefing reloads its Markdown in place so the new group advances from identity-only fallback to stored meeting context without a page refresh.
-- Expansion renders existing `TaskCard` verdict controls. Accepted and dismissed stamped items stop contributing to pending counts and move behind one compact `Resolved · N` disclosure.
+- Expansion renders existing `TaskCard` verdict controls. Accepted/completed stamped work stops contributing to pending counts and moves behind `Resolved · N`.
+- Dismissals are separate recovery history. The active briefing shows the meeting's complete recent `Dismissed · N` set even when those IDs predate the current Markdown; historical briefings show only stamped dismissals. `DismissedProposalRows` presents original copy, date/reason, and an accessible restore icon. Restore updates the proposal card and pending count in place. Priorities and meeting detail reuse the same rows.
 - Legacy `⏭ Next steps` sections retain their prior live meeting join and rendering behavior.
 
 ### BriefingRecommendationRow.tsx
@@ -345,7 +370,11 @@ Individual task item with status management.
 **Files**: `src/components/bridge/BridgeTaskPanel.tsx`, `BridgeTaskDetail.tsx`, `BridgeTaskEditor.tsx`
 
 Task detail view with editing capabilities. BridgeTaskPanel is keyed to a WEEKLY-LIST row
-(positional selection resolved against `weekly.tasks`).
+(positional selection resolved against `weekly.tasks`). For v2 task-file rows it uses the same
+`TaskMeetingLinkageCard` and inline `TaskMeetingActionSection` as the file-addressable pane, so
+opening a current-week accepted task does not lose its ledger context. Attachments, blank-capable
+editable notes, and the source accordion share one scroll surface; task History stays hidden when
+the linked record already presents the same lifecycle.
 
 ### TaskFilePanel.tsx
 
@@ -354,15 +383,33 @@ Task detail view with editing capabilities. BridgeTaskPanel is keyed to a WEEKLY
 The FILE-addressable task detail pane — keyed to a task-file id (`t-…`), decoupled from weekly
 list position. Data flows entirely through `useTaskFile` → `/api/tasks/[id]`, so proposals,
 done/dropped tasks, and past-week tasks open with no weekly row. Editability follows the store:
-accepted/in-progress → title + body editable (body edits preserve the read-only `## History`
-audit section via `src/lib/tasks/task-body.ts` split/join); proposed → read-only fields + the
-shared verdict buttons (POST `/api/loops/verdicts`), pane stays open showing the new state after
-a verdict; done/dropped → read-only. BridgeView renders it whenever the selection is a bare file
+proposed/accepted/in-progress → title + body editable (body edits preserve the underlying
+`## History` audit section via `src/lib/tasks/task-body.ts` split/join); proposed tasks retain the
+shared verdict buttons (`/api/loops/verdicts` for loop asks, `/api/tasks/[id]/verdict` for
+task-native origins), while done/dropped are read-only. A meeting-derived task renders attachment
+cards first, a deliberately blank-capable notes editor, comments, and an inline expandable
+`TaskMeetingActionSection`. The section uses the complete `MeetingLedgerRecord` shared with the
+full browser, including summary, context, due language, evidence, sightings, and record history.
+New sightings update through the ledger WebSocket hook without modifying task Markdown. The
+separate Proposed badge and Task history disclosure are omitted when the meeting action already
+communicates that state; the file's History remains intact for audit.
+Thread-derived tasks link back to their Feedback thread. BridgeView renders the pane whenever the selection is a bare file
 id (`selectedFileTaskId`) — clicking any TaskCard anywhere (Proposals section, briefing canvas,
 meeting Next steps, task object pills) lands here or, when the task IS on this week's list, in
 BridgeTaskPanel. Cross-view opens arrive via the task-open channel
 (`src/lib/tasks/deeplink.ts` → Board → `openTaskRequest`); the CLI navigate API accepts
 `{view:"bridge", path:"/task/t-…"}`.
+
+### MeetingLedgerRecord.tsx / TaskMeetingActionSection.tsx
+
+**Files**: `src/components/bridge/MeetingLedgerRecord.tsx`, `TaskMeetingActionSection.tsx`
+
+`MeetingLedgerRecord` is the single read-only rendering contract for a ledger detail response;
+both the scalable ledger browser and linked task accordion use it so evidence/history presentation cannot
+drift. The task accordion suppresses a duplicate source action when it matches the edited task title,
+but shows it as `Original commitment` after the task is renamed. It never repeats the task link
+inside the task that already owns it. The section is normal document flow with one open/closed state;
+it has no drag handle, snap heights, nested scroll region, or database icon.
 
 ### BridgeNotes.tsx
 

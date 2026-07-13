@@ -28,7 +28,8 @@ import { TranscriptView } from "./TranscriptView";
 import { CommentPopover } from "@/components/comments/CommentPopover";
 import { ThreadView } from "@/components/threads/ThreadView";
 import { TaskCard } from "@/components/tasks/TaskCard";
-import { PROPOSAL_LOOP, formatRelativeDate } from "@/components/tasks/ProposalsSection";
+import { DismissedProposalRows } from "@/components/tasks/DismissedProposalRows";
+import { PROPOSAL_LOOP } from "@/components/tasks/ProposalsSection";
 import { useEscalations } from "@/components/briefings/EscalationsPanel";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useDismissed, useTasksList } from "@/hooks/useTaskFile";
@@ -415,7 +416,7 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
   // records whose `opened_from` IS this meeting's vault-relative path — MERGED with limbo
   // dismissals from the escalations feed (verdict recorded, ledger stamp pending until the
   // loop's next run; deduped by ledger id). Renders as the quiet "Dismissed · N" tail.
-  const { dismissed } = useDismissed(PROPOSAL_LOOP);
+  const { dismissed, mutate: mutateDismissed } = useDismissed(PROPOSAL_LOOP);
   const meetingDismissed = useMemo(
     () => mergeDismissed(dismissed, escalations, meetingRel),
     [dismissed, escalations, meetingRel],
@@ -448,6 +449,9 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
       },
     [mutateTasks, mutateEscalations],
   );
+  const handleDismissedRestored = useCallback(async () => {
+    await Promise.all([mutateTasks(), mutateEscalations(), mutateDismissed()]);
+  }, [mutateTasks, mutateEscalations, mutateDismissed]);
 
   // Reset transcript state when meeting changes
   useEffect(() => {
@@ -1033,17 +1037,13 @@ export function MeetingEntry({ meeting, slug, vaultPath, autoFocus, onDelete, on
                       <div className="h-px flex-1 bg-[var(--border-default)]" />
                     </div>
                     {dismissedExpanded && (
-                      <div className="mt-3 space-y-0.5">
-                        {meetingDismissed.map((item) => (
-                          <div key={item.id} className="flex items-baseline gap-2 px-3 py-1">
-                            <span className="min-w-0 flex-1 truncate text-xs text-[var(--text-tertiary)]" title={item.action}>
-                              {item.action}
-                            </span>
-                            <span className="flex-shrink-0 text-xs text-[var(--text-quaternary)]">
-                              {item.dismissed_at ? formatRelativeDate(item.dismissed_at) : "just now"}
-                            </span>
-                          </div>
-                        ))}
+                      <div className="mt-2">
+                        <DismissedProposalRows
+                          items={meetingDismissed}
+                          loop={PROPOSAL_LOOP}
+                          allowRestore
+                          onRestored={handleDismissedRestored}
+                        />
                       </div>
                     )}
                   </div>

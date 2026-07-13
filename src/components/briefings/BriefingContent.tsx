@@ -42,7 +42,8 @@ import { MeetingCard, useExpandSignal, type ExpandSignal } from "./MeetingCard";
 import { ObjectPill } from "@/components/objects/ObjectPill";
 import { parseHiltUri } from "@/lib/objects/uri";
 import { TaskCard } from "@/components/tasks/TaskCard";
-import { PROPOSAL_LOOP, formatRelativeDate } from "@/components/tasks/ProposalsSection";
+import { DismissedProposalRows } from "@/components/tasks/DismissedProposalRows";
+import { PROPOSAL_LOOP } from "@/components/tasks/ProposalsSection";
 import { useDismissed, useTasksList } from "@/hooks/useTaskFile";
 import { askToTaskFile, joinMeetingNextSteps, mergeDismissed } from "@/lib/tasks/meeting-next-steps";
 import { requestTaskOpen } from "@/lib/tasks/deeplink";
@@ -53,6 +54,7 @@ import { buildLibraryUrl, defaultLibraryUrlControls } from "@/lib/library/url";
 import type { RecommendedArtifact } from "@/lib/library/types";
 import {
   activeDecisionMeetingGroups,
+  decisionDismissedHistory,
   decisionPendingProposals as selectDecisionPendingProposals,
   isDecisionQueueSummary,
 } from "@/lib/briefing/decision-presentation";
@@ -361,6 +363,8 @@ interface CanvasContext {
    * in the pre-stamp limbo window, the escalations feed) remembers the minted `task_id`. These
    * ids are CONSUMED — represented by the "Dismissed · N" tails, never by raw-token chips. */
   dismissedTaskIds: ReadonlySet<string>;
+  /** Revalidate task, dismissal, and escalation state after a recovery action. */
+  refreshTaskState: () => Promise<void>;
   /** POSTs to the SAME /api/loops/verdicts endpoint every other surface uses (file effect +
    * ledger effect ride the task's origin). Undefined when the task has no verdict join. */
   makeVerdictHandler: (loop?: string, itemId?: string) => ((verdict: Verdict, note?: string) => Promise<void>) | undefined;
@@ -658,27 +662,26 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
   // this meeting's ledger-backed dismissals merged with limbo ones from the escalations feed
   // (verdict recorded, ledger stamp pending; deduped by ledger id once it lands).
   const haptics = useHaptics();
-  const { dismissed } = useDismissed(PROPOSAL_LOOP);
+  const { dismissed, mutate: mutateDismissed } = useDismissed(PROPOSAL_LOOP);
   const meetingDismissed = useMemo(
     () => mergeDismissed(dismissed, canvas.escalations.filter((e) => e.loop === PROPOSAL_LOOP), meetingRel),
     [dismissed, canvas.escalations, meetingRel],
   );
-  const resolvedDismissedIds = useMemo(() => {
-    if (!decisionQueue) return new Set(meetingDismissed.map((item) => item.id));
-    const ids = new Set<string>();
-    for (const record of dismissed) {
-      if (record.task_id && stampedIdSet.has(record.task_id)) ids.add(record.id);
-    }
-    for (const escalation of canvas.escalations) {
-      if (escalation.verdict === "dismiss" && escalation.task_id && stampedIdSet.has(escalation.task_id)) ids.add(escalation.id);
-    }
-    return ids;
-  }, [canvas.escalations, decisionQueue, dismissed, meetingDismissed, stampedIdSet]);
-  const resolvedDismissed = useMemo(
-    () => meetingDismissed.filter((item) => resolvedDismissedIds.has(item.id)),
-    [meetingDismissed, resolvedDismissedIds],
+  const visibleDismissed = useMemo(
+    () => decisionQueue
+      ? decisionDismissedHistory(meetingDismissed, stampedIdSet, activeBriefing)
+      : meetingDismissed,
+    [activeBriefing, decisionQueue, meetingDismissed, stampedIdSet],
   );
+  const [resolvedExpanded, setResolvedExpanded] = useState(false);
   const [dismissedExpanded, setDismissedExpanded] = useState(false);
+  const toggleResolved = useCallback(() => {
+    setResolvedExpanded((prev) => {
+      const next = !prev;
+      next ? haptics.soft() : haptics.rigid();
+      return next;
+    });
+  }, [haptics]);
   const toggleDismissed = useCallback(() => {
     setDismissedExpanded((prev) => {
       const next = !prev;
@@ -686,6 +689,9 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
       return next;
     });
   }, [haptics]);
+  const handleRestored = useCallback(async () => {
+    await Promise.all([mutateDismissed(), canvas.refreshTaskState()]);
+  }, [canvas, mutateDismissed]);
 
   // Sub-lines that survive hydration: id-only lines whose ids are known objects are consumed by
   // their cards; everything else (the meeting citation, editorial sub-bullets, unknown ids)
@@ -789,31 +795,25 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
       {!decisionQueue && landedStamped.map((task) => (
         <TaskCard key={task.id} flush hideMeeting showStatus task={task} onOpen={() => requestTaskOpen(task.id)} />
       ))}
-      {decisionQueue && landedStamped.length + resolvedDismissed.length > 0 && (
+      {decisionQueue && landedStamped.length > 0 && (
         <div>
           <div className="flex items-center gap-3">
             <div className="h-px flex-1 bg-[var(--border-default)]" />
             <button
               type="button"
-              onClick={toggleDismissed}
+              onClick={toggleResolved}
               className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
-              title={dismissedExpanded ? "Hide resolved decisions" : "View resolved decisions"}
+              title={resolvedExpanded ? "Hide resolved decisions" : "View resolved decisions"}
             >
-              <ChevronRight className={`h-3.5 w-3.5 transition-transform ${dismissedExpanded ? "rotate-90" : ""}`} />
-              Resolved · {landedStamped.length + resolvedDismissed.length}
+              <ChevronRight className={`h-3.5 w-3.5 transition-transform ${resolvedExpanded ? "rotate-90" : ""}`} />
+              Resolved · {landedStamped.length}
             </button>
             <div className="h-px flex-1 bg-[var(--border-default)]" />
           </div>
-          {dismissedExpanded && (
+          {resolvedExpanded && (
             <div className="mt-2 space-y-0.5">
               {landedStamped.map((task) => (
                 <TaskCard key={task.id} flush hideMeeting showStatus task={task} onOpen={() => requestTaskOpen(task.id)} />
-              ))}
-              {resolvedDismissed.map((dismissedItem) => (
-                <div key={dismissedItem.id} className="flex items-baseline gap-2 px-3 py-1">
-                  <span className="min-w-0 flex-1 truncate text-xs text-[var(--text-tertiary)]" title={dismissedItem.action}>{dismissedItem.action}</span>
-                  <span className="shrink-0 text-xs text-[var(--text-quaternary)]">Dismissed</span>
-                </div>
               ))}
             </div>
           )}
@@ -821,7 +821,7 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
       )}
       {/* Dismissed asks FROM THIS MEETING — the quiet reveal-tail idiom, classes copied exactly
           from the meeting view (B2) / Proposals section (A6). Renders only when N > 0. */}
-      {!decisionQueue && meetingDismissed.length > 0 && (
+      {visibleDismissed.length > 0 && (
         <div>
           <div className="flex items-center gap-3">
             <div className="h-px flex-1 bg-[var(--border-default)]" />
@@ -831,22 +831,18 @@ function NextStepsMeetingItem({ item, meetingRel, section, date, absPath, feedba
               title={dismissedExpanded ? "Hide dismissed items" : "View dismissed items"}
             >
               <ChevronRight className={`w-3.5 h-3.5 transition-transform ${dismissedExpanded ? "rotate-90" : ""}`} />
-              Dismissed · {meetingDismissed.length}
+              Dismissed · {visibleDismissed.length}
             </button>
             <div className="h-px flex-1 bg-[var(--border-default)]" />
           </div>
           {dismissedExpanded && (
-            <div className="mt-3 space-y-0.5">
-              {meetingDismissed.map((dismissedItem) => (
-                <div key={dismissedItem.id} className="flex items-baseline gap-2 px-3 py-1">
-                  <span className="min-w-0 flex-1 truncate text-xs text-[var(--text-tertiary)]" title={dismissedItem.action}>
-                    {dismissedItem.action}
-                  </span>
-                  <span className="flex-shrink-0 text-xs text-[var(--text-quaternary)]">
-                    {dismissedItem.dismissed_at ? formatRelativeDate(dismissedItem.dismissed_at) : "just now"}
-                  </span>
-                </div>
-              ))}
+            <div className="mt-2">
+              <DismissedProposalRows
+                items={visibleDismissed}
+                loop={PROPOSAL_LOOP}
+                allowRestore={activeBriefing}
+                onRestored={handleRestored}
+              />
             </div>
           )}
         </div>
@@ -978,9 +974,13 @@ export function BriefingContent({ content, date, absPath, feedbackable = true, e
     },
     [mutateTasks, onEscalationsChanged],
   );
+  const refreshTaskState = useCallback(async () => {
+    await mutateTasks();
+    onEscalationsChanged();
+  }, [mutateTasks, onEscalationsChanged]);
   const canvas = useMemo<CanvasContext>(
-    () => ({ taskById, tasks, proposals, escalations, dismissedTaskIds, makeVerdictHandler }),
-    [taskById, tasks, proposals, escalations, dismissedTaskIds, makeVerdictHandler],
+    () => ({ taskById, tasks, proposals, escalations, dismissedTaskIds, refreshTaskState, makeVerdictHandler }),
+    [taskById, tasks, proposals, escalations, dismissedTaskIds, refreshTaskState, makeVerdictHandler],
   );
 
   // Nest each loop's escalations inside its owning section. The join key is the briefing's OWN

@@ -30,6 +30,9 @@ const stage = argValue("--stage") || "all";
 const vaultPath = process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || "/Users/jruck/work/bridge";
 const evalDir = path.join(process.env.DATA_DIR || "data", "launchpad", process.env.EVAL_HOME_NAME || "extractor-eval");
 const goldPath = path.join(vaultPath, "meta/loops/meetings/state/gold-set.json");
+const extractionModel = process.env.LOOP_MEETING_MODEL || process.env.LIBRARY_CONNECTIONS_MODEL || "claude-cli-default";
+const judgeModel = process.env.LOOP_MEETING_JUDGE_MODEL || "claude-opus-4-8";
+const extractorVariant = "two-stage-observation-identity";
 
 interface GoldCommitment { action: string; owner: string; quote: string; confidence: number; source: string; in_next_steps: boolean; due?: string }
 interface GoldMeeting { meeting_path: string; commitments: GoldCommitment[] }
@@ -93,7 +96,7 @@ async function stageJudge(): Promise<void> {
     const promptPath = path.join(dir, "system.txt");
     fs.writeFileSync(promptPath, JUDGE_SYSTEM, "utf-8");
     try {
-      const stdout = await runClaude(resolveClaudeBin(), ["-p", task, "--append-system-prompt-file", promptPath, "--output-format", "json"], 180_000, vaultPath);
+      const stdout = await runClaude(resolveClaudeBin(), ["-p", task, "--append-system-prompt-file", promptPath, "--output-format", "json", "--model", judgeModel], 180_000, vaultPath);
       if (detectRateLimitInEnvelope(stdout).limited) { console.error("[eval] rate-limited; resume later"); return; }
       const text = extractModelText(stdout);
       const m = text.match(/\{[\s\S]*\}/);
@@ -158,6 +161,8 @@ function stageReport(): void {
   const sightings = open.reduce((n, e) => n + e.sightings.length, 0);
 
   const report = {
+    models: { extraction: extractionModel, judge: judgeModel },
+    extractor_variant: extractorVariant,
     judged_meetings: judgedCount,
     precision: tp + fp ? +(tp / (tp + fp)).toFixed(3) : null,
     recall_core: coreTotal ? +(coreMatched / coreTotal).toFixed(3) : null,

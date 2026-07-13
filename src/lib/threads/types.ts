@@ -8,11 +8,10 @@
  *
  * Invariants:
  * - A thread has ≥1 message; deleting the last message deletes the thread file.
- * - `status` drives append-to-open semantics: a new comment on a target with an OPEN thread
- *   appends to it; a resolved or processed non-dev target starts a fresh thread.
- * - `processed` mirrors the loops feedback stamp (consumed by a loop's health pass). Stamping
- *   processed also resolves the thread — unless dev_item is present: a diagnosed dev thread
- *   leaves the guidance set but stays open.
+ * - A new comment reuses the target's latest conversation. Agent-completed legacy threads reopen;
+ *   only an explicit `resolution.action === "closed"` starts a fresh thread.
+ * - `handled_at` belongs to individual human messages and `outcomes` describe turns. Neither
+ *   closes the conversation. `processed` remains only as a legacy compatibility stamp.
  * - `source_ref` is migration provenance (the original FeedbackRecord/LibraryComment id) and
  *    the idempotency key for re-runs of the migration.
  */
@@ -27,6 +26,31 @@ export interface ThreadMessage {
   text: string;
   created_at: string;
   edited_at?: string;
+  /** The processor/loop run that consumed this specific human message. */
+  handled_at?: string;
+  handled_by?: string;
+  outcome_id?: string;
+}
+
+export type ThreadOutcomeKind =
+  | "answered"
+  | "changed"
+  | "proposal"
+  | "dev-item"
+  | "calibrated"
+  | "clustered";
+
+/** One completed agent turn. Conversation lifecycle is deliberately separate. */
+export interface ThreadOutcome {
+  id: string;
+  kind: ThreadOutcomeKind;
+  summary: string;
+  at: string;
+  by: string;
+  message_ids: string[];
+  chat_id?: string;
+  files_touched?: string[];
+  proposal_task_id?: string;
 }
 
 export interface Thread {
@@ -36,13 +60,15 @@ export interface Thread {
   created_at: string;
   updated_at: string;
   messages: ThreadMessage[];
-  /** Chat sessions minted by the processor for this thread (append-only, oldest first). */
+  /** Chat sessions attached to this conversation (normally one reused session). */
   chat_ids?: string[];
+  /** Append-only run outcomes. A completed turn does not close the conversation. */
+  outcomes?: ThreadOutcome[];
   /** Stamped when the processor diagnoses the thread as a Hilt dev item; the thread stays OPEN for Justin's dev pass. */
   dev_item?: { diagnosed_at: string };
-  /** Stamped when a loop's health pass consumes the thread as feedback. */
+  /** Legacy thread-level compatibility stamp; new consumers use message.handled_at. */
   processed?: { at: string; run_at: string };
-  /** Explicit resolution (user or agent action), distinct from the processed stamp. */
+  /** Explicit conversation boundary; new UI writes action "closed". */
   resolution?: { action: string; at: string; run_at?: string; by: string };
   /** Migration provenance: the original record/comment id this thread was lifted from. */
   source_ref?: string;
@@ -56,10 +82,12 @@ export interface ThreadSummary {
   created_at: string;
   updated_at: string;
   message_count: number;
+  pending_message_count?: number;
   last_message_snippet: string | null;
   chat_ids?: Thread["chat_ids"];
   dev_item?: Thread["dev_item"];
   processed?: Thread["processed"];
   resolution?: Thread["resolution"];
+  last_outcome?: ThreadOutcome;
   source_ref?: string;
 }

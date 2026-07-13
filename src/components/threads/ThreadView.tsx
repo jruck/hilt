@@ -16,21 +16,20 @@
  *   editable/deletable — settled decision): inline edit → PATCH /api/threads/[id]
  *   {messageId, text}; trash → DELETE /api/threads/[id]/messages/[messageId] (deleting the
  *   last message deletes the thread — the section simply disappears).
- * - A resolved thread renders ONE quiet outcome caption under its last message —
- *   `resolutionStory` ("Calibrated · meeting-actions") + time-ago — so the agent reply
- *   reads as the outcome instead of being buried under duplicate stamp lines.
- * - Open threads carry a quiet Process affordance for running the active processor.
+ * - Each completed turn renders one quiet concrete outcome caption. Explicitly closed legacy
+ *   threads retain their resolution caption.
+ * - Pending threads carry a quiet Process-now affordance that opens the live Chats pane.
  */
 import { useState, type FormEvent } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import { Check, MessageSquare, Pencil, Play, Trash2, X } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import { THREAD_SUMMARIES_KEY } from "@/hooks/useThreadCounts";
+import { useScope } from "@/contexts/ScopeContext";
 import type { CommentTarget } from "@/lib/comments/types";
-import { runThreadProcess } from "@/lib/threads/process-client";
 import type { Thread, ThreadMessage } from "@/lib/threads/types";
 import { formatRelativeDate } from "@/components/tasks/ProposalsSection";
-import { resolutionStory, resolvedAt } from "./threadTargetHelpers";
+import { outcomeStory, resolutionStory, resolvedAt } from "./threadTargetHelpers";
 
 /** The SWR key for one anchor's threads — shared by ThreadView and posting surfaces. */
 export function threadsUrlForTarget(target: CommentTarget): string {
@@ -115,8 +114,12 @@ export function ThreadBlock({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { navigateTo } = useScope();
+  const pendingCount = thread.messages.filter((message) => (
+    (message.author === "justin" || message.author === "claude-sim") && !message.handled_at
+  )).length;
+  const lastOutcome = thread.outcomes?.[thread.outcomes.length - 1];
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -146,19 +149,6 @@ export function ThreadBlock({
     void run(() => requestJson(`/api/threads/${thread.id}/messages/${messageId}`, { method: "DELETE" }));
   }
 
-  async function processThread() {
-    setProcessing(true);
-    setError(null);
-    try {
-      await runThreadProcess(thread.id);
-      onChanged();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Thread processing failed");
-    } finally {
-      setProcessing(false);
-    }
-  }
-
   return (
     <div className="py-1.5 first:pt-1 last:pb-0">
       {thread.messages.map((message) => (
@@ -180,20 +170,21 @@ export function ThreadBlock({
           {resolutionStory(thread)} · {formatRelativeDate(resolvedAt(thread))}
         </div>
       )}
-      {thread.status === "open" && processAffordance === "inline" && (
+      {thread.status === "open" && lastOutcome && (
+        <div className="py-0.5 text-[11px] text-[var(--text-tertiary)]" title={lastOutcome.summary || lastOutcome.at}>
+          {outcomeStory(lastOutcome)} · {formatRelativeDate(lastOutcome.at)}
+        </div>
+      )}
+      {thread.status === "open" && pendingCount > 0 && processAffordance === "inline" && (
         <div className="py-0.5">
           <button
             type="button"
-            onClick={() => void processThread()}
-            disabled={processing || busy}
-            className={`inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] font-medium transition-colors disabled:cursor-default disabled:opacity-60 ${
-              processing
-                ? "text-emerald-600"
-                : "text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-            }`}
+            onClick={() => navigateTo("chats", `/${thread.id}/process`)}
+            disabled={busy}
+            className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-60"
           >
-            <Play className={`h-3 w-3 ${processing ? "animate-pulse" : ""}`} />
-            {processing ? "Processing" : "Process"}
+            <Play className="h-3 w-3" />
+            Process now
           </button>
         </div>
       )}

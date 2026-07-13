@@ -10,7 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { LedgerEntry } from "./meeting-ledger";
-import { mintProposalFromLedgerEntry, resolveProposalSink } from "./proposal-mint";
+import { mintProposalFromLedgerEntry, resolveProposalSink, restoreProposalFromLedgerEntry } from "./proposal-mint";
 import { parseRegistry } from "./registry";
 import { parseTaskFile } from "../tasks/task-file";
 import { proposalsDir, tasksDir } from "../tasks/store";
@@ -113,6 +113,21 @@ test("mintProposalFromLedgerEntry maps entry → proposal file and stamps task_i
   });
 });
 
+test("meeting proposal ids use the local loop date across UTC midnight", () => {
+  const vault = tmpdir();
+  const sink = resolveProposalSink({ registryProposalSink: "vault", vaultPath: vault, loopHome: "/unused" });
+  const entry = makeEntry({ id: "ma-2026-07-12-090" });
+  const minted = mintProposalFromLedgerEntry(entry, {
+    sink,
+    loopId: "meeting-actions",
+    vaultPath: vault,
+    now: "2026-07-13T00:15:00.000Z",
+    idDate: "2026-07-12",
+  });
+  assert.match(minted!.id, /^t-20260712-/);
+  assert.equal(minted!.created_at, "2026-07-13T00:15:00.000Z");
+});
+
 test("no due / no citation anchor → keys simply absent, mint still succeeds", () => {
   const vault = tmpdir();
   const entry = makeEntry({ id: "ma-2026-07-05-003", citations: [], due: undefined });
@@ -147,6 +162,55 @@ test("an entry with task_id NEVER re-mints — even after the file is deleted (d
   fs.unlinkSync(path.join(sink.dir, `${first.id}.md`));
   assert.equal(mintProposalFromLedgerEntry(entry, opts), null);
   assert.ok(!fs.existsSync(path.join(sink.dir, `${first.id}.md`)));
+});
+
+test("an interrupted file-first mint is reconciled by stable ledger origin without a duplicate", () => {
+  const vault = tmpdir();
+  const sink = resolveProposalSink({ registryProposalSink: "vault", vaultPath: vault, loopHome: "/unused" });
+  const firstEntry = makeEntry();
+  const options = { sink, loopId: "meeting-actions", vaultPath: vault, now: "2026-07-07T19:30:00.000Z" };
+  const first = mintProposalFromLedgerEntry(firstEntry, options);
+  assert.ok(first);
+
+  // Simulate a crash after the proposal file landed but before SQLite stored task_id.
+  const recoveredEntry = makeEntry();
+  const recovered = mintProposalFromLedgerEntry(recoveredEntry, options);
+  assert.equal(recovered?.id, first.id);
+  assert.equal(recoveredEntry.task_id, first.id);
+  assert.deepEqual(fs.readdirSync(sink.dir).filter((name) => name.endsWith(".md")), [`${first.id}.md`]);
+});
+
+test("restoreProposalFromLedgerEntry recreates the same id and provenance without reminting", () => {
+  const vault = tmpdir();
+  const entry = makeEntry({ context: "The response-rate review left one decision open." });
+  const sink = resolveProposalSink({ registryProposalSink: "vault", vaultPath: vault, loopHome: "/unused" });
+  const minted = mintProposalFromLedgerEntry(entry, {
+    sink,
+    loopId: "meeting-actions",
+    vaultPath: vault,
+    now: "2026-07-07T19:30:00.000Z",
+  });
+  assert.ok(minted);
+  fs.unlinkSync(path.join(sink.dir, `${minted.id}.md`));
+  entry.status = "dropped";
+  entry.verdict = { verdict: "dismiss", at: "2026-07-08T10:00:00.000Z" };
+
+  const restored = restoreProposalFromLedgerEntry(entry, {
+    vaultPath: vault,
+    loopId: "meeting-actions",
+    now: "2026-07-09T12:00:00.000Z",
+  });
+  assert.equal(restored.created, true);
+  assert.equal(restored.task.id, minted.id);
+  assert.equal(restored.task.created_at, entry.opened_at);
+  assert.deepEqual(restored.task.origin, minted.origin);
+  assert.deepEqual(restored.task.provenance, minted.provenance);
+  assert.doesNotMatch(restored.task.body, /The response-rate review left one decision open\./);
+  assert.match(restored.task.body, /restored to proposed \(via dismissed recovery\)/);
+
+  const repeated = restoreProposalFromLedgerEntry(entry, { vaultPath: vault, loopId: "meeting-actions" });
+  assert.equal(repeated.created, false);
+  assert.equal(repeated.task.id, minted.id);
 });
 
 // ── Cross-dir collision checking ─────────────────────────────────────────────────────────────
@@ -192,7 +256,7 @@ test("parseRegistry accepts proposal_sink: vault and rejects anything else", () 
   );
 });
 
-test("free-text due goes to the body, never the due field (Invalid Date crash guard)", () => {
+test("free-text due stays on the ledger record, never the task due field or notes", () => {
   const dir = tmpdir();
   const entry = makeEntry({ id: "ma-2026-07-05-060", due: "beginning of next week" });
   const task = mintProposalFromLedgerEntry(entry, {
@@ -203,7 +267,7 @@ test("free-text due goes to the body, never the due field (Invalid Date crash gu
   });
   assert.ok(task);
   assert.equal(task!.due, undefined);
-  assert.match(task!.body, /Due \(as stated\): beginning of next week/);
+  assert.equal(task!.body, "\n");
 
   const iso = makeEntry({ id: "ma-2026-07-05-061", due: "2026-07-14" });
   const isoTask = mintProposalFromLedgerEntry(iso, {
@@ -213,33 +277,32 @@ test("free-text due goes to the body, never the due field (Invalid Date crash gu
     now: "2026-07-07T09:00:00.000Z",
   });
   assert.equal(isoTask!.due, "2026-07-14");
+  assert.equal(isoTask!.body, "\n");
 });
 
-// ── Context → proposal body ──────────────────────────────────────────────────────────────────
+// ── Context remains canonical on the meeting action ─────────────────────────────────────────
 
 const CONTEXT = "Sarah asked about volume pricing for the Q3 rollout and Justin offered to pull current numbers.";
 
-test("entry context becomes the proposal body's leading paragraph", () => {
+test("entry context is not copied into the proposal's user-editable notes", () => {
   const dir = tmpdir();
   const opts = { sink: { dir, kind: "explicit" as const }, loopId: "meeting-actions", vaultPath: dir, now: "2026-07-08T09:00:00.000Z" };
 
-  // Context alone: the body IS the paragraph.
   const alone = mintProposalFromLedgerEntry(makeEntry({ id: "ma-2026-07-05-070", context: CONTEXT }), opts);
-  assert.equal(alone!.body, `${CONTEXT}\n`);
+  assert.equal(alone!.body, "\n");
 
-  // Context + stated due: context paragraph first, blank line, then the stated-due line.
   const both = mintProposalFromLedgerEntry(
     makeEntry({ id: "ma-2026-07-05-071", context: CONTEXT, due: "next sprint" }),
     opts,
   );
-  assert.equal(both!.body, `${CONTEXT}\n\nDue (as stated): next sprint\n`);
+  assert.equal(both!.body, "\n");
 
-  // The body survives the file round-trip (the pane reads the FILE).
+  // The persisted task stays blank; the pane joins the canonical ledger entry at read time.
   const onDisk = parseTaskFile(fs.readFileSync(path.join(dir, `${both!.id}.md`), "utf-8"));
-  assert.equal(onDisk.body, `${CONTEXT}\n\nDue (as stated): next sprint\n`);
+  assert.equal(onDisk.body, "\n");
 });
 
-test("no context → body byte-identical to the pre-context mint (24+ real entries lack it)", () => {
+test("all generated meeting proposals start with blank notes", () => {
   const dir = tmpdir();
   const opts = { sink: { dir, kind: "explicit" as const }, loopId: "meeting-actions", vaultPath: dir, now: "2026-07-08T09:00:00.000Z" };
 
@@ -248,7 +311,7 @@ test("no context → body byte-identical to the pre-context mint (24+ real entri
   assert.equal(bare!.body, "\n"); // empty body normalized, exactly as before
 
   const statedDue = mintProposalFromLedgerEntry(makeEntry({ id: "ma-2026-07-05-073", due: "next sprint" }), opts);
-  assert.equal(statedDue!.body, "Due (as stated): next sprint\n");
+  assert.equal(statedDue!.body, "\n");
 
   // Whitespace-only context degrades to no-context, never an empty leading paragraph.
   const blank = mintProposalFromLedgerEntry(makeEntry({ id: "ma-2026-07-05-074", context: "   " }), opts);

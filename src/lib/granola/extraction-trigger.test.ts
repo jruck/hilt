@@ -8,6 +8,7 @@ import {
   meetingDateFromPath,
   observeMeeting,
   pruneTriggerState,
+  readProcessedMeetings,
   readTriggerState,
   SerialMeetingRunner,
   shouldFire,
@@ -17,6 +18,7 @@ import {
   type TriggerMeetingState,
   type TriggerState,
 } from "./extraction-trigger";
+import { MeetingLedgerStore, meetingLedgerDbPath, writeMeetingLedgerStorageMarker } from "../loops/meeting-ledger-store";
 
 const CFG: SettleConfig = { settlePolls: 3, minStableMs: 120_000 };
 
@@ -262,5 +264,26 @@ describe("SerialMeetingRunner (queue serialization)", () => {
     await runner.idle();
     assert.deepEqual(ran, [["a"], ["b"]]);
     assert.equal(runner.isActive(), false);
+  });
+});
+
+describe("shared SQLite processed set", () => {
+  it("lets the post-meeting trigger see meetings committed by the nightly repository", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-trigger-ledger-"));
+    const priorData = process.env.DATA_DIR;
+    process.env.DATA_DIR = path.join(root, "data");
+    const vault = path.join(root, "vault");
+    fs.mkdirSync(path.join(vault, "meta", "loops"), { recursive: true });
+    fs.writeFileSync(path.join(vault, "meta", "loops", "registry.yml"), [
+      "loops:", "  - id: meeting-actions", "    domain: meetings", "    cadence: daily", "    enabled: true", "    phase: shadow", "",
+    ].join("\n"));
+    const store = new MeetingLedgerStore(meetingLedgerDbPath(vault));
+    store.markProcessed("meetings/2026-07-12/Shared.md", "2026-07-12T12:00:00.000Z");
+    store.close();
+    writeMeetingLedgerStorageMarker(vault, { version: 1, mode: "sqlite", migrated_at: "2026-07-12T12:00:00.000Z", legacy_home: null });
+    assert.deepEqual([...readProcessedMeetings(vault)!], ["meetings/2026-07-12/Shared.md"]);
+    if (priorData === undefined) delete process.env.DATA_DIR;
+    else process.env.DATA_DIR = priorData;
+    fs.rmSync(root, { recursive: true, force: true });
   });
 });

@@ -9,7 +9,7 @@ import { extractJsonObject } from "../src/lib/loops/extract-json";
 import { loadRegistry, loopHome } from "../src/lib/loops/registry";
 import { emitLoopArtifact, defaultSandboxDir } from "../src/lib/loops/emit";
 import { runThreadHealthPass, renderFeedbackHandledSection } from "../src/lib/loops/health-pass";
-import { openEntries, readLedger } from "../src/lib/loops/meeting-ledger";
+import { openMeetingLedgerRuntime } from "../src/lib/loops/meeting-ledger-runtime";
 import type { LoopItem } from "../src/lib/loops/types";
 
 loadEnvConfig(process.cwd());
@@ -90,14 +90,17 @@ function observedLedger(until: string): string {
   const ma = registry.loops.find((l) => l.id === "meeting-actions");
   if (!ma) return "(no meeting-actions loop)";
   const home = ma.phase === "live" ? loopHome(vaultPath, ma) : loopHome(defaultSandboxDir(), ma);
-  const ledger = readLedger(home);
-  // As-of discipline (retro runs): exclude entries opened after the window — future ledger state
-  // leaking into historical reads was exactly the confound that poisoned briefing grading round 1.
-  // (Entries resolved after `until` still show open; replaying status_history isn't worth it.)
-  const open = openEntries(ledger).filter((e) => e.opened_at.slice(0, 10) <= until);
-  return open.length
-    ? open.slice(0, 40).map((e) => `- [${e.owner}] ${e.action.slice(0, 100)} (opened ${e.opened_at.slice(0, 10)})`).join("\n")
-    : "(action ledger empty)";
+  const ledger = openMeetingLedgerRuntime({ vaultPath, legacyHome: home });
+  try {
+    // The repository selects bounded recent movement, pending decisions, and accepted-open work.
+    // It preserves as-of isolation while avoiding the old arbitrary first-40 lifetime slice.
+    const entries = ledger.goalsContext(until, 80);
+    return entries.length
+      ? entries.map((e) => `- [${e.owner}] ${e.action.slice(0, 100)} (opened ${e.opened_at.slice(0, 10)})`).join("\n")
+      : "(action ledger empty)";
+  } finally {
+    ledger.close();
+  }
 }
 
 function observedLibrary(since: string, until: string): string {

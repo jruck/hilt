@@ -11,7 +11,7 @@ import path from "node:path";
 import type { TaskFile, TaskStatus } from "./types";
 import { TASK_STATUSES } from "./types";
 import { parseTaskFile, serializeTaskFile } from "./task-file";
-import { mintTaskId } from "./ids";
+import { mintTaskId, readTaskIdSequenceState, seedTaskIdSequences, taskIdSequencePath } from "./ids";
 import { applyStatusTransition, canTransition, TASK_TRANSITIONS } from "./status";
 import {
   createTask,
@@ -30,6 +30,7 @@ import {
   listProposals,
   readProposal,
   reviseProposal,
+  updateProposal,
 } from "./proposals";
 import {
   listFormatFromFrontmatter,
@@ -256,6 +257,35 @@ test("mintTaskId collision-checks across BOTH tasks/ and tasks/.proposals/", () 
   assert.equal(mintTaskId(dir, new Date("2026-07-09T12:00:00Z")), "t-20260709-001");
 });
 
+test("dismissed proposal ids remain permanently reserved", () => {
+  const dir = tmpdir();
+  const proposal = createTask(dir, {
+    title: "Dismiss without recycling the id",
+    status: "proposed",
+    created_at: "2026-07-07T09:00:00.000Z",
+  });
+  assert.equal(proposal.id, "t-20260707-001");
+  assert.equal(dismissProposal(dir, proposal.id), true);
+  assert.equal(mintTaskId(dir, "2026-07-07"), "t-20260707-002");
+  const next = createTask(dir, { title: "Next identity", created_at: "2026-07-07T10:00:00.000Z" });
+  assert.equal(next.id, "t-20260707-002");
+  assert.equal(readTaskIdSequenceState(dir).high_water["20260707"], 2);
+  assert.ok(fs.existsSync(taskIdSequencePath(dir)));
+});
+
+test("sequence migration reserves historical ids whose files are gone", () => {
+  const dir = tmpdir();
+  const state = seedTaskIdSequences(
+    dir,
+    ["t-20260630-014", "t-20260707-047"],
+    "2026-07-12T12:00:00.000Z",
+  );
+  assert.equal(state.high_water["20260630"], 14);
+  assert.equal(state.high_water["20260707"], 47);
+  assert.equal(mintTaskId(dir, "2026-06-30"), "t-20260630-015");
+  assert.equal(mintTaskId(dir, "2026-07-07"), "t-20260707-048");
+});
+
 // ── Proposal lifecycle ────────────────────────────────────────────────────────────────────────
 
 test("approveProposal = status transition + rename into tasks/ (id stable, history appended)", () => {
@@ -317,6 +347,17 @@ test("reviseProposal appends the note and the file stays proposed, in .proposals
   assert.ok(fs.existsSync(proposalPath(dir, proposal.id)));
   assert.ok(!fs.existsSync(taskPath(dir, proposal.id)));
   assert.deepEqual(readProposal(dir, proposal.id), revised);
+});
+
+test("updateProposal edits title and notes without bypassing the proposed lifecycle", () => {
+  const dir = tmpdir();
+  const proposal = createTask(dir, { title: "Draft title", status: "proposed" });
+  const updated = updateProposal(dir, proposal.id, { title: "Clearer title", body: "My own notes" });
+  assert.equal(updated.status, "proposed");
+  assert.equal(updated.title, "Clearer title");
+  assert.equal(updated.body, "My own notes\n");
+  assert.deepEqual(readProposal(dir, proposal.id), updated);
+  assert.equal(readTask(dir, proposal.id), null);
 });
 
 // ── Weekly v2 line helpers ────────────────────────────────────────────────────────────────────

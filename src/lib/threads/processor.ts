@@ -1,10 +1,10 @@
 /**
  * On-demand feedback-thread processor contract:
- * - one Claude CLI turn per invocation;
- * - the turn persists as a normal chat session, including trace and file-touch metadata;
- * - the thread is untouched on Claude failure so it can be retried;
- * - a final-line PROPOSAL marker mints a proposal task with origin.thread.
- * - a final-line DEVITEM marker stamps dev_item and leaves the thread open.
+ * - one Claude CLI turn per invocation over only the pending human messages;
+ * - turns reuse one normal chat session, including trace and file-touch metadata;
+ * - failed turns leave the pending messages unhandled so they can be retried;
+ * - a final-line PROPOSAL marker mints a proposal task with origin.thread;
+ * - every success records an outcome but leaves the conversation open.
  */
 import crypto from "crypto";
 import path from "path";
@@ -15,7 +15,15 @@ import { appendMessage, createChat, readChat, updateChat } from "../chat/store";
 import { deterministicTitle, type ChatContextRef, type ChatStreamEvent, type ChatTraceEvent } from "../chat/types";
 import { createProposalIn, proposalsDir } from "../tasks/store";
 import { commentTargetToFeedback } from "./feedback-bridge";
-import { appendChatId, appendToThread, markDevItem, markProcessed, readThread, resolveThread } from "./store";
+import {
+  appendChatId,
+  appendToThread,
+  markDevItem,
+  markMessagesHandled,
+  pendingThreadMessages,
+  readThread,
+  recordThreadOutcome,
+} from "./store";
 import type { CommentTarget, Thread, ThreadMessage } from "./types";
 
 export const PROCESSOR_INSTRUCTIONS =
@@ -23,6 +31,7 @@ export const PROCESSOR_INSTRUCTIONS =
   "If the request is immediately actionable in vault files, do it with minimal surgical edits. " +
   "If the feedback is about Hilt's OWN SOFTWARE BEHAVIOR (app UI, briefing rendering, views, loops-as-code — a bug report or feature request about the product, not vault content), do NOT edit ANY files — not vault, not code. Investigate read-only: the Hilt source lives at /Users/jruck/work/engineering/me/hilt and you may Read/Grep/Glob it. Then end your reply with a final line 'DEVITEM: <one-line diagnosis>'. " +
   "If it is BIGGER than a local edit (and not a dev item), do NOT attempt it — instead end your reply with a line 'PROPOSAL: <imperative task title>'. " +
+  "Never imply that vague feedback will influence future behavior unless you actually changed a file or minted a proposal; an answer-only turn is a valid outcome and must say that no further action was taken. " +
   "Always end with a concise reply to Justin.";
 
 export type ProcessorRunner = (options: RunClaudeOptions) => Promise<RunClaudeResult>;
@@ -31,7 +40,7 @@ export interface ProcessThreadResult {
   ok: boolean;
   threadId: string;
   chatId: string | null;
-  action?: "processed" | "proposal-minted" | "dev-item";
+  action?: "answered" | "changed" | "proposal-minted" | "dev-item";
   proposalTaskId?: string;
   reply?: string;
   error?: string;
@@ -190,21 +199,24 @@ export async function processThread(threadId: string, opts: {
   const thread = readThread(threadId);
   if (!thread) return { ok: false, threadId, chatId: null, error: "not-found" };
   if (thread.status === "resolved") return { ok: false, threadId, chatId: null, error: "already-resolved" };
+  const pendingMessages = pendingThreadMessages(thread);
+  if (pendingMessages.length === 0) return { ok: false, threadId, chatId: null, error: "nothing-pending" };
 
   const vaultRoot = opts.vaultRoot ?? await getVaultPath();
   const contextRef = threadContextRef(thread.target);
-  const built = await buildFirstTurnPrompt(contextRef);
   const contextLabel = contextLabelForThread(thread);
-  const session = createChat(contextRef, contextLabel);
+  const existingSession = [...(thread.chat_ids ?? [])]
+    .reverse()
+    .map((id) => readChat(id))
+    .find((candidate) => candidate !== null) ?? null;
+  const session = existingSession ?? createChat(contextRef, contextLabel);
   const chatId = session.id;
   emit({ type: "session", chatId });
-  appendChatId(threadId, chatId);
+  if (!existingSession) appendChatId(threadId, chatId);
 
-  const lines = thread.messages.map(messageLine);
-  const userContent = [
-    `Process feedback thread ${threadId} (${describeTarget(thread.target)}):`,
-    ...lines,
-  ].join("\n");
+  const lines = pendingMessages.map(messageLine);
+  const userContent = pendingMessages.map((message) => message.text.trim()).join("\n\n");
+  const firstTurn = session.messages.length === 0 || !session.claudeSessionId;
 
   appendMessage(chatId, {
     id: crypto.randomUUID(),
@@ -213,8 +225,9 @@ export async function processThread(threadId: string, opts: {
     timestamp: Date.now(),
   });
   updateChat(chatId, {
-    title: deterministicTitle(userContent),
+    ...(session.messages.length === 0 ? { title: deterministicTitle(userContent) } : {}),
     status: "sending",
+    archivedAt: null,
   });
 
   const preamble = [
@@ -223,7 +236,9 @@ export async function processThread(threadId: string, opts: {
     "Thread messages:",
     ...lines,
   ].join("\n");
-  const prompt = [built.prompt, "", preamble, "", PROCESSOR_INSTRUCTIONS].join("\n");
+  const prompt = firstTurn
+    ? [(await buildFirstTurnPrompt(contextRef)).prompt, "", preamble, "", PROCESSOR_INSTRUCTIONS].join("\n")
+    : [preamble, "", PROCESSOR_INSTRUCTIONS].join("\n");
 
   const traces: ChatTraceEvent[] = [];
   const filesTouched: string[] = [];
@@ -253,7 +268,7 @@ export async function processThread(threadId: string, opts: {
   let result: RunClaudeResult;
   try {
     result = await runner({
-      claudeSessionId: null,
+      claudeSessionId: firstTurn ? null : session.claudeSessionId,
       prompt,
       cwd: vaultRoot,
       signal: opts.signal,
@@ -279,8 +294,8 @@ export async function processThread(threadId: string, opts: {
 
   // A cancelled run (drawer close/stop, batch Cancel, client disconnect) SIGTERMs the child,
   // which resolves with a non-zero/null code but may have already collected partial text. Never
-  // let that partial text ride the success path — it would resolve the thread with a truncated
-  // reply. Leave the thread untouched (retryable) and close out the chat session.
+  // let that partial text ride the success path — it would mark the volley handled with a
+  // truncated reply. Leave the thread untouched (retryable) and close out the chat session.
   if (opts.signal?.aborted) {
     if (traces.length > 0 || result.collectedText) {
       appendMessage(chatId, {
@@ -315,7 +330,7 @@ export async function processThread(threadId: string, opts: {
   }
 
   let reply = result.collectedText || "Claude returned no text.";
-  let action: ProcessThreadResult["action"] = "processed";
+  let action: ProcessThreadResult["action"] = filesTouched.length > 0 ? "changed" : "answered";
   let proposalTaskId: string | undefined;
   const devItemMarker = parseDevItemMarker(reply);
 
@@ -352,9 +367,19 @@ export async function processThread(threadId: string, opts: {
     appendToThread(threadId, { author, text: reply });
     const diagnosedAt = new Date().toISOString();
     markDevItem(threadId, { diagnosed_at: diagnosedAt });
-    if (commentTargetToFeedback(thread.target)) {
-      markProcessed(threadId, { at: diagnosedAt, run_at: diagnosedAt });
-    }
+    const outcome = recordThreadOutcome(threadId, {
+      kind: "dev-item",
+      summary: devItemMarker.diagnosis,
+      at: diagnosedAt,
+      by: author,
+      message_ids: pendingMessages.map((message) => message.id),
+      chat_id: chatId,
+    });
+    markMessagesHandled(threadId, pendingMessages.map((message) => message.id), {
+      at: diagnosedAt,
+      by: author,
+      outcome_id: outcome.id,
+    });
     emit({ type: "complete", claudeSessionId: result.claudeSessionId });
 
     return { ok: true, threadId, chatId, action, reply };
@@ -364,9 +389,20 @@ export async function processThread(threadId: string, opts: {
 
   if (marker) {
     try {
+      const sourceMessage = thread.messages.find((message) => message.author === "justin") ?? thread.messages[0];
       const task = createProposalIn(
         proposalsDir(vaultRoot),
-        { title: marker.title, origin: { thread: threadId } },
+        {
+          title: marker.title,
+          origin: { thread: threadId },
+          ...(marker.stripped ? { body: marker.stripped } : {}),
+          ...(sourceMessage?.text ? {
+            provenance: {
+              quote: oneLine(sourceMessage.text).slice(0, 600),
+              source: `thread:${threadId}`,
+            },
+          } : {}),
+        },
         { collisionBaseDir: vaultRoot },
       );
       reply = `${marker.stripped}\n\nMinted proposal ${task.id}.`;
@@ -401,16 +437,22 @@ export async function processThread(threadId: string, opts: {
 
   const author = deriveProcessorAuthor(thread.target);
   appendToThread(threadId, { author, text: reply });
-  // A processor-handled thread whose target maps to a loop must ALSO be stamped processed, or
-  // readUnprocessedFeedback (which keys off `processed`, not `resolution`) keeps re-feeding the
-  // now-handled comment into that loop's extractor prompt on every run — the health pass can't
-  // reclaim it either (it's resolved + carries an agent reply). Stamp it so it leaves the
-  // guidance set. (C3-2.) Non-loop targets (task/library/meeting) have no guidance set to leave.
-  if (commentTargetToFeedback(thread.target)) {
-    const stampedAt = new Date().toISOString();
-    markProcessed(threadId, { at: stampedAt, run_at: stampedAt });
-  }
-  resolveThread(threadId, { action, by: author });
+  const completedAt = new Date().toISOString();
+  const outcome = recordThreadOutcome(threadId, {
+    kind: action === "proposal-minted" ? "proposal" : action,
+    summary: oneLine(reply).slice(0, 240),
+    at: completedAt,
+    by: author,
+    message_ids: pendingMessages.map((message) => message.id),
+    chat_id: chatId,
+    ...(filesTouched.length > 0 ? { files_touched: filesTouched } : {}),
+    ...(proposalTaskId ? { proposal_task_id: proposalTaskId } : {}),
+  });
+  markMessagesHandled(threadId, pendingMessages.map((message) => message.id), {
+    at: completedAt,
+    by: author,
+    outcome_id: outcome.id,
+  });
   emit({ type: "complete", claudeSessionId: result.claudeSessionId });
 
   return { ok: true, threadId, chatId, action, ...(proposalTaskId ? { proposalTaskId } : {}), reply };

@@ -52,6 +52,19 @@ test("decision queue keeps bounded proposals, canonical sorting, and stored meet
   assert.equal(queue.groups[0].summary, "The team narrowed the launch choice and left one owner decision open.");
 });
 
+test("meeting decisions use the local task-identity date across UTC midnight", () => {
+  const queue = buildBriefingDecisionQueue({
+    proposals: [proposal({
+      id: "t-20260712-099",
+      title: "Review the evening decision",
+      meeting: "meetings/2026-07-12/Evening review.md",
+      createdAt: "2026-07-13T00:15:00.000Z",
+    })],
+    asOf: "2026-07-12",
+  });
+  assert.deepEqual(queue.task_ids, ["t-20260712-099"]);
+});
+
 test("fallback rendering uses meeting context without duplicating task titles or a body count", () => {
   const meeting = "meetings/2026-07-10/Launch.md";
   const queue = buildBriefingDecisionQueue({

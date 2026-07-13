@@ -62,11 +62,11 @@ test("health pass consumes an unreplied open thread", () => {
   const last = reread.messages[reread.messages.length - 1];
   assert.equal(last.author, "agent:meeting-actions");
   assert.equal(last.text, "Consumed as calibration guidance for the meeting-actions run 2026-07-08.");
-  assert.deepEqual(reread.processed, { at: now, run_at: runAt });
-  assert.equal(reread.status, "resolved");
-  assert.equal(reread.resolution?.action, "calibrated");
-  assert.equal(reread.resolution?.by, "agent:meeting-actions");
-  assert.equal(reread.resolution?.run_at, runAt);
+  assert.equal(reread.processed, undefined);
+  assert.equal(reread.status, "open");
+  assert.equal(reread.messages[0].handled_at, now);
+  assert.equal(reread.outcomes?.at(-1)?.kind, "calibrated");
+  assert.equal(reread.resolution, undefined);
 });
 
 test("skips replied, resolved, processed, and other-loop threads", () => {
@@ -141,7 +141,7 @@ test("renderFeedbackHandledSection", () => {
   assert.ok(rendered.endsWith("\n"));
 });
 
-test("recordClusteredFeedback posts the receipt without a processed stamp", () => {
+test("recordClusteredFeedback handles selected comments without closing the conversation", () => {
   setup();
   const comment = addStoredComment("/unused", "art-9", "needs better clustering");
   const commentId = comment.id;
@@ -158,8 +158,11 @@ test("recordClusteredFeedback posts the receipt without a processed stamp", () =
   const last = reread.messages[reread.messages.length - 1];
   assert.equal(last.author, "agent:library");
   assert.equal(last.text, "Clustered into the steering report 2026-07-08.");
-  assert.equal(reread.resolution?.action, "clustered");
+  assert.equal(reread.resolution, undefined);
+  assert.equal(reread.status, "open");
+  assert.equal(reread.outcomes?.at(-1)?.kind, "clustered");
   assert.equal(reread.processed, undefined);
+  assert.equal(reread.messages[0].handled_at !== undefined, true);
   assert.equal(getStoredComments("/unused", "art-9").length, 1);
   assert.deepEqual(getStoredComments("/unused", "art-9").map((stored) => stored.id), [commentId]);
 

@@ -5,23 +5,25 @@ import {
   useMemo,
   useRef,
   useState,
-  type FormEvent,
-  type KeyboardEvent,
 } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
-import { Check, MessageSquare, Play, Send, X } from "lucide-react";
-import { ChatMessageList } from "@/components/chat/ChatMessageList";
+import { Check, Play, X } from "lucide-react";
+import { ChatComposer } from "@/components/chat/ChatComposer";
+import { ChatTracePanel } from "@/components/chat/ChatTracePanel";
+import { ConversationTurn } from "@/components/chat/ConversationTurn";
 import { consumeNdjsonStream, mergeTraceEvent } from "@/components/chat/stream";
 import { formatRelativeDate } from "@/components/tasks/ProposalsSection";
 import { useScope } from "@/contexts/ScopeContext";
 import { THREAD_SUMMARIES_KEY } from "@/hooks/useThreadCounts";
 import { withBasePath } from "@/lib/base-path";
-import type { ChatMessage, ChatSession, ChatStreamEvent, ChatTraceEvent } from "@/lib/chat/types";
+import type { ChatStreamEvent, ChatTraceEvent } from "@/lib/chat/types";
 import { postComment } from "@/lib/comments/post";
 import type { CommentTarget } from "@/lib/comments/types";
 import type { Thread } from "@/lib/threads/types";
-import { mutateThreadsForTarget, ThreadBlock, threadsUrlForTarget } from "./ThreadView";
+import { mutateThreadsForTarget, threadsUrlForTarget } from "./ThreadView";
+import { ThreadConversationTimeline } from "./ThreadConversationTimeline";
 import {
+  outcomeStory,
   resolutionStory,
   resolvedAt,
   targetIcon,
@@ -34,10 +36,12 @@ export interface ThreadDrawerProps {
   target: CommentTarget;
   onClose: () => void;
   onProcessingChange?: (processing: boolean) => void;
-  /** Follow the conversation when it moves: a comment posted while THIS thread is resolved
-   * starts a fresh open thread on the same target (append-to-open semantics) — without
-   * re-selection the reply lands invisibly outside the pinned id (adversarial finding). */
+  /** Follow the conversation when it moves: only a comment posted after an explicit close
+   * starts a fresh thread on the same target. */
   onFollowThread?: (threadId: string) => void;
+  /** Deep-link handoff from an async comment surface: open this pane, then start one live turn. */
+  autoProcess?: boolean;
+  onAutoProcessConsumed?: () => void;
 }
 
 async function fetchThreads(url: string): Promise<{ threads: Thread[] }> {
@@ -49,41 +53,34 @@ async function fetchThreads(url: string): Promise<{ threads: Thread[] }> {
   return response.json() as Promise<{ threads: Thread[] }>;
 }
 
-async function fetchChatSession(url: string): Promise<ChatSession | null> {
-  const response = await fetch(withBasePath(url), { cache: "no-store" });
-  if (response.status === 404) return null;
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(payload?.error || `Request failed: ${response.status}`);
-  }
-  return response.json() as Promise<ChatSession>;
-}
-
 function isAbortError(error: unknown): boolean {
   return (error instanceof DOMException || error instanceof Error) && error.name === "AbortError";
 }
 
 function statusLine(thread: Thread | null): string {
   if (!thread) return "Loading";
+  const pending = thread.messages.filter((message) => (
+    (message.author === "justin" || message.author === "claude-sim") && !message.handled_at
+  )).length;
+  if (thread.status === "open" && pending > 0) return `${pending} ${pending === 1 ? "comment" : "comments"} ready to process`;
   if (thread.status === "open" && thread.dev_item) {
     return `Dev item · diagnosed ${formatRelativeDate(thread.dev_item.diagnosed_at)}`;
   }
+  const outcome = thread.outcomes?.[thread.outcomes.length - 1];
+  if (thread.status === "open" && outcome) return `${outcomeStory(outcome)} · ${formatRelativeDate(outcome.at)}`;
   if (thread.status === "open") return `Open · ${formatRelativeDate(thread.updated_at)}`;
   return `${resolutionStory(thread)} · ${formatRelativeDate(resolvedAt(thread))}`;
 }
 
-function failedLiveMessage(trace: ChatTraceEvent[], draft: string, timestamp: number): ChatMessage | null {
-  if (trace.length === 0 && !draft.trim()) return null;
-  return {
-    id: "failed-live-turn",
-    role: "assistant",
-    content: draft,
-    timestamp,
-    ...(trace.length > 0 ? { trace } : {}),
-  };
-}
-
-export function ThreadDrawer({ threadId, target, onClose, onProcessingChange, onFollowThread }: ThreadDrawerProps) {
+export function ThreadDrawer({
+  threadId,
+  target,
+  onClose,
+  onProcessingChange,
+  onFollowThread,
+  autoProcess = false,
+  onAutoProcessConsumed,
+}: ThreadDrawerProps) {
   const threadKey = useMemo(() => threadsUrlForTarget(target), [target]);
   const { navigateTo } = useScope();
   const { data, error, mutate } = useSWR<{ threads: Thread[] }, Error>(threadKey, fetchThreads, {
@@ -92,22 +89,32 @@ export function ThreadDrawer({ threadId, target, onClose, onProcessingChange, on
   const thread = data?.threads.find((candidate) => candidate.id === threadId) ?? null;
   const Icon = targetIcon(target);
   const openTarget = targetOpenHandler(target, navigateTo);
-  const chatIds = thread?.chat_ids ?? [];
+  const pendingCount = thread?.messages.filter((message) => (
+    (message.author === "justin" || message.author === "claude-sim") && !message.handled_at
+  )).length ?? 0;
+  const firstHumanMessage = thread?.messages.find((message) => (
+    message.author === "justin" || message.author === "claude-sim"
+  ));
+  const conversationTitle = firstHumanMessage?.text.replace(/\s+/g, " ").trim().slice(0, 96)
+    || targetLabel(target);
 
   const [processing, setProcessing] = useState(false);
-  const [liveChatId, setLiveChatId] = useState<string | null>(null);
   const [liveTrace, setLiveTrace] = useState<ChatTraceEvent[]>([]);
   const [liveDraft, setLiveDraft] = useState("");
   const [liveError, setLiveError] = useState<string | null>(null);
   const [liveStartedAt, setLiveStartedAt] = useState(Date.now());
-  const [commentText, setCommentText] = useState("");
   const [commentBusy, setCommentBusy] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const processingRef = useRef(false);
+  const queuedProcessThreadIdRef = useRef<string | null>(null);
+  const autoProcessStartedRef = useRef(false);
   const liveChatIdRef = useRef<string | null>(null);
+  const processThreadRef = useRef<(requestedThreadId?: string | null) => Promise<void>>(async () => undefined);
   const onProcessingChangeRef = useRef(onProcessingChange);
+  const conversationEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     onProcessingChangeRef.current = onProcessingChange;
@@ -130,8 +137,9 @@ export function ThreadDrawer({ threadId, target, onClose, onProcessingChange, on
   }, [onClose]);
 
   useEffect(() => {
-    liveChatIdRef.current = liveChatId;
-  }, [liveChatId]);
+    if (!processing) return;
+    conversationEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [processing, liveDraft, liveTrace.length]);
 
   useEffect(() => {
     return () => {
@@ -143,15 +151,15 @@ export function ThreadDrawer({ threadId, target, onClose, onProcessingChange, on
     };
   }, []);
 
-  async function processThread() {
-    if (!thread || processing || thread.status !== "open") return;
+  async function processThread(requestedThreadId: string | null = thread?.id ?? null) {
+    if (!requestedThreadId || processingRef.current) return;
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
+    processingRef.current = true;
     let failed = false;
     setProcessing(true);
     onProcessingChange?.(true);
-    setLiveChatId(null);
     liveChatIdRef.current = null;
     setLiveTrace([]);
     setLiveDraft("");
@@ -159,7 +167,7 @@ export function ThreadDrawer({ threadId, target, onClose, onProcessingChange, on
     setLiveStartedAt(Date.now());
 
     try {
-      const response = await fetch(withBasePath(`/api/threads/${thread.id}/process`), {
+      const response = await fetch(withBasePath(`/api/threads/${requestedThreadId}/process`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
@@ -172,7 +180,6 @@ export function ThreadDrawer({ threadId, target, onClose, onProcessingChange, on
       await consumeNdjsonStream<ChatStreamEvent>(response, (event) => {
         if (event.type === "session") {
           liveChatIdRef.current = event.chatId;
-          setLiveChatId(event.chatId);
           void mutate();
           return;
         }
@@ -203,17 +210,38 @@ export function ThreadDrawer({ threadId, target, onClose, onProcessingChange, on
         finalChatId ? globalMutate(`/api/chat/sessions/${finalChatId}`) : Promise.resolve(),
       ]).catch(() => undefined);
       if (abortControllerRef.current === controller) abortControllerRef.current = null;
+      processingRef.current = false;
       setProcessing(false);
       onProcessingChange?.(false);
       if (!failed || controller.signal.aborted) {
-        setLiveChatId(null);
         liveChatIdRef.current = null;
         setLiveTrace([]);
         setLiveDraft("");
         setLiveError(null);
       }
+      const queuedThreadId = queuedProcessThreadIdRef.current;
+      queuedProcessThreadIdRef.current = null;
+      if (queuedThreadId && !controller.signal.aborted) {
+        window.setTimeout(() => { void processThread(queuedThreadId); }, 0);
+      }
     }
   }
+
+  processThreadRef.current = processThread;
+
+  useEffect(() => {
+    if (!autoProcess) {
+      autoProcessStartedRef.current = false;
+      return;
+    }
+    if (!thread || autoProcessStartedRef.current) return;
+    autoProcessStartedRef.current = true;
+    onAutoProcessConsumed?.();
+    const pending = thread.messages.some((message) => (
+      (message.author === "justin" || message.author === "claude-sim") && !message.handled_at
+    ));
+    if (thread.status === "open" && pending) void processThreadRef.current(thread.id);
+  }, [autoProcess, thread, onAutoProcessConsumed]);
 
   async function resolveManually() {
     if (!thread || resolving) return;
@@ -231,30 +259,30 @@ export function ThreadDrawer({ threadId, target, onClose, onProcessingChange, on
       }
       await Promise.all([mutate(), mutateThreadsForTarget(target), globalMutate(THREAD_SUMMARIES_KEY)]);
     } catch (err) {
-      setResolveError(err instanceof Error ? err.message : "Failed to resolve thread");
+      setResolveError(err instanceof Error ? err.message : "Failed to close conversation");
     } finally {
       setResolving(false);
     }
   }
 
-  async function submitComment(event?: FormEvent<HTMLFormElement>) {
-    event?.preventDefault();
-    const trimmed = commentText.trim();
+  async function submitComment(text: string) {
+    const trimmed = text.trim();
     if (!trimmed || commentBusy) return;
     setCommentBusy(true);
     setCommentError(null);
     try {
-      await postComment(target, trimmed);
-      setCommentText("");
+      const postedThread = await postComment(target, trimmed);
       await mutateThreadsForTarget(target);
-      const refreshed = await mutate();
-      // Append-to-open semantics: posting under a RESOLVED thread minted a fresh open thread
-      // on this target — follow it, or the reply is invisible in a drawer pinned to the old id.
-      if (thread?.status === "resolved") {
-        const followUp = refreshed?.threads.find(
-          (candidate) => candidate.id !== threadId && candidate.status === "open",
-        );
-        if (followUp) onFollowThread?.(followUp.id);
+      await mutate();
+      if (postedThread.id !== threadId) {
+        onFollowThread?.(postedThread.id);
+        navigateTo("chats", `/${postedThread.id}/process`);
+      } else if (processingRef.current) {
+        // The active run snapshots pending messages at start. A comment arriving mid-run is
+        // deliberately the next volley, never silently folded into the in-flight answer.
+        queuedProcessThreadIdRef.current = postedThread.id;
+      } else {
+        void processThread(postedThread.id);
       }
     } catch (err) {
       setCommentError(err instanceof Error ? err.message : "Failed to post comment");
@@ -263,183 +291,115 @@ export function ThreadDrawer({ threadId, target, onClose, onProcessingChange, on
     }
   }
 
-  function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      void submitComment();
-    }
-  }
-
-  const suppressedChatId = liveChatId && (processing || liveError) ? liveChatId : null;
-  const failedMessage = !processing && liveError ? failedLiveMessage(liveTrace, liveDraft, liveStartedAt) : null;
-
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[var(--bg-primary)]">
-      <header className="flex-shrink-0 border-b border-[var(--border-default)] px-3 py-2">
+    <div className="flex h-full min-h-0 flex-col bg-[var(--content-surface,var(--bg-primary))]">
+      <header className="flex-shrink-0 border-b border-[var(--border-default)] px-3 py-2.5">
         <div className="flex items-start gap-2">
           <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--text-tertiary)]" />
           <div className="min-w-0 flex-1">
-            {openTarget ? (
-              <button
-                type="button"
-                onClick={openTarget}
-                className="block min-w-0 truncate text-left text-sm font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
-              >
-                {targetLabel(target)}
-              </button>
-            ) : (
-              <div className="truncate text-sm font-medium text-[var(--text-secondary)]">{targetLabel(target)}</div>
-            )}
-            <div
-              className="mt-0.5 truncate text-xs text-[var(--text-tertiary)]"
-              title={thread?.status === "resolved" ? resolvedAt(thread) : undefined}
-            >
-              {statusLine(thread)}
+            <div className="truncate text-sm font-semibold text-[var(--text-primary)]" title={conversationTitle}>
+              {conversationTitle}
+            </div>
+            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 truncate text-[11px] text-[var(--text-tertiary)]">
+              {openTarget ? (
+                <button
+                  type="button"
+                  onClick={openTarget}
+                  className="shrink-0 transition-colors hover:text-[var(--text-primary)]"
+                >
+                  {targetLabel(target)}
+                </button>
+              ) : <span className="shrink-0">{targetLabel(target)}</span>}
+              <span aria-hidden="true">·</span>
+              <span className="truncate" title={thread?.status === "resolved" ? resolvedAt(thread) : undefined}>
+                {statusLine(thread)}
+              </span>
             </div>
           </div>
+          {thread?.status === "open" && pendingCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => void processThread()}
+              disabled={processing}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] disabled:cursor-default disabled:text-emerald-600"
+              title={processing ? "Processing" : "Process now"}
+              aria-label={processing ? "Processing" : "Process now"}
+            >
+              <Play className={`h-3.5 w-3.5 ${processing ? "animate-pulse" : ""}`} />
+            </button>
+          ) : null}
+          {thread?.status === "open" ? (
+            <button
+              type="button"
+              onClick={() => void resolveManually()}
+              disabled={processing || resolving}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-50"
+              title="Close conversation"
+              aria-label="Close conversation"
+            >
+              <Check className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onClose}
             className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-            title="Close thread"
-            aria-label="Close thread"
+            title="Close pane"
+            aria-label="Close pane"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-        <section>
-          <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
-            <MessageSquare className="h-3 w-3" />
-            Thread
-          </div>
-          <div className="mt-1 border-y border-[var(--border-default)]">
-            {thread ? (
-              <ThreadBlock
-                thread={thread}
-                processAffordance="none"
-                onChanged={() => void mutateThreadsForTarget(target)}
-              />
-            ) : (
-              <div className="py-2 text-xs text-[var(--text-tertiary)]">
-                {error ? error.message : "Loading thread"}
-              </div>
-            )}
-          </div>
-        </section>
-
-        {chatIds.length > 0 && (
-          <section className="mt-3 space-y-3">
-            {chatIds.filter((chatId) => chatId !== suppressedChatId).map((chatId) => (
-              <ChatTranscript key={chatId} chatId={chatId} />
-            ))}
-          </section>
-        )}
-
-        {(processing || failedMessage || liveError) && (
-          <section className="mt-3 border-t border-[var(--border-default)] pt-2">
-            <div className="text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
-              Processor run · {formatRelativeDate(new Date(liveStartedAt).toISOString())}
-            </div>
-            <div className="mt-1">
-              <ChatMessageList
-                messages={failedMessage ? [failedMessage] : []}
-                status={processing ? "sending" : "idle"}
-                liveTrace={processing ? liveTrace : []}
-                liveDraft={processing ? liveDraft : ""}
-                scrollable={false}
-              />
-              {liveError ? <p className="mt-1 text-xs text-red-500">{liveError}</p> : null}
-            </div>
-          </section>
-        )}
-
-        {thread?.status === "open" && (
-          <div className="mt-3 flex items-center gap-1 border-t border-[var(--border-default)] pt-2">
-            <button
-              type="button"
-              onClick={() => void processThread()}
-              disabled={processing}
-              className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors disabled:cursor-default disabled:opacity-60 ${
-                processing
-                  ? "text-emerald-600"
-                  : "text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-              }`}
-            >
-              <Play className={`h-3.5 w-3.5 ${processing ? "animate-pulse" : ""}`} />
-              {processing ? "Processing" : "Process"}
-            </button>
-            {/* The manual close for the queue Justin owns: dev items (and any open thread he's
-                done with) need a way OUT of Open — the resolve API existed with no UI caller
-                (W3 verify note; Justin 2026-07-10: "logged and actionable by me later"). */}
-            <button
-              type="button"
-              onClick={() => void resolveManually()}
-              disabled={processing || resolving}
-              className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-60"
-              title="Mark this thread resolved"
-            >
-              <Check className="h-3.5 w-3.5" />
-              {resolving ? "Resolving" : "Resolve"}
-            </button>
-            {resolveError ? <span className="text-xs text-red-500">{resolveError}</span> : null}
-          </div>
-        )}
-      </div>
-
-      <form onSubmit={submitComment} className="flex-shrink-0 border-t border-[var(--border-default)] px-3 py-2">
-        <textarea
-          value={commentText}
-          onChange={(event) => setCommentText(event.target.value)}
-          onKeyDown={onComposerKeyDown}
-          rows={2}
-          disabled={commentBusy}
-          className="min-h-14 w-full resize-none rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
-          placeholder="Comment"
-          aria-label="Comment"
-        />
-        <div className="mt-1.5 flex items-center justify-end">
-          <button
-            type="submit"
-            disabled={!commentText.trim() || commentBusy}
-            className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-50"
-            title="Send comment"
-            aria-label="Send comment"
-          >
-            <Send className="h-3.5 w-3.5" />
-          </button>
-        </div>
-        {commentError ? <p className="mt-1 text-xs text-red-500">{commentError}</p> : null}
-      </form>
-    </div>
-  );
-}
-
-function ChatTranscript({ chatId }: { chatId: string }) {
-  const { data, error } = useSWR<ChatSession | null, Error>(
-    `/api/chat/sessions/${chatId}`,
-    fetchChatSession,
-    { keepPreviousData: true },
-  );
-
-  return (
-    <section className="border-t border-[var(--border-default)] pt-2">
-      <div className="text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
-        Processor run{data ? ` · ${formatRelativeDate(new Date(data.createdAt).toISOString())}` : ""}
-      </div>
-      <div className="mt-1">
-        {data === null ? (
-          <p className="text-xs text-[var(--text-tertiary)]">Transcript pruned from disk.</p>
-        ) : error ? (
-          <p className="text-xs text-[var(--text-tertiary)]">Transcript could not be loaded.</p>
-        ) : data ? (
-          <ChatMessageList messages={data.messages} scrollable={false} />
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        {thread ? (
+          <ThreadConversationTimeline
+            thread={thread}
+            onChanged={() => void mutateThreadsForTarget(target)}
+          />
         ) : (
-          <p className="text-xs text-[var(--text-tertiary)]">Loading transcript</p>
+          <div className="py-2 text-xs text-[var(--text-tertiary)]">
+            {error ? error.message : "Loading conversation"}
+          </div>
         )}
+
+        {(processing || liveError) && (
+          <div className="mt-3.5">
+            <ConversationTurn
+              role="assistant"
+              content={liveDraft}
+              timestamp={!processing ? liveStartedAt : undefined}
+              statusLabel={liveError ? "Turn failed" : undefined}
+            >
+              {!liveDraft.trim() && processing ? (
+                <div className="flex items-center gap-2 text-[12px] text-[var(--text-tertiary)]" role="status">
+                  <span className="flex items-center gap-0.5" aria-hidden="true">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500/70 animate-pulse [animation-delay:150ms]" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500/40 animate-pulse [animation-delay:300ms]" />
+                  </span>
+                  <span>Working</span>
+                </div>
+              ) : null}
+              <ChatTracePanel trace={liveTrace} />
+            </ConversationTurn>
+            {liveError ? <p className="mt-1 text-xs text-red-500">{liveError}</p> : null}
+          </div>
+        )}
+        {resolveError ? <p className="mt-2 text-xs text-red-500">{resolveError}</p> : null}
+        <div ref={conversationEndRef} />
       </div>
-    </section>
+
+      <div className="flex-shrink-0 border-t border-[var(--border-default)] bg-[var(--content-surface,var(--bg-primary))] px-3 py-3">
+        <ChatComposer
+          onSend={(text) => void submitComment(text)}
+          onStop={processing ? () => abortControllerRef.current?.abort() : undefined}
+          sending={processing || commentBusy}
+          placeholder="Reply and process now"
+        />
+        {commentError ? <p className="mt-1 text-xs text-red-500">{commentError}</p> : null}
+      </div>
+    </div>
   );
 }

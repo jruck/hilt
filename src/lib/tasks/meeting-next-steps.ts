@@ -122,6 +122,8 @@ export interface DismissedRecord {
   action: string;
   dismissed_at: string;
   opened_from: string;
+  task_id?: string;
+  note?: string;
 }
 
 /** One row of a dismissed tail. `dismissed_at` is absent for LIMBO dismissals — the verdict is
@@ -130,6 +132,8 @@ export interface DismissedDisplayItem {
   id: string;
   action: string;
   dismissed_at?: string;
+  task_id?: string;
+  note?: string;
 }
 
 /**
@@ -163,8 +167,18 @@ export function mergeDismissed(
   return [
     // Owner prefixes strip here too: the ledger `action` never carried them (the loop adds the
     // bracket only when composing the item TITLE), so limbo rows match post-loop rows exactly.
-    ...limbo.map((item) => ({ id: item.id, action: parseOwnerPrefix(item.title).title })),
-    ...ledger.map(({ id, action, dismissed_at }) => ({ id, action, dismissed_at })),
+    ...limbo.map((item) => ({
+      id: item.id,
+      action: parseOwnerPrefix(item.title).title,
+      ...(item.task_id ? { task_id: item.task_id } : {}),
+    })),
+    ...ledger.map(({ id, action, dismissed_at, task_id, note }) => ({
+      id,
+      action,
+      dismissed_at,
+      ...(task_id ? { task_id } : {}),
+      ...(note ? { note } : {}),
+    })),
   ];
 }
 

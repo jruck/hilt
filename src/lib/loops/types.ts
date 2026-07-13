@@ -21,6 +21,10 @@ export type ItemKind = "insight" | "action" | "proposal";
 
 export type Verdict = "approve" | "dismiss" | "assign_to_me" | "assign_to_agent" | "revise";
 
+/** Internal decision-log action used to reverse a dismissal. It is deliberately not a
+ * user-selectable Verdict: restore is available only from dismissed-history surfaces. */
+export type VerdictRecordAction = Verdict | "restore";
+
 /** Provenance — every item cites where it came from. The citation doubles as the feedback anchor
  *  for content items (scope §6: anchor = loop + section + citation + text; validated in the
  *  launchpad before we resort to minting ids for every content bullet). */
@@ -180,7 +184,7 @@ export interface VerdictRecord {
   loop: string;
   /** The ask being decided (LoopItem.id of an action | proposal). */
   item_id: string;
-  verdict: Verdict;
+  verdict: VerdictRecordAction;
   /** Free-form note — required for "revise" (the note IS the revision guidance; scope: the revise
    *  is a verdict, the note is feedback embedded in it). */
   note?: string;

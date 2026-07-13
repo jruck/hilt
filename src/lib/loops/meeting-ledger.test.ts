@@ -23,8 +23,15 @@ import {
   openEntries,
   recentlyDismissedByAction,
   recentlyDismissedEntries,
+  restoreDismissedEntry,
 } from "./meeting-ledger";
-import { buildExtractorTask, EXTRACTOR_SYSTEM } from "./meeting-extractor-prompt";
+import {
+  buildExtractorTask,
+  buildObservationExtractorTask,
+  EXTRACTOR_SYSTEM,
+  IDENTITY_RESOLVER_SYSTEM,
+  OBSERVATION_EXTRACTOR_SYSTEM,
+} from "./meeting-extractor-prompt";
 
 const NOW = "2026-07-07T09:00:00.000Z";
 
@@ -99,6 +106,25 @@ test("recentlyDismissedEntries: dismiss-verdict drops inside the window, nothing
 test("dismissed entries are NOT open: they can never re-escalate through openEntries", () => {
   const d = dismissed("ma-2026-07-02-001", "Declined", "2026-07-03T10:00:00.000Z");
   assert.deepEqual(openEntries(ledgerOf(d)), []);
+});
+
+test("restoreDismissedEntry reopens only a deliberate dismissal and preserves its audit history", () => {
+  const d = dismissed("ma-2026-07-02-001", "Declined", "2026-07-03T10:00:00.000Z");
+  d.task_id = "t-20260702-001";
+  assert.equal(restoreDismissedEntry(d, NOW), true);
+  assert.equal(d.status, "open");
+  assert.equal(d.verdict, undefined);
+  assert.equal(d.task_id, "t-20260702-001");
+  assert.deepEqual(d.status_history.at(-1), {
+    at: NOW,
+    from: "dropped",
+    to: "open",
+    evidence: "restored after dismissal",
+  });
+  assert.equal(openEntries(ledgerOf(d))[0].id, d.id);
+
+  const closureDrop = entry({ status: "dropped" });
+  assert.equal(restoreDismissedEntry(closureDrop, NOW), false);
 });
 
 // ── digest + prompt section ───────────────────────────────────────────────────────────────────
@@ -243,4 +269,22 @@ test("EXTRACTOR_SYSTEM carries the context contract (commitments AND sightings)"
   assert.ok(/CONTEXT:/.test(EXTRACTOR_SYSTEM));
   assert.ok(/"context":/.test(EXTRACTOR_SYSTEM));
   assert.ok(/omit when none/i.test(EXTRACTOR_SYSTEM));
+});
+
+test("SQLite extraction keeps complete-transcript observation separate from ledger identity", () => {
+  const task = buildObservationExtractorTask({
+    meetingPath: "meetings/2026-07-12/sync.md",
+    noteContent: "Summary note",
+    transcriptContent: "You: I will send the complete analysis.",
+    catchPhraseSpans: ["action item: send the analysis"],
+  });
+
+  assert.match(OBSERVATION_EXTRACTOR_SYSTEM, /COMPLETE transcript/);
+  assert.match(OBSERVATION_EXTRACTOR_SYSTEM, /identity is intentionally absent/i);
+  assert.match(OBSERVATION_EXTRACTOR_SYSTEM, /Other attendees' operational commitments count/);
+  assert.match(task, /=== COMPLETE TRANSCRIPT ===/);
+  assert.match(task, /I will send the complete analysis/);
+  assert.doesNotMatch(task, /CURRENT OPEN LEDGER/);
+  assert.match(IDENTITY_RESOLVER_SYSTEM, /exhaustive/i);
+  assert.match(IDENTITY_RESOLVER_SYSTEM, /dismissed candidate remains/i);
 });

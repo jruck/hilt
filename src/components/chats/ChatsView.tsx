@@ -48,6 +48,7 @@ import {
 } from "@/components/layout/SecondaryToolbar";
 import { ThreadDrawer } from "@/components/threads/ThreadDrawer";
 import {
+  outcomeStory,
   resolutionStory,
   resolvedAt,
   resolvedRecently,
@@ -60,7 +61,7 @@ import { THREAD_SUMMARIES_KEY } from "@/hooks/useThreadCounts";
 import { withBasePath } from "@/lib/base-path";
 import type { ChatContextKind, ChatSessionSummary } from "@/lib/chat/types";
 import type { CommentTarget } from "@/lib/comments/types";
-import { runProcessAll, runThreadProcess, type ProcessAllProgress } from "@/lib/threads/process-client";
+import { runProcessAll, type ProcessAllProgress } from "@/lib/threads/process-client";
 import type { ThreadSummary } from "@/lib/threads/types";
 import {
   conversationKindCounts,
@@ -68,7 +69,6 @@ import {
   mergeConversations,
   type ChatsLens,
   type ConversationKindFilter,
-  type ConversationRow,
 } from "./conversations";
 
 interface ChatsViewProps {
@@ -184,7 +184,7 @@ export function ChatsView({ scopePath = "", workingFolder = "" }: ChatsViewProps
   const [selected, setSelected] = useState<Selection | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
-  const [errorById, setErrorById] = useState<Record<string, string>>({});
+  const [autoProcessThreadId, setAutoProcessThreadId] = useState<string | null>(null);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchProgress, setBatchProgress] = useState<ProcessAllProgress | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
@@ -193,7 +193,7 @@ export function ChatsView({ scopePath = "", workingFolder = "" }: ChatsViewProps
   const splitAreaRef = useRef<HTMLDivElement | null>(null);
   const splitRef = useRef(split);
   const batchAbortControllerRef = useRef<AbortController | null>(null);
-  const lastAppliedScopeIdRef = useRef<string | null>(null);
+  const lastAppliedScopeRef = useRef<string | null>(null);
   const suppressAutoReadIdRef = useRef<string | null>(null);
 
   const {
@@ -248,8 +248,8 @@ export function ChatsView({ scopePath = "", workingFolder = "" }: ChatsViewProps
     [kindCounts],
   );
 
-  const openThreadCount = useMemo(
-    () => threads.reduce((count, thread) => count + (thread.status === "open" ? 1 : 0), 0),
+  const processableThreadCount = useMemo(
+    () => threads.reduce((count, thread) => count + (thread.status === "open" && (thread.pending_message_count ?? 0) > 0 ? 1 : 0), 0),
     [threads],
   );
 
@@ -269,23 +269,27 @@ export function ChatsView({ scopePath = "", workingFolder = "" }: ChatsViewProps
   // Deep link: /chats/<id> — the id may be a thread id or a chat id. Threads win ties, so a
   // chat match is only trusted after the thread store has answered.
   useEffect(() => {
-    const scopeId = scopePath?.split("/").filter(Boolean)[0] ?? null;
-    if (!scopeId || scopeId === lastAppliedScopeIdRef.current) return;
+    const parts = scopePath?.split("/").filter(Boolean) ?? [];
+    const scopeId = parts[0] ?? null;
+    const scopeKey = parts.join("/");
+    if (!scopeId || scopeKey === lastAppliedScopeRef.current) return;
     const thread = threads.find((candidate) => candidate.id === scopeId);
     if (thread) {
-      lastAppliedScopeIdRef.current = scopeId;
+      lastAppliedScopeRef.current = scopeKey;
       setSelected({ type: "thread", threadId: thread.id, target: thread.target });
+      setAutoProcessThreadId(parts[1] === "process" ? thread.id : null);
       return;
     }
     if (!threadsData) return;
     const session = sessions.find((candidate) => candidate.id === scopeId);
     if (session) {
-      lastAppliedScopeIdRef.current = scopeId;
+      lastAppliedScopeRef.current = scopeKey;
       setSelected({ type: "chat", chatId: scopeId });
+      setAutoProcessThreadId(null);
       return;
     }
     // Both stores answered and neither knows the id — stop probing.
-    if (sessionsData) lastAppliedScopeIdRef.current = scopeId;
+    if (sessionsData) lastAppliedScopeRef.current = scopeKey;
   }, [scopePath, threads, sessions, threadsData, sessionsData]);
 
   const patchSession = useCallback(async (id: string, patch: SessionPatch) => {
@@ -385,7 +389,7 @@ export function ChatsView({ scopePath = "", workingFolder = "" }: ChatsViewProps
     const controller = new AbortController();
     batchAbortControllerRef.current = controller;
     setBatchRunning(true);
-    setBatchProgress({ index: 0, total: openThreadCount });
+    setBatchProgress({ index: 0, total: processableThreadCount });
     setBatchError(null);
     try {
       await runProcessAll(setBatchProgress, controller.signal);
@@ -404,25 +408,10 @@ export function ChatsView({ scopePath = "", workingFolder = "" }: ChatsViewProps
     }
   }
 
-  async function processThread(threadId: string) {
-    if (processingId) return;
-    setProcessingId(threadId);
-    setErrorById((current) => {
-      const next = { ...current };
-      delete next[threadId];
-      return next;
-    });
-    try {
-      await runThreadProcess(threadId);
-      await mutateThreads();
-    } catch (err) {
-      setErrorById((current) => ({
-        ...current,
-        [threadId]: err instanceof Error ? err.message : "Thread processing failed",
-      }));
-    } finally {
-      setProcessingId(null);
-    }
+  function openAndProcessThread(thread: ThreadSummary) {
+    setSelected({ type: "thread", threadId: thread.id, target: thread.target });
+    setAutoProcessThreadId(thread.id);
+    navigateTo("chats", `/${thread.id}/process`);
   }
 
   const handleSplitPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
@@ -494,9 +483,12 @@ export function ChatsView({ scopePath = "", workingFolder = "" }: ChatsViewProps
                   || Boolean(row.thread.chat_ids?.some((chatId) => sendingChatIds.has(chatId)))
                 }
                 processDisabled={Boolean(processingId) || batchRunning}
-                error={errorById[row.thread.id] ?? null}
-                onSelect={() => setSelected({ type: "thread", threadId: row.thread.id, target: row.thread.target })}
-                onProcess={() => void processThread(row.thread.id)}
+                error={null}
+                onSelect={() => {
+                  setAutoProcessThreadId(null);
+                  setSelected({ type: "thread", threadId: row.thread.id, target: row.thread.target });
+                }}
+                onProcess={() => openAndProcessThread(row.thread)}
               />
             ) : (
               <ChatSessionRow
@@ -527,6 +519,11 @@ export function ChatsView({ scopePath = "", workingFolder = "" }: ChatsViewProps
       onClose={() => setSelected(null)}
       onProcessingChange={(active) => setProcessingId(active ? selected.threadId : null)}
       onFollowThread={(id) => setSelected({ type: "thread", threadId: id, target: selected.target })}
+      autoProcess={autoProcessThreadId === selected.threadId}
+      onAutoProcessConsumed={() => {
+        setAutoProcessThreadId(null);
+        navigateTo("chats", `/${selected.threadId}`);
+      }}
     />
   ) : selected?.type === "chat" ? (
     <ChatPanel
@@ -563,11 +560,11 @@ export function ChatsView({ scopePath = "", workingFolder = "" }: ChatsViewProps
               <span className="text-[var(--text-quaternary)]">·</span>
               <span>{mergeConversations(threads, sessions, "all").length} total</span>
             </div>
-            {openThreadCount > 0 || batchRunning ? (
+            {processableThreadCount > 0 || batchRunning ? (
               <>
                 {batchRunning ? (
                   <span className="hidden text-xs font-medium text-emerald-600 sm:inline">
-                    Processing {batchProgress?.index ?? 0}/{batchProgress?.total ?? openThreadCount}
+                    Processing {batchProgress?.index ?? 0}/{batchProgress?.total ?? processableThreadCount}
                   </span>
                 ) : null}
                 <button
@@ -626,7 +623,7 @@ export function ChatsView({ scopePath = "", workingFolder = "" }: ChatsViewProps
             </div>
           </div>
           {detailPane ? (
-            <div className="absolute inset-0 z-10 bg-[var(--content-surface,var(--bg-primary))]">
+            <div className="hilt-mobile-fixed-clearance hilt-mobile-fixed-extra-3 absolute inset-0 z-10 bg-[var(--content-surface,var(--bg-primary))]">
               {detailPane}
             </div>
           ) : null}
@@ -746,7 +743,7 @@ function ThreadRow({
         >
           {relativeTime(thread.updated_at)}
         </time>
-        {thread.status === "open" && !working ? (
+        {thread.status === "open" && (thread.pending_message_count ?? 0) > 0 && !working ? (
           <button
             type="button"
             onClick={(event) => {
@@ -757,7 +754,7 @@ function ThreadRow({
             className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium opacity-0 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] focus-within:opacity-100 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
           >
             <Play className="h-3.5 w-3.5" />
-            <span className="hidden md:inline">Process</span>
+            <span className="hidden md:inline">Process now</span>
           </button>
         ) : null}
       </div>
@@ -782,7 +779,13 @@ function ThreadStatus({ thread, working }: { thread: ThreadSummary; working: boo
 
   return (
     <div className="hidden shrink-0 items-center gap-1.5 text-xs text-[var(--text-tertiary)] md:flex">
-      {thread.status === "open" ? (
+      {thread.status === "open" && (thread.pending_message_count ?? 0) > 0 ? (
+        <span>{thread.pending_message_count ?? 0} pending</span>
+      ) : thread.status === "open" && thread.last_outcome ? (
+        <span className="text-[var(--text-quaternary)]" title={thread.last_outcome.summary || thread.last_outcome.at}>
+          {outcomeStory(thread.last_outcome)}
+        </span>
+      ) : thread.status === "open" ? (
         <span>Open</span>
       ) : (
         <>

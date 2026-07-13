@@ -769,7 +769,7 @@ List escalated Briefings v2 loop items from enabled loops. Live loops read from 
 
 Append a verdict record for an ask item, then (v3 unit A6) apply the proposal FILE effect synchronously when the item has a proposal file in the vault sink (`tasks/.proposals/`, matched by `origin.item_id` + `origin.loop`): approve/assign_to_me → move into `tasks/` as `accepted-me`; assign_to_agent → `accepted-agent`; dismiss → file deleted (the loop's ledger remembers); revise → note appended, file stays `proposed`. The jsonl append is the unchanged audit trail and the loop's ledger-effect queue; the record is written FIRST, so a file-effect failure never loses the decision.
 
-Gate-B addition: a successful approve/assign_to_me file effect ALSO splices the accepted task's v2 line into the top of the CURRENT weekly list (latest `lists/now/*.md`) — the A4 add machinery (`renderWeeklyV2Line` + `insertWeeklyV2Line`). v2 lists only (v1 stays byte-untouched); idempotent (a list already linking `tasks/<id>.md` is skipped; a repeat approve re-runs the mirror, self-healing an earlier mirror failure); assign_to_agent never mirrors; any mirror failure warns and the verdict still succeeds (the task file is the truth).
+Gate-B addition: a successful approve/assign_to_me file effect ALSO splices the accepted task's v2 line into the top of the CURRENT weekly list (latest `lists/now/*.md`) — the A4 add machinery (`renderWeeklyV2Line` + `insertWeeklyV2Line`). Assign-to-agent uses the same primitive against `Ready for agents`. v2 lists only (v1 stays byte-untouched); idempotent (a list already linking `tasks/<id>.md` is skipped; a repeat verdict re-runs the mirror, self-healing an earlier mirror failure); any mirror failure warns and the verdict still succeeds (the task file is the truth).
 
 **Request Body**
 
@@ -796,11 +796,46 @@ VerdictRecord & {
 }
 ```
 
+### GET /api/loops/meeting-ledger
+
+**File**: `src/app/api/loops/meeting-ledger/route.ts`
+
+Read-only cursor pagination over the canonical operational meeting ledger. No request materializes the lifetime dataset. Filters are composed in SQLite and totals/facets describe the filtered result.
+
+**Query Parameters**
+
+- `q`: FTS5 action/context search
+- `status`: `open | carried | resolved | dropped`
+- `surface`: `pending | accepted | latent | observed | dismissed | resolved`
+- `owner`, `meeting`, `date_from`, `date_to`
+- `cursor`: opaque page cursor
+- `limit`: `1..100`, default `50`
+
+**Response**
+
+```typescript
+{
+  storage: "legacy" | "sqlite";
+  items: Array<LedgerEntry & { surface: LedgerSurfaceState; last_seen_at: string }>;
+  total: number;
+  next_cursor: string | null;
+  facets: { status: Record<string, number>; surface: Record<string, number>; owner: Record<string, number> };
+}
+```
+
+### GET /api/loops/meeting-ledger/[id]
+
+Returns one entry with complete citations, sightings, status history, its meeting summary, current proposal/accepted task linkage, and immutable event history. This endpoint and the list are read-only; verdict and restore routes remain the only user mutation interfaces.
+
+### GET /api/loops/meeting-ledger/health
+
+Returns storage marker/mode, schema version, database path/size, state counts including latent observations, 40,000-token context estimate and chunk count, quick-check status, latched write-block reason, last transaction, last extraction transaction, and the latest verified backup. A SQLite marker with a missing canonical database returns `503`; it never initializes a blank replacement.
+
 ### GET /api/loops/dismissed
 
 **File**: `src/app/api/loops/dismissed/route.ts`
 
-Dismissed-but-never-gone (gate-B): a loop's dismissed record, read from its LEDGER (`<loopHome>/state/ledger.json`, home resolved through the registry exactly like the escalations route — live → vault, shadow → `${DATA_DIR}/loops-shadow`). Returns entries whose status is `dropped` via a DISMISS verdict, newest first; closure drops (extractor-evidenced, no verdict) are excluded. `dismissed_at` comes from the drop transition's `status_history` stamp, falling back to the verdict stamp. Backs the Proposals section's "Dismissed · N" tail. Note the deliberate lag: a dismiss verdict deletes the proposal file instantly, but the ledger stamp lands at the loop's next run, so a just-dismissed item appears here after that run.
+Dismissed-but-never-gone (gate-B): a loop's dismissed record, read through `MeetingLedgerStore` from the canonical per-vault SQLite database after cutover. Returns entries whose status is `dropped` via a DISMISS verdict, newest first; closure drops (extractor-evidenced, no verdict) and entries with a newer restore action are excluded. `dismissed_at` comes from the drop transition's `status_history` stamp, falling back to the verdict stamp. The escalation feed supplies the pre-ledger limbo window so dismissal and recovery both update immediately in the UI.
 
 **Query Parameters**
 
@@ -819,11 +854,26 @@ Dismissed-but-never-gone (gate-B): a loop's dismissed record, read from its LEDG
     dismissed_at: string; // ISO — when the dismissal landed
     opened_from: string;  // meeting that first opened it (vault-relative)
     task_id?: string;     // the proposal file minted from it (deleted on dismiss; the id remains)
+    note?: string;        // optional dismissal reason
   }>;
 }
 ```
 
-Missing ledger → `200` with empty `items` (first-run store); corrupt ledger → `500` (readLedger fails loud).
+Missing or unreadable ledger → `200` with empty `items` on this read-only display surface; the meeting loop's write path still fails loud rather than risking an empty-ledger overwrite.
+
+### POST /api/loops/dismissed/[itemId]/restore
+
+**File**: `src/app/api/loops/dismissed/[itemId]/restore/route.ts`
+
+Restore one deliberately dismissed, vault-backed meeting proposal. The route reconstructs the deleted proposal under its original `task_id` from ledger action/context/citation data, preserving meeting origin and provenance, then appends an internal `restore` action to the existing decision log. The proposal becomes visible immediately; the meeting loop consumes the action on its next run and transitions the ledger entry from `dropped` back to `open`. Repeats are idempotent. Unknown items return `404`; non-dismissed, identity-less, non-vault, or colliding items return `409`.
+
+```typescript
+// Body
+{ loop: string }
+
+// 201; repeat restore is 200 with already_restored: true
+VerdictRecord & { verdict: "restore"; task: TaskFile; file_effect: "restored" | "already-restored" }
+```
 
 ### POST /api/loops/feedback
 
@@ -1169,8 +1219,8 @@ Read one task by id — probes `tasks/` first, then `tasks/.proposals/`.
 
 ### PUT /api/tasks/[id]
 
-Patch an **accepted** task's non-status fields, or transition its status through the shared
-audited path. Two mutually exclusive body shapes:
+Patch an accepted task or proposal's non-status fields, or transition an accepted task's status
+through the shared audited path. Two mutually exclusive body shapes:
 
 **Patch** — allowed keys: `title`, `body`, `due`, `projects`, `origin`, `provenance`. JSON
 cannot carry `undefined`, so an explicit `null` clears the key (the lib's undefined-clears
@@ -1182,8 +1232,13 @@ convention); only optional keys (`due`, `projects`, `origin`, `provenance`) are 
 Calls `transitionTask`, which appends the `## History` ledger line (`- <iso> status: a → b
 (via …)`). Illegal transitions are `400`.
 
-**Response**: `{ task: TaskFile; store: "tasks" }`. A proposal id gets `409` (proposals are
-managed via the verdict flow, not PUT); an unknown id gets `404`.
+**Response**: `{ task: TaskFile; store: "tasks" | "proposals" }`. Proposal title/body/metadata
+patches preserve `status: proposed`; a proposal transition still gets `409` because lifecycle
+changes belong to the verdict flow. An unknown id gets `404`.
+
+### POST /api/tasks/[id]/verdict
+
+Apply `approve`, `assign_to_me`, `assign_to_agent`, `dismiss`, or `revise` to a task-native proposal such as one minted from a feedback thread. Accepted files move into `tasks/` and join the current weekly list through the same shared mirror as loop proposals. Loop-origin proposals are rejected with `409` so their decisions cannot bypass `/api/loops/verdicts` and the ledger audit. `revise` requires a note; an optional note on acceptance is preserved in the task body.
 
 ---
 
@@ -2222,7 +2277,7 @@ The ONE comment write API. Every `postComment` kind lands here; threads persist 
 
 ### POST /api/threads
 
-Create-or-append: an OPEN thread on the target gains the message (200); otherwise a fresh thread is created (201). Library targets also emit the `feedback_left` library event.
+Create-or-append: the target's reusable conversation gains the message (200). Legacy agent-completed threads reopen in place; only a conversation explicitly resolved with `resolveAction: "closed"` causes the next comment to create a fresh thread (201). Library targets also emit the `feedback_left` library event.
 
 **Request Body**
 
@@ -2238,13 +2293,13 @@ Create-or-append: an OPEN thread on the target gains the message (200); otherwis
 
 ### GET /api/threads
 
-- No params → `{ threads: ThreadSummary[] }` (all threads, updated_at desc — summaries carry counts + a ≤120-char snippet, no transcript).
+- No params → `{ threads: ThreadSummary[] }` (all threads, updated_at desc — summaries carry total/pending counts, `last_outcome`, and a ≤120-char snippet, no transcript).
 - `?target=<JSON-encoded CommentTarget>` → `{ threads: Thread[] }` (full transcripts for that anchor, oldest first). 400 on unparseable/malformed targets.
 
 ### PATCH /api/threads/[id]
 
 ```typescript
-{ resolveAction: string; by?: string }   // resolve: status "resolved" + resolution record
+{ resolveAction: string; by?: string }   // "closed" is the explicit conversation boundary
 // or
 { messageId: string; text: string }      // edit one message (stamps edited_at)
 ```
@@ -2265,20 +2320,23 @@ Remove one message; deleting the last message deletes the thread.
 
 **File**: `src/app/api/threads/[id]/process/route.ts`
 
-Run the on-demand processor over ONE open thread. Validates before streaming: `400` invalid thread-id shape, `404` unknown thread, `409` thread already resolved. On success returns an **NDJSON stream** (`application/x-ndjson`) whose events are the SAME shapes as `POST /api/chat/message` (`session` → `trace`/`message` → `complete`|`error`) so a client renders progress identically.
+Run the on-demand processor over ONE pending volley. Validates before streaming: `400` invalid thread-id shape, `404` unknown thread, `409` conversation closed or no pending comments. On success returns an **NDJSON stream** (`application/x-ndjson`) whose events are the SAME shapes as `POST /api/chat/message` (`session` → `trace`/`message` → `complete`|`error`) so Chats renders tool activity and response live.
 
-The processor (`src/lib/threads/processor.ts`) creates a normal chat session (context from the thread's target via the C1 `buildFirstTurnPrompt` builders; label from the thread's first human message), runs one Claude turn (Read/Edit/Write/Grep/Glob/LS — no Bash) over a preamble carrying the thread's target + messages, then:
-- posts the assistant's final text back to the thread as an agent reply (`agent:<loop>` when the target maps to a loop, else `agent:processor`) and resolves it `{ action: "processed" }`;
-- if the reply's last non-empty line matches `/^PROPOSAL: (.+)$/`, mints a proposal task file into `$VAULT/tasks/.proposals/` with `origin.thread = <threadId>`, strips the marker line, appends `Minted proposal <task-id>.`, and resolves `{ action: "proposal-minted" }`.
-- if the reply's last non-empty line matches `/^DEVITEM: (.+)$/`, strips the marker line, appends `Diagnosis: <diagnosis>`, stamps `dev_item`, stamps `processed` for loop-mapped targets, returns `{ action: "dev-item" }`, and leaves the thread OPEN.
+The processor (`src/lib/threads/processor.ts`) reuses the thread's attached chat session (creating and first-turn-hydrating it only once), resumes its Claude session, and sends only human messages without `handled_at`. It runs one Claude turn (Read/Edit/Write/Grep/Glob/LS — no Bash), then posts the assistant reply and records one structured outcome:
+- `answered`: no durable action; the reply must not promise vague future consideration;
+- `changed`: one or more Edit/Write tool paths were recorded;
+- `proposal`: a final `PROPOSAL:` marker minted a task with `origin.thread`;
+- `dev-item`: a final `DEVITEM:` marker produced a read-only Hilt diagnosis.
 
-The chat session persists (visible in ChatsView — intended). A failed Claude turn emits `{ type: "error" }` and leaves the thread OPEN for retry.
+Only the snapped message IDs receive `handled_at`; a comment arriving mid-run remains pending for the next turn. Success does not resolve the thread. `PATCH ... {resolveAction:"closed"}` is the explicit close/fork action.
+
+The chat session persists inside the thread conversation and resumes on later turns. A failed Claude turn emits `{ type: "error" }` and leaves the pending messages untouched for retry.
 
 ### POST /api/threads/process-all (v3 unit C3)
 
 **File**: `src/app/api/threads/process-all/route.ts`
 
-Body: `{ status?: "open" }` (only `"open"` accepted; other values → `400`). Iterates open **unreplied** threads (no `agent:*` message) oldest-first, **serialized**, hard cap **10** per invocation — no parallel Claude spawns. NDJSON stream: per thread a `{ type: "thread-start", threadId, index, total }`, the processor's own events, then `{ type: "thread-complete", threadId, ok, action?, proposalTaskId? }`; a final `{ type: "summary", attempted, processed, minted, failed, threads: [...] }`. A failed thread does not stop the batch; an abort between threads stops starting new ones.
+Body: `{ status?: "open" }` (only `"open"` accepted; other values → `400`). Iterates open threads with `pending_message_count > 0` oldest-first, **serialized**, hard cap **10** per invocation — prior agent replies do not exclude a later volley. NDJSON stream: per thread a `{ type: "thread-start", threadId, index, total }`, the processor's own events, then `{ type: "thread-complete", threadId, ok, action?, proposalTaskId? }`; a final `{ type: "summary", attempted, processed, minted, failed, threads: [...] }`. A failed thread does not stop the batch; an abort between threads stops starting new ones.
 
 ## Error Responses
 

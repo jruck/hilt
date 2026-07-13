@@ -29,7 +29,11 @@ function getNextMonday(): string {
   const daysUntilMonday = day === 0 ? 1 : 8 - day;
   const nextMonday = new Date(now);
   nextMonday.setDate(now.getDate() + daysUntilMonday);
-  return nextMonday.toISOString().split("T")[0];
+  // Format in LOCAL time. toISOString() serializes in UTC, so an evening recycle in a
+  // behind-UTC zone (ET) rolls the week key a day forward — the day math is local (getDay/
+  // getDate) but the string was UTC, producing e.g. a Tuesday 2026-07-14 instead of Monday
+  // 2026-07-13. en-CA gives a stable YYYY-MM-DD in local time (matches briefing-retry.ts).
+  return nextMonday.toLocaleDateString("en-CA");
 }
 
 export function RecycleModal({ tasks, notes, onClose, onRecycle }: RecycleModalProps) {

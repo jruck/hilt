@@ -28,9 +28,18 @@ export function threadAttachedChatIds(threads: ThreadSummary[]): Set<string> {
   return attached;
 }
 
-/** Needs-you: an open thread is always awaiting Justin — dev items stay open by design. */
-export function threadNeedsYou(thread: Pick<ThreadSummary, "status">): boolean {
-  return thread.status === "open";
+/** Needs-you is attention, not lifecycle: pending comments, a dev item, or an attached live/unread turn. */
+export function threadNeedsYou(
+  thread: Pick<ThreadSummary, "status" | "pending_message_count" | "dev_item" | "chat_ids">,
+  sessionsById: ReadonlyMap<string, Pick<ChatSessionSummary, "status" | "unreadCount">> = new Map(),
+): boolean {
+  if (thread.status === "resolved") return false;
+  const pending = thread.pending_message_count ?? 1; // compatibility with pre-field summaries
+  if (thread.dev_item || pending > 0) return true;
+  return (thread.chat_ids ?? []).some((chatId) => {
+    const session = sessionsById.get(chatId);
+    return session ? chatNeedsYou(session) : false;
+  });
 }
 
 export function threadDone(thread: Pick<ThreadSummary, "status">): boolean {
@@ -69,8 +78,12 @@ function parseTimeMs(value: string): number {
   return Number.isFinite(time) ? time : 0;
 }
 
-function threadInLens(thread: ThreadSummary, lens: ChatsLens): boolean {
-  if (lens === "needs-you") return threadNeedsYou(thread);
+function threadInLens(
+  thread: ThreadSummary,
+  lens: ChatsLens,
+  sessionsById: ReadonlyMap<string, ChatSessionSummary>,
+): boolean {
+  if (lens === "needs-you") return threadNeedsYou(thread, sessionsById);
   if (lens === "done") return threadDone(thread);
   return true;
 }
@@ -96,10 +109,11 @@ export function mergeConversations(
   pinnedIds?: ReadonlySet<string>,
 ): ConversationRow[] {
   const attached = threadAttachedChatIds(threads);
+  const sessionsById = new Map(sessions.map((session) => [session.id, session]));
   const rows: ConversationRow[] = [];
 
   for (const thread of threads) {
-    if (!threadInLens(thread, lens) && !pinnedIds?.has(thread.id)) continue;
+    if (!threadInLens(thread, lens, sessionsById) && !pinnedIds?.has(thread.id)) continue;
     if (kind !== "all" && threadFilterKind(thread.target) !== kind) continue;
     rows.push({ type: "thread", thread, updatedAtMs: parseTimeMs(thread.updated_at) });
   }

@@ -36,6 +36,17 @@ export function decisionPendingProposals(
   return proposals.filter((task) => isMeetingProposal(task) && (activeBriefing || stampedIds.has(task.id)));
 }
 
+/** Active briefings expose the meeting's complete recovery history. Historical briefings only
+ * show dismissals whose proposal ids were frozen into their Markdown membership. */
+export function decisionDismissedHistory<T extends { id: string; task_id?: string }>(
+  dismissed: T[],
+  stampedIds: ReadonlySet<string>,
+  activeBriefing: boolean,
+): T[] {
+  if (activeBriefing) return dismissed;
+  return dismissed.filter((item) => Boolean(item.task_id && stampedIds.has(item.task_id)));
+}
+
 /** New meetings may append only to the current daily/weekend briefing. Existing meeting groups
  * absorb their new proposals through decisionPendingProposals, so this returns unfeatured groups. */
 export function activeDecisionMeetingGroups(

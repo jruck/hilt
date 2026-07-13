@@ -21,6 +21,7 @@ import { LibraryProcessingRunner } from "../src/lib/library/processing-trigger";
 import { LibraryRecommendationRunner } from "../src/lib/library/recommendation-trigger";
 import { startLibraryIntakeDaemon } from "../src/lib/library/intake-daemon";
 import { appendActiveBriefingDecisions } from "../src/lib/briefing/decision-append";
+import { meetingLedgerEventMarkerPath } from "../src/lib/loops/meeting-ledger-store";
 
 loadEnvConfig(process.cwd());
 
@@ -177,6 +178,7 @@ async function startServer() {
   console.log(`Event WebSocket server configured for path: /events`);
 
   const libraryVaultPath = getVaultPathSync();
+  const meetingLedgerMarker = meetingLedgerEventMarkerPath(libraryVaultPath);
   const libraryProcessingRunner = new LibraryProcessingRunner(libraryVaultPath);
   const libraryRecommendationRunner = new LibraryRecommendationRunner(
     libraryVaultPath,
@@ -332,6 +334,11 @@ async function startServer() {
       eventServer.broadcast("calendar", "changed", {});
     }
   });
+  fs.watchFile(meetingLedgerMarker, { interval: 750 }, (curr, prev) => {
+    if (curr.mtimeMs > 0 && curr.mtimeMs !== prev.mtimeMs) {
+      eventServer.broadcast("bridge", "meeting-ledger-changed", {});
+    }
+  });
 
   // --- System → Graph runner + marker watch (flag-gated; inert when off) ---
   // ENTIRELY no-op unless HILT_GRAPH_ENABLED === "true". The runner module (which
@@ -481,6 +488,7 @@ async function startServer() {
     libraryRecommendationRunner.stop();
     stopCalendarSyncDaemon();
     fs.unwatchFile(CALENDAR_MARKER_FILE);
+    fs.unwatchFile(meetingLedgerMarker);
     eventServer.close();
     httpServer.close(() => {
       process.exit(0);

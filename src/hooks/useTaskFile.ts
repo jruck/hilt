@@ -129,6 +129,20 @@ export interface DismissedLoopItem {
   dismissed_at: string;
   opened_from: string;
   task_id?: string;
+  note?: string;
+}
+
+export async function restoreDismissedProposal(loop: string, itemId: string): Promise<TaskFile> {
+  const response = await fetch(withBasePath(`/api/loops/dismissed/${encodeURIComponent(itemId)}/restore`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ loop }),
+  });
+  const payload = await response.json().catch(() => null) as { task?: TaskFile; error?: string } | null;
+  if (!response.ok || !payload?.task) {
+    throw new Error(payload?.error || `Restore failed: HTTP ${response.status}`);
+  }
+  return payload.task;
 }
 
 interface DismissedResponse {

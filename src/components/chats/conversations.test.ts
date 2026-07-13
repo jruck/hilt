@@ -18,6 +18,7 @@ function makeThread(overrides: Partial<ThreadSummary> = {}): ThreadSummary {
     created_at: "2026-07-09T10:00:00.000Z",
     updated_at: "2026-07-09T10:00:00.000Z",
     message_count: 1,
+    pending_message_count: 1,
     last_message_snippet: "snippet",
     ...overrides,
   };
@@ -91,6 +92,16 @@ describe("needs-you partition", () => {
     const rows = mergeConversations(threads, sessions, "needs-you");
     const ids = rows.map((row) => (row.type === "thread" ? row.thread.id : row.session.id)).sort();
     expect(ids).toEqual(["chat-archived-unread", "chat-sending", "chat-unread", "th-dev", "th-open"]);
+  });
+
+  it("keeps answered open conversations quiet unless an attached turn is unread or running", () => {
+    const threads = [
+      makeThread({ id: "th-quiet", pending_message_count: 0 }),
+      makeThread({ id: "th-unread", pending_message_count: 0, chat_ids: ["chat-attached"] }),
+    ];
+    const sessions = [makeSession({ id: "chat-attached", unreadCount: 1 })];
+    const rows = mergeConversations(threads, sessions, "needs-you");
+    expect(rows.map(conversationRowId)).toEqual(["th-unread"]);
   });
 });
 

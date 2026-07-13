@@ -732,7 +732,7 @@ One markdown file per task at `<vault>/tasks/<id>.md`; proposals are task files 
 type TaskStatus = "proposed" | "accepted-me" | "accepted-agent" | "in-progress" | "done" | "dropped";
 
 interface TaskFile {
-  id: string;                 // t-YYYYMMDD-NNN, collision-checked across tasks/ AND tasks/.proposals/
+  id: string;                 // t-YYYYMMDD-NNN, permanently reserved across tasks/ AND tasks/.proposals/
   title: string;
   status: TaskStatus;
   due?: string;               // YYYY-MM-DD
@@ -743,10 +743,23 @@ interface TaskFile {
   created_at: string;         // ISO 8601
   provenance?: { quote: string; source: string };
   extra?: Record<string, unknown>; // unknown frontmatter keys — preserved across parse/serialize
-  body: string;               // running context/work ledger; status transitions append
-                              // "- <ISO> status: a → b (via …)" under "## History"
+  body: string;               // user-editable task notes plus the file audit section;
+                              // status transitions append "- <ISO> status: a → b (via …)"
+                              // under "## History". Linked source context stays in SQLite.
 }
 ```
+
+`tasks/.id-sequences.json` is the durable allocation companion:
+
+```typescript
+interface TaskIdSequenceState {
+  version: 1;
+  updated_at: string;
+  high_water: Record<string, number>; // YYYYMMDD -> greatest identity ever reserved
+}
+```
+
+Reservation is lock-serialized and atomic. It advances before the Markdown file is exclusively created, so a failed writer can leave a harmless gap but a dismissed/deleted proposal can never donate its identity to a different task. Existing task/proposal files are still checked defensively, and the state can be seeded from historical identities during migration.
 
 Round-trip byte fidelity is the parse/serialize contract (`src/lib/tasks/task-file.ts`): `parse(serialize(x)) === x` and `serialize(parse(text)) === text` for files Hilt wrote; bodies are never reformatted. Allowed status transitions live in `src/lib/tasks/status.ts` (`done → in-progress` is the checkbox-uncheck reopen; `dropped` is terminal).
 
@@ -770,9 +783,45 @@ interface HydratedWeeklyV2Line {
 
 Weekly lists opt in via frontmatter `list_format: 2` (`listFormatFromFrontmatter`); the v1 parser (`src/lib/bridge/weekly-parser.ts`) is untouched.
 
+### MeetingLedgerStore
+
+The canonical operational ledger lives at `${DATA_DIR}/meeting-ledgers/<vault-key>/meeting-ledger.sqlite`. The vault key is a stable hash of the resolved Bridge vault path, so live and shadow publication use one identity store while separate vaults remain isolated. `PRAGMA user_version` owns forward-only schema migration; version 2 uses WAL, `synchronous=FULL`, foreign keys, and a five-second busy timeout.
+
+The normalized schema contains:
+
+- `ledger_entries`: stable `ma-*` identity, action/context, owner, dates, state, escalation/verdict projection, and unique nullable `task_id`.
+- `ledger_citations`, `ledger_sightings`, and `ledger_status_history`: ordered evidence and a validated transition chain whose final state must equal the entry.
+- `meeting_summaries` and `processed_meetings`: the shared nightly/post-meeting context and once-set.
+- `extraction_runs`: active/succeeded/partial/failed run records, counts, errors, and context-token totals for crash diagnosis.
+- `ledger_events`: immutable sequenced before/after facts for import, extraction, sighting, transition, verdict, restore, and task stamping.
+- `ledger_meta`: migration/source hashes and a latched write-block reason.
+- `ledger_fts`: FTS5 action/context search, maintained with the entry transaction.
+
+`MeetingLedgerStore.applyMeeting()` is the transaction boundary for one meeting. It records all entry replacements, evidence, summary, processed stamp, and extraction event rows atomically. A killed process before commit leaves neither partial state nor a processed marker; a killed process afterward leaves a complete transaction and an active extraction-run record that makes the interruption inspectable. Proposal/task Markdown is an external transactional boundary: after the whole batch has resolved cross-meeting closures, Hilt mints or reconciles the file by stable ledger origin and commits the task-ID stamp in a follow-up transaction. The external verdict JSONL remains the decision audit and proposal/task Markdown remains the actionable object; SQLite stores their applied projection and join identities.
+
+Identity context is a query product, not a lifetime dump. Required rows are the full trailing-30-day opened/sighted set, every pending or accepted-open item regardless of age, and dismissals inside the immunity window. Each raw observation also retrieves older exact/FTS, owner, people/project, and meeting candidates. A 40,000-token ledger budget produces exhaustive chunks when necessary; no required recent row is silently omitted.
+
 ### Proposal minting from loop ledgers (v3 unit A6)
 
-Meeting-loop asks become proposal task files at ESCALATION time (`src/lib/loops/proposal-mint.ts`). Mapping — LedgerEntry → TaskFile: `action` → `title`; first citation's `anchor`+`source` → `provenance { quote, source }`; meeting path + ledger id + loop id → `origin { loop, meeting, item_id }`; `due` carries; `context` (when present) becomes the proposal BODY's leading paragraph (a non-ISO stated due follows as its own `Due (as stated): …` line — entries without context mint the pre-context body byte-for-byte). The verdict item id IS the ledger id IS `origin.item_id` — that triple join is how the verdict route finds the file.
+Meeting-loop asks become proposal task files at ESCALATION time (`src/lib/loops/proposal-mint.ts`). Mapping — LedgerEntry → TaskFile: `action` → `title`; first citation's `anchor`+`source` → `provenance { quote, source }`; meeting path + ledger id + loop id → `origin { loop, meeting, item_id }`; only an ISO `due` value carries into task frontmatter. The task body starts blank. Extracted `context` and non-ISO due language remain on the canonical `LedgerEntry` and are joined into task detail live. The verdict item id IS the ledger id IS `origin.item_id` — that triple join is how the verdict route finds the file.
+
+Feedback-thread proposals use `origin.thread`, persist the processor's explanatory reply as the task body, and cite the first Justin thread message through `provenance { quote, source: "thread:<id>" }`. They are task-native rather than ledger-backed: their lifecycle uses `/api/tasks/[id]/verdict`, while meeting proposals must use the loop verdict route. An accepted meeting task remains an actionable projection of its ledger entry; Hilt joins meeting summary, context, and sightings at read time rather than copying mutable evidence history into Markdown.
+
+The meeting relationship is reciprocal and identity-based, never title-based:
+
+```text
+LedgerEntry.task_id ───────────────▶ TaskFile.id
+LedgerEntry.id ◀─────────────────── TaskFile.origin.item_id
+                                  + TaskFile.origin.loop = meeting-actions
+```
+
+Approval moves the proposal file without changing either identity. Renaming or editing the task
+therefore cannot break its live ledger accordion, and later `ledger_sightings` remain visible without a
+task-file rewrite. `npm run tasks:ids:audit` validates this reciprocal contract across accepted tasks
+and proposals; a dismissed record is the one intentional case where the ledger retains `task_id`
+after its proposal file has been removed.
+
+Dismissal recovery does not mint a replacement identity. `VerdictRecord.verdict` uses `VerdictRecordAction = Verdict | "restore"`; `restore` is private to dismissed-history surfaces and is never offered as an ordinary ask verdict. The deleted proposal is reconstructed under the stamped `LedgerEntry.task_id`, while the next meeting-loop pass appends a `dropped → open` ledger transition and clears the current dismiss verdict. Prior status history remains intact.
 
 ```typescript
 // LedgerEntry (src/lib/loops/meeting-ledger.ts) gains:
@@ -781,8 +830,8 @@ interface LedgerEntry {
   context?: string;   // extractor-written SURROUNDING DISCUSSION, sized to the verdict (prompt
                       // v2.2 purpose-based rule: usually a couple sentences, a short paragraph
                       // when warranted; 1500-char runaway cap via cleanExtractedContext) —
-                      // rides into the
-                      // minted proposal's body. Forward-only: pre-v2.2 entries lack it; a later
+                      // and rendered from the live ledger join, never copied into task notes.
+                      // Forward-only: pre-v2.2 entries lack it; a later
                       // sighting may fill an empty one (fillContextIfEmpty) but existing prose
                       // is never overwritten.
   task_id?: string;   // proposal file minted from this entry — the idempotency stamp:
@@ -799,7 +848,7 @@ interface RegistryLoop {
 }
 ```
 
-Sink precedence (`resolveProposalSink`, exact order): `--proposals-dir` flag → that dir; `--ledger-home` flag → `<home>/proposals/` (eval isolation); registry `proposal_sink: "vault"` → `<vault>/tasks/.proposals/`; else `<loopHome>/proposals/`. Ids are minted by `createProposalIn` (store.ts): collision-checked against the sink dir AND the vault's canonical `tasks/` + `.proposals/`, so a shadow-minted id never collides in the vault.
+Sink precedence (`resolveProposalSink`, exact order): `--proposals-dir` flag → that dir; `--ledger-home` flag → `<home>/proposals/` (eval isolation); registry `proposal_sink: "vault"` → `<vault>/tasks/.proposals/`; else `<loopHome>/proposals/`. Ids are reserved by `createProposalIn` (store.ts) against the sink dir and the vault's canonical `tasks/` + `.proposals/`; when a collision vault is supplied, its durable sequence owns the reservation, so a shadow-minted id never collides in the vault or reuses a deleted identity.
 
 ### Post-meeting extraction trigger state (v3 unit B1)
 
@@ -822,13 +871,17 @@ interface TriggerMeetingState {
 }
 ```
 
-Settled = enhanced notes present ∧ `transcript_measure > 0` ∧ `stable_polls ≥ 3` ∧ `now − stable_since ≥ 120s` (knobs: `HILT_MEETING_TRIGGER_SETTLE_POLLS` / `HILT_MEETING_TRIGGER_SETTLE_MS`). The trigger also consults the loop's own `processed-meetings.json` (registry-resolved home) before firing.
+Settled = enhanced notes present ∧ `transcript_measure > 0` ∧ `stable_polls ≥ 3` ∧ `now − stable_since ≥ 120s` (knobs: `HILT_MEETING_TRIGGER_SETTLE_POLLS` / `HILT_MEETING_TRIGGER_SETTLE_MS`). The trigger consults the canonical meeting ledger's `processed_meetings` table before firing. Pre-migration JSON remains only as an immutable recovery artifact and generated compatibility export.
 
 ## Comment Primitive (gate-B pre-build for Phase C)
 
 **File**: `src/lib/comments/types.ts` (the target model), `src/lib/comments/post.ts` (the router)
 
-ONE "leave a comment" gesture across the app: `CommentTarget` is the typed anchor union, `postComment(target, text)` is the only client entry point, and `CommentBox` / `VerdictNoteField` (`src/components/comments/`) are the only inputs. **`CommentTarget` is explicitly the anchor contract C2's thread store adopts VERBATIM** — a comment is the first message of a chat session with a deferred agent turn; C2 swaps `postComment`'s internals for the thread store and retires the Revise button. Do not fork per-surface target shapes.
+ONE "leave a comment" gesture across the app: `CommentTarget` is the typed anchor union and
+`postComment(target, text)` is the only client entry point used by `CommentPopover`, `CommentBox`,
+and `VerdictNoteField` (`src/components/comments/`). `CommentTarget` is the thread store's anchor
+contract verbatim. Posting records a pending human message without starting Claude; processing is
+an explicit later turn in the same conversation. Do not fork per-surface target shapes.
 
 ```typescript
 type CommentTarget =
@@ -838,15 +891,13 @@ type CommentTarget =
   | { kind: "briefing-section"; date: string; section: string }
   | { kind: "briefing-anchor"; date?: string;          // synthesized bullet without a minted id
       anchor: { section?: string; citation?: string; text: string } }
-  | { kind: "library"; id: string }                    // NOT ROUTED until C2 (typed out)
-  | { kind: "meeting"; rel: string };                  // NOT ROUTED until C2 (typed out)
+  | { kind: "library"; id: string }
+  | { kind: "meeting"; rel: string };
 
-// What postComment accepts today — library/meeting are compile-time excluded (and throw
-// at runtime through a cast) until C2's thread store absorbs them.
-type ImplementedCommentTarget = Exclude<CommentTarget, { kind: "library" } | { kind: "meeting" }>;
+type ImplementedCommentTarget = CommentTarget;
 ```
 
-Routing (kind → store TODAY): `loop-item` / `briefing` / `briefing-section` / `briefing-anchor` → `POST /api/loops/feedback` (faithful `FeedbackTarget` translation; briefing kinds post under the `briefing` loop). `task` → the task's ORIGIN loop item when `origin.loop + origin.item_id` exist (a task comment IS feedback on its source ask); origin-less tasks get a `- <iso> note: <text>` line appended to the task-file body via `PUT /api/tasks/[id]` (the file is the record; C2 lifts these into threads).
+Routing today: every kind lands at `POST /api/threads`. A task with `origin.loop + origin.item_id` still anchors to that source loop-item; an origin-less task anchors to its task id. Library, meeting, briefing, and loop surfaces all use the same thread store.
 
 Verdict notes are the SIBLING path, not postComment: `useVerdictNote` + `VerdictNoteField` let typed text ride ANY verdict click as `note` in the single `POST /api/loops/verdicts` request (what revise alone did before); the loop's pass 0 persists it as `entry.verdict = { verdict, at, note? }`, and dismiss notes surface in the A7 dismissed digest as `… — declined: <note ≤100 chars>` so the extractor learns why.
 
@@ -865,6 +916,21 @@ interface ThreadMessage {
   text: string;
   created_at: string;
   edited_at?: string;
+  handled_at?: string;    // this human message was consumed by a processor/node turn
+  handled_by?: string;
+  outcome_id?: string;
+}
+
+interface ThreadOutcome {
+  id: string;
+  kind: "answered" | "changed" | "proposal" | "dev-item" | "calibrated" | "clustered";
+  summary: string;
+  at: string;
+  by: string;
+  message_ids: string[];  // the exact pending volley handled by this turn
+  chat_id?: string;
+  files_touched?: string[];
+  proposal_task_id?: string;
 }
 
 interface Thread {
@@ -874,9 +940,10 @@ interface Thread {
   created_at: string;
   updated_at: string;
   messages: ThreadMessage[];                              // ≥1 — last delete removes the file
-  chat_ids?: string[];                                    // processor chat sessions, oldest first
+  chat_ids?: string[];                                    // attached chat session; normally one reused id
+  outcomes?: ThreadOutcome[];                             // completed turns, append-only
   dev_item?: { diagnosed_at: string };                    // processor dev diagnosis; stays OPEN
-  processed?: { at: string; run_at: string };             // loop-consumption stamp; implies resolved except dev_item
+  processed?: { at: string; run_at: string };             // legacy thread-level compatibility stamp
   resolution?: { action: string; at: string; run_at?: string; by: string };
   source_ref?: string;     // migration provenance: the original record/comment id (idempotency key)
 }
@@ -884,11 +951,13 @@ interface Thread {
 
 **Persistence**: one JSON file per thread at `DATA_DIR/threads/<uuid>.json` (app state, never the vault) — atomic temp+rename, normalize-on-read never throws (chat-store contract: reads degrade to missing, mutations throw).
 
-**Processor chat join**: `chat_ids?: string[]` is append-only and processor-minted. The processor stamps the chat id as soon as it emits the streaming `session` event, before the Claude turn finishes, so System → Threads can show the live run and later reopen the saved transcript. Normalization keeps only UUID-valid ids, dedupes in order, and omits the field when empty. `ThreadSummary.chat_ids` mirrors the same list for row-level working detection.
+**Processor chat join**: `chat_ids?: string[]` is append-only, but normal processing creates one chat and reuses it for later volleys through the stored Claude `--resume` id. The processor attaches the chat before the first turn finishes so Chats can show the live run and later reopen its activity. Normalization keeps only UUID-valid ids and dedupes in order.
 
-**Dev items**: `dev_item?: { diagnosed_at: string }` marks a processor diagnosis that the feedback is about Hilt's own software behavior. Dev items are enforced at the PROMPT level only — the processor tool policy has no Bash but does include Edit/Write, so a misbehaving turn could still edit files; `filesTouched` on the saved chat message exposes any edit for audit. When `dev_item` is present, `processed` only removes the thread from loop guidance; it does not imply resolved, and the thread stays OPEN for Justin's dev pass.
+**Run lifecycle vs. conversation lifecycle**: each processor/node turn snapshots only human messages without `handled_at`, emits one `ThreadOutcome`, and marks exactly that snapshot handled. A comment posted during the turn stays pending for the next volley. Outcomes explain whether the turn answered only, changed files, created a proposal, diagnosed a dev item, calibrated a node, or entered Library steering. None of these outcomes closes the conversation.
 
-**Append-to-open semantics**: a new comment on a target with an OPEN thread appends to it; a resolved or processed non-dev target starts a fresh thread. Target identity = `targetKey` (kind + naming ids; `loop-item.artifactDate` and `briefing-anchor.anchor.citation` are deliberately NOT identity).
+**Conversation reuse**: comments append to the target's current conversation even after a legacy agent-completed resolution. Appending reopens that file and preserves the old completion as an outcome. Only an explicit `resolution.action === "closed"` creates a boundary; the next comment then starts a new thread. Target identity = `targetKey` (kind + naming ids; `loop-item.artifactDate` and `briefing-anchor.anchor.citation` are deliberately NOT identity).
+
+`ThreadSummary` adds `pending_message_count` and `last_outcome`. Chats uses pending comments, dev-item state, and attached chat unread/running state for **Needs you**; merely being open is not attention.
 
 **FeedbackTarget → CommentTarget mapping** (migration + live adapter, `feedback-bridge.ts`): level `item`+anchor → `briefing-anchor`; level `item`+item_id → `loop-item {loop, itemId, artifactDate?}`; level `section` → `briefing-section`; level `briefing` → `briefing {date}` (dateless legacy records borrow the record's created_at day). Reading back, a home (`<base>/meta/loops/<domain>`) resolves to its loop ids via the registry (`loopIdsForHome` — domain "briefings" ↔ loop id "briefing"), and each human message maps to one `FeedbackRecord` (message id = record id; `agent:*` consumption messages are excluded).
 
@@ -1686,7 +1755,7 @@ type ChatStreamEvent =
   | { type: "error"; error: string };
 ```
 
-`src/components/chat/` is the shared render/stream contract for these models: `consumeNdjsonStream` parses line-delimited events, `mergeTraceEvent` updates in-flight trace rows by id, `ChatMessageList` renders persisted messages plus optional `liveTrace` / `liveDraft`, and `ChatTracePanel` is the evidence pane for the assistant message's tool and step trace.
+`src/components/chat/` is the shared render/stream contract for these models: `consumeNdjsonStream` parses line-delimited events, `mergeTraceEvent` updates in-flight trace rows by id, `ConversationTurn` owns the shared human-bubble/assistant-prose visual grammar, `ChatMessageList` renders persisted messages plus optional `liveTrace` / `liveDraft`, `ChatComposer` is the shared auto-growing input, and `ChatTracePanel` is the evidence pane attached to the assistant message whose tool and step trace it explains. `ThreadConversationTimeline` adapts thread messages and ordered outcomes onto those primitives. It joins an agent reply back to the attached chat's assistant message by normalized reply content and nearest timestamp, with ordered-turn fallback for older records; this keeps trace evidence attached correctly when a legacy thread later reuses the same chat session.
 
 ---
 

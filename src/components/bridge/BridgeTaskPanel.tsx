@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { X, Trash2, FolderOpen, MoreVertical, CalendarDays, FileText } from "lucide-react";
+import { X, Trash2, FolderOpen, MoreVertical, CalendarDays, FileText, History } from "lucide-react";
 import type { BridgeTask } from "@/lib/types";
 import { parseLifecycle } from "@/lib/attribution";
 import { taskIdFromTaskPath } from "@/lib/tasks/weekly-v2";
@@ -9,8 +9,12 @@ import { withBasePath } from "@/lib/base-path";
 import { useBridgeProjects } from "@/hooks/useBridgeProjects";
 import { useBridgeThoughts } from "@/hooks/useBridgeThoughts";
 import { useTaskFile } from "@/hooks/useTaskFile";
+import { useMeetingLedgerDetail } from "@/hooks/useMeetingLedger";
+import { historyEntries, joinTaskBody, splitTaskBody } from "@/lib/tasks/task-body";
 import { ProjectPicker } from "./ProjectPicker";
 import { DatePickerPopover, formatDueDate } from "./DatePickerPopover";
+import { TaskMeetingLinkageCard } from "./TaskMeetingLinkageCard";
+import { TaskMeetingActionSection } from "./TaskMeetingActionSection";
 import { copyToClipboard } from "@/lib/references/clipboard";
 import { CopyReferenceButton } from "@/components/ui/CopyReferenceButton";
 import dynamic from "next/dynamic";
@@ -76,11 +80,18 @@ export function BridgeTaskPanel({
   // keepPreviousData means a just-switched selection briefly serves the PREVIOUS task's
   // file — never feed another task's body into the editor.
   const fileTask = rawFileTask && rawFileTask.id === v2TaskId ? rawFileTask : null;
+  const ledgerId = fileTask?.origin?.loop === "meeting-actions" ? fileTask.origin.item_id ?? null : null;
+  const { data: ledgerDetail } = useMeetingLedgerDetail(ledgerId);
+  const splitFileBody = useMemo(() => fileTask ? splitTaskBody(fileTask.body) : null, [fileTask]);
+  const taskHistory = historyEntries(splitFileBody?.history ?? null);
+  const latestHistory = useRef<string | null>(null);
   const lastSavedBody = useRef<string | null>(null);
 
   useEffect(() => {
-    if (fileTask) lastSavedBody.current = fileTask.body.replace(/\n+$/, "");
-  }, [fileTask]);
+    if (!splitFileBody) return;
+    latestHistory.current = splitFileBody.history;
+    lastSavedBody.current = splitFileBody.content.replace(/\n+$/, "");
+  }, [splitFileBody]);
 
   const handleBodyChange = useCallback(
     (markdown: string) => {
@@ -91,7 +102,7 @@ export function BridgeTaskPanel({
       void fetch(withBasePath(`/api/tasks/${v2TaskId}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: markdown }),
+        body: JSON.stringify({ body: joinTaskBody(markdown, latestHistory.current) }),
       })
         .then(() => mutateTaskFile())
         .catch((err) => console.error("[bridge/task] Failed to save task body:", err));
@@ -406,100 +417,119 @@ export function BridgeTaskPanel({
         </div>
       </div>
 
-      {/* Project cards (pinned) */}
-      {linkedItems.length > 0 && (
-        <div className="flex-shrink-0 px-6 py-3 border-b border-[var(--border-default)] space-y-2">
-          {linkedItems.map((item) => (
-            <div
-              key={item.path}
-              className="hilt-card flex items-center gap-3 px-3 py-2 group cursor-pointer transition-colors"
-              onClick={() => {
-                if (vaultPath && onNavigateToProject) {
-                  onNavigateToProject(item.path, vaultPath);
-                }
-              }}
-            >
-              <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center">
-                {item.icon ? (
-                  <span className="text-base leading-none">{item.icon}</span>
-                ) : (
-                  <FolderOpen className="w-4 h-4 text-[var(--text-tertiary)]" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-[var(--text-primary)] truncate">
-                  {item.title}
-                </div>
-                <span className="text-xs text-[var(--text-tertiary)] truncate">
-                  {item.path}
-                </span>
-              </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (onRemoveProject) {
-                    onRemoveProject(task.id, item.path);
-                  } else {
-                    // Fallback: remove by setting projectPaths without this one
-                    const remaining = projectPaths.filter(p => p !== item.path);
-                    onUpdateProject(task.id, remaining[0] ?? null);
+      {/* One stacked sidebar: attachment cards, editable notes, then the linked meeting action. */}
+      <div ref={editorAreaRef} className="min-h-0 flex-1 overflow-y-auto">
+        {linkedItems.length > 0 && (
+          <div className="space-y-2 px-6 pt-3">
+            {linkedItems.map((item) => (
+              <div
+                key={item.path}
+                className="hilt-card flex items-center gap-3 px-3 py-2 group cursor-pointer transition-colors"
+                onClick={() => {
+                  if (vaultPath && onNavigateToProject) {
+                    onNavigateToProject(item.path, vaultPath);
                   }
                 }}
-                className="p-1 text-[var(--text-tertiary)] opacity-0 group-hover:opacity-100 hover:text-[var(--text-secondary)] transition-all"
-                title="Detach project"
               >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Delete confirmation */}
-      {confirmDelete && (
-        <div className="flex-shrink-0 flex items-center gap-3 px-6 py-3 bg-red-500/10 border-b border-red-500/20">
-          <span className="text-sm text-red-500 flex-1">Delete this task and all its content?</span>
-          <button
-            onClick={() => onDelete(task.id)}
-            className="px-3 py-1 text-xs font-medium rounded bg-red-500 text-white hover:bg-red-600 transition-colors"
-          >
-            Delete
-          </button>
-          <button
-            onClick={() => setConfirmDelete(false)}
-            className="px-3 py-1 text-xs font-medium rounded text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-
-      {/* Content — v2 edits the task FILE body; v1 edits the list's detail lines */}
-      <div ref={editorAreaRef} className="flex-1 overflow-y-auto px-6 py-4">
-        {degraded ? (
-          <div className="text-sm text-[var(--text-tertiary)] py-4">
-            Task file missing — this line renders from the weekly list only.
+                <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center">
+                  {item.icon ? (
+                    <span className="text-base leading-none">{item.icon}</span>
+                  ) : (
+                    <FolderOpen className="w-4 h-4 text-[var(--text-tertiary)]" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-[var(--text-primary)] truncate">
+                    {item.title}
+                  </div>
+                  <span className="text-xs text-[var(--text-tertiary)] truncate">
+                    {item.path}
+                  </span>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onRemoveProject) {
+                      onRemoveProject(task.id, item.path);
+                    } else {
+                      const remaining = projectPaths.filter(p => p !== item.path);
+                      onUpdateProject(task.id, remaining[0] ?? null);
+                    }
+                  }}
+                  className="p-1 text-[var(--text-tertiary)] opacity-0 group-hover:opacity-100 hover:text-[var(--text-secondary)] transition-all"
+                  title="Detach project"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
           </div>
-        ) : v2TaskId ? (
-          fileTask && (
-            <BridgeTaskEditor
-              key={v2TaskId}
-              markdown={fileTask.body}
-              onChange={handleBodyChange}
-              readOnly={false}
-              vaultPath={vaultPath}
-              filePath={vaultPath ? `${vaultPath}/tasks/${v2TaskId}.md` : undefined}
-            />
-          )
-        ) : (
-          <BridgeTaskEditor
-            markdown={fullMarkdown}
-            onChange={handleContentChange}
-            readOnly={false}
-            vaultPath={vaultPath}
-            filePath={filePath}
-          />
         )}
+
+        {fileTask?.origin?.meeting && <TaskMeetingLinkageCard meetingId={fileTask.origin.meeting} />}
+
+        {confirmDelete && (
+          <div className="mx-6 mt-3 flex items-center gap-3 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2">
+            <span className="text-sm text-red-500 flex-1">Delete this task and all its content?</span>
+            <button
+              onClick={() => onDelete(task.id)}
+              className="px-3 py-1 text-xs font-medium rounded bg-red-500 text-white hover:bg-red-600 transition-colors"
+            >
+              Delete
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="px-3 py-1 text-xs font-medium rounded text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        <div className="px-6 py-4">
+          {degraded ? (
+            <div className="text-sm text-[var(--text-tertiary)] py-4">
+              Task file missing — this line renders from the weekly list only.
+            </div>
+          ) : v2TaskId ? (
+            fileTask && (
+              <>
+                <BridgeTaskEditor
+                  key={v2TaskId}
+                  markdown={splitFileBody?.content ?? ""}
+                  onChange={handleBodyChange}
+                  readOnly={false}
+                  className="task-notes-editor"
+                  vaultPath={vaultPath}
+                  filePath={vaultPath ? `${vaultPath}/tasks/${v2TaskId}.md` : undefined}
+                />
+                {taskHistory.length > 0 && !ledgerId && (
+                  <details className="group mt-6 border-t border-[var(--border-default)] pt-3">
+                    <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">
+                      <History className="h-3 w-3" />
+                      Task history · {taskHistory.length}
+                    </summary>
+                    <ul className="mt-2 space-y-1 pl-4">
+                      {taskHistory.map((entry, index) => (
+                        <li key={index} className="break-words text-xs font-mono text-[var(--text-tertiary)]">{entry}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </>
+            )
+          ) : (
+            <BridgeTaskEditor
+              markdown={fullMarkdown}
+              onChange={handleContentChange}
+              readOnly={false}
+              className="task-notes-editor"
+              vaultPath={vaultPath}
+              filePath={filePath}
+            />
+          )}
+        </div>
+        {ledgerDetail && <TaskMeetingActionSection detail={ledgerDetail} taskTitle={displayTitle} />}
       </div>
     </div>
   );

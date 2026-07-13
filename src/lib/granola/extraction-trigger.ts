@@ -14,9 +14,9 @@
  *     window guards against declaring a mid-meeting lull "settled" during the 5s fast poll.
  *  2. ONCE-GUARDS: a granola_id fires at most once, persisted to
  *     $DATA_DIR/loops/meeting-trigger-state.json so ws-server restarts don't re-fire. Meetings
- *     already in the loop's own processed-meetings.json (the nightly's read-tracking) never fire.
+ *     already in the canonical meeting ledger's processed set never fire.
  *  3. SERIALIZES runs: one `scripts/loop-meeting-actions.ts --meetings-file <tmp>` child at a
- *     time (the ledger is single-writer). A meeting settling while a run is active queues behind
+ *     time (the ledger is single-writer and shares its process lock with the nightly). A meeting settling while a run is active queues behind
  *     it. Deliberately NO --proposals-dir / --ledger-home flags — the loop resolves its ledger
  *     home from the registry phase and its proposal sink from registry `proposal_sink`, exactly
  *     like the nightly. Run failures are logged, never thrown; the 19:30 nightly stays as the
@@ -30,6 +30,7 @@ import * as os from "os";
 import * as path from "path";
 import { atomicWriteFile } from "../library/utils";
 import { defaultSandboxDir } from "../loops/emit";
+import { openMeetingLedgerRuntime } from "../loops/meeting-ledger-runtime";
 import { loadRegistry, loopHome } from "../loops/registry";
 import {
   getGranolaDataDir,
@@ -220,11 +221,12 @@ export function writeTriggerState(state: TriggerState, filePath = triggerStatePa
 
 /**
  * The nightly loop's read-tracking, resolved EXACTLY like scripts/loop-meeting-actions.ts does:
- * registry phase shadow → $DATA_DIR/loops-shadow/meta/loops/<domain>/state/processed-meetings.json.
+ * registry phase shadow → the loop home. The runtime then resolves the shared SQLite processed
+ * set after cutover or the legacy JSON set before cutover.
  * Returns null when the registry itself can't be resolved (fire nothing this cycle — never risk
  * double-processing on a broken registry); a missing/empty processed file is just "none yet".
  */
-function readProcessedMeetings(vaultPath: string): Set<string> | null {
+export function readProcessedMeetings(vaultPath: string): Set<string> | null {
   let home: string;
   try {
     const registry = loadRegistry(vaultPath);
@@ -236,11 +238,17 @@ function readProcessedMeetings(vaultPath: string): Set<string> | null {
     return null;
   }
   try {
-    const raw = fs.readFileSync(path.join(home, "state", "processed-meetings.json"), "utf-8");
-    const parsed = JSON.parse(raw) as { processed?: Record<string, string> };
-    return new Set(Object.keys(parsed.processed ?? {}));
-  } catch {
-    return new Set();
+    const ledger = openMeetingLedgerRuntime({ vaultPath, legacyHome: home });
+    try {
+      return new Set(Object.keys(ledger.processedMeetings()));
+    } finally {
+      ledger.close();
+    }
+  } catch (error) {
+    // A missing/corrupt canonical database must suppress the trigger. Treating it as an empty
+    // processed set could re-run every settled meeting and duplicate external side effects.
+    console.error("[MeetingTrigger] processed meeting store unavailable — skipping fire this cycle:", error);
+    return null;
   }
 }
 

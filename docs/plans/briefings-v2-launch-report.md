@@ -3,6 +3,10 @@
 > Pre-registered 2026-07-02 so every claim slot + evidence source is fixed BEFORE the evidence
 > lands (no post-hoc goal-shifting). Filled progressively; delivered to Justin when §5's checklist
 > is green. Normative bars: implementation plan §4. Rubric: briefings-v2-grading-rubric.md.
+>
+> **Status note — 2026-07-10:** this preserves the original launch evidence and unfinished gate
+> record. The current gaps, cleanup work, and re-opened definition of done are tracked in the
+> [Briefings v2 Completion Roadmap](./briefings-v2-completion-roadmap.md).
 
 ## 1 · Retro sweep evidence (Phase 4)
 

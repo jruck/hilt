@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { defaultSandboxDir } from "../loops/emit";
 import { parseLoopArtifact } from "../loops/artifacts";
+import { openMeetingLedgerRuntime } from "../loops/meeting-ledger-runtime";
 import { latestArtifactPath, loadRegistry, loopHome } from "../loops/registry";
 import { listProposals } from "../tasks/proposals";
 import type { TaskFile } from "../tasks/types";
@@ -37,16 +38,17 @@ export interface BriefingDecisionQueue {
   warnings: string[];
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
 function cleanTitle(value: string): string {
   return value.replace(/^\s*🆕\s*/u, "").replace(/\s+/g, " ").trim();
 }
 
 function cleanSummary(value: string): string {
   return value.replace(/\s+/g, " ").trim().slice(0, 400);
+}
+
+function taskIdentityDate(id: string): string | null {
+  const match = id.match(/^t-(\d{4})(\d{2})(\d{2})-\d+$/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
 }
 
 const DECISION_CONTEXT_STOPWORDS = new Set([
@@ -99,7 +101,7 @@ export function buildBriefingDecisionQueue(input: {
   const seen = new Set<string>();
   for (const proposal of input.proposals) {
     if (proposal.status !== "proposed" || proposal.origin?.loop !== "meeting-actions") continue;
-    if (proposal.created_at.slice(0, 10) > input.asOf) continue;
+    if ((taskIdentityDate(proposal.id) ?? proposal.created_at.slice(0, 10)) > input.asOf) continue;
     if (!proposal.origin.meeting) {
       warnings.push(`proposal ${proposal.id} has no meeting origin`);
       continue;
@@ -144,16 +146,24 @@ export function buildBriefingDecisionQueue(input: {
   };
 }
 
-function readMeetingSummaries(home: string, warnings: string[]): Map<string, string> {
+function readMeetingSummaries(
+  vaultPath: string,
+  home: string,
+  meetings: ReadonlySet<string>,
+  warnings: string[],
+): Map<string, string> {
   const summaries = new Map<string, string>();
-  const filePath = path.join(home, "state", "meeting-summaries.json");
-  if (!fs.existsSync(filePath)) return summaries;
   try {
-    const raw: unknown = JSON.parse(fs.readFileSync(filePath, "utf-8"));
-    if (!isRecord(raw)) return summaries;
-    for (const [meeting, value] of Object.entries(raw)) {
-      if (!isRecord(value) || typeof value.summary !== "string" || !value.summary.trim()) continue;
-      summaries.set(meeting, cleanSummary(value.summary));
+    const ledger = openMeetingLedgerRuntime({ vaultPath, legacyHome: home });
+    try {
+      for (const meeting of meetings) {
+        const value = ledger.meetingSummary(meeting);
+        if (!value) continue;
+        if (!value.summary.trim()) continue;
+        summaries.set(meeting, cleanSummary(value.summary));
+      }
+    } finally {
+      ledger.close();
     }
   } catch (error) {
     warnings.push(`meeting summaries unavailable: ${error instanceof Error ? error.message : String(error)}`);
@@ -162,6 +172,12 @@ function readMeetingSummaries(home: string, warnings: string[]): Map<string, str
 }
 
 export function collectBriefingDecisionQueue(vaultPath: string, asOf: string): BriefingDecisionQueue {
+  const proposals = listProposals(vaultPath);
+  const representedMeetings = new Set(proposals.flatMap((proposal) =>
+    proposal.status === "proposed" && proposal.origin?.loop === "meeting-actions" && proposal.origin.meeting
+      ? [proposal.origin.meeting]
+      : [],
+  ));
   let artifactDate: string | null = null;
   const urgentTaskIds = new Set<string>();
   const meetingSummaries = new Map<string, string>();
@@ -171,7 +187,12 @@ export function collectBriefingDecisionQueue(vaultPath: string, asOf: string): B
     const meetingLoop = registry.loops.find((loop) => loop.id === "meeting-actions");
     if (meetingLoop) {
       const base = meetingLoop.phase === "live" ? vaultPath : defaultSandboxDir();
-      for (const [meeting, summary] of readMeetingSummaries(loopHome(base, meetingLoop), warnings)) {
+      for (const [meeting, summary] of readMeetingSummaries(
+        vaultPath,
+        loopHome(base, meetingLoop),
+        representedMeetings,
+        warnings,
+      )) {
         meetingSummaries.set(meeting, summary);
       }
       const artifactPath = latestArtifactPath(base, meetingLoop, asOf);
@@ -187,7 +208,7 @@ export function collectBriefingDecisionQueue(vaultPath: string, asOf: string): B
     warnings.push(`meeting-actions artifact unavailable: ${error instanceof Error ? error.message : String(error)}`);
   }
   const queue = buildBriefingDecisionQueue({
-    proposals: listProposals(vaultPath),
+    proposals,
     asOf,
     artifactDate,
     urgentTaskIds,

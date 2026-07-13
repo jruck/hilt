@@ -45,8 +45,8 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/threads { target, text, author? } — create-or-append: an OPEN thread on the target
- * gains a message (200); otherwise a fresh thread is created (201). Returns { thread }.
+ * POST /api/threads { target, text, author? } — append to the target's reusable conversation
+ * (200). Only an explicitly closed latest conversation causes a fresh thread (201).
  */
 export async function POST(request: NextRequest) {
   try {

@@ -8,7 +8,8 @@ import fs from "fs";
 import { atomicWriteFile } from "../library/utils";
 import { applyStatusTransition } from "./status";
 import { parseTaskFile, serializeTaskFile } from "./task-file";
-import { proposalPath, proposalsDir, readTaskDir, taskPath } from "./store";
+import { applyTaskPatch, proposalPath, proposalsDir, readTaskDir, taskPath } from "./store";
+import type { TaskPatch } from "./store";
 import type { TaskFile } from "./types";
 
 export function listProposals(baseDir: string): TaskFile[] {
@@ -27,6 +28,25 @@ export function readProposal(baseDir: string, id: string): TaskFile | null {
     console.warn(`[tasks] treating unparseable proposal as missing ${filePath}: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
+}
+
+/** Write one proposal without changing its lifecycle state. Exported for guarded maintenance
+ * tools that operate on task Markdown while preserving proposal identity. */
+export function writeProposal(baseDir: string, task: TaskFile): void {
+  if (task.status !== "proposed") {
+    throw new Error(`cannot write non-proposed task to proposal store: ${task.id}`);
+  }
+  atomicWriteFile(proposalPath(baseDir, task.id), serializeTaskFile(task));
+}
+
+/** Proposals are real task files, so their title and freeform notes stay editable before a
+ * verdict. Lifecycle changes still belong exclusively to approve/dismiss/revise. */
+export function updateProposal(baseDir: string, id: string, patch: TaskPatch): TaskFile {
+  const task = readProposal(baseDir, id);
+  if (!task) throw new Error(`proposal not found: ${id}`);
+  const updated = applyTaskPatch(task, patch);
+  writeProposal(baseDir, updated);
+  return updated;
 }
 
 export interface ApproveOptions {

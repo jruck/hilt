@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   activeDecisionMeetingGroups,
+  decisionDismissedHistory,
   decisionPendingProposals,
   isBriefingActive,
   isDecisionQueueSummary,
@@ -33,6 +34,15 @@ test("historical decisions retain stamped membership while the active briefing a
   const proposals = [first, added];
   assert.deepEqual(decisionPendingProposals(proposals, new Set([first.id]), false).map((task) => task.id), [first.id]);
   assert.deepEqual(decisionPendingProposals(proposals, new Set([first.id]), true).map((task) => task.id), [first.id, added.id]);
+});
+
+test("active decisions expose complete meeting dismissal history while historical membership stays frozen", () => {
+  const stamped = { id: "ma-1", task_id: "t-20260711-001" };
+  const earlier = { id: "ma-2", task_id: "t-20260711-002" };
+  const preTaskHistory = { id: "ma-3" };
+  const history = [stamped, earlier, preTaskHistory];
+  assert.deepEqual(decisionDismissedHistory(history, new Set([stamped.task_id]), true), history);
+  assert.deepEqual(decisionDismissedHistory(history, new Set([stamped.task_id]), false), [stamped]);
 });
 
 test("only active briefings append newly represented meeting groups", () => {

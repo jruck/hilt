@@ -1,5 +1,9 @@
 # Briefings v2 — Implementation Plan
 
+> **Current remaining work:** this is the original 2026-07-02 execution contract. The authoritative
+> cleanup-first roadmap for the current production system is
+> [Briefings v2 — Completion Roadmap](./briefings-v2-completion-roadmap.md).
+>
 > **Status:** Ready to execute — written 2026-07-02, after the scope was finalized and all open
 > questions closed by interview.
 > **Canonical design scope (read first, it is normative):** `docs/plans/briefings-v2-loop-of-loops.html`

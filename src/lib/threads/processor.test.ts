@@ -24,7 +24,7 @@ import {
   threadContextRef,
   type ProcessorRunner,
 } from "./processor";
-import { createThread, readThread, resolveThread } from "./store";
+import { appendToThread, createThread, readThread, resolveThread } from "./store";
 import type { CommentTarget } from "./types";
 
 const originalDataDir = process.env.DATA_DIR;
@@ -164,7 +164,7 @@ describe("deriveProcessorAuthor", () => {
 });
 
 describe("processThread", () => {
-  it("plain reply processes the thread", async () => {
+  it("plain reply answers pending comments without closing the conversation", async () => {
     const thread = createLoopItemThread();
     const events: ChatStreamEvent[] = [];
 
@@ -175,14 +175,15 @@ describe("processThread", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(result.action).toBe("processed");
+    expect(result.action).toBe("answered");
 
     const reread = readThread(thread.id);
-    expect(reread?.status).toBe("resolved");
+    expect(reread?.status).toBe("open");
     expect(reread?.messages.at(-1)?.author).toBe("agent:meeting-actions");
     expect(reread?.messages.at(-1)?.text).toBe("Done. Fixed the owner.");
-    expect(reread?.resolution?.action).toBe("processed");
-    expect(reread?.resolution?.by).toBe("agent:meeting-actions");
+    expect(reread?.resolution).toBeUndefined();
+    expect(reread?.messages[0].handled_at).toBeDefined();
+    expect(reread?.outcomes?.at(-1)?.kind).toBe("answered");
 
     if (!result.chatId) throw new Error("missing chatId");
     expect(readThread(thread.id)?.chat_ids).toEqual([result.chatId]);
@@ -215,12 +216,19 @@ describe("processThread", () => {
     const proposal = parseTaskFile(fs.readFileSync(proposalPath, "utf-8"));
     expect(proposal.title).toBe("Rework the owner attribution rules");
     expect(proposal.origin?.thread).toBe(thread.id);
+    expect(proposal.body).toContain("Justin, this needs a real refactor.");
+    expect(proposal.provenance?.source).toBe(`thread:${thread.id}`);
+    expect(proposal.provenance?.quote).toBe("fix the owner attribution");
 
     const reread = readThread(thread.id);
     const reply = reread?.messages.at(-1)?.text ?? "";
     expect(reply).not.toContain("PROPOSAL:");
     expect(reply.endsWith(`Minted proposal ${result.proposalTaskId}.`)).toBe(true);
-    expect(reread?.resolution?.action).toBe("proposal-minted");
+    expect(reread?.status).toBe("open");
+    expect(reread?.outcomes?.at(-1)).toMatchObject({
+      kind: "proposal",
+      proposal_task_id: result.proposalTaskId,
+    });
   });
 
   it("DEVITEM marker diagnoses, stamps dev_item, and leaves the thread open", async () => {
@@ -243,7 +251,9 @@ describe("processThread", () => {
     expect(reread?.status).toBe("open");
     expect(reread?.resolution).toBeUndefined();
     expect(reread?.dev_item?.diagnosed_at).toBeDefined();
-    expect(reread?.processed).toBeDefined();
+    expect(reread?.processed).toBeUndefined();
+    expect(reread?.messages[0].handled_at).toBeDefined();
+    expect(reread?.outcomes?.at(-1)?.kind).toBe("dev-item");
     expect(reread?.messages.at(-1)?.author).toBe("agent:meeting-actions");
     expect(reread?.messages.at(-1)?.text).toContain("Diagnosis: Filter state resets because Board remounts on refresh");
     expect(reread?.messages.at(-1)?.text).not.toContain("DEVITEM:");
@@ -274,7 +284,7 @@ describe("processThread", () => {
     expect(reread?.messages.at(-1)?.text).not.toContain("Minted proposal");
   });
 
-  it("DEVITEM spoof before the final line takes the normal processed path", async () => {
+  it("DEVITEM spoof before the final line takes the normal answered path", async () => {
     const thread = createLoopItemThread();
 
     const result = await processThread(thread.id, {
@@ -283,9 +293,9 @@ describe("processThread", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(result.action).toBe("processed");
+    expect(result.action).toBe("answered");
     const reread = readThread(thread.id);
-    expect(reread?.status).toBe("resolved");
+    expect(reread?.status).toBe("open");
     expect(reread?.dev_item).toBeUndefined();
   });
 
@@ -338,7 +348,7 @@ describe("processThread", () => {
     expect(chat?.messages.at(-1)?.content).toBe("partial rep");
   });
 
-  it("mint failure is non-fatal: reply preserved, action stays processed (C3-3)", async () => {
+  it("mint failure is non-fatal: reply preserved, action stays answered", async () => {
     const thread = createLoopItemThread();
     // Plant a FILE where tasks/.proposals must be a directory → createProposalIn throws.
     const tasksDir = path.join(vaultRoot(), "tasks");
@@ -351,17 +361,17 @@ describe("processThread", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(result.action).toBe("processed");
+    expect(result.action).toBe("answered");
     expect(result.proposalTaskId).toBeUndefined();
     const reread = readThread(thread.id);
     const reply = reread?.messages.at(-1)?.text ?? "";
     // The full reply INCLUDING the un-actioned marker line is preserved (nothing was minted).
     expect(reply).toContain("PROPOSAL: Rework owners");
     expect(reply).not.toContain("Minted proposal");
-    expect(reread?.resolution?.action).toBe("processed");
+    expect(reread?.outcomes?.at(-1)?.kind).toBe("answered");
   });
 
-  it("processor-resolved loop thread is stamped processed so it leaves the guidance set (C3-2)", async () => {
+  it("processor handles only the pending message so it leaves loop guidance without closing", async () => {
     const thread = createLoopItemThread();
     const result = await processThread(thread.id, {
       runner: stubRunner({ text: "Reworded the ask." }),
@@ -370,8 +380,43 @@ describe("processThread", () => {
 
     expect(result.ok).toBe(true);
     const reread = readThread(thread.id);
-    expect(reread?.processed).toBeDefined();
-    expect(reread?.status).toBe("resolved");
+    expect(reread?.processed).toBeUndefined();
+    expect(reread?.messages[0].handled_at).toBeDefined();
+    expect(reread?.status).toBe("open");
+  });
+
+  it("later comments reuse the same chat session and resume with only the new volley", async () => {
+    const thread = createLoopItemThread();
+    const first = await processThread(thread.id, {
+      runner: stubRunner({ text: "First answer.", claudeSessionId: "cli-session-1" }),
+      vaultRoot: vaultRoot(),
+    });
+    if (!first.chatId) throw new Error("missing first chatId");
+
+    appendToThread(thread.id, { author: "justin", text: "And handle the follow-up." });
+    const capture: { claudeSessionId?: string | null; prompt?: string } = {};
+    const second = await processThread(thread.id, {
+      runner: async (options) => {
+        capture.claudeSessionId = options.claudeSessionId;
+        capture.prompt = options.prompt;
+        options.onText?.("Second answer.");
+        return { collectedText: "Second answer.", claudeSessionId: "cli-session-2", code: 0, stderr: "" };
+      },
+      vaultRoot: vaultRoot(),
+    });
+
+    expect(second.chatId).toBe(first.chatId);
+    expect(capture.claudeSessionId).toBe("cli-session-1");
+    expect(capture.prompt).toContain("And handle the follow-up.");
+    expect(capture.prompt).not.toContain("fix the owner attribution");
+    expect(readThread(thread.id)?.chat_ids).toEqual([first.chatId]);
+    expect(readThread(thread.id)?.outcomes).toHaveLength(2);
+    expect(readChat(first.chatId)?.messages.map((message) => message.content)).toEqual([
+      "fix the owner attribution",
+      "First answer.",
+      "And handle the follow-up.",
+      "Second answer.",
+    ]);
   });
 
   it("prompt carries context, thread messages, and instructions", async () => {

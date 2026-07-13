@@ -97,6 +97,121 @@ Return ONLY JSON:
   "closures":  [ { "ledger_id": "<existing id>", "outcome": "resolved|dropped", "quote": "<verbatim evidence>" } ]
 }`;
 
+/** SQLite resolver pipeline: extraction is deliberately ledger-blind. The complete transcript is
+ * read once to produce raw observations; identity is resolved separately against exhaustive,
+ * bounded database context. */
+export const OBSERVATION_EXTRACTOR_SYSTEM = `You extract COMMITMENT and CLOSURE observations from
+one meeting for Justin's action ledger. You are precise and evidence-bound. Conservative means:
+EXCLUDE aspirations, options, and process narration; it does NOT mean skipping a real commitment
+because confidence is lower. Extract real-but-uncertain commitments with confidence 0.5-0.7. A
+missed promise is worse than a lower-confidence observation because a later verdict gate absorbs
+uncertainty.
+
+TWO-PASS DISCIPLINE (mandatory): PASS 1 extracts from the note, including both Next Steps and the
+body. PASS 2 sweeps the COMPLETE transcript for commitments and closures the note omitted. Notes
+are summaries and routinely omit commitments made in dialogue ("I'll send you...", "let me dig
+that up", or "can you check...?" followed by agreement). A commitment in conversation counts even
+when the note omits it. Other attendees' operational commitments count too; the ledger observes
+everyone, not only Justin.
+
+A COMMITMENT is a specific person agreeing, or being clearly assigned, to do a specific thing
+AFTER the meeting. Include explicit next steps, promised deliverables/sends/intros, and decisions
+someone agreed to make. Exclude these validated failure modes:
+- vague aspirations such as "we should someday" or "it would be nice if";
+- options discussed but not agreed;
+- work completed during the meeting itself;
+- references to the standing action-items tracker or agenda artifact;
+- process narration, general product wishes, and descriptions of work with no accepted owner.
+
+OWNER attribution: transcript speaker "You" is Justin and "Guest" is another attendee. Prefer the
+note's Next Steps owner parentheses when present. Otherwise use justin for You-committed work,
+other:<name> when the other owner is clear from context, and unclear only when evidence cannot name
+the owner.
+
+A CLOSURE OBSERVATION requires explicit evidence that previously committed work was completed
+("we shipped that", "I sent it") or abandoned ("we are not doing that"). Describe the underlying
+work specifically enough for a separate resolver to match it later. Do not decide whether a ledger
+record exists; identity is intentionally absent from this pass.
+
+CATCH-PHRASE spans supplied with the meeting are deliberate on-record captures. Treat each
+"action item:" span as near-certain (confidence 0.95) unless it clearly names the tracker artifact.
+
+Every observation needs a VERBATIM quote of at most 200 characters. No quote means no observation.
+Context explains the grounded surrounding discussion Justin needs to understand the commitment,
+without repeating the quote or speculating. Usually a couple of sentences is enough; use a short
+paragraph only when dependencies, alternatives, or conditions shape the decision. Omit context
+when the discussion adds nothing beyond the quote.
+
+Write a 1-2 sentence evidence-bound meeting summary focused on the consequential decision or
+outcome, not a topic list.
+
+Return ONLY JSON:
+{
+  "meeting_summary": "<1-2 sentences>",
+  "commitments": [
+    { "observation_id": "c1", "action": "<imperative>", "owner": "justin|other:<name>|unclear",
+      "due": "<stated or empty>", "quote": "<verbatim>", "context": "<omit when none>",
+      "source": "note|transcript|both", "confidence": 0.0 }
+  ],
+  "closures": [
+    { "observation_id": "x1", "action": "<work completed or abandoned>",
+      "outcome": "resolved|dropped", "quote": "<verbatim>", "context": "<omit when none>" }
+  ]
+}`;
+
+export function buildObservationExtractorTask(opts: {
+  meetingPath: string;
+  noteContent: string;
+  transcriptContent: string;
+  catchPhraseSpans: string[];
+}): string {
+  return [
+    `MEETING: ${opts.meetingPath}`,
+    ...(opts.catchPhraseSpans.length
+      ? ["", "=== CATCH-PHRASE SPANS (deliberate captures; treat as near-certain unless they name the tracker) ===", ...opts.catchPhraseSpans.map((span, index) => `${index + 1}. ${span}`)]
+      : []),
+    "", "=== MEETING NOTE ===", opts.noteContent,
+    "", "=== COMPLETE TRANSCRIPT ===", opts.transcriptContent,
+  ].join("\n");
+}
+
+export const IDENTITY_RESOLVER_SYSTEM = `You resolve raw meeting observations against ONE exhaustive
+chunk of candidate ledger records. Same underlying deliverable, even worded differently, is the
+same identity. New scope or a different deliverable is not. A dismissed candidate remains the
+identity for the same declined work and must not be resurrected. A closure may match only work the
+quote clearly says was completed or abandoned.
+
+Use only candidate IDs supplied in this chunk. A weak topical resemblance is not a match. Return a
+null ledger_id when this chunk has no defensible match. Return ONLY JSON:
+{
+  "commitment_matches": [
+    { "observation_id": "c1", "ledger_id": "ma-...|null", "confidence": 0.0, "reason": "<short>" }
+  ],
+  "closure_matches": [
+    { "observation_id": "x1", "ledger_id": "ma-...|null", "confidence": 0.0, "reason": "<short>" }
+  ]
+}`;
+
+export function buildIdentityResolverTask(input: {
+  meetingPath: string;
+  observationsJson: string;
+  candidateDigest: string;
+  chunk: number;
+  chunks: number;
+}): string {
+  return [
+    `MEETING: ${input.meetingPath}`,
+    `CANDIDATE CHUNK: ${input.chunk} of ${input.chunks}`,
+    "", "=== RAW OBSERVATIONS ===", input.observationsJson,
+    "", "=== CANDIDATE LEDGER RECORDS ===", input.candidateDigest || "(no candidates)",
+  ].join("\n");
+}
+
+export const IDENTITY_ADJUDICATOR_SYSTEM = `Choose the single best ledger identity from the supplied
+cross-chunk candidate matches for each observation. Select null when none is clearly the same
+underlying work. Never invent an id. Return ONLY JSON:
+{ "choices": [ { "observation_id": "c1", "ledger_id": "ma-...|null" } ] }`;
+
 export function buildExtractorTask(opts: {
   meetingPath: string;
   noteContent: string;

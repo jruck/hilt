@@ -82,25 +82,31 @@ export function BriefingHeader({
   const hasMultiple = availableBriefings.length > 1;
   const selectedBriefing = availableBriefings.find((briefing) => briefing.id === selectedId);
   const selectedLabel = formatBriefingOption(selectedBriefing, true) || title || selectedId;
+  const compactSelectedLabel = formatBriefingOption(selectedBriefing, false) || selectedLabel;
 
   return (
     <div className="flex min-h-8 items-center justify-between gap-3 text-[var(--text-primary)]">
-      <div className="relative" ref={dropdownRef}>
+      <div className="relative min-w-0" ref={dropdownRef}>
         {hasMultiple ? (
           <button
             onClick={() => { dropdownOpen ? haptics.rigid() : haptics.light(); setDropdownOpen(!dropdownOpen); }}
             data-briefing-selector
             aria-haspopup="listbox"
             aria-expanded={dropdownOpen}
-            className="flex items-center gap-1.5 text-lg font-semibold hover:text-[var(--text-secondary)] transition-colors"
+            title={selectedLabel}
+            className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-left text-lg font-semibold transition-colors hover:text-[var(--text-secondary)]"
           >
-            {selectedLabel}
+            <span className="sm:hidden">{compactSelectedLabel}</span>
+            <span className="hidden sm:inline">{selectedLabel}</span>
             <ChevronDown
-              className={`w-4 h-4 transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
+              className={`h-4 w-4 shrink-0 transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
             />
           </button>
         ) : (
-          <h1 className="text-lg font-semibold">{selectedLabel}</h1>
+          <h1 className="whitespace-nowrap text-left text-lg font-semibold" title={selectedLabel}>
+            <span className="sm:hidden">{compactSelectedLabel}</span>
+            <span className="hidden sm:inline">{selectedLabel}</span>
+          </h1>
         )}
 
         {dropdownOpen && hasMultiple && (

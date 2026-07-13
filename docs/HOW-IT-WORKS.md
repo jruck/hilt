@@ -5,6 +5,10 @@
 > pipeline, the verdict/feedback flow — **update this document in the same change.**
 > It lives at `docs/HOW-IT-WORKS.md` in the hilt repo. Every link below shows the full real
 > path it opens.
+>
+> Remaining cleanup, unfinished v2 contract work, enhancements, and future autonomy are separated
+> and prioritized in the
+> [Briefings v2 Completion Roadmap](./plans/briefings-v2-completion-roadmap.md).
 
 ## The one pattern (read this, and the rest is inventory)
 
@@ -88,9 +92,14 @@ calendar/task feeds into a real node with overdue/deadline escalations).
 
 ### 🤝 Meetings node — shadow · runs minutes after each meeting + 7:30 PM sweep · home physically in $DATA
 
-Reads each meeting's note **and full transcript**; extracts commitments, a 1–2 sentence meeting
-summary, and closure evidence. Parses only meetings ≤30 days old; escalates only **your** (or
-unclear-owner) commitments from the last 3 days as asks.
+Reads each meeting's note **and full transcript** in two stages. First, a ledger-blind pass extracts
+the meeting summary plus raw commitment and closure observations. Second, identity resolution
+compares those observations with the canonical SQLite ledger. The resolver always sees the complete
+trailing 30-day active window, every older pending proposal and accepted-open commitment, recent
+dismissals, and older exact/FTS candidates. If that required packet exceeds 40,000 ledger tokens it
+is processed in exhaustive chunks and the candidate union is adjudicated; recent history is never
+silently truncated. The loop escalates only **your** (or unclear-owner) recent/first-touch
+commitments as asks.
 
 **When it runs (two paths, same loop):**
 - **Minutes after a meeting ends** — the Granola sync daemon watches every meeting it syncs;
@@ -102,17 +111,23 @@ unclear-owner) commitments from the last 3 days as asks.
   `HILT_MEETING_TRIGGER=0`.
 - **7:30 PM nightly sweep** — unchanged, the safety net: it catches meetings the trigger missed
   (no transcript, trigger disabled, run failure) and skips everything the trigger already
-  processed (they share the same read-tracking and ledger).
+  processed (they share the same SQLite processed set and writer lock).
 
 - [$VAULT/meta/loops-shadow/meta/loops/meetings/reports/]($VAULT/meta/loops-shadow/meta/loops/meetings/reports)
   — daily artifact: meeting summaries, ledger deltas, escalated asks
-- [$VAULT/meta/loops-shadow/meta/loops/meetings/state/ledger.json]($VAULT/meta/loops-shadow/meta/loops/meetings/state/ledger.json)
-  — every open commitment: ID, owner, verbatim quote, status history
-- [$VAULT/meta/loops-shadow/meta/loops/meetings/state/meeting-summaries.json]($VAULT/meta/loops-shadow/meta/loops/meetings/state/meeting-summaries.json)
-  — the per-meeting context sentences the briefing leads with
-- [$VAULT/meta/loops-shadow/meta/loops/meetings/state/processed-meetings.json]($VAULT/meta/loops-shadow/meta/loops/meetings/state/processed-meetings.json)
-  — read-tracking so no meeting is parsed twice (shared by the post-meeting trigger and the
-  nightly — whichever reads a meeting first stamps it here)
+- `$DATA/meeting-ledgers/<vault-key>/meeting-ledger.sqlite` — canonical operational memory for every
+  observed commitment, citation, sighting, state transition, meeting summary, processed stamp,
+  extraction run, and immutable event. It is evidence and deduplication memory, not a second task
+  database. Only recent or first-touch observations owned by Justin (or with unclear ownership)
+  cross the escalation gate and receive a proposal file; older backfill observations remain
+  ledger-only so initial indexing cannot flood Priorities.
+- `$DATA/meeting-ledgers/<vault-key>/exports/` — nightly readable JSON for inspection and compatibility.
+  The original pre-migration `ledger.json`, `meeting-summaries.json`, and `processed-meetings.json`
+  remain immutable recovery artifacts and are no longer runtime inputs.
+- `$DATA/meeting-ledgers/<vault-key>/backups/` — a verified atomic `latest.sqlite`, 14 daily snapshots,
+  and 12 monthly snapshots. A failed integrity check or backup latches writes off rather than opening
+  or creating an empty database. Migration, audit, restore, and rollback commands are documented in
+  [Meeting Ledger Operations and Recovery](MEETING-LEDGER-RECOVERY.md).
 - `$DATA/loops/meeting-trigger-state.json` — the post-meeting trigger's own memory: per meeting,
   the transcript-stability countdown and the fired-at stamp that guarantees at-most-once firing
 - [$VAULT/meta/loops-shadow/meta/loops/meetings/proposals/]($VAULT/meta/loops-shadow/meta/loops/meetings/proposals)
@@ -122,6 +137,9 @@ unclear-owner) commitments from the last 3 days as asks.
   `$VAULT/tasks/.proposals/` instead — where the Priorities view's Proposals section and the
   verdict buttons' instant file effects pick them up. A ledger entry mints its proposal exactly
   once (`task_id` stamp), so re-runs never duplicate and a dismissed proposal can't come back.
+- `$VAULT/tasks/.id-sequences.json` — permanent per-date task-ID reservations. Proposal dismissal
+  removes its Markdown file, but its number remains consumed; creation is lock-serialized and
+  atomic so two writers cannot assign one identity to different work.
 - [$VAULT/meta/loops-shadow/meta/loops/meetings/verdicts/records.jsonl]($VAULT/meta/loops-shadow/meta/loops/meetings/verdicts/records.jsonl)
   — every Approve / Dismiss / Revise you click
 - [$VAULT/meta/loops-shadow/meta/loops/meetings/feedback/records.jsonl]($VAULT/meta/loops-shadow/meta/loops/meetings/feedback/records.jsonl)
@@ -303,20 +321,24 @@ remembers and won't re-propose it"; Revise = "send a correction — returns for 
 ## The feedback flywheel — what happens to a comment you leave
 
 A comment is never a dead end. Leave one on any object (a briefing bullet, a task, a meeting, a
-library item) and it becomes a **thread** in `$DATA/threads/`, open and waiting. From there it
-travels one of two roads:
+library item) and it becomes a **pending message** in that object's conversation in
+`$DATA/threads/`. Sending from the small comment box is intentionally asynchronous: it records the
+thought and gets you back to reading without starting Claude. From there it can travel one of two
+roads:
 
-- **Calibration (the passive road).** Every node, on its next run, sweeps up the open comment
-  threads that belong to it and rides them into its work as *calibration guidance* — the same
-  "here's what Justin told you last time" nudge nodes have always used. What's new: instead of
-  silently marking the thread "handled," the node now **replies in the thread** ("Consumed as
-  calibration guidance for the `<node>` run `<date>`.") and resolves it. You can see it was read.
-  This is automatic — the meetings, goals, system, and library nodes all do it at their scheduled
-  runs; the library node's version says "Clustered into the steering report `<date>`."
-- **Processing (the active road).** Sometimes a comment is a *request*, not just calibration —
-  "fix the owner on this," "this summary is wrong." Hit **Process** on the thread (or **Process
-  all** to drain the queue, up to 10 at a time) and a Claude turn opens the object, reads your
-  thread, and acts within its tools (Read/Edit/Write — no shell). Three outcomes:
+- **Scheduled use (the passive road).** A node that genuinely consumes this feedback marks the
+  exact messages it used and records a visible outcome without closing the conversation. Today the
+  meetings node consumes its pending comments as calibration on its next extraction run. Library
+  comments enter the daily steering pass and receive an `Added to steering` outcome. Goals and
+  System comments remain pending until a substantive processor can answer them; Hilt does not hide
+  them behind a hollow automatic receipt. A comment already handled on demand is not consumed a
+  second time by the scheduled pass.
+- **Processing now (the active road).** Sometimes a comment is a request, or you simply want to
+  explore it immediately. Hit **Process now** and Hilt opens that conversation in the full Chats
+  pane before starting Claude, so the response, typing state, tool calls, and touched files appear
+  live. **Process all** still drains up to 10 pending conversations serially. A turn uses the
+  anchored object and only the pending messages as its next volley. There are four outcomes:
+  - **Answer only** → it answers the question and explicitly says no durable action was taken.
   - **Small enough to do now** → it makes the surgical edit and replies with what it changed.
   - **Bigger than a local edit** → it does NOT attempt it; instead it **mints a proposal task**
     into `$VAULT/tasks/.proposals/` (carrying a link back to the thread) and replies telling you
@@ -326,12 +348,16 @@ travels one of two roads:
     investigates the code read-only, replies with a diagnosis, and the thread stays open — dev
     items wait for Justin's dev pass instead of being auto-fixed.
 
-  Edits and proposals resolve the thread with the reply; dev items stay open with a diagnosis.
-  The whole exchange is saved as an ordinary chat you can reopen later. If the Claude turn fails,
-  the thread stays open — nothing is lost, just try again.
+  The outcome label says what actually happened: `Answered`, `Changed files`, `Proposal created`,
+  or `Dev item`. A successful turn handles that volley but does not close the conversation. Later
+  comments reuse the same thread, saved chat, and Claude session. Comments posted while a turn is
+  running wait as the next volley and run afterward. **Close conversation** is the only boundary;
+  the next comment after closing starts a new conversation. If a Claude turn fails, its messages
+  remain pending for retry.
 
-The point: a comment is a lever, not a note. It either steers a node's next run (with a receipt)
-or gets acted on directly (with an edit or a proposal). Nothing you write just sits there unseen.
+The point: comment and chat are one model with two tempos. The small surface captures work for
+later; processing opens the full conversation and acts now. Outcomes make the handoff explicit
+without pretending every answer changed the product.
 
 Every one of these conversations is also visible in one place: the top-level **Chats** tab
 (described below) lists every feedback thread across the system alongside every free-standing chat.
@@ -342,18 +368,18 @@ Proposals also have their own surface now: the **Proposals** section in the Prio
 Approve / Assign to agent / Dismiss / Revise buttons as the briefing. New proposals also carry a
 short paragraph of the discussion the commitment arose from — open one and it's the first thing
 in the body (older proposals predate this and simply don't have it). Dismissed proposals are
-never gone from the UI: a quiet "Dismissed · N" divider at the tail of the section expands into
-the record of what you declined in the last 30 days (title + when) — read from the meetings
-node's ledger, so a fresh dismiss shows up there after the node's next run. It's a record, not
-cards: the files are deleted, the ledger remembers.
+never gone from the UI: a quiet "Dismissed · N" divider expands into the meeting-ledger record
+of what you declined in the last 30 days, including the original title, time, optional reason,
+and a restore control. Restore recreates the same proposal identity immediately and records a
+ledger reopen for the next meetings-node run; it never mints a duplicate task.
 
 ## Chats — every conversation, one tab
 
 A conversation in Hilt is one concept with two shapes. Some are **anchored to an object** — the
-feedback threads from the flywheel above: your comments, the agent's replies, and the saved
-processor transcripts, attached to a task, meeting, briefing line, or library item. Others are
-**free-standing** — chats you started from a Library reference, a doc, or the API, with no object
-behind them. They used to live in two System sub-tabs (Threads and Chats); now they share one
+feedback conversations from the flywheel above: your comments, the agent's replies, and the saved
+tool activity, attached to a task, meeting, briefing line, or library item. Others are
+**free-standing** — chats started without an object behind them. They used to live in two System
+sub-tabs (Threads and Chats); now they share one
 top-level **Chats** view in the main nav, between Docs and System — they were too buried in the
 System tab, and System is back to pure monitoring.
 
@@ -362,22 +388,20 @@ the right (drag the divider to resize — it remembers). A chat that belongs to 
 processor minted while working that thread — never appears twice: it renders inside its thread's
 conversation, not as a row of its own.
 
-Three lenses across the toolbar pick what the list shows: **Needs you** (open threads — dev items
-included — plus chats that are running or carry unread replies), **All**, and **Done** (resolved
-threads and archived chats). The tab opens on Needs you whenever something actually needs you,
-otherwise All. Under the toolbar, kind tabs (Library, Docs, Tasks, Meetings, Loops, Briefings, …)
-narrow the list to what a conversation is about.
+Three lenses across the toolbar pick what the list shows: **Needs you** (conversations with pending
+comments, dev items, active runs, or unread attached/free-chat replies), **All**, and **Done**
+(explicitly closed conversations and archived chats). An open conversation with no pending or
+unread work is quiet rather than permanently demanding attention. The tab opens on Needs you
+whenever something actually needs you, otherwise All. Under the toolbar, kind tabs (Library, Docs,
+Tasks, Meetings, Loops, Briefings, …) narrow the list to what a conversation is about.
 
-**Thread rows** behave exactly as the old System → Threads index. Resolved rows say *how* they
-resolved — "Calibrated · meeting-actions", "Clustered", "Proposal minted" — and anything resolved
-in the last day carries a small blue dot, so a node quietly consuming your comments overnight is
-visible at a glance. Click a row and the conversation opens on the right: the original thread, the
-saved chat transcript of what the processor did, and the tool/trace evidence for that run. If the
-processor is working, the drawer streams the chat live and the row carries a small emerald
-"Processing" pulse. **Process all** in the toolbar drains the open queue with live `n/total`
-progress and can be canceled; anything already processed stays resolved. The **Process**
-affordance also still sits under each object's own thread, so you can act on a comment from
-wherever you find it.
+**Conversation rows** show their pending-message count or latest explicit outcome — `Answered`,
+`Changed files`, `Proposal created`, `Dev item`, `Used as calibration`, or `Added to steering`.
+Click a row and the conversation opens on the right with the comments, replies, and tool/trace
+evidence. If the processor is working, the drawer streams it live and the row carries a small
+emerald `Processing` pulse. **Process all** drains the pending queue with live `n/total` progress
+and can be canceled. **Process now** also sits under each object's comments and always switches to
+this full view before the run starts.
 
 **Chat rows** keep their chat-client behaviors. A running chat shows the emerald "Running" pulse;
 one with replies you haven't read shows a blue "Unread" badge with the count. Click a chat to

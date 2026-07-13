@@ -118,9 +118,9 @@ export function ChatPanel({
 
   return (
     <div className={`flex h-full min-h-0 flex-col bg-[var(--content-surface,var(--bg-primary))] ${className}`}>
-      <div className="flex items-start justify-between gap-2 border-b border-[var(--border-default)] px-3 py-2">
+      <div className="flex items-start justify-between gap-2 border-b border-[var(--border-default)] px-3 py-2.5">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-[var(--text-primary)]">{title}</div>
+          <div className="truncate text-sm font-semibold text-[var(--text-primary)]">{title}</div>
           {subtitle ? (
             <div className="truncate text-[11px] text-[var(--text-tertiary)]">{subtitle}</div>
           ) : null}
@@ -146,14 +146,14 @@ export function ChatPanel({
         liveTrace={liveTrace}
         liveDraft={liveDraft}
         onOpenFile={onOpenFile || workingFolder ? handleOpenFile : undefined}
-        className="min-h-0 flex-1 px-3 py-3"
+        className="min-h-0 flex-1 px-4 py-4"
       />
       {error ? (
         <div className="border-t border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-600">
           {error}
         </div>
       ) : null}
-      <div className="border-t border-[var(--border-default)] px-3 py-2">
+      <div className="border-t border-[var(--border-default)] px-3 py-3">
         <ChatComposer
           onSend={handleSend}
           onStop={stop}

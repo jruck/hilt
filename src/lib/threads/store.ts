@@ -9,7 +9,14 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { atomicWriteFile } from "../library/utils";
-import type { CommentTarget, Thread, ThreadMessage, ThreadSummary } from "./types";
+import type {
+  CommentTarget,
+  Thread,
+  ThreadMessage,
+  ThreadOutcome,
+  ThreadOutcomeKind,
+  ThreadSummary,
+} from "./types";
 import { targetKey } from "./target-key";
 
 export { targetKey } from "./target-key";
@@ -90,6 +97,40 @@ function normalizeMessage(value: unknown): ThreadMessage | null {
     text: value.text,
     created_at: typeof value.created_at === "string" ? value.created_at : "",
     ...(nonEmpty(value.edited_at) ? { edited_at: value.edited_at } : {}),
+    ...(nonEmpty(value.handled_at) ? { handled_at: value.handled_at } : {}),
+    ...(nonEmpty(value.handled_by) ? { handled_by: value.handled_by } : {}),
+    ...(nonEmpty(value.outcome_id) ? { outcome_id: value.outcome_id } : {}),
+  };
+}
+
+const OUTCOME_KINDS = new Set<ThreadOutcomeKind>([
+  "answered",
+  "changed",
+  "proposal",
+  "dev-item",
+  "calibrated",
+  "clustered",
+]);
+
+function normalizeOutcome(value: unknown): ThreadOutcome | null {
+  if (!isRecord(value) || !nonEmpty(value.id) || !OUTCOME_KINDS.has(value.kind as ThreadOutcomeKind)) return null;
+  if (!nonEmpty(value.at) || !nonEmpty(value.by)) return null;
+  const messageIds = Array.isArray(value.message_ids)
+    ? value.message_ids.filter((id): id is string => nonEmpty(id))
+    : [];
+  const filesTouched = Array.isArray(value.files_touched)
+    ? value.files_touched.filter((item): item is string => nonEmpty(item))
+    : [];
+  return {
+    id: value.id,
+    kind: value.kind as ThreadOutcomeKind,
+    summary: typeof value.summary === "string" ? value.summary : "",
+    at: value.at,
+    by: value.by,
+    message_ids: messageIds,
+    ...(isUuid(value.chat_id) ? { chat_id: value.chat_id } : {}),
+    ...(filesTouched.length > 0 ? { files_touched: filesTouched } : {}),
+    ...(nonEmpty(value.proposal_task_id) ? { proposal_task_id: value.proposal_task_id } : {}),
   };
 }
 
@@ -133,7 +174,7 @@ export function normalizeThread(value: unknown, fallbackId: string): Thread | nu
   const record = isRecord(value) ? value : {};
   const target = normalizeTarget(record.target);
   if (!target) return null;
-  const messages = Array.isArray(record.messages)
+  let messages = Array.isArray(record.messages)
     ? record.messages.map(normalizeMessage).filter((m): m is ThreadMessage => m !== null)
     : [];
   if (messages.length === 0) return null;
@@ -142,6 +183,22 @@ export function normalizeThread(value: unknown, fallbackId: string): Thread | nu
   const devItem = normalizeDevItem(record.dev_item);
   const resolution = normalizeResolution(record.resolution);
   const chatIds = normalizeUuidList(record.chat_ids);
+  const outcomes = Array.isArray(record.outcomes)
+    ? record.outcomes.map(normalizeOutcome).filter((outcome): outcome is ThreadOutcome => outcome !== null)
+    : [];
+  // Compatibility for pre-conversation-lifecycle files: their thread-level completion stamp
+  // meant every human message present at that moment had been handled. Materialize that fact
+  // per message in memory so a later appended comment can remain pending independently.
+  const legacyHandledAt = processed?.at
+    ?? (resolution && resolution.action !== "closed" ? resolution.at : undefined);
+  const legacyHandledBy = resolution?.by ?? "agent:legacy";
+  if (legacyHandledAt) {
+    messages = messages.map((message) => (
+      isHumanMessage(message) && !message.handled_at && message.created_at <= legacyHandledAt
+        ? { ...message, handled_at: legacyHandledAt, handled_by: legacyHandledBy }
+        : message
+    ));
+  }
   return {
     id: nonEmpty(record.id) && isValidThreadId(record.id) ? record.id : fallbackId,
     target,
@@ -150,6 +207,7 @@ export function normalizeThread(value: unknown, fallbackId: string): Thread | nu
     updated_at: nonEmpty(record.updated_at) ? record.updated_at : createdAt,
     messages,
     ...(chatIds ? { chat_ids: chatIds } : {}),
+    ...(outcomes.length > 0 ? { outcomes } : {}),
     ...(devItem ? { dev_item: devItem } : {}),
     ...(processed ? { processed } : {}),
     ...(resolution ? { resolution } : {}),
@@ -202,13 +260,20 @@ export function threadsForTarget(target: CommentTarget): Thread[] {
 }
 
 /**
- * The open thread a new comment on this target APPENDS to (most recently updated wins).
- * Resolved targets return null — the next comment starts a fresh thread.
+ * The reusable conversation for this target (most recently updated wins). Agent-completed
+ * legacy threads reopen on the next comment; only an explicit `closed` resolution forks.
  */
 export function openThreadForTarget(target: CommentTarget): Thread | null {
-  const open = threadsForTarget(target).filter((thread) => thread.status === "open");
-  if (open.length === 0) return null;
-  return open.sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
+  const ordered = threadsForTarget(target).sort((a, b) => {
+    const byUpdated = b.updated_at.localeCompare(a.updated_at);
+    if (byUpdated !== 0) return byUpdated;
+    // A newly-created successor can share a millisecond with the close that preceded it.
+    if (a.status !== b.status) return a.status === "open" ? -1 : 1;
+    return b.created_at.localeCompare(a.created_at);
+  });
+  const [latest] = ordered;
+  if (!latest) return null;
+  return latest.resolution?.action === "closed" ? null : latest;
 }
 
 export interface NewMessage {
@@ -225,6 +290,43 @@ function buildMessage(message: NewMessage): ThreadMessage {
     text: message.text,
     created_at: nonEmpty(message.created_at) ? message.created_at : new Date().toISOString(),
   };
+}
+
+export function isHumanMessage(message: Pick<ThreadMessage, "author">): boolean {
+  return message.author === "justin" || message.author === "claude-sim";
+}
+
+export function pendingThreadMessages(thread: Pick<Thread, "messages">): ThreadMessage[] {
+  return thread.messages.filter((message) => isHumanMessage(message) && !message.handled_at);
+}
+
+function legacyOutcomeKind(action: string): ThreadOutcomeKind {
+  if (action === "proposal-minted") return "proposal";
+  if (action === "dev-item") return "dev-item";
+  if (action === "calibrated") return "calibrated";
+  if (action === "clustered") return "clustered";
+  return "answered";
+}
+
+function reopenForHumanMessage(thread: Thread): void {
+  if (thread.status !== "resolved") return;
+  if (thread.resolution?.action === "closed") throw new Error(`thread is closed: ${thread.id}`);
+  if (thread.resolution && !(thread.outcomes ?? []).some((outcome) => outcome.at === thread.resolution?.at)) {
+    const handledIds = thread.messages.filter(isHumanMessage).map((message) => message.id);
+    thread.outcomes = [...(thread.outcomes ?? []), {
+      id: `legacy-${thread.resolution.at}`,
+      kind: legacyOutcomeKind(thread.resolution.action),
+      summary: thread.resolution.action,
+      at: thread.resolution.at,
+      by: thread.resolution.by,
+      message_ids: handledIds,
+    }];
+  }
+  thread.status = "open";
+  delete thread.resolution;
+  // normalizeThread has already materialized this legacy stamp onto existing messages. If it
+  // remained, the new message would inherit it during save and incorrectly look handled.
+  delete thread.processed;
 }
 
 export function createThread(
@@ -248,6 +350,7 @@ export function appendToThread(id: string, message: NewMessage): Thread {
   const thread = readThread(id);
   if (!thread) throw new Error(`thread not found: ${id}`);
   const next = buildMessage(message);
+  if (isHumanMessage(next)) reopenForHumanMessage(thread);
   thread.messages.push(next);
   thread.updated_at = next.created_at;
   return saveThread(thread);
@@ -262,6 +365,11 @@ export function editMessage(threadId: string, messageId: string, text: string): 
   if (!message) throw new Error("Message not found");
   message.text = trimmed;
   message.edited_at = new Date().toISOString();
+  if (isHumanMessage(message) && thread.status === "open") {
+    delete message.handled_at;
+    delete message.handled_by;
+    delete message.outcome_id;
+  }
   thread.updated_at = message.edited_at;
   return saveThread(thread);
 }
@@ -318,6 +426,41 @@ export function markDevItem(id: string, stamp: { diagnosed_at: string }): Thread
   return saveThread(thread);
 }
 
+export function recordThreadOutcome(
+  id: string,
+  outcome: Omit<ThreadOutcome, "id" | "at"> & { id?: string; at?: string },
+): ThreadOutcome {
+  const thread = readThread(id);
+  if (!thread) throw new Error(`thread not found: ${id}`);
+  const recorded: ThreadOutcome = {
+    ...outcome,
+    id: outcome.id ?? crypto.randomUUID(),
+    at: outcome.at ?? new Date().toISOString(),
+  };
+  thread.outcomes = [...(thread.outcomes ?? []), recorded];
+  thread.updated_at = recorded.at;
+  saveThread(thread);
+  return recorded;
+}
+
+export function markMessagesHandled(
+  id: string,
+  messageIds: Iterable<string>,
+  stamp: { at: string; by: string; outcome_id?: string },
+): Thread {
+  const thread = readThread(id);
+  if (!thread) throw new Error(`thread not found: ${id}`);
+  const ids = new Set(messageIds);
+  for (const message of thread.messages) {
+    if (!ids.has(message.id) || !isHumanMessage(message)) continue;
+    message.handled_at = stamp.at;
+    message.handled_by = stamp.by;
+    if (stamp.outcome_id) message.outcome_id = stamp.outcome_id;
+  }
+  thread.updated_at = stamp.at;
+  return saveThread(thread);
+}
+
 export function appendChatId(threadId: string, chatId: string): Thread {
   if (!isUuid(chatId)) throw new Error(`invalid chat id: ${JSON.stringify(chatId).slice(0, 80)}`);
   const thread = readThread(threadId);
@@ -338,11 +481,13 @@ export function toThreadSummary(thread: Thread): ThreadSummary {
     created_at: thread.created_at,
     updated_at: thread.updated_at,
     message_count: thread.messages.length,
+    pending_message_count: pendingThreadMessages(thread).length,
     last_message_snippet: snippet || null,
     ...(thread.chat_ids ? { chat_ids: thread.chat_ids } : {}),
     ...(thread.dev_item ? { dev_item: thread.dev_item } : {}),
     ...(thread.processed ? { processed: thread.processed } : {}),
     ...(thread.resolution ? { resolution: thread.resolution } : {}),
+    ...(thread.outcomes?.length ? { last_outcome: thread.outcomes[thread.outcomes.length - 1] } : {}),
     ...(thread.source_ref ? { source_ref: thread.source_ref } : {}),
   };
 }

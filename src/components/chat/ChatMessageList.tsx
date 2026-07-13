@@ -1,11 +1,9 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useEffect, useRef } from "react";
 import type { ChatMessage, ChatStatus, ChatTraceEvent } from "@/lib/chat/types";
-import { formatRelativeDate } from "@/components/tasks/ProposalsSection";
 import { ChatTracePanel } from "./ChatTracePanel";
+import { ConversationTurn } from "./ConversationTurn";
 
 export interface ChatMessageListProps {
   messages: ChatMessage[];
@@ -17,87 +15,17 @@ export interface ChatMessageListProps {
   className?: string;
 }
 
-function timestampLabel(timestamp: number): string {
-  return formatRelativeDate(new Date(timestamp).toISOString());
-}
-
-const markdownComponents: Components = {
-  p: ({ children }) => <p className="my-1 first:mt-0 last:mb-0 leading-relaxed">{children}</p>,
-  a: ({ href, children }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-[var(--interactive-default)] underline-offset-2 transition-colors hover:text-[var(--interactive-hover)] hover:underline"
-    >
-      {children}
-    </a>
-  ),
-  strong: ({ children }) => <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>,
-  ul: ({ children }) => <ul className="my-1 list-disc space-y-0.5 pl-5">{children}</ul>,
-  ol: ({ children }) => <ol className="my-1 list-decimal space-y-0.5 pl-5">{children}</ol>,
-  li: ({ children }) => <li className="pl-0.5 leading-relaxed text-[var(--text-secondary)]">{children}</li>,
-  blockquote: ({ children }) => (
-    <blockquote className="my-2 border-l-[3px] border-[var(--border-strong)] pl-3 text-[var(--text-tertiary)]">
-      {children}
-    </blockquote>
-  ),
-  code: ({ className, children }) => {
-    const block = Boolean(className);
-    if (block) {
-      return <code className={className}>{children}</code>;
-    }
-    return (
-      <code className="rounded bg-[var(--bg-tertiary)] px-1 py-0.5 text-[12px] text-[var(--text-secondary)]">
-        {children}
-      </code>
-    );
-  },
-  pre: ({ children }) => (
-    <pre className="my-2 overflow-x-auto rounded-md bg-[var(--bg-secondary)] px-2 py-1.5 text-xs text-[var(--text-secondary)]">
-      {children}
-    </pre>
-  ),
-};
-
-function AssistantMarkdown({ children }: { children: ReactNode }) {
-  return (
-    <div className="text-[13px] leading-relaxed text-[var(--text-secondary)]">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-        {String(children)}
-      </ReactMarkdown>
-    </div>
-  );
-}
-
 function MessageRow({ message, onOpenFile }: { message: ChatMessage; onOpenFile?: (relPath: string) => void }) {
-  if (message.role === "user") {
-    return (
-      <div className="flex justify-end">
-        <div className="max-w-[82%] rounded-md border border-blue-500/20 bg-blue-500/5 px-2.5 py-1.5">
-          <div className="whitespace-pre-wrap text-[13px] leading-relaxed text-[var(--text-primary)]">
-            {message.content}
-          </div>
-          <div className="mt-1 text-right text-[11px] text-[var(--text-quaternary)]">
-            {timestampLabel(message.timestamp)}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="rounded-md px-1 py-1.5">
-      <ChatTracePanel trace={message.trace ?? []} filesTouched={message.filesTouched} onOpenFile={onOpenFile} />
-      {message.content.trim() && (
-        <div className={message.trace?.length ? "mt-1.5" : ""}>
-          <AssistantMarkdown>{message.content}</AssistantMarkdown>
-        </div>
-      )}
-      <div className="mt-1 text-[11px] text-[var(--text-quaternary)]">
-        {timestampLabel(message.timestamp)}
-      </div>
-    </div>
+    <ConversationTurn role={message.role} content={message.content} timestamp={message.timestamp}>
+      {message.role === "assistant" ? (
+        <ChatTracePanel
+          trace={message.trace ?? []}
+          filesTouched={message.filesTouched}
+          onOpenFile={onOpenFile}
+        />
+      ) : null}
+    </ConversationTurn>
   );
 }
 
@@ -120,25 +48,32 @@ export function ChatMessageList({
   }, [messages.length, status, liveDraft, liveTrace.length, scrollable]);
 
   return (
-    <div className={`space-y-3 ${scrollable ? "overflow-y-auto" : ""} ${className}`}>
+    <div
+      className={`space-y-3.5 ${scrollable ? "overflow-y-auto" : ""} ${className}`}
+      role="log"
+      aria-live="polite"
+      aria-busy={status === "sending"}
+    >
       {messages.map((message) => (
         <MessageRow key={message.id} message={message} onOpenFile={onOpenFile} />
       ))}
 
       {status === "sending" && (
-        <div className="rounded-md px-1 py-1.5">
-          <ChatTracePanel trace={liveTrace} onOpenFile={onOpenFile} />
+        <ConversationTurn role="assistant" content={liveDraft}>
           {liveDraft.trim() ? (
-            <div className={liveTrace.length ? "mt-1.5" : ""}>
-              <AssistantMarkdown>{liveDraft}</AssistantMarkdown>
-            </div>
+            null
           ) : (
-            <div className="mt-1 flex items-center gap-2 text-[12px] text-[var(--text-tertiary)]">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+            <div className="flex items-center gap-2 text-[12px] text-[var(--text-tertiary)]" role="status">
+              <span className="flex items-center gap-0.5" aria-hidden="true">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500/70 animate-pulse [animation-delay:150ms]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500/40 animate-pulse [animation-delay:300ms]" />
+              </span>
               <span>Working</span>
             </div>
           )}
-        </div>
+          <ChatTracePanel trace={liveTrace} onOpenFile={onOpenFile} />
+        </ConversationTurn>
       )}
       <div ref={bottomRef} />
     </div>

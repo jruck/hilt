@@ -6,7 +6,7 @@
 import fs from "fs";
 import path from "path";
 import { atomicWriteFile, ensureDir } from "../library/utils";
-import { mintTaskId, mintTaskIdAcross } from "./ids";
+import { reserveTaskId, reserveTaskIdAcross, taskIdSequencePath } from "./ids";
 import { applyStatusTransition } from "./status";
 import { parseTaskFile, serializeTaskFile } from "./task-file";
 import type { TaskFile, TaskOrigin, TaskProvenance, TaskStatus } from "./types";
@@ -123,12 +123,11 @@ export function createTask(baseDir: string, input: CreateTaskInput): TaskFile {
   if (!CREATABLE_STATUSES.includes(status)) {
     throw new Error(`task cannot be created with status "${status}" (allowed: ${CREATABLE_STATUSES.join(", ")})`);
   }
-  // mintTaskId is check-then-act, so two processes can mint the same id before either writes.
-  // First write of a new id is therefore EXCLUSIVE (`wx` — fails on existing file, never
-  // clobbers); on EEXIST we re-mint (the loser now sees the winner's file) and retry.
+  // Reserve first: the high-water state survives proposal dismissal and serializes concurrent
+  // creators. The task write stays EXCLUSIVE as defense against legacy/external writers.
   for (let attempt = 0; attempt < 10; attempt++) {
     const task: TaskFile = {
-      id: mintTaskId(baseDir, created_at.slice(0, 10)),
+      id: reserveTaskId(baseDir, created_at.slice(0, 10)),
       title: input.title,
       status,
       created_at,
@@ -167,7 +166,7 @@ export type CreateProposalInput = Omit<CreateTaskInput, "status">;
 export function createProposalIn(
   dir: string,
   input: CreateProposalInput,
-  options: { collisionBaseDir?: string } = {},
+  options: { collisionBaseDir?: string; idDate?: string } = {},
 ): TaskFile {
   if (typeof input.title !== "string" || !input.title.trim()) {
     throw new Error("task title must be a non-empty string");
@@ -177,9 +176,12 @@ export function createProposalIn(
   if (options.collisionBaseDir) {
     collisionDirs.push(tasksDir(options.collisionBaseDir), proposalsDir(options.collisionBaseDir));
   }
+  const sequencePath = options.collisionBaseDir
+    ? taskIdSequencePath(options.collisionBaseDir)
+    : path.join(dir, ".id-sequences.json");
   for (let attempt = 0; attempt < 10; attempt++) {
     const task: TaskFile = {
-      id: mintTaskIdAcross(collisionDirs, created_at.slice(0, 10)),
+      id: reserveTaskIdAcross(collisionDirs, sequencePath, options.idDate ?? created_at.slice(0, 10)),
       title: input.title,
       status: "proposed",
       created_at,
@@ -204,13 +206,13 @@ export function createProposalIn(
  * excluded here; identity fields likewise. Set a key to undefined to clear it. */
 export type TaskPatch = Partial<Omit<TaskFile, "id" | "status" | "created_at">>;
 
-export function updateTask(baseDir: string, id: string, patch: TaskPatch): TaskFile {
-  const task = readTask(baseDir, id);
-  if (!task) throw new Error(`task not found: ${id}`);
+/** Apply an ordinary editable-field patch without changing identity or lifecycle state. Shared
+ * by accepted tasks and proposals so both use exactly the same title/body validation. */
+export function applyTaskPatch(task: TaskFile, patch: TaskPatch): TaskFile {
   // A cleared/garbage title writes an unparseable file — the task bricks (reads degrade to
   // missing, mutations throw). Reject at the truth store, not just at polite callers.
   if ("title" in patch && (typeof patch.title !== "string" || !patch.title.trim())) {
-    throw new Error(`task title must be a non-empty string (patching ${id})`);
+    throw new Error(`task title must be a non-empty string (patching ${task.id})`);
   }
   const updated: TaskFile = { ...task, ...patch };
   if (patch.body !== undefined) updated.body = normalizeBody(patch.body);
@@ -218,6 +220,13 @@ export function updateTask(baseDir: string, id: string, patch: TaskPatch): TaskF
   for (const key of Object.keys(updated) as (keyof TaskFile)[]) {
     if (updated[key] === undefined) delete updated[key];
   }
+  return updated;
+}
+
+export function updateTask(baseDir: string, id: string, patch: TaskPatch): TaskFile {
+  const task = readTask(baseDir, id);
+  if (!task) throw new Error(`task not found: ${id}`);
+  const updated = applyTaskPatch(task, patch);
   writeTask(baseDir, updated);
   return updated;
 }

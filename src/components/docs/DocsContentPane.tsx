@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { Save, Loader2, AlertCircle, Copy, FolderOpen, Check, ExternalLink, MoreVertical, PanelLeftOpen, PanelLeftClose, Network } from "lucide-react";
+import { Save, Loader2, AlertCircle, Copy, FolderOpen, Check, ExternalLink, MoreVertical, PanelLeftOpen, PanelLeftClose, Network, Info } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useScope } from "@/contexts/ScopeContext";
 import { isGraphEnabled } from "@/lib/graph/config";
@@ -110,11 +110,13 @@ export function DocsContentPane({
   const graphEnabled = isGraphEnabled();
   const [saveError, setSaveError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showFrontmatter, setShowFrontmatter] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Reset scroll position and clear save error when file changes
   useEffect(() => {
     setSaveError(null);
+    setShowFrontmatter(false);
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = 0;
     }
@@ -528,6 +530,7 @@ export function DocsContentPane({
   // Viewable content
   const displayContent = editedContent !== null ? editedContent : content || "";
   const markdownHeaderChromeEnabled = !isEditMode;
+  const hasFrontmatter = /^---\n[\s\S]*?\n---(?:\n|$)/.test(displayContent);
 
   return (
     <div className="relative flex-1 flex flex-col overflow-hidden">
@@ -545,6 +548,18 @@ export function DocsContentPane({
 
           <div className="flex items-center gap-2 flex-shrink-0">
             <FileActionButtons />
+
+            {hasFrontmatter && (
+              <button
+                onClick={() => setShowFrontmatter((visible) => !visible)}
+                className={`p-1.5 rounded transition-colors ${showFrontmatter ? "bg-[var(--bg-secondary)] text-[var(--text-secondary)]" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`}
+                title={showFrontmatter ? "Hide frontmatter" : "Show frontmatter"}
+                aria-label={showFrontmatter ? "Hide frontmatter" : "Show frontmatter"}
+                aria-pressed={showFrontmatter}
+              >
+                <Info className="w-4 h-4" />
+              </button>
+            )}
 
             {/* Save button - shown when there are unsaved changes */}
             {hasUnsavedChanges && (
@@ -591,6 +606,7 @@ export function DocsContentPane({
             scopePath={scopePath}
             fileTree={fileTree}
             onNavigateToFile={onNavigateToFile}
+            showFrontmatter={showFrontmatter}
             contentPadding={isMobile ? "hilt-mobile-scroll-clearance hilt-mobile-scroll-extra-2 px-2 pt-4" : undefined}
             scrollChrome={markdownHeaderChromeEnabled ? "top-bottom" : "bottom"}
           />

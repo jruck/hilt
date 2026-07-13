@@ -74,7 +74,8 @@ export async function GET() {
       const verdictByItem = new Map<string, Verdict>();
       try {
         for (const record of readVerdicts(loopStoreHome(vaultPath, loop))) {
-          verdictByItem.set(record.item_id, record.verdict);
+          if (record.verdict === "restore") verdictByItem.delete(record.item_id);
+          else verdictByItem.set(record.item_id, record.verdict);
         }
       } catch (verdictError) {
         errors.push({

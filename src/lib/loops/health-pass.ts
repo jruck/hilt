@@ -1,13 +1,14 @@
 /**
- * Thread health pass contract: consume open loop-feedback threads once as calibration guidance,
- * stamp and resolve them, and return a compact markdown-ready summary of what was handled.
+ * Thread health pass contract: consume pending loop-feedback messages once as calibration guidance,
+ * record an outcome without closing the conversation, and return a compact markdown-ready summary.
  */
 import { commentTargetToFeedback } from "../threads/feedback-bridge";
 import {
   appendToThread,
   listThreads,
-  markProcessed,
-  resolveThread,
+  markMessagesHandled,
+  pendingThreadMessages,
+  recordThreadOutcome,
 } from "../threads/store";
 import type { Thread } from "../threads/types";
 import { loopIdsForHome } from "./stores";
@@ -23,6 +24,16 @@ function snippetForThread(thread: Thread): string {
     candidate.author === "justin" || candidate.author === "claude-sim"
   )) ?? thread.messages[0];
   return (message?.text ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+/** Pending messages after the latest agent reply are a new volley. Older un-stamped messages
+ * already followed by an agent response are legacy ambiguity and must not be answered twice. */
+function actionablePendingMessages(thread: Thread) {
+  const pending = pendingThreadMessages(thread);
+  const latestAgentAt = thread.messages
+    .filter((message) => message.author.startsWith("agent:"))
+    .reduce<string | null>((latest, message) => !latest || message.created_at > latest ? message.created_at : latest, null);
+  return latestAgentAt ? pending.filter((message) => message.created_at > latestAgentAt) : pending;
 }
 
 /** Loops whose batch run genuinely CONSUMES feedback as calibration: only meeting-actions,
@@ -45,8 +56,7 @@ export function runThreadHealthPass(opts: {
   let matches: Thread[];
   try {
     matches = listThreads().filter((thread) => {
-      if (thread.status !== "open" || thread.processed) return false;
-      if (thread.messages.some((message) => message.author.startsWith("agent:"))) return false;
+      if (thread.status !== "open" || actionablePendingMessages(thread).length === 0) return false;
       const target = commentTargetToFeedback(thread.target);
       return target !== null && loopIds.has(target.loop);
     });
@@ -69,9 +79,16 @@ export function runThreadHealthPass(opts: {
   const consumed: Thread[] = [];
   for (const thread of matches) {
     try {
+      const pendingIds = actionablePendingMessages(thread).map((message) => message.id);
       appendToThread(thread.id, { author: agent, text, created_at: opts.now });
-      markProcessed(thread.id, { at: opts.now, run_at: opts.runAt });
-      resolveThread(thread.id, { action: "calibrated", by: agent, run_at: opts.runAt });
+      const outcome = recordThreadOutcome(thread.id, {
+        kind: "calibrated",
+        summary: text,
+        at: opts.now,
+        by: agent,
+        message_ids: pendingIds,
+      });
+      markMessagesHandled(thread.id, pendingIds, { at: opts.now, by: agent, outcome_id: outcome.id });
       consumed.push(thread);
     } catch (error) {
       console.error(

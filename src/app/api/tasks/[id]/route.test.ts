@@ -19,6 +19,7 @@ vi.mock("@/lib/bridge/vault", () => ({
 
 import { GET, PUT } from "./route";
 import { createTask, readTask } from "@/lib/tasks/store";
+import { readProposal } from "@/lib/tasks/proposals";
 
 let baseDir: string;
 
@@ -108,13 +109,25 @@ describe("PUT /api/tasks/[id]", () => {
     expect(readTask(baseDir, task.id)?.status).toBe("accepted-me");
   });
 
-  it("404s an unknown id and 409s a proposal id", async () => {
+  it("404s an unknown id and patches a proposal without changing its lifecycle", async () => {
     const missing = await putRequest("t-20990101-001", { title: "nope" });
     expect(missing.status).toBe(404);
 
-    const proposal = createTask(baseDir, { title: "Still proposed", status: "proposed" });
-    const res = await putRequest(proposal.id, { title: "not editable here" });
+    const proposal = createTask(baseDir, { title: "Still proposed", status: "proposed", body: "" });
+    const res = await putRequest(proposal.id, { title: "Editable before verdict", body: "My note" });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.store).toBe("proposals");
+    expect(json.task.status).toBe("proposed");
+    expect(readProposal(baseDir, proposal.id)?.title).toBe("Editable before verdict");
+    expect(readProposal(baseDir, proposal.id)?.body).toBe("My note\n");
+  });
+
+  it("keeps status transitions on proposals behind the verdict flow", async () => {
+    const proposal = createTask(baseDir, { title: "Verdict only", status: "proposed" });
+    const res = await putRequest(proposal.id, { transition: { to: "accepted-me", via: "wrong route" } });
     expect(res.status).toBe(409);
+    expect(readProposal(baseDir, proposal.id)?.status).toBe("proposed");
   });
 
   it("rejects unknown patch keys with 400", async () => {

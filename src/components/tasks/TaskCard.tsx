@@ -12,7 +12,7 @@
  * the POSTing still lives in the surface, not the card. Badge once decided, as before.
  */
 import { useEffect, useRef, useState } from "react";
-import { Bot, Check, ChevronRight, MessageSquare, MoreVertical, SquareDashed, X, type LucideIcon } from "lucide-react";
+import { Bot, Check, ChevronRight, MessageSquare, MoreVertical, X, type LucideIcon } from "lucide-react";
 import type { TaskFile } from "@/lib/tasks/types";
 import type { Verdict } from "@/lib/loops/types";
 import type { ObjectRef } from "@/lib/objects/types";
@@ -93,12 +93,11 @@ export function VerdictActionMenu({
           type="button"
           aria-haspopup="menu"
           aria-expanded={open}
+          aria-label="Proposal actions"
           onClick={() => setOpen(!open)}
           title="Proposed — not yet a task. Approve, assign to an agent, or dismiss"
-          className="mt-0.5 flex h-4 w-4 items-center justify-center rounded-[3px] text-amber-500 transition-colors hover:text-amber-600 dark:hover:text-amber-400"
-        >
-          <SquareDashed className="h-4 w-4" strokeWidth={1.75} />
-        </button>
+          className="proposal-checkbox mt-0.5 rounded-[3px] border border-dashed border-amber-500 bg-transparent transition-colors hover:border-amber-600 dark:hover:border-amber-400"
+        />
       ) : (
         <button
           type="button"
@@ -281,6 +280,7 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
   }, [verdict]);
 
   const meeting = !hideMeeting && task.origin?.meeting ? meetingLabel(task.origin.meeting) : null;
+  const metadataIndent = onVerdict && !localVerdict ? "proposal-metadata-indent" : "";
   const statusBadge = showStatus ? STATUS_BADGES[task.status] : undefined;
   // Render-level only: the file/markdown keeps its markers; the card shows clean text.
   // Order matters: lifecycle strip FIRST (verdict-promoted task files carry a leading "🆕 "
@@ -358,7 +358,7 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
             (TaskFilePanel) where there's room to read it at full size. */}
 
         {meeting && (
-          <p className="mt-0.5 text-xs text-[var(--text-tertiary)]" title={task.origin?.meeting}>
+          <p className={`${metadataIndent} mt-0.5 text-xs text-[var(--text-tertiary)]`} title={task.origin?.meeting}>
             {meetingRef ? (
               // The pill's own date segment renders the instance date ("· Jul 7") — repeating
               // the ISO date in the label doubled it (pill-date adversarial finding).
@@ -369,6 +369,13 @@ export function TaskCard({ task, onVerdict, verdict, showStatus, hideMeeting, me
                 {meeting.date ? ` · ${meeting.date}` : ""}
               </>
             )}
+          </p>
+        )}
+
+        {!meeting && task.origin?.thread && (
+          <p className={`${metadataIndent} mt-1 flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]`} title={task.origin.thread}>
+            <MessageSquare className="h-3 w-3" />
+            Feedback thread
           </p>
         )}
 

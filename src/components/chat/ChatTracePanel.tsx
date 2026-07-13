@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Clock3 } from "lucide-react";
 import type { ChatTraceEvent } from "@/lib/chat/types";
 
@@ -48,82 +48,95 @@ function StatusIcon({ status }: { status: ChatTraceEvent["status"] }) {
 export function ChatTracePanel({ trace, filesTouched = [], onOpenFile }: ChatTracePanelProps) {
   const [open, setOpen] = useState(false);
   const sorted = useMemo(() => [...trace].sort((a, b) => a.timestamp - b.timestamp), [trace]);
+  const running = sorted.filter((event) => event.status === "running").at(-1);
+  const wasRunningRef = useRef(false);
+
+  useEffect(() => {
+    const isRunning = Boolean(running);
+    if (isRunning && !wasRunningRef.current) setOpen(true);
+    wasRunningRef.current = isRunning;
+  }, [running]);
+
   if (sorted.length === 0) return null;
 
-  const running = sorted.filter((event) => event.status === "running").at(-1);
   const warningCount = sorted.filter((event) => event.status === "warning" || event.status === "error").length;
-  const summary = running
-    ? <>Working: <span className="text-[var(--text-secondary)]">{running.label}</span></>
-    : (
-      <>
-        {plural(sorted.length, "step")}
-        {filesTouched.length > 0 && <> · {plural(filesTouched.length, "file")} touched</>}
-        {warningCount > 0 && <span className="text-amber-500"> · {plural(warningCount, "warning")}</span>}
-      </>
-    );
+  const countSummary = [
+    plural(sorted.length, "step"),
+    filesTouched.length > 0 ? `${plural(filesTouched.length, "file")} touched` : null,
+    warningCount > 0 ? plural(warningCount, "warning") : null,
+  ].filter(Boolean).join(" · ");
 
   return (
-    <div className="text-[11px]">
+    <div className={`mt-2.5 overflow-hidden rounded-lg border text-[11px] ${
+      running
+        ? "border-emerald-500/25 bg-emerald-500/[0.035]"
+        : "border-[var(--border-default)] bg-[var(--bg-secondary)]/55"
+    }`}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-left text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
+        className="flex min-h-8 w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)]/60"
         aria-expanded={open}
       >
-        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-        <Activity className={`h-3.5 w-3.5 ${running ? "animate-pulse text-emerald-600" : ""}`} />
-        <span className="min-w-0 flex-1 truncate">{summary}</span>
+        {open ? <ChevronDown className="h-3.5 w-3.5 text-[var(--text-tertiary)]" /> : <ChevronRight className="h-3.5 w-3.5 text-[var(--text-tertiary)]" />}
+        <Activity className={`h-3.5 w-3.5 ${running ? "animate-pulse text-emerald-600" : "text-[var(--text-tertiary)]"}`} />
+        <span className="min-w-0 flex-1 truncate text-[12px] font-semibold">
+          {running ? <>Working: <span className="font-medium">{running.label}</span></> : "Activity trace"}
+        </span>
+        <span className={`shrink-0 text-[10px] font-medium ${warningCount > 0 ? "text-amber-600" : "text-[var(--text-tertiary)]"}`}>
+          {countSummary}
+        </span>
       </button>
 
       {open && (
-        <div className="mt-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2 py-1.5">
-          <ol className="space-y-1">
+        <div className="border-t border-[var(--border-default)] bg-[var(--content-surface,var(--bg-primary))]">
+          <ol>
             {sorted.map((event) => {
               const input = formatTraceInput(event.input);
               const duration = formatTraceDuration(event.durationMs);
               return (
-                <li key={event.id} className="flex gap-2">
+                <li
+                  key={event.id}
+                  className="grid grid-cols-[18px_minmax(0,1fr)_auto] gap-2 border-t border-[var(--border-subtle)] px-2.5 py-2 first:border-t-0"
+                >
                   <div className="pt-0.5">
                     <StatusIcon status={event.status} />
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-baseline gap-2">
-                      <span className="min-w-0 flex-1 truncate font-medium text-[var(--text-secondary)]">
-                        {event.label}
-                      </span>
-                      {(event.toolName || duration) && (
-                        <span className="shrink-0 text-[10px] text-[var(--text-quaternary)]">
-                          {[event.toolName, duration].filter(Boolean).join(" · ")}
-                        </span>
-                      )}
-                    </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-[12px] font-semibold text-[var(--text-secondary)]">{event.label}</div>
                     {event.detail && (
-                      <div className="mt-0.5 text-[var(--text-tertiary)]">{event.detail}</div>
+                      <div className="mt-0.5 leading-[1.35] text-[var(--text-tertiary)]">{event.detail}</div>
                     )}
                     {input && (
-                      <div className="mt-0.5 truncate text-[var(--text-quaternary)]">
-                        <span className="text-[var(--text-tertiary)]">Input:</span> {input}
+                      <div className="mt-0.5 truncate text-[var(--text-tertiary)]">
+                        <span className="font-medium text-[var(--text-secondary)]">Input:</span> {input}
                       </div>
                     )}
                     {event.outputSummary && (
-                      <div className="mt-0.5 truncate text-[var(--text-quaternary)]">
-                        <span className="text-[var(--text-tertiary)]">Result:</span> {event.outputSummary}
+                      <div className="mt-0.5 truncate text-[var(--text-tertiary)]">
+                        <span className="font-medium text-[var(--text-secondary)]">Result:</span> {event.outputSummary}
                       </div>
                     )}
                   </div>
+                  {(event.toolName || duration) ? (
+                    <div className="flex max-w-28 flex-col items-end gap-0.5 text-[10px] tabular-nums text-[var(--text-tertiary)]">
+                      {event.toolName ? <span className="max-w-full truncate">{event.toolName}</span> : null}
+                      {duration ? <span>{duration}</span> : null}
+                    </div>
+                  ) : <span />}
                 </li>
               );
             })}
           </ol>
 
           {filesTouched.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1 border-t border-[var(--border-default)] px-2.5 py-2">
               {filesTouched.map((file) => onOpenFile ? (
                 <button
                   key={file}
                   type="button"
                   onClick={() => onOpenFile(file)}
-                  className="rounded border border-transparent bg-[var(--bg-secondary)] px-1.5 py-0.5 text-[10px] text-[var(--text-tertiary)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] hover:ring-1 hover:ring-[var(--border-strong)]"
+                  className="rounded border border-[var(--border-default)] bg-[var(--bg-secondary)] px-1.5 py-0.5 text-[10px] text-[var(--text-tertiary)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
                   title={file}
                 >
                   {file}
@@ -131,7 +144,7 @@ export function ChatTracePanel({ trace, filesTouched = [], onOpenFile }: ChatTra
               ) : (
                 <span
                   key={file}
-                  className="rounded bg-[var(--bg-secondary)] px-1.5 py-0.5 text-[10px] text-[var(--text-tertiary)]"
+                  className="rounded border border-[var(--border-default)] bg-[var(--bg-secondary)] px-1.5 py-0.5 text-[10px] text-[var(--text-tertiary)]"
                   title={file}
                 >
                   {file}

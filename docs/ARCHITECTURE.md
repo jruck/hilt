@@ -658,6 +658,7 @@ The **third derived cache** (`src/lib/semantic/`, flag-gated `HILT_SEMANTIC_ENAB
 | Draft prompts | `Todo.md` / `data/inbox.json` | Local files | Queued prompts |
 | Source list | `${DATA_DIR}/sources.json` | Server JSON | Local/remote Hilt sources; rank order controls startup and fallback |
 | Granola sync index | `${DATA_DIR}/granola-sync.sqlite` | SQLite | Granola document/linkage state and operational sync timing (`last_synced_at`); Bridge markdown stores durable document/calendar provenance only |
+| Meeting ledger | `${DATA_DIR}/meeting-ledgers/<vault-key>/meeting-ledger.sqlite` | SQLite, canonical operational state | Normalized commitments, citations, sightings, status history, meeting summaries, processed meetings, extraction runs, and immutable events. Proposal/task Markdown and verdict JSONL remain their existing sources of truth; task detail joins this record live through the reciprocal ledger/task IDs. |
 | Map index | `${DATA_DIR}/map.sqlite` | SQLite | Local Codex/Claude session metadata, source scan status, overrides |
 | Local Apps settings/previews | `${DATA_DIR}/local-apps/` | Server JSON + PNG cache | Local service monitor settings and optional screenshots |
 | Graph index | `${DATA_DIR}/graph.sqlite` | SQLite (derived cache) | Nodes/edges/positions/meta for System → Graph (flag-gated; markdown stays canonical) |
@@ -665,6 +666,7 @@ The **third derived cache** (`src/lib/semantic/`, flag-gated `HILT_SEMANTIC_ENAB
 | Semantic review queue | `${DATA_DIR}/semantic-review-queue/<vault>.json` | Server JSON | Sibling of the Library review queue — the semantic sample/decimal lane (ruling R10) |
 | Reweave attempt counts | `${DATA_DIR}/library-reweave-attempts/<vault>.json` | Server JSON | Per-item failure counts for the nightly reweave drain — repeat-failers sink to the back of the bounded worklist; cleared on success, pruned when items leave the backlog (operational state, never vault markdown) |
 | Briefing markdown | `briefings/YYYY-MM-DD.md`, `briefings/weekend/YYYY-MM-DD.md` | Bridge vault markdown | Weekday daily briefings plus Saturday-start weekend editions; weekend ids use `weekend:YYYY-MM-DD` in Hilt |
+| Task identity high-water | `tasks/.id-sequences.json` | Bridge vault JSON | Locked, atomic per-date reservation state; prevents a dismissed/deleted proposal ID from being assigned to another task |
 | Briefing shadow markdown (historical) | `${DATA_DIR}/briefing-shadow/` | Retired at the v3 Phase 0 cutover (2026-07-07): the loops-fed briefing IS the vault briefing now. Directory kept as read-only history of the shadow period; no writer, no reader. |
 | Briefing run status | `~/.hermes/cron/jobs.json` + `~/.hermes/cron/output/` | Read-only Hermes files | Same-day failed weekday Morning Briefing detection when no `briefings/YYYY-MM-DD.md` exists; retry watcher status is read separately from the real generator job |
 | Briefing v2 loop artifacts/responses | Bridge vault `meta/loops/*` for live loops; `${DATA_DIR}/loops-shadow/meta/loops/*` for shadow loops | Markdown artifacts + append-only JSONL | Loop escalations shown in Briefing; verdict and feedback logs remain file-native under each loop home |
@@ -674,7 +676,23 @@ The **third derived cache** (`src/lib/semantic/`, flag-gated `HILT_SEMANTIC_ENAB
 
 `Work & product` has no central project allowlist or separate persisted project-status layer. The briefing editor synthesizes consequential movement across the broad evidence already gathered from Bridge, including local code and agent activity, project and roadmap files represented by that activity, loop artifacts, delivery changes, and meetings that materially alter the work story. Bridge's hierarchy and observed activity define eligibility; ordinary folders and workstreams do not require registration. `goals-areas` likewise continues to compare stated priorities against broad git, meeting, ledger, and Library evidence.
 
-Meeting proposals combine editorial context with canonical state. The generator reads bounded `meeting-actions` summary state plus canonical `tasks/.proposals/` and supplies the model with allowed meeting citations and task IDs, deliberately excluding task-title prose. Before synthesis it also removes proposal-card escalations, prior Decisions/Next steps sections, and meeting-ledger inventory from the broad gather while retaining substantive meeting summaries. The model selects and orders featured meetings and writes substantive meeting leads. Afterward, the composer preserves that prose and order, places each canonical ID under its source meeting, appends omitted groups using stored meeting summaries when available, and rejects invented, duplicate, misplaced, or leaked proposal IDs. It also removes known legacy embedded Pending-verdict tails. A hidden post-footer contract marker lets the WebSocket server append newly-created proposal IDs only to the active daily/weekend file; after the atomic write it broadcasts `bridge:briefings-changed` so an open reader refreshes the stored context without navigation. Legacy and historical briefings are never rewritten. Markdown freezes membership while the client hydrates current proposal, accepted, and dismissed state through existing task APIs and WebSocket events.
+Meeting proposals combine editorial context with canonical state. The generator reads bounded `meeting-actions` summary state plus canonical `tasks/.proposals/` and supplies the model with allowed meeting citations and task IDs, deliberately excluding task-title prose. Before synthesis it also removes proposal-card escalations, prior Decisions/Next steps sections, and meeting-ledger inventory from the broad gather while retaining substantive meeting summaries. The model selects and orders featured meetings and writes substantive meeting leads. Afterward, the composer preserves that prose and order, places each canonical ID under its source meeting, appends omitted groups using stored meeting summaries when available, and rejects invented, duplicate, misplaced, or leaked proposal IDs. It also removes known legacy embedded Pending-verdict tails. A hidden post-footer contract marker lets the WebSocket server append newly-created proposal IDs only to the active daily/weekend file; after the atomic write it broadcasts `bridge:briefings-changed` so an open reader refreshes the stored context without navigation. Legacy and historical briefings are never rewritten. Markdown freezes actionable membership while the client hydrates current proposal and accepted state. The active briefing additionally joins complete meeting-scoped dismissal history as a recovery layer; a restore recreates the stamped task identity immediately and queues an append-only decision action for the meeting loop's single-writer ledger transition.
+
+The meeting loop's operational memory is per-vault SQLite, independent of the loop registry's live/shadow publication phase. Both the 7:30 PM sweep and Granola's post-meeting trigger acquire the same process lock and consult the same `processed_meetings` table. One transaction per meeting commits extraction observations, summary, processed stamp, status transitions, and immutable before/after events. Proposal minting deliberately follows the complete batch so a later meeting can close work opened earlier in that same run; the external Markdown file is created first and its task-ID stamp is then committed in a separate SQLite transaction. Stable `origin.item_id` reconciliation makes a crash at that file/database boundary idempotent. Runtime writes run `quick_check` first and a successful mutating run performs a full integrity check, verified backup, readable export, and debounced `bridge:meeting-ledger-changed` notification. A failed integrity check or backup latches the database read-only; Hilt never replaces a missing or corrupt canonical database with an empty one.
+
+Extraction and identity resolution are separate model passes. The observation pass reads the complete transcript without ledger context. The resolver then receives every entry opened or sighted in the trailing 30 days, all older pending proposals and accepted-open commitments, dismissals inside their immunity window, and indexed older exact/FTS candidates for the observed people, projects, actions, and meetings. Required context is never truncated: the repository partitions packets above the 40,000-token ledger budget and adjudicates the union of chunk matches. Goals uses a bounded query over recent movement and open obligations rather than reading the lifetime ledger; briefings continue to consume meeting summaries and canonical proposal Markdown.
+
+SQLite storage itself does not define or tune what counts as a commitment. The two-stage observation/identity flow is a separate scalability refactor required to resolve identities against bounded database queries without putting the lifetime ledger in one extraction prompt. Its frozen-corpus quality is evaluated independently from byte/field parity of the JSON-to-SQLite migration.
+
+An accepted meeting task is an editable execution projection, not a second copy of ledger evidence.
+`LedgerEntry.task_id` and `TaskFile.origin { loop: "meeting-actions", item_id }` form the reciprocal
+join; the task title/body/due/projects can change while SQLite continues accumulating sightings and
+status evidence. New proposals carry identity/provenance and an ISO due when available, but leave
+their user-editable notes blank; context and stated due language remain canonical in SQLite. Task
+detail composes attachments, notes, and the inline Meeting action accordion in one scroll region.
+The task-ID audit fails on a missing, orphaned, duplicated, or mismatched reciprocal origin.
+
+Task-object identity is allocated separately from task-file presence. Every creation reserves the next per-date sequence under an exclusive short-lived lock, writes the durable high-water file atomically, and only then exclusively creates the Markdown task or proposal. A crash may leave an unused gap, but neither a crash nor a later dismissal can recycle an identity. Current files remain the task source of truth; `tasks/.id-sequences.json` stores only the allocation invariant, and `tasks/.id-sequences.json.lock` is ephemeral and ignored.
 
 Weekend refresh gathers the full source window again but never includes the target weekend briefing's generated body as evidence; this prevents a prior synthesis from becoming its own source of truth. Required heading boilerplate is harness-owned: if the model omits the H1, the generator inserts the date-correct heading before the unchanged structural and editorial validators run.
 
@@ -699,6 +717,10 @@ Weekend refresh gathers the full source window again but never includes the targ
 | `/api/bridge/briefings/retry` | POST | Queue existing Hermes Morning Briefing cron job | daily `id` or `date` |
 | `/api/loops/escalations` | GET | List escalated enabled-loop items and existing ask verdicts | - |
 | `/api/loops/verdicts` | POST | Append ask verdict records | `loop`, `item_id`, `verdict`, `note` |
+| `/api/loops/meeting-ledger` | GET | Cursor-paginated read-only meeting ledger | search/status/surface/owner/meeting/date/cursor |
+| `/api/loops/meeting-ledger/[id]` | GET | Full ledger entry evidence, history, task, and events | `id` |
+| `/api/loops/meeting-ledger/health` | GET | Canonical storage, integrity, backup, counts, and context health | - |
+| `/api/loops/dismissed/[itemId]/restore` | POST | Restore a dismissed proposal under its original identity | `loop` |
 | `/api/loops/feedback` | POST | Append free-form loop feedback | `loop`, `target`, `text` |
 | `/api/bridge/people` | GET | List people + groups | - |
 | `/api/bridge/people/[slug]` | GET | Person detail + meetings | `slug` |
@@ -1117,9 +1139,33 @@ alone. Forced cleanup refuses to run while the Hilt supervisor heartbeat is fres
 - Legacy `viewMode` values ("board", "tree") may exist but default to "bridge"
 - Working folder defaults to `~/work/bridge` if unset
 
-## Chat (v1 backend)
+## Chat and anchored conversations
 
-Content-anchored Claude chats (plan: `docs/plans/chat-v1-implementation-plan.md`; UI lands in later workstreams). A port of Loft's chat system with two settled divergences: no approval gates (single-user, own data — `--permission-mode bypassPermissions`, tool transparency via traces instead), and server-side persistence (the streaming route writes the transcript as the run progresses; the client only renders).
+Hilt has one conversation model with two persistence shapes: free chat sessions and object-anchored
+threads. A thread owns the human comments, assistant replies, per-message handling state, structured
+outcomes, and the id of its normally-single attached chat session. The top-level Chats view merges
+both shapes and de-duplicates attached sessions beneath their owning thread.
+
+Commenting and processing are two tempos of that same conversation. `postComment` appends without
+starting a model turn. `Process now` deep-links to `/chats/<threadId>/process`, opens the full pane,
+and then consumes the NDJSON stream so trace/tool/message events are visible as they happen. The
+processor snapshots only unhandled human messages, reuses the attached chat and Claude resume id,
+records one outcome, and marks exactly that volley handled. It never closes the conversation;
+`resolveAction: "closed"` is the explicit boundary after which the next comment creates a new thread.
+Scheduled consumers use the same per-message contract, preventing an on-demand volley from being
+consumed again overnight.
+
+The full conversation UI also converges at the presentation layer. `ConversationTurn` and
+`ChatComposer` provide the shared role layout, Markdown typography, and input behavior for free
+chats and anchored threads. `ThreadConversationTimeline` adapts thread messages/outcomes onto those
+primitives and joins each outcome's `chat_id` back to the corresponding assistant message so its
+trace and touched files render beneath that reply. The small `ThreadView` under an object deliberately
+keeps the denser comment-ledger treatment; it is a compact record, not the full chat workspace.
+
+The chat runtime is a port of Loft's chat system with two settled divergences: no approval gates
+(single-user, own data — `--permission-mode bypassPermissions`, tool transparency via traces instead),
+and server-side persistence (the streaming route writes the transcript as the run progresses; the
+client only renders).
 
 - **Execution model**: per-message CLI spawn — each user turn is one `claude -p --output-format stream-json` run (`src/lib/chat/run-claude.ts`); the CLI's own session store carries conversation context via `--resume`. `cwd` = vault root (`getVaultPath()`), model pinned to Sonnet, tools `Read,Edit,Write,Grep,Glob,LS` (no Bash in v1) — both single exported constants. Edits go straight to disk; existing vault watchers surface them in the UI.
 - **Persistence**: one JSON per chat at `DATA_DIR/chat-sessions/<chatId>.json` (`src/lib/chat/store.ts`) — app state, never the vault, never `~/.claude/projects/` (the CLI manages its own store there; Hilt only passes `--resume` ids). Atomic temp+rename writes; normalize-on-read so schema drift or corruption degrades to defaults instead of crashing the list.

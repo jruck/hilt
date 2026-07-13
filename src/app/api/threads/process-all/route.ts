@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { processThread, type ProcessThreadResult } from "@/lib/threads/processor";
-import { listThreads } from "@/lib/threads/store";
+import { listThreads, pendingThreadMessages } from "@/lib/threads/store";
 import type { ChatStreamEvent } from "@/lib/chat/types";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +35,9 @@ type BatchEmit = (event: BatchStreamEvent) => void;
 const BATCH_LIMIT = 10;
 
 /**
- * POST /api/threads/process-all runs the on-demand feedback-thread processor over the oldest open unreplied threads, streaming the same session/trace/message/complete/error NDJSON event shapes as POST /api/chat/message plus batch start/complete/summary events so clients can render progress; each backing Claude turn persists as a normal chat session, which is intentional.
+ * POST /api/threads/process-all runs the on-demand processor over the oldest conversations with
+ * pending messages. Each serialized turn reuses its attached chat and streams batch progress plus
+ * the same session/trace/message/complete/error events as POST /api/chat/message.
  */
 export async function POST(request: NextRequest) {
   const body = await readOptionalJson(request);
@@ -52,7 +54,7 @@ export async function POST(request: NextRequest) {
 
   const candidates = listThreads()
     .filter((thread) => thread.status === "open")
-    .filter((thread) => !thread.messages.some((message) => message.author.startsWith("agent:")))
+    .filter((thread) => pendingThreadMessages(thread).length > 0)
     .sort((a, b) => a.updated_at.localeCompare(b.updated_at))
     .slice(0, BATCH_LIMIT);
 

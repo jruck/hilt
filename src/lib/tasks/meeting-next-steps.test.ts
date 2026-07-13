@@ -203,10 +203,25 @@ test("mergeDismissed: limbo-only — a fresh dismiss verdict shows before the le
 });
 
 test("mergeDismissed: ledger-only — records pass through with their timestamps", () => {
-  const merged = mergeDismissed([makeRecord({})], [], REL);
+  const merged = mergeDismissed([makeRecord({ task_id: "t-20260706-001", note: "Not this week" })], [], REL);
   assert.deepEqual(merged, [
-    { id: "ma-2026-07-06-001", action: "Send the deck", dismissed_at: "2026-07-06T12:00:00.000Z" },
+    {
+      id: "ma-2026-07-06-001",
+      action: "Send the deck",
+      dismissed_at: "2026-07-06T12:00:00.000Z",
+      task_id: "t-20260706-001",
+      note: "Not this week",
+    },
   ]);
+});
+
+test("mergeDismissed carries a limbo dismissal's recoverable task identity", () => {
+  const limbo = makeAsk({ id: "ma-9", title: "Ping legal", task_id: "t-20260706-009", verdict: "dismiss" });
+  assert.deepEqual(mergeDismissed([], [limbo], REL), [{
+    id: "ma-9",
+    action: "Ping legal",
+    task_id: "t-20260706-009",
+  }]);
 });
 
 test("mergeDismissed: both — dedupe by ledger id, the ledger record (real timestamp) wins", () => {

@@ -271,7 +271,7 @@ describe("thread store — append-to-open semantics", () => {
     expect(() => appendChatId(crypto.randomUUID(), chatOne)).toThrow(/thread not found/);
   });
 
-  it("an open thread on the target absorbs the next comment; resolved targets start fresh", () => {
+  it("agent-completed conversations reopen; only an explicit close starts fresh", () => {
     const first = createThread(libTarget, { author: "justin", text: "one" });
     expect(openThreadForTarget(libTarget)!.id).toBe(first.id);
 
@@ -279,20 +279,48 @@ describe("thread store — append-to-open semantics", () => {
     expect(readThread(first.id)!.messages).toHaveLength(2);
 
     resolveThread(first.id, { action: "done", by: "justin" });
-    expect(openThreadForTarget(libTarget)).toBeNull();
+    expect(openThreadForTarget(libTarget)?.id).toBe(first.id);
+    appendToThread(first.id, { author: "justin", text: "three" });
+    expect(readThread(first.id)?.status).toBe("open");
+    expect(readThread(first.id)?.messages.at(-1)?.handled_at).toBeUndefined();
 
-    const second = createThread(libTarget, { author: "justin", text: "three" });
+    resolveThread(first.id, { action: "closed", by: "justin" });
+    expect(openThreadForTarget(libTarget)).toBeNull();
+    const second = createThread(libTarget, { author: "justin", text: "four" });
     expect(second.id).not.toBe(first.id);
     expect(threadsForTarget(libTarget)).toHaveLength(2);
     expect(openThreadForTarget(libTarget)!.id).toBe(second.id);
   });
 
-  it("markProcessed resolves the thread (consumed feedback closes the conversation)", () => {
+  it("a newer explicit close wins over a stale older open thread", () => {
+    saveThread({
+      id: crypto.randomUUID(),
+      target: libTarget,
+      status: "open",
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+      messages: [{ id: "stale", author: "justin", text: "old", created_at: "2026-07-01T00:00:00.000Z" }],
+    });
+    const current = saveThread({
+      id: crypto.randomUUID(),
+      target: libTarget,
+      status: "resolved",
+      created_at: "2026-07-02T00:00:00.000Z",
+      updated_at: "2026-07-02T00:01:00.000Z",
+      messages: [{ id: "current", author: "justin", text: "new", created_at: "2026-07-02T00:00:00.000Z" }],
+      resolution: { action: "closed", at: "2026-07-02T00:01:00.000Z", by: "justin" },
+    });
+
+    expect(readThread(current.id)?.resolution?.action).toBe("closed");
+    expect(openThreadForTarget(libTarget)).toBeNull();
+  });
+
+  it("legacy markProcessed resolves but remains reusable until explicitly closed", () => {
     const thread = createThread(libTarget, { author: "justin", text: "fb" });
     const stamped = markProcessed(thread.id, { at: "2026-07-08T01:00:00Z", run_at: "2026-07-08T01:00:00Z" });
     expect(stamped.status).toBe("resolved");
     expect(stamped.processed).toEqual({ at: "2026-07-08T01:00:00Z", run_at: "2026-07-08T01:00:00Z" });
-    expect(openThreadForTarget(libTarget)).toBeNull();
+    expect(openThreadForTarget(libTarget)?.id).toBe(thread.id);
   });
 
   it("markDevItem preserves status; markProcessed keeps dev items open", () => {
@@ -595,19 +623,19 @@ describe("loops store re-point — FeedbackRecord-shaped adapters over threads",
     const all = readFeedback(home);
     expect(all).toHaveLength(1);
     expect(all[0].processed).toEqual(stamp);
-    // The thread is resolved → the next comment on the same target starts a fresh thread.
+    // Per-message handling keeps the next comment in the same reusable conversation.
     appendFeedback(home, {
       id: "fb-br-2", author: "justin", created_at: "2026-07-08T13:00:00.000Z",
       target: { loop: "briefing", level: "briefing", artifact_date: "2026-07-08" },
       text: "still too long",
     });
-    expect(listThreads()).toHaveLength(2);
+    expect(listThreads()).toHaveLength(1);
     expect(readUnprocessedFeedback(home).map((r) => r.id)).toEqual(["fb-br-2"]);
   });
 });
 
 describe("library adapter re-point — LibraryComment-shaped over threads", () => {
-  it("add/list/mark-processed keep the store shapes; processed target starts a fresh thread", () => {
+  it("add/list/mark-processed keep shapes and later feedback reuses the conversation", () => {
     const added = addStoredComment("/ignored", "art-lib", "needs a better summary");
     expect(added).toMatchObject({ text: "needs a better summary" });
     expect(added.created_at).toBeTruthy();
@@ -627,7 +655,9 @@ describe("library adapter re-point — LibraryComment-shaped over threads", () =
     expect(comments.map((c) => c.id)).toEqual([added.id, second.id]);
 
     addStoredComment("/ignored", "art-lib", "post-processing comment");
-    expect(listThreads()).toHaveLength(2); // resolved target → fresh thread
+    expect(listThreads()).toHaveLength(1);
+    const after = getStoredComments("/ignored", "art-lib");
+    expect(after.at(-1)?.processed_at).toBeUndefined();
   });
 });
 

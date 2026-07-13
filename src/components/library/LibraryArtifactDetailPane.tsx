@@ -1,10 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Archive, ArrowLeft, Check, ChevronDown, Clock, Copy, FileText, Layers, Link2, Loader2, MessageCircle, Network, Play, Plus, RotateCcw, Sparkles, ThumbsDown, X, Zap, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Archive, ArrowLeft, Check, ChevronDown, Clock, Copy, FileText, Layers, Link2, Loader2, Network, Play, RotateCcw, Sparkles, ThumbsDown, X, Zap, type LucideIcon } from "lucide-react";
 import type { ReviewQueueStatus } from "@/lib/library/review-queue";
-import type { ChatSessionSummary } from "@/lib/chat/types";
-import { ChatPanel } from "@/components/chat/ChatPanel";
 import { useScope } from "@/contexts/ScopeContext";
 import { isGraphEnabled } from "@/lib/graph/config";
 import { buildGraphScope } from "@/components/graph/graph-deeplink";
@@ -280,10 +278,6 @@ export function LibraryArtifactDetailPane({
   const [copied, setCopied] = useState<"link" | "path" | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
-  // Chat drawer over this pane. chatId null = first-turn mode (session created on first
-  // send); nonce forces a remount so "New chat" always resets an already-fresh panel.
-  const [chat, setChat] = useState<{ chatId: string | null; nonce: number } | null>(null);
-  const [chatOpening, setChatOpening] = useState(false);
   // Sticky across item switches: persisted so the metadata panel stays open/closed as you move between
   // items until you toggle it. (The pane remounts per item, so the state lives in localStorage.)
   const [metaOpen, setMetaOpen] = useState<boolean>(() => {
@@ -306,32 +300,7 @@ export function LibraryArtifactDetailPane({
     setCopied(null);
     setRetrying(false);
     setRetryError(null);
-    setChat(null);
-    setChatOpening(false);
   }, [id]);
-
-  // Reuse-vs-new: the most recent non-archived chat anchored to this artifact wins;
-  // the panel's "New chat" header action is the explicit way to start fresh.
-  const openChat = useCallback(async (artifactId: string) => {
-    if (chatOpening) return;
-    setChatOpening(true);
-    try {
-      const response = await fetch(withBasePath("/api/chat/sessions"), { cache: "no-store" });
-      const payload = response.ok
-        ? await response.json() as { sessions?: ChatSessionSummary[] }
-        : null;
-      // GET /api/chat/sessions is sorted updatedAt desc — first match is most recent.
-      const existing = (payload?.sessions ?? []).find((session) =>
-        session.archivedAt == null
-        && session.context.kind === "library"
-        && session.context.id === artifactId);
-      setChat({ chatId: existing?.id ?? null, nonce: Date.now() });
-    } catch {
-      setChat({ chatId: null, nonce: Date.now() });
-    } finally {
-      setChatOpening(false);
-    }
-  }, [chatOpening]);
 
   useEffect(() => {
     if (!copied) return;
@@ -424,12 +393,6 @@ export function LibraryArtifactDetailPane({
   const hiltUrl = typeof window === "undefined"
     ? buildLibraryItemUrl(artifact.id, undefined, { recommendationEpisodeId })
     : new URL(buildLibraryItemUrl(artifact.id, undefined, { recommendationEpisodeId }), window.location.origin).toString();
-  // abs_path = vaultRoot + "/" + path — recover the root so chat files-touched chips
-  // (vault-relative) resolve to absolute Docs paths without threading workingFolder here.
-  const vaultRoot = artifact.abs_path.endsWith(artifact.path)
-    ? artifact.abs_path.slice(0, artifact.abs_path.length - artifact.path.length).replace(/\/+$/, "")
-    : "";
-
   return (
     <div className={`relative flex min-h-0 min-w-0 flex-1 ${className}`}>
     <article data-testid="library-artifact-detail" data-mobile-scroll-chrome="top-bottom" className="hilt-mobile-scroll-clearance min-w-0 flex-1 overflow-y-auto bg-[var(--content-surface)]">
@@ -733,16 +696,6 @@ export function LibraryArtifactDetailPane({
             />
             <button
               type="button"
-              onClick={() => { void openChat(artifact.id); }}
-              disabled={chatOpening}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] disabled:cursor-wait disabled:opacity-60"
-              aria-label="Chat about this reference"
-              title="Chat about this reference"
-            >
-              {chatOpening ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" /> : <MessageCircle className="h-4 w-4" />}
-            </button>
-            <button
-              type="button"
               onClick={async () => {
                 await copyText(hiltUrl);
                 setCopied("link");
@@ -844,32 +797,6 @@ export function LibraryArtifactDetailPane({
         </div>
       </div>
     </article>
-    {chat && (
-      <div
-        data-testid="library-chat-drawer"
-        className="absolute inset-y-0 right-0 z-10 flex w-full flex-col border-[var(--border-default)] bg-[var(--content-surface,var(--bg-primary))] content-card-shadow lg:w-[min(30rem,90%)] lg:border-l"
-      >
-        <ChatPanel
-          key={chat.chatId ?? `new-${chat.nonce}`}
-          chatId={chat.chatId}
-          context={{ kind: "library", id: artifact.id }}
-          contextLabel={artifact.title}
-          workingFolder={vaultRoot}
-          onClose={() => setChat(null)}
-          headerActions={
-            <button
-              type="button"
-              onClick={() => setChat({ chatId: null, nonce: Date.now() })}
-              title="New chat"
-              aria-label="New chat"
-              className="inline-flex h-6 w-6 items-center justify-center text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-primary)]"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-          }
-        />
-      </div>
-    )}
     </div>
   );
 }

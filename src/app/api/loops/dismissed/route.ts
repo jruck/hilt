@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readLedger, type LedgerEntry } from "@/lib/loops/meeting-ledger";
+import type { LedgerEntry } from "@/lib/loops/meeting-ledger";
+import { openMeetingLedgerRuntime } from "@/lib/loops/meeting-ledger-runtime";
+import { readVerdicts } from "@/lib/loops/stores";
 import {
   errorMessage,
   findEnabledLoop,
@@ -21,6 +23,7 @@ export interface DismissedLoopItem {
   dismissed_at: string;
   opened_from: string;
   task_id?: string;
+  note?: string;
 }
 
 /** When the dismissal landed: the drop transition's timestamp (transition() appends it),
@@ -58,24 +61,35 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Enabled loop not found" }, { status: 404 });
     }
 
-    // Missing ledger → empty store (readLedger's contract). A CORRUPT ledger fails loud there
-    // — correct for the loop's WRITE path (never persist a wipe) — but this is a read-only
-    // display surface: degrade to an empty list + warn instead of a 500 (the dismissed tail
-    // simply shows nothing until the ledger is repaired).
-    let ledger: ReturnType<typeof readLedger>;
+    const home = loopStoreHome(vaultPath, loop);
+    let dismissed: LedgerEntry[];
     try {
-      ledger = readLedger(loopStoreHome(vaultPath, loop));
+      const ledger = openMeetingLedgerRuntime({ vaultPath, legacyHome: home });
+      try {
+        dismissed = ledger.recentlyDismissed(new Date().toISOString(), days);
+      } finally {
+        ledger.close();
+      }
     } catch (err) {
       console.warn("[loops/dismissed] ledger unreadable — returning empty:", errorMessage(err));
       return NextResponse.json({ loop: loopId, days, items: [] });
     }
-    const now = Date.now();
-    const items: DismissedLoopItem[] = Object.values(ledger.entries ?? {})
-      .filter((entry) => entry.status === "dropped" && entry.verdict?.verdict === "dismiss")
+    const latestAction = new Map<string, ReturnType<typeof readVerdicts>[number]["verdict"]>();
+    try {
+      for (const record of readVerdicts(home)) {
+        latestAction.set(record.item_id, record.verdict);
+      }
+    } catch (err) {
+      // Keep the read-only history available from ledger truth; a malformed decision log must
+      // not blank every dismissal row. The owning loop still fails loud on its write path.
+      console.warn("[loops/dismissed] verdict log unreadable — ignoring restore overlay:", errorMessage(err));
+    }
+    const items: DismissedLoopItem[] = dismissed
+      // A restore is immediately authoritative for the read surface, even before the nightly
+      // loop consumes the record and reopens the ledger entry.
+      .filter((entry) => latestAction.get(entry.id) !== "restore")
       .map((entry) => ({ entry, at: dismissedAt(entry) }))
-      .filter((x): x is { entry: LedgerEntry; at: string } =>
-        x.at !== null && (now - Date.parse(x.at)) / 86_400_000 <= days,
-      )
+      .filter((x): x is { entry: LedgerEntry; at: string } => x.at !== null)
       .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
       .map(({ entry, at }) => ({
         id: entry.id,
@@ -83,6 +97,7 @@ export async function GET(request: NextRequest) {
         dismissed_at: at,
         opened_from: entry.opened_from,
         ...(entry.task_id ? { task_id: entry.task_id } : {}),
+        ...(entry.verdict?.note ? { note: entry.verdict.note } : {}),
       }));
 
     return NextResponse.json({ loop: loopId, days, items });

@@ -138,6 +138,7 @@ interface DocsEditorProps {
   scopePath?: string;
   fileTree?: FileNode | null;
   onNavigateToFile?: (path: string) => void;
+  showFrontmatter?: boolean;
 }
 
 export function DocsEditor({
@@ -151,6 +152,7 @@ export function DocsEditor({
   scopePath,
   fileTree,
   onNavigateToFile,
+  showFrontmatter = true,
 }: DocsEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { resolvedTheme } = useTheme();
@@ -442,8 +444,8 @@ export function DocsEditor({
 
   return (
     <div ref={containerRef} className={`flex flex-col bg-[var(--content-surface)] ${wrapperClassName ? wrapperClassName : "h-full docs-editor-wrapper"} ${readOnly ? "docs-read-mode" : ""}`}>
-      {readOnly && frontmatterFields && <FrontmatterDisplay fields={frontmatterFields} />}
-      {!readOnly && frontmatterFields && (
+      {showFrontmatter && readOnly && frontmatterFields && <FrontmatterDisplay fields={frontmatterFields} />}
+      {showFrontmatter && !readOnly && frontmatterFields && (
         <EditableFrontmatter key={currentFilePath} fields={frontmatterFields} onChange={handleFrontmatterFieldChange} />
       )}
 

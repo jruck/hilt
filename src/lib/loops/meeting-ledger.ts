@@ -1,12 +1,8 @@
 /**
- * The meeting-action LEDGER — state, not a report (scope §9.1). Lives at
- * meta/loops/meetings/state/ledger.json; the loop's daily artifact derives from it.
+ * Meeting-ledger domain types and legacy JSON compatibility helpers.
  *
- * Identity is the hard problem: the same commitment restated across meetings must stay ONE entry.
- * Resolution happens in-the-loop — the extractor is shown the current OPEN ledger and must either
- * match an existing id or mint a new one. The ledger itself is a dumb, auditable store:
- * single JSON map + full status history per entry, atomic rewrite, per-loop git commits give the
- * audit trail.
+ * Runtime operational state lives in the per-vault MeetingLedgerStore after cutover. These pure
+ * entry transforms remain shared by SQLite, migration/rollback, tests, and readable exports.
  */
 import fs from "fs";
 import path from "path";
@@ -21,9 +17,9 @@ export interface LedgerEntry {
   owner: string; // justin | other:<name> | unclear | agent:<name> (future)
   due?: string;
   /** 1-2 sentences of the SURROUNDING DISCUSSION from extraction (what was being talked about,
-   * why the commitment arose) — rides into the minted proposal's body so the verdict is decided
-   * with the discussion, not just the quote. Forward-only: entries predating the field (and
-   * thin transcripts) simply lack it, and every reader must degrade cleanly without it. */
+   * why the commitment arose). This remains canonical meeting-action context and is joined into
+   * task detail live; it is not copied into the task's editable notes. Forward-only: entries
+   * predating the field (and thin transcripts) simply lack it. */
   context?: string;
   citations: Citation[];
   /** Extraction confidence 0..1; catch-phrase captures are 0.95+. */
@@ -102,6 +98,15 @@ export function nextSeq(ledger: Ledger, date: string): number {
 export function transition(entry: LedgerEntry, to: LedgerStatus, at: string, evidence?: string): void {
   entry.status_history.push({ at, from: entry.status, to, ...(evidence ? { evidence } : {}) });
   entry.status = to;
+}
+
+/** Reopen a deliberately dismissed entry without erasing its audit history. The original
+ * task_id stays attached so the recovery path can recreate the same proposal identity. */
+export function restoreDismissedEntry(entry: LedgerEntry, at: string): boolean {
+  if (entry.status !== "dropped" || entry.verdict?.verdict !== "dismiss") return false;
+  transition(entry, "open", at, "restored after dismissal");
+  delete entry.verdict;
+  return true;
 }
 
 /**

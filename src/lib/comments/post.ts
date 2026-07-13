@@ -14,8 +14,8 @@
  * | library            | the target itself                                                   |
  * | meeting            | the target itself                                                   |
  *
- * Create-or-append semantics live server-side: an OPEN thread on the target gains a message;
- * a resolved target starts a fresh thread.
+ * Reuse semantics live server-side: the target's latest conversation gains the message;
+ * only an explicit Close creates the next-thread boundary.
  *
  * Verdict notes do NOT come through here — a note riding a verdict posts with it in ONE
  * request to /api/loops/verdicts (see VerdictNoteField). postComment is the no-decision path.
@@ -24,6 +24,7 @@
 import { withBasePath } from "@/lib/base-path";
 import type { TaskFile } from "@/lib/tasks/types";
 import type { CommentTarget, ImplementedCommentTarget } from "./types";
+import type { Thread } from "../threads/types";
 
 async function requestJson<T>(url: string, init: RequestInit): Promise<T> {
   const response = await fetch(withBasePath(url), {
@@ -37,15 +38,16 @@ async function requestJson<T>(url: string, init: RequestInit): Promise<T> {
   return payload as T;
 }
 
-function postThread(target: CommentTarget, text: string): Promise<void> {
-  return requestJson("/api/threads", {
+async function postThread(target: CommentTarget, text: string): Promise<Thread> {
+  const payload = await requestJson<{ thread: Thread }>("/api/threads", {
     method: "POST",
     body: JSON.stringify({ target, text }),
   });
+  return payload.thread;
 }
 
 /** Post one comment against a system object. Small and honest: one thread-store write. */
-export async function postComment(target: ImplementedCommentTarget, text: string): Promise<void> {
+export async function postComment(target: ImplementedCommentTarget, text: string): Promise<Thread> {
   const trimmed = text.trim();
   if (!trimmed) throw new Error("Empty comment");
   if (target.kind === "task") {

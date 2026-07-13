@@ -29,6 +29,7 @@ import {
   appendToThread,
   createThread,
   listThreads,
+  markMessagesHandled,
   markProcessed,
   openThreadForTarget,
 } from "../threads/store";
@@ -121,9 +122,9 @@ function feedbackThreadsForHome(home: string): Array<{ thread: Thread; target: F
 }
 
 /**
- * Append one feedback record — thread-backed: an open thread on the record's target gains the
- * comment; otherwise a fresh thread starts. The message id IS the record id, so processed
- * stamping by record id keeps working. `home` no longer places the write (the target's loop
+ * Append one feedback record to the target's reusable conversation; only an explicitly closed
+ * conversation starts fresh. The message id IS the record id, so per-message handling by record
+ * id keeps working. `home` no longer places the write (the target's loop
  * id does) but stays in the signature for the route/script call sites.
  */
 export function appendFeedback(home: string, record: FeedbackRecord): void {
@@ -147,21 +148,26 @@ export function readFeedback(home: string): FeedbackRecord[] {
   return records.sort((a, b) => a.created_at.localeCompare(b.created_at));
 }
 
-/** Feedback not yet consumed by a health pass (no `processed` stamp). */
+/** Feedback messages not yet consumed by a processor or health pass. */
 export function readUnprocessedFeedback(home: string): FeedbackRecord[] {
   return readFeedback(home).filter((record) => !record.processed);
 }
 
-/** Stamp the threads carrying the given record ids as processed (message id = record id;
- *  source_ref covers migrated records). Unknown ids ignored. Thread-granular: every message
- *  in a stamped thread reads back processed. */
+/** Mark only the selected feedback messages handled. Unknown ids are ignored. */
 export function markFeedbackProcessed(home: string, ids: string[], stamp: { at: string; run_at: string }): void {
   const idSet = new Set(ids);
   for (const { thread } of feedbackThreadsForHome(home)) {
-    if (thread.processed) continue;
-    const hit = thread.messages.some((message) => idSet.has(message.id))
-      || (thread.source_ref !== undefined && idSet.has(thread.source_ref));
-    if (hit) markProcessed(thread.id, stamp);
+    const messageIds = thread.messages
+      .filter((message) => !message.handled_at && idSet.has(message.id))
+      .map((message) => message.id);
+    if (messageIds.length === 0 && thread.source_ref !== undefined && idSet.has(thread.source_ref)) {
+      const sourceMessage = thread.messages.find((message) => message.id === thread.source_ref)
+        ?? thread.messages.find((message) => message.author === "justin" || message.author === "claude-sim");
+      if (sourceMessage && !sourceMessage.handled_at) messageIds.push(sourceMessage.id);
+    }
+    if (messageIds.length > 0) {
+      markMessagesHandled(thread.id, messageIds, { at: stamp.at, by: "agent:loop" });
+    }
   }
 }
 

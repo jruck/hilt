@@ -13,6 +13,7 @@ import {
   DECISION_CONTRACT_MARKER,
 } from "../src/lib/briefing/decisions";
 import { serializeLoopArtifact } from "../src/lib/loops/artifacts";
+import { writeLedger, type LedgerEntry } from "../src/lib/loops/meeting-ledger";
 import { serializeTaskFile } from "../src/lib/tasks/task-file";
 import type { TaskFile } from "../src/lib/tasks/types";
 
@@ -30,7 +31,7 @@ interface Fixture {
   dailyId: string;
   historicalId: string;
   meetings: { alpha: string; beta: string; omitted: string; arriving: string };
-  ids: { alphaOne: string; alphaTwo: string; beta: string; omitted: string; historical: string };
+  ids: { alphaOne: string; alphaTwo: string; beta: string; omitted: string; preDismissed: string; historical: string };
 }
 
 async function main(): Promise<void> {
@@ -98,6 +99,7 @@ async function main(): Promise<void> {
     const page = await desktop.newPage();
     const navigationCount = await openBriefing(page, baseUrl);
     await selectBriefing(page, fixture.weekendId);
+    assert.match(await page.locator("[data-briefing-selector]").innerText(), /2026/, "desktop briefing selector retains year context");
 
     let decisions = page.locator('[data-briefing-decisions="true"]');
     await decisions.waitFor({ timeout: 30_000 });
@@ -120,6 +122,9 @@ async function main(): Promise<void> {
     const alpha = meetingLocator(decisions, fixture.meetings.alpha);
     await toggleMeeting(alpha);
     await expectCount(alpha.locator("[data-task-card]"), 2, 10_000);
+    await alpha.getByText("Dismissed · 1", { exact: true }).click();
+    await alpha.getByText("A previously dismissed alpha follow-up", { exact: true }).waitFor();
+    await alpha.getByRole("button", { name: "Restore proposal: A previously dismissed alpha follow-up" }).waitFor();
     await alpha.screenshot({ path: path.join(shots, "desktop-meeting-expanded-light.png") });
 
     await decideTask(page, fixture.ids.alphaOne, "Approve");
@@ -130,7 +135,16 @@ async function main(): Promise<void> {
     await toggleMeeting(beta);
     await decideTask(page, fixture.ids.beta, "Dismiss");
     await expectPending(decisions, 2);
-    await beta.getByText("Resolved · 1", { exact: true }).waitFor({ timeout: 10_000 });
+    await beta.getByText("Dismissed · 1", { exact: true }).click();
+    const restoreBeta = beta.getByRole("button", { name: "Restore proposal: Beta task title" });
+    await restoreBeta.waitFor({ timeout: 10_000 });
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/loops/dismissed/") && response.url().endsWith("/restore") && response.request().method() === "POST"),
+      restoreBeta.click(),
+    ]);
+    await expectPending(decisions, 3);
+    await expectCount(beta.locator(`[data-task-card="${fixture.ids.beta}"]`), 1, 10_000);
+    await expectCount(beta.locator("[data-dismissed-proposal]"), 0, 10_000);
 
     await page.emulateMedia({ colorScheme: "dark" });
     await page.waitForTimeout(150);
@@ -138,7 +152,7 @@ async function main(): Promise<void> {
 
     const arrivingId = "t-20260712-005";
     writeProposal(vault, arrivingId, "This arriving task title must stay inside its TaskCard", fixture.meetings.arriving, "2026-07-12T11:30:00.000Z");
-    await expectPending(decisions, 3, 15_000);
+    await expectPending(decisions, 4, 15_000);
     assert.equal(await decisions.locator("[data-briefing-meeting]").count(), 4);
     const weekendFile = path.join(vault, "briefings", "weekend", "2026-07-11.md");
     await waitFor(() => fs.readFileSync(weekendFile, "utf-8").includes(arrivingId), 5_000, "durable weekend proposal append");
@@ -151,7 +165,7 @@ async function main(): Promise<void> {
     await selectBriefing(page, fixture.dailyId);
     decisions = page.locator('[data-briefing-decisions="true"]');
     await decisions.waitFor();
-    await expectPending(decisions, 3);
+    await expectPending(decisions, 4);
     assert.equal(await decisions.locator("[data-briefing-meeting]").count(), 4, "active daily receives the same new canonical group");
     assert.match(await page.locator('[data-briefing-work="true"]').innerText(), /activity converged into a release boundary/);
     await page.screenshot({ path: path.join(shots, "desktop-daily-dark.png"), fullPage: true });
@@ -180,11 +194,24 @@ async function main(): Promise<void> {
     const mobile = await mobileContext.newPage();
     await openBriefing(mobile, baseUrl);
     await selectBriefing(mobile, fixture.weekendId);
+    const mobileSelector = mobile.locator("[data-briefing-selector]");
+    assert.doesNotMatch(await mobileSelector.innerText(), /2026/, "mobile briefing selector omits the year");
+    assert.equal(
+      await mobileSelector.evaluate((element) => getComputedStyle(element).whiteSpace),
+      "nowrap",
+      "mobile briefing selector stays on one line",
+    );
     const mobileDecisions = mobile.locator('[data-briefing-decisions="true"]');
     await mobileDecisions.waitFor({ timeout: 30_000 });
     await assertDecisionLayout(mobileDecisions, "393px mobile");
     assert.equal(await mobile.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "mobile briefing has no horizontal overflow");
     await mobileDecisions.screenshot({ path: path.join(shots, "mobile-decisions-light.png") });
+    const mobileAlpha = meetingLocator(mobileDecisions, fixture.meetings.alpha);
+    await toggleMeeting(mobileAlpha);
+    await mobileAlpha.getByText("Dismissed · 1", { exact: true }).click();
+    await mobileAlpha.getByRole("button", { name: "Restore proposal: A previously dismissed alpha follow-up" }).waitFor();
+    assert.equal(await mobile.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "mobile dismissal recovery stays contained");
+    await mobileAlpha.screenshot({ path: path.join(shots, "mobile-dismissed-expanded-light.png") });
     await toggleMeeting(meetingLocator(mobileDecisions, fixture.meetings.omitted));
     assert.equal(await mobile.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "expanded mobile decisions stay contained");
     await mobileDecisions.screenshot({ path: path.join(shots, "mobile-decisions-expanded-light.png") });
@@ -242,6 +269,7 @@ function seedVault(vault: string): Fixture {
     alphaTwo: "t-20260712-002",
     beta: "t-20260712-003",
     omitted: "t-20260712-004",
+    preDismissed: "t-20260710-090",
     historical: "t-20260710-099",
   };
   const proposals = [
@@ -256,6 +284,44 @@ function seedVault(vault: string): Fixture {
     [meetings.omitted]: { date: "2026-07-11", summary: "The omitted meeting introduced a late approval boundary that the draft did not feature." },
     [meetings.arriving]: { date: "2026-07-12", summary: "A newly arrived meeting changed Monday's launch sequence and left one approval open." },
   };
+  const ledgerEntries: Record<string, LedgerEntry> = Object.fromEntries(proposals.map((task) => {
+    const entry: LedgerEntry = {
+      id: task.origin!.item_id!,
+      action: task.title,
+      owner: "justin",
+      citations: [{ source: task.origin!.meeting!, date: task.created_at.slice(0, 10), anchor: `Commitment for ${task.title}` }],
+      confidence: 0.95,
+      source: "extractor",
+      status: "open",
+      opened_at: task.created_at,
+      opened_from: task.origin!.meeting!,
+      task_id: task.id,
+      status_history: [{ at: task.created_at, from: null, to: "open" }],
+      sightings: [],
+    };
+    return [entry.id, entry];
+  }));
+  const dismissedAt = "2026-07-11T02:00:00.000Z";
+  const preDismissedEntry: LedgerEntry = {
+    id: "ma-pre-dismissed-alpha",
+    action: "A previously dismissed alpha follow-up",
+    owner: "justin",
+    citations: [{ source: meetings.alpha, date: "2026-07-10", anchor: "We can skip that follow-up" }],
+    confidence: 0.9,
+    source: "extractor",
+    status: "dropped",
+    opened_at: "2026-07-10T08:30:00.000Z",
+    opened_from: meetings.alpha,
+    verdict: { verdict: "dismiss", at: dismissedAt, note: "Already covered by the rollout plan" },
+    task_id: ids.preDismissed,
+    status_history: [
+      { at: "2026-07-10T08:30:00.000Z", from: null, to: "open" },
+      { at: dismissedAt, from: "open", to: "dropped", evidence: "dismissed by verdict" },
+    ],
+    sightings: [],
+  };
+  ledgerEntries[preDismissedEntry.id] = preDismissedEntry;
+  writeLedger(path.join(vault, "meta", "loops", "meetings"), { version: 1, entries: ledgerEntries });
   fs.writeFileSync(path.join(vault, "meta", "loops", "meetings", "state", "meeting-summaries.json"), JSON.stringify(summaries, null, 2), "utf-8");
   fs.mkdirSync(path.join(vault, "meta", "loops", "meetings", "reports"), { recursive: true });
   fs.writeFileSync(

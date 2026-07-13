@@ -148,6 +148,11 @@ Every action should have visible feedback:
 - Click-to-edit for text fields
 - Persistent state (localStorage for preferences)
 
+### Dense Document Toolbars
+
+- Hide document frontmatter by default and disclose it through a quiet info icon; metadata should remain available without taking permanent vertical space from the document body.
+- A binary read/edit action should be one icon showing the destination: pencil while reading, book while editing. Use its native title and aria label to make the transition explicit without spending toolbar width on two labeled states.
+
 ---
 
 ## Technical Patterns
@@ -177,14 +182,101 @@ Every action should have visible feedback:
 
 This section tracks design decisions and refinements over time. Each entry should note what was tried, what was rejected, and why.
 
+### 2026-07-13: Comment First, Process in the Conversation
+
+**Principle**: Comment and chat are one object with two tempos. Every feedback-capable surface gets
+one comment gesture. The compact popover is an asynchronous capture lane; it should let the user
+drop a thought and continue multithreaded work without implicitly starting an agent.
+
+**UI rules**:
+- `Process now` always opens the full Chats conversation before the run begins. Live state, tool
+  calls, touched files, and the response belong in that pane, not behind a green status chip.
+- Runs handle messages; they do not end conversations. Later comments reuse the same thread and
+  model session, including a comment queued while a turn is active.
+- `Close conversation` is the only deliberate fork boundary. Avoid inferring closure from an
+  answer, edit, proposal, diagnosis, or scheduled calibration pass.
+- Show concrete outcomes (`Answered`, `Changed files`, `Proposal created`, `Dev item`, calibration,
+  or steering), never the ambiguous catch-all `Processed`.
+
+### 2026-07-13: Conversation Timeline — Loft Grammar, Hilt Materials
+
+**Principle**: Full chats and processed feedback use one visual language. Port Loft's information
+hierarchy rather than its literal palette: the person speaks in a compact right-aligned Hilt-accent
+bubble; the assistant answers as unboxed reading-width prose; and the activity trace belongs directly
+under the assistant turn it explains. Do not split a conversation into `THREAD`, `ACTIVITY`, and
+`PROCESSOR` ledgers or repeat backend author labels such as `You` and `processor` down the left edge.
+
+**UI rules**:
+- Keep assistant prose at a comfortable maximum width even when the pane is wide. Timestamps and
+  edit/delete actions remain available but recede until hover/focus; outcome labels stay visible.
+- The trace is a bordered evidence card with a plain-language title, step/file/warning summary, and
+  structured icon/content/metadata rows. It auto-opens while work is live and collapses after the
+  turn settles.
+- The composer is one auto-growing surface with its circular Send/Stop action inside the border.
+  Feedback-thread and free-chat panes share this component and the same Enter/Shift+Enter behavior.
+- Keep the dense author-chip ledger in small under-object history surfaces where density is the job;
+  never reuse that compact record presentation as the full conversation pane.
+
+**Rationale**: Loft feels polished because role, prose, evidence, and action have distinct spatial
+jobs. Hilt should preserve that grammar while using its warm canvas, Geist typography, semantic
+state colors, and restrained chrome.
+
+### 2026-07-13: Proposal Rows Share the Task Grid
+
+**Principle**: A proposal is a task awaiting a verdict, so its dashed amber marker occupies the
+exact checkbox geometry used by tasks. Secondary provenance aligns with the title column, not the
+marker column. Queue-level navigation sits before the far-right collapse control so section headers
+share a stable action edge.
+
+### 2026-07-13: Tasks Compose Their Living Source Record
+
+**Principle**: A task created from a meeting commitment is the editable execution projection of a
+durable evidence record, not a lossy copy and not the same storage object. Keep projects, meetings,
+and threads as attachment cards near the top; render the evolving Meeting Ledger record as an inline
+`Meeting action` accordion after the task's notes and comments. The whole sidebar is one document and
+one scroll surface.
+
+**UI rules**:
+- The accordion header identifies `Meeting action`, current state, last-seen date, and sighting count.
+  It expands and collapses normally; do not add a drag handle, database icon, snap height, or nested
+  scroll region.
+- Expanded content is the same component used by the full Meeting Ledger browser: meeting summary,
+  context, source evidence, later sightings, and record history must never become divergent summaries.
+- Do not repeat the source action when it matches the editable task title. If the user renames the
+  task, retain the source wording under the quieter `Original commitment` label.
+- Meeting-generated context and free-text due language remain on the ledger record. Task notes start
+  blank unless a user or another genuinely task-specific workflow adds unique execution notes.
+- Task comments remain working context. Preserve raw task status transitions in Markdown, but do not
+  render a redundant `Task history` disclosure when the linked ledger record owns lifecycle history.
+
+**Rationale**: The task should stay concise and freely editable while later meetings continue to
+enrich the original commitment. A live identity join preserves both behaviors without synchronizing
+two mutable copies or hiding the best context in a separate database browser.
+
+### 2026-07-12: Large Operational Memory Is Browsable, Not Dumped
+
+**Principle**: A growing evidence store should remain complete without making every screen or model prompt carry its lifetime contents. Preserve all history in indexed operational storage, define explicit complete recent and open-work windows, retrieve older context by evidence, and chunk required context instead of truncating it. Give the user a quiet, read-only drill-down with search, state filters, and full provenance near the workflow that consumes it; do not promote database administration into top-level navigation or duplicate existing decision actions inside the browser.
+
+**Queue/history split**: Priorities shows the bounded set of proposals that needs a decision now. Dismissed, resolved, and never-surfaced meeting observations belong in the virtualized Meeting Ledger, reached from the Proposals header; an ever-growing inline disclosure is not a scalable recovery surface. Task Markdown stays the concise actionable projection, while its detail pane joins richer ledger evidence live.
+
+### 2026-07-12: Mobile Briefing Dates Are Compact, Not Stacked
+
+**Principle**: The briefing selector is navigation chrome, not a display headline. On mobile it stays left-aligned and single-line, omitting the year to preserve the date range and selector affordance beside the action controls. Desktop keeps the year because it has room and historical ambiguity matters there. A centered two-line date makes a compact control read like editorial content and creates an unstable header height.
+
 ### 2026-07-10: Chats — One Top-Level Conversation Surface (Unify, Don't Relocate)
+
 **Principle**: A conversation is ONE concept regardless of shape. Some conversations are anchored to objects (feedback threads: comments + agent replies + processor transcripts), some are free-standing (chat sessions started from a library item or the API) — but they are all "chats with the system," and they get ONE top-level home. Justin's words: chats "shouldn't be buried in the systems tab." The accepted proposal was to **unify rather than relocate** — not moving two lists up a level, but merging them into one list of conversations. System returns to pure monitoring (Sessions/Apps/Stack/Sync/Performance/Graph).
+
+**UI rules**:
 - **One merged list, de-duped**: thread rows and free-chat rows interleave by recency. A chat session whose id appears in ANY thread's `chat_ids` is part of that thread's conversation — it renders inside the thread's drawer and must NEVER also appear as a free row. Showing the same conversation twice is a correctness bug, not a density win.
 - **Lenses over status filters**: the segmented control is attention-first — **Needs you** (open threads incl. dev items + chats running or unread) / **All** / **Done** (resolved threads + archived chats) — replacing both the thread Open/Resolved/All filter and the chat Active/Open/Archived grouping. Default lens is Needs you when non-empty, else All: the tab opens on what wants attention, never on an empty pane.
+- **Rows keep their family identity**: thread rows render exactly as the System Threads index rows did (target icon/label, snippet, resolution story + 24h blue dot, Dev item chip, working pulse, hover Process); chat rows exactly as the System Chats rows did (kind icon, title + unread badge, preview, status column, ⋮ menu). Reconciled paddings (shared px-3, border-l-2 selection idiom) make the merged list read as one family without flattening the two shapes into a lossy common row.
 - **Right pane dispatches by shape**: thread row → ThreadDrawer (thread + transcripts + composer + Process/Resolve); chat row → ChatPanel (suppression-aware mark-read, `autoMarkRead={false}`). Same split-workspace shell, same persisted divider (`hilt-chats-split` carries over).
 - **Kind tabs apply within the lens** and count both shapes (threads map through their target kind: briefing/briefing-section/briefing-anchor → Briefings, etc.).
 - **Legacy routes never dead-end**: `/system/threads/*` and `/system/chats/*` redirect to `/chats/*` — stale briefing/doc deep links keep working.
+
 **Rationale**: The two System sub-tabs were the same product surface split by an implementation detail (where the row's data lives), and neither deserved burial under a monitoring tab. Merging at the concept level (conversation) rather than stacking two lists keeps the de-dupe invariant enforceable in one place and gives the needs-attention signal one home in the nav.
+
 ### 2026-07-10: System Chats — The Loft Workspace Pattern (Split List + Live Pane)
 
 **Principle**: A cross-system chat log is a *workspace*, not an index. System → Chats is a design-level port of Loft's `AIEditWorkspace`: a persisted resizable split with the session list left and the live conversation right, where the list itself carries enough metadata (status, unread, preview, context, recency) to triage without opening anything. `MapView`'s `SessionRow` is explicitly NOT the design bar here — the chat client must not feel neutered relative to Loft.
@@ -755,6 +847,7 @@ This section tracks design decisions and refinements over time. Each entry shoul
 - Decision groups stay collapsed and compact. Lead with substantive meeting context, never a concatenation of task titles; reserve amber for actual urgency, not merely pending state.
 - Decision rows must remain readable under worst-case titles at the actual content-container width. Keep meeting identity and live count on the metadata line, then give editorial context the full second line; never make prose compete with a max-content object pill for leftover grid width.
 - Generated IDs freeze historical membership, while current state hydrates in place. Resolved decisions leave the pending count and remain available behind one quiet disclosure.
+- Pending, resolved, and dismissed are different information classes. Pending owns the count; accepted/completed work belongs behind `Resolved`; deliberately declined work belongs behind a separate `Dismissed` recovery disclosure. The active surface may show full meeting history for error recovery, but historical editorial membership stays frozen. Undo should restore the original object identity and provenance, not create a lookalike duplicate.
 - When nothing materially moved, one honest sentence is better than padding, commit logs, or a general meeting recap.
 
 *This document should grow as design work continues. After UI changes are committed, consider what preferences or principles the changes reveal and add them here.*

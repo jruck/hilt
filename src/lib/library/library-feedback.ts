@@ -7,7 +7,8 @@
  * (scripts/threads-migrate.ts); nothing reads or writes them anymore.
  *
  * Shape contract preserved: every function still speaks LibraryComment —
- * message.id = comment.id, message.edited_at = updated_at, thread.processed.at = processed_at.
+ * message.id = comment.id, message.edited_at = updated_at, and message.handled_at maps to
+ * processed_at (with thread.processed as a legacy fallback).
  * `vaultPath` stays in the signatures (the thread store is global app state, keyed by artifact
  * id, so it is unused — comments were never vault content).
  */
@@ -20,9 +21,9 @@ import {
   deleteMessage,
   editMessage,
   listThreads,
-  markProcessed,
+  markMessagesHandled,
   openThreadForTarget,
-  resolveThread,
+  recordThreadOutcome,
   saveThread,
   threadsForTarget,
 } from "../threads/store";
@@ -38,7 +39,11 @@ function toComment(thread: Thread, message: ThreadMessage): LibraryComment {
     text: message.text,
     created_at: message.created_at,
     ...(message.edited_at ? { updated_at: message.edited_at } : {}),
-    ...(thread.processed ? { processed_at: thread.processed.at } : {}),
+    ...(message.handled_at
+      ? { processed_at: message.handled_at }
+      : thread.processed
+        ? { processed_at: thread.processed.at }
+        : {}),
   };
 }
 
@@ -94,20 +99,18 @@ export function deleteStoredComment(vaultPath: string, id: string, commentId: st
   return { ok: true };
 }
 
-/** Mark comments processed. Omit commentIds for a ref to mark all of that item's comments.
- *  Thread-granular: stamping any listed comment stamps its whole thread. */
+/** Mark only the selected comments handled. Omit commentIds to consume all pending comments. */
 export function markStoredCommentsProcessed(vaultPath: string, refs: Array<{ id: string; commentIds?: string[] }>): { processed: number } {
   void vaultPath;
   let processed = 0;
   const now = isoNow();
   for (const ref of refs) {
     for (const thread of threadsForTarget(libraryTarget(ref.id))) {
-      if (thread.processed) continue;
       const matched = ref.commentIds
-        ? thread.messages.filter((message) => ref.commentIds!.includes(message.id))
-        : thread.messages;
+        ? thread.messages.filter((message) => isFeedbackMessage(message) && !message.handled_at && ref.commentIds!.includes(message.id))
+        : thread.messages.filter((message) => isFeedbackMessage(message) && !message.handled_at);
       if (matched.length === 0) continue;
-      markProcessed(thread.id, { at: now, run_at: now });
+      markMessagesHandled(thread.id, matched.map((message) => message.id), { at: now, by: "agent:library" });
       processed += matched.length;
     }
   }
@@ -115,9 +118,8 @@ export function markStoredCommentsProcessed(vaultPath: string, refs: Array<{ id:
 }
 
 /**
- * Record the steering loop's consumption receipt for clustered library feedback threads.
- * Does not stamp `processed`: `processed_at` remains owned by markStoredCommentsProcessed
- * and the /process-library-feedback flow.
+ * Record the steering loop's consumption receipt for selected comments without closing the
+ * reusable conversation. The same per-message handled stamp prevents later double-clustering.
  */
 export function recordClusteredFeedback(
   vaultPath: string,
@@ -130,12 +132,24 @@ export function recordClusteredFeedback(
     const commentIds = new Set(ref.commentIds);
     for (const thread of threadsForTarget(libraryTarget(ref.id))) {
       if (thread.status === "resolved") continue;
-      if (!thread.messages.some((message) => commentIds.has(message.id))) continue;
+      const pendingIds = thread.messages
+        .filter((message) => isFeedbackMessage(message) && !message.handled_at && commentIds.has(message.id))
+        .map((message) => message.id);
+      if (pendingIds.length === 0) continue;
+      const at = isoNow();
+      const outcome = recordThreadOutcome(thread.id, {
+        kind: "clustered",
+        summary: `Clustered into the steering report ${reportDate}.`,
+        at,
+        by: "agent:library",
+        message_ids: pendingIds,
+      });
+      markMessagesHandled(thread.id, pendingIds, { at, by: "agent:library", outcome_id: outcome.id });
       appendToThread(thread.id, {
         author: "agent:library",
         text: `Clustered into the steering report ${reportDate}.`,
+        created_at: at,
       });
-      resolveThread(thread.id, { action: "clustered", by: "agent:library" });
       replied += 1;
     }
   }

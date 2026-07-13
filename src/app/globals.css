@@ -1826,6 +1826,12 @@ body [data-radix-popper-content-wrapper]::after {
   line-height: 1.6;
 }
 
+/* Task notes remain an obvious cursor target even when intentionally blank. Meeting-generated
+   context lives in the joined Meeting action below rather than padding this editor with a copy. */
+.task-notes-editor .ProseMirror[contenteditable="true"] {
+  min-height: 7rem;
+}
+
 .bridge-task-editor .ProseMirror h1 {
   font-size: 1.25rem;
   font-weight: 600;
@@ -1981,6 +1987,28 @@ body [data-radix-popper-content-wrapper]::after {
   border: solid #fff;
   border-width: 0 1.5px 1.5px 0;
   transform: translate(-50%, -55%) rotate(45deg);
+}
+
+/* Proposal markers occupy the same responsive checkbox column as Bridge tasks. */
+.proposal-checkbox {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+}
+
+.proposal-metadata-indent {
+  margin-left: 1.5rem;
+}
+
+@media (pointer: coarse), (max-width: 639px) {
+  .proposal-checkbox {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .proposal-metadata-indent {
+    margin-left: 1.75rem;
+  }
 }
 
 /* Task list checkboxes */

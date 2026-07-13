@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { processThread } from "@/lib/threads/processor";
-import { isValidThreadId, readThread } from "@/lib/threads/store";
+import { isValidThreadId, pendingThreadMessages, readThread } from "@/lib/threads/store";
 import type { ChatStreamEvent } from "@/lib/chat/types";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,9 @@ export const runtime = "nodejs";
 type ThreadProcessEmit = (event: ChatStreamEvent) => void;
 
 /**
- * POST /api/threads/[id]/process runs the on-demand feedback-thread processor for one open thread, streaming the same session/trace/message/complete/error NDJSON event shapes as POST /api/chat/message so clients can render progress; the backing Claude turn is persisted as a normal chat session, which is intentional.
+ * POST /api/threads/[id]/process runs one pending volley and streams the same
+ * session/trace/message/complete/error NDJSON shapes as POST /api/chat/message. The turn reuses
+ * the thread's attached chat session and success does not close the conversation.
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -22,12 +24,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Thread not found" }, { status: 404 });
   }
   if (thread.status === "resolved") {
-    return NextResponse.json({ error: "Thread already resolved" }, { status: 409 });
+    return NextResponse.json({ error: "Conversation is closed" }, { status: 409 });
+  }
+  if (pendingThreadMessages(thread).length === 0) {
+    return NextResponse.json({ error: "No pending comments to process" }, { status: 409 });
   }
 
   return createThreadProcessStream(async (emit) => {
     const result = await processThread(id, { emit, signal: request.signal });
-    if (!result.ok && (result.error === "not-found" || result.error === "already-resolved")) {
+    if (!result.ok && (result.error === "not-found" || result.error === "already-resolved" || result.error === "nothing-pending")) {
       emit({ type: "error", error: result.error });
     }
   });

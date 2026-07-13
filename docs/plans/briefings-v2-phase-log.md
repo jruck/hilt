@@ -3,6 +3,11 @@
 > Builder's running log: decisions, deviations, Codex jobs, gate evidence. This file is how a
 > fresh session knows where things stand. Newest entries at top within each phase. See
 > `briefings-v2-implementation.md` §7.
+>
+> **Status note — 2026-07-10:** this is historical build and cutover evidence; its status board is
+> not the current backlog. Use the
+> [Briefings v2 Completion Roadmap](./briefings-v2-completion-roadmap.md) for remaining work and
+> execution order.
 
 ## Phase status board
 

@@ -228,7 +228,9 @@ export function AskVerdictControls({ item, onChanged, vertical = false }: { item
         verdict,
         note,
       });
-      setLocalVerdict(record.verdict);
+      // The public verdict endpoint never returns the internal recovery action, but keep the
+      // client boundary narrowed if a malformed response does.
+      if (record.verdict !== "restore") setLocalVerdict(record.verdict);
       noteControl.reset();
       // A note riding the verdict lands in the thread store — refresh the row's count pill
       // (and any open popover) through the same mutate path posts use (W1).

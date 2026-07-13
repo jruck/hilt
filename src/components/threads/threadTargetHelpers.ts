@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { CommentTarget } from "@/lib/comments/types";
+import type { ThreadOutcome } from "@/lib/threads/types";
 import { libraryItemScope } from "@/lib/library/url";
 import { requestTaskOpen } from "@/lib/tasks/deeplink";
 import type { ViewPrefix } from "@/lib/url-utils";
@@ -78,10 +79,28 @@ interface ResolutionFields {
 
 const RESOLUTION_ACTION_LABELS: Record<string, string> = {
   calibrated: "Calibrated",
-  processed: "Processed",
+  processed: "Answered",
   "proposal-minted": "Proposal minted",
   clustered: "Clustered",
 };
+
+const OUTCOME_LABELS: Record<ThreadOutcome["kind"], string> = {
+  answered: "Answered",
+  changed: "Changed files",
+  proposal: "Proposal created",
+  "dev-item": "Dev item",
+  calibrated: "Used as calibration",
+  clustered: "Added to steering",
+};
+
+export function outcomeStory(outcome: ThreadOutcome): string {
+  const label = OUTCOME_LABELS[outcome.kind];
+  if (outcome.kind === "proposal" && outcome.proposal_task_id) return `${label} · ${outcome.proposal_task_id}`;
+  if (outcome.kind === "changed" && outcome.files_touched?.length) {
+    return `${label} · ${outcome.files_touched.length} ${outcome.files_touched.length === 1 ? "file" : "files"}`;
+  }
+  return label;
+}
 
 /** "Calibrated · meeting-actions" — HOW a resolved thread resolved, and which agent did it.
  * Unknown actions humanize (hyphens/underscores → spaces, sentence case) so new agent verbs
@@ -94,7 +113,7 @@ export function resolutionStory(thread: ResolutionFields): string {
     const agent = resolution.by.startsWith("agent:") ? resolution.by.slice("agent:".length) : "";
     return agent && agent !== "processor" ? `${label} · ${agent}` : label;
   }
-  if (thread.processed) return "Processed";
+  if (thread.processed) return "Answered";
   return "Resolved";
 }
 

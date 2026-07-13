@@ -80,6 +80,31 @@ export function getMeetingTriggerRunTimeoutMs(): number {
   return boundedInt(process.env.HILT_MEETING_TRIGGER_RUN_TIMEOUT_MS, 900_000, 60_000, 3_600_000);
 }
 
+export function getMeetingExtractionLeaseMs(): number {
+  return boundedInt(process.env.HILT_MEETING_EXTRACTION_LEASE_MS, 90_000, 30_000, 900_000);
+}
+
+export function getMeetingExtractionLeaseRenewMs(): number {
+  const configured = boundedInt(process.env.HILT_MEETING_EXTRACTION_LEASE_RENEW_MS, 30_000, 5_000, 300_000);
+  return Math.max(5_000, Math.min(configured, Math.floor(getMeetingExtractionLeaseMs() / 3)));
+}
+
+export function getMeetingExtractionRetryBaseMs(): number {
+  return boundedInt(process.env.HILT_MEETING_EXTRACTION_RETRY_BASE_MS, 30_000, 5_000, 600_000);
+}
+
+export function getMeetingExtractionRetryMaxMs(): number {
+  return boundedInt(process.env.HILT_MEETING_EXTRACTION_RETRY_MAX_MS, 300_000, 30_000, 3_600_000);
+}
+
+export function getMeetingExtractionMaxAttempts(): number {
+  return boundedInt(process.env.HILT_MEETING_EXTRACTION_MAX_ATTEMPTS, 5, 1, 20);
+}
+
+export function getMeetingExtractionReconcileMs(): number {
+  return boundedInt(process.env.HILT_MEETING_EXTRACTION_RECONCILE_MS, 15_000, 5_000, 300_000);
+}
+
 function boundedInt(value: string | undefined, fallback: number, min: number, max: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;

@@ -27,6 +27,7 @@ import { LibrarySeriesPanel } from "./LibrarySeriesPanel";
 import { VideoTranscript } from "./VideoTranscript";
 import { YouTubeEmbed, type YouTubeSeekRequest } from "./YouTubeEmbed";
 import { ProcessingStatus } from "./ProcessingStatus";
+import { AttentionStatus } from "./AttentionStatus";
 
 export const LIBRARY_META_OPEN_KEY = "hilt.library.metaOpen";
 
@@ -505,6 +506,11 @@ export function LibraryArtifactDetailPane({
                 {retryError && <span className="text-xs text-red-500">{retryError}</span>}
               </div>
             )}
+          </div>
+        )}
+        {artifact.attention && artifact.processing?.state !== "blocked" && (
+          <div className="mt-4 rounded-md border border-amber-500/20 bg-amber-500/5 p-3">
+            <AttentionStatus attention={artifact.attention} standalone />
           </div>
         )}
 

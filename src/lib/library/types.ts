@@ -28,6 +28,16 @@ export interface LibraryProcessingState {
   completed_at?: string | null;
 }
 
+export type LibraryArtifactAttentionKind = "processing_blocked" | "capture_exhausted";
+
+/** Derived operational state for artifacts that have exhausted automatic recovery. */
+export interface LibraryArtifactAttention {
+  kind: LibraryArtifactAttentionKind;
+  label: string;
+  detail: string | null;
+  attempt_count: number | null;
+}
+
 export interface LibrarySeriesMetadata {
   id: string;
   title: string;
@@ -344,6 +354,8 @@ export interface LibraryArtifact {
   is_unread: boolean;
   read_at: string | null;
   processing?: LibraryProcessingState;
+  /** Derived from current processing state + the refetch-attempt ledger; never written to markdown. */
+  attention?: LibraryArtifactAttention;
   /** Dynamic L3 eval attributes for study items. Computed on read, never stamped into this shape. */
   eval_attrs?: LibraryEvalAttrs;
   /** Dynamic YouTube clip review attributes. Computed on read, never stamped by the filter UI. */
@@ -445,6 +457,8 @@ export interface LibrarySchedulerJobSummary {
   stdout_updated_at: string | null;
   stderr_updated_at: string | null;
   stderr_bytes: number;
+  /** Whether the retained stderr was updated by the latest completed run. */
+  stderr_current: boolean;
   stdout_excerpt: string | null;
   stderr_excerpt: string | null;
   message: string | null;

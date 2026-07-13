@@ -61,6 +61,7 @@ export async function GET(request: NextRequest) {
       feedback: feedbackParam === "none" || feedbackParam === "unprocessed" || feedbackParam === "processed" ? feedbackParam : null,
       youtube_clip_policy: youtubeClipPolicyParam === "process" || youtubeClipPolicyParam === "suppress" || youtubeClipPolicyParam === "label_review" || youtubeClipPolicyParam === "label_only" ? youtubeClipPolicyParam : null,
       content_type: contentTypeParam,
+      attention: params.get("attention") === "true",
     };
 
     // Eval-filter path (lifecycle / worth) scores the source+pipeline-filtered set, then paginates.

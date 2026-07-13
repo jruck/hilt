@@ -9,6 +9,7 @@ import {
   exportLegacyMeetingState,
   readLegacyMeetingState,
   restoreMeetingLedgerBackup,
+  writeReadableMeetingLedgerExport,
 } from "./meeting-ledger-maintenance";
 import { openMeetingLedgerRuntime } from "./meeting-ledger-runtime";
 import {
@@ -126,6 +127,97 @@ test("status chains, immutable before/after events, and latched write blocks are
   assert.deepEqual(store.db.prepare("SELECT status, attempted, succeeded, context_tokens FROM extraction_runs WHERE id='run-1'").get(), {
     status: "succeeded", attempted: 1, succeeded: 1, context_tokens: 120,
   });
+  store.close();
+});
+
+test("durable extraction jobs dedupe, lease exclusively, recover expiry, retry, and complete", () => {
+  const root = temp();
+  const store = new MeetingLedgerStore(path.join(root, "ledger.sqlite"));
+  const meeting = "meetings/2026-07-13/Restart recovery.md";
+  const queued = store.enqueueExtractionJob({
+    meetingPath: meeting,
+    source: "trigger",
+    queuedAt: "2026-07-13T12:00:00.000Z",
+    granolaId: "granola-1",
+    settledAt: "2026-07-13T11:58:00.000Z",
+  });
+  assert.equal(queued?.status, "queued");
+  assert.equal(store.enqueueExtractionJob({
+    meetingPath: meeting,
+    source: "trigger",
+    queuedAt: "2026-07-13T12:01:00.000Z",
+  })?.queued_at, "2026-07-13T12:00:00.000Z", "repeat observations must not rewrite queue identity");
+
+  const first = store.claimExtractionJobs({ owner: "worker-a", now: "2026-07-13T12:02:00.000Z", leaseMs: 90_000 });
+  assert.deepEqual(first.map((job) => job.meeting_path), [meeting]);
+  assert.equal(first[0].attempt_count, 1);
+  assert.deepEqual(store.claimExtractionJobs({ owner: "worker-b", now: "2026-07-13T12:03:00.000Z", leaseMs: 90_000 }), []);
+  assert.equal(store.renewExtractionJobLeases({
+    meetingPaths: [meeting], owner: "worker-a", now: "2026-07-13T12:03:10.000Z", leaseMs: 90_000,
+  }), 1);
+  assert.deepEqual(store.claimExtractionJobs({ owner: "worker-b", now: "2026-07-13T12:04:00.000Z", leaseMs: 90_000 }), []);
+
+  const recovered = store.claimExtractionJobs({ owner: "worker-b", now: "2026-07-13T12:05:00.000Z", leaseMs: 90_000 });
+  assert.equal(recovered[0].attempt_count, 2);
+  assert.equal(recovered[0].lease_owner, "worker-b");
+  assert.equal(store.retryExtractionJob({
+    meetingPath: meeting,
+    owner: "worker-b",
+    failedAt: "2026-07-13T12:05:10.000Z",
+    nextRetryAt: "2026-07-13T12:05:40.000Z",
+    error: "worker restarted before verification",
+    maxAttempts: 5,
+  }), "retry_wait");
+  assert.deepEqual(store.claimExtractionJobs({ owner: "worker-c", now: "2026-07-13T12:05:30.000Z", leaseMs: 90_000 }), []);
+  const third = store.claimExtractionJobs({ owner: "worker-c", now: "2026-07-13T12:05:40.000Z", leaseMs: 90_000 });
+  assert.equal(third[0].attempt_count, 3);
+  assert.equal(store.completeExtractionJob({
+    meetingPath: meeting,
+    owner: "worker-c",
+    completedAt: "2026-07-13T12:06:00.000Z",
+    runId: "run-1",
+  }), true);
+  assert.equal(store.getExtractionJob(meeting)?.status, "complete");
+  assert.equal(store.extractionQueueHealth().depth, 0);
+  assert.ok(store.latestEvent("meeting-extraction-job-completed"));
+  store.close();
+});
+
+test("schema v2 upgrades forward to the durable extraction queue", () => {
+  const root = temp();
+  const dbPath = path.join(root, "ledger.sqlite");
+  const first = new MeetingLedgerStore(dbPath);
+  first.db.exec("DROP TABLE meeting_extraction_jobs");
+  first.db.pragma("user_version = 2");
+  first.close();
+  const upgraded = new MeetingLedgerStore(dbPath);
+  assert.equal(Number(upgraded.db.pragma("user_version", { simple: true })), MEETING_LEDGER_SCHEMA_VERSION);
+  assert.equal(upgraded.extractionQueueHealth().depth, 0);
+  upgraded.close();
+});
+
+test("an extraction job becomes terminal after its final allowed attempt", () => {
+  const root = temp();
+  const store = new MeetingLedgerStore(path.join(root, "ledger.sqlite"));
+  const meeting = "meetings/2026-07-13/Terminal failure.md";
+  store.enqueueExtractionJob({
+    meetingPath: meeting,
+    source: "nightly",
+    queuedAt: "2026-07-13T12:00:00.000Z",
+  });
+  store.claimExtractionJobs({ owner: "worker-a", now: "2026-07-13T12:01:00.000Z", leaseMs: 90_000 });
+  assert.equal(store.retryExtractionJob({
+    meetingPath: meeting,
+    owner: "worker-a",
+    failedAt: "2026-07-13T12:01:10.000Z",
+    nextRetryAt: "2026-07-13T12:01:40.000Z",
+    error: "canonical verification failed",
+    maxAttempts: 1,
+  }), "failed");
+  assert.equal(store.getExtractionJob(meeting)?.status, "failed");
+  assert.equal(store.extractionQueueHealth().failed, 1);
+  assert.equal(store.extractionQueueHealth().depth, 0);
+  assert.ok(store.latestEvent("meeting-extraction-job-failed"));
   store.close();
 });
 
@@ -267,6 +359,13 @@ test("backup, readable export, legacy export, and restore preserve an intact dat
   const dbPath = path.join(root, "ledger.sqlite");
   const store = new MeetingLedgerStore(dbPath);
   store.putEntry(entry("ma-2026-07-10-001"), { type: "opened", at: "2026-07-12T12:00:00.000Z" });
+  store.enqueueExtractionJob({ meetingPath: "meetings/2026-07-12/Queued.md", source: "trigger", queuedAt: "2026-07-12T12:00:00.000Z" });
+  const readable = JSON.parse(fs.readFileSync(writeReadableMeetingLedgerExport(store, vault), "utf-8")) as {
+    extraction_jobs: Array<{ meeting_path: string }>;
+    extraction_queue: { depth: number };
+  };
+  assert.deepEqual(readable.extraction_jobs.map((job) => job.meeting_path), ["meetings/2026-07-12/Queued.md"]);
+  assert.equal(readable.extraction_queue.depth, 1);
   const backup = await backupMeetingLedger(store, vault, new Date("2026-07-12T12:00:00.000Z"));
   assert.equal(backup.quick_check, "ok");
   for (let month = 0; month < 16; month += 1) {

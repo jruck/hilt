@@ -15,6 +15,7 @@ import { parseMarkdownFile, relativeVaultPath, stringifyMarkdown } from "./markd
 import { artifactDisplayTags, validLibraryModeFilter } from "./taxonomy";
 import { detectYouTubeContentForm } from "./youtube-clip-detector";
 import { persistedYouTubeClip } from "./youtube-frontmatter";
+import { attachLibraryAttention } from "./attention";
 
 export interface LibraryListOptions {
   source?: string | null;
@@ -40,6 +41,8 @@ export interface LibraryListOptions {
   feedback?: "none" | "unprocessed" | "processed" | null;
   youtube_clip_policy?: YouTubeClipReviewAttrs["policy_action"] | null;
   content_type?: LibraryContentType | null;
+  /** Only artifacts whose automatic processing or source-recovery path is terminally blocked. */
+  attention?: boolean;
 }
 
 const candidateStatuses = new Set<LibraryLifecycleStatus>(["candidate", "skipped", "expired", "promoted"]);
@@ -220,6 +223,7 @@ function filterArtifacts(artifacts: LibraryArtifactDetail[], options: LibraryLis
     if (options.content_type && contentTypeForArtifact(artifact) !== options.content_type) return false;
     if (options.digested_with && String(artifact.raw_frontmatter.digested_with || "") !== options.digested_with) return false;
     if (options.youtube_clip_policy && artifact.youtube_clip?.policy_action !== options.youtube_clip_policy) return false;
+    if (options.attention && !artifact.attention) return false;
     if (options.reweave_pending != null && (artifact.raw_frontmatter.reweave_pending === true) !== options.reweave_pending) return false;
     if (options.substance_graded) {
       const graded = typeof artifact.raw_frontmatter.substance === "number";
@@ -247,7 +251,7 @@ export function listLibraryArtifactDetails(vaultPath: string, options: LibraryLi
       .map((candidate) => candidateToArtifact(vaultPath, candidate));
   const all = [...saved, ...candidates].sort(compareArtifactsByRecent);
   const state = readLibraryReadState(vaultPath);
-  const readAware = applyLibraryReadState(all.map(withYouTubeClipReview), state);
+  const readAware = attachLibraryAttention(vaultPath, applyLibraryReadState(all.map(withYouTubeClipReview), state));
   let pool = readAware;
   const mutedSenders = readMutedSenders(vaultPath);
   if (mutedSenders.size) {
@@ -320,7 +324,10 @@ export function getLibraryArtifact(vaultPath: string, id: string): LibraryArtifa
     return candidate ? candidateToArtifact(vaultPath, candidate) : null;
   })();
   if (!artifact) return null;
-  return applyLibraryReadState([withYouTubeClipReview(artifact)], readLibraryReadState(vaultPath))[0] || null;
+  return attachLibraryAttention(
+    vaultPath,
+    applyLibraryReadState([withYouTubeClipReview(artifact)], readLibraryReadState(vaultPath)),
+  )[0] || null;
 }
 
 function resolveArtifactPath(vaultPath: string, artifactPath: string): { relPath: string; filePath: string } | null {
@@ -347,7 +354,10 @@ export function getLibraryArtifactByPath(vaultPath: string, id: string, artifact
     : parseReferenceFile(vaultPath, resolved.filePath);
   if (!artifact) return null;
   if (artifact.id !== id && hashId(resolved.relPath) !== id) return null;
-  return applyLibraryReadState([artifact], readLibraryReadState(vaultPath))[0] || null;
+  return attachLibraryAttention(
+    vaultPath,
+    applyLibraryReadState([withYouTubeClipReview(artifact)], readLibraryReadState(vaultPath)),
+  )[0] || null;
 }
 
 export function summarizeArtifact(artifact: LibraryArtifactDetail): LibraryArtifact {

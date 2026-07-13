@@ -785,7 +785,7 @@ Weekly lists opt in via frontmatter `list_format: 2` (`listFormatFromFrontmatter
 
 ### MeetingLedgerStore
 
-The canonical operational ledger lives at `${DATA_DIR}/meeting-ledgers/<vault-key>/meeting-ledger.sqlite`. The vault key is a stable hash of the resolved Bridge vault path, so live and shadow publication use one identity store while separate vaults remain isolated. `PRAGMA user_version` owns forward-only schema migration; version 2 uses WAL, `synchronous=FULL`, foreign keys, and a five-second busy timeout.
+The canonical operational ledger lives at `${DATA_DIR}/meeting-ledgers/<vault-key>/meeting-ledger.sqlite`. The vault key is a stable hash of the resolved Bridge vault path, so live and shadow publication use one identity store while separate vaults remain isolated. `PRAGMA user_version` owns forward-only schema migration; version 3 uses WAL, `synchronous=FULL`, foreign keys, and a five-second busy timeout.
 
 The normalized schema contains:
 
@@ -793,11 +793,12 @@ The normalized schema contains:
 - `ledger_citations`, `ledger_sightings`, and `ledger_status_history`: ordered evidence and a validated transition chain whose final state must equal the entry.
 - `meeting_summaries` and `processed_meetings`: the shared nightly/post-meeting context and once-set.
 - `extraction_runs`: active/succeeded/partial/failed run records, counts, errors, and context-token totals for crash diagnosis.
+- `meeting_extraction_jobs`: one durable row per discovered meeting. Status is `queued`, `running`, `retry_wait`, `complete`, or `failed`; renewable owner/expiry leases, attempt count, next retry, last error, and completion run survive ws-server and worker restarts. Trigger and nightly discovery share this table.
 - `ledger_events`: immutable sequenced before/after facts for import, extraction, sighting, transition, verdict, restore, and task stamping.
 - `ledger_meta`: migration/source hashes and a latched write-block reason.
 - `ledger_fts`: FTS5 action/context search, maintained with the entry transaction.
 
-`MeetingLedgerStore.applyMeeting()` is the transaction boundary for one meeting. It records all entry replacements, evidence, summary, processed stamp, and extraction event rows atomically. A killed process before commit leaves neither partial state nor a processed marker; a killed process afterward leaves a complete transaction and an active extraction-run record that makes the interruption inspectable. Proposal/task Markdown is an external transactional boundary: after the whole batch has resolved cross-meeting closures, Hilt mints or reconciles the file by stable ledger origin and commits the task-ID stamp in a follow-up transaction. The external verdict JSONL remains the decision audit and proposal/task Markdown remains the actionable object; SQLite stores their applied projection and join identities.
+`MeetingLedgerStore.applyMeeting()` is the transaction boundary for one meeting. It records all entry replacements, evidence, summary, processed stamp, and extraction event rows atomically. A killed process before commit leaves neither partial state nor a processed marker; a killed process afterward leaves a complete transaction and an active extraction-run record that makes the interruption inspectable. Proposal/task Markdown is an external transactional boundary: after the whole batch has resolved cross-meeting closures, Hilt mints or reconciles the file by stable ledger origin and commits the task-ID stamp in a follow-up transaction. A queue job becomes `complete` only after code verifies the processed stamp plus every first-touch escalation and reciprocal `LedgerEntry.task_id`/`TaskFile.origin.item_id` link. If either side is incomplete, the job waits with exponential backoff and retries; an expired lease is reclaimed after restart. The external verdict JSONL remains the decision audit and proposal/task Markdown remains the actionable object; SQLite stores their applied projection and join identities.
 
 Identity context is a query product, not a lifetime dump. Required rows are the full trailing-30-day opened/sighted set, every pending or accepted-open item regardless of age, and dismissals inside the immunity window. Each raw observation also retrieves older exact/FTS, owner, people/project, and meeting candidates. A 40,000-token ledger budget produces exhaustive chunks when necessary; no required recent row is silently omitted.
 
@@ -866,12 +867,12 @@ interface TriggerMeetingState {
   stable_polls: number;        // consecutive no-growth sync observations (incl. current)
   stable_since: string;        // ISO of the first observation at the current measure
   last_observed_at: string;    // ISO; drives pruning
-  fired_at?: string;           // once set, this meeting NEVER fires again (survives restarts)
+  fired_at?: string;           // compatibility telemetry: first durable submission time
   fired_reason?: "settled" | "already-processed"; // "already-processed" = nightly got it first
 }
 ```
 
-Settled = enhanced notes present ∧ `transcript_measure > 0` ∧ `stable_polls ≥ 3` ∧ `now − stable_since ≥ 120s` (knobs: `HILT_MEETING_TRIGGER_SETTLE_POLLS` / `HILT_MEETING_TRIGGER_SETTLE_MS`). The trigger consults the canonical meeting ledger's `processed_meetings` table before firing. Pre-migration JSON remains only as an immutable recovery artifact and generated compatibility export.
+Settled = enhanced notes present ∧ `stable_polls ≥ 3` ∧ `now − stable_since ≥ 120s`; note-only meetings use a doubled quiet window (knobs: `HILT_MEETING_TRIGGER_SETTLE_POLLS` / `HILT_MEETING_TRIGGER_SETTLE_MS`). The trigger consults canonical `processed_meetings`, but the JSON `fired_at` value is never a retry guard. Until processing verifies, repeated settled observations idempotently target `meeting_extraction_jobs`; the coordinator also reconciles that queue every 15 seconds and immediately on startup.
 
 ## Comment Primitive (gate-B pre-build for Phase C)
 
@@ -1167,9 +1168,20 @@ interface LibraryProcessingQueueRecord {
   status: "queued" | "active" | "blocked";
   next_retry_at: string | null;
 }
+
+type LibraryArtifactAttentionKind = "processing_blocked" | "capture_exhausted";
+
+interface LibraryArtifactAttention {
+  kind: LibraryArtifactAttentionKind;
+  label: string;
+  detail: string | null;
+  attempt_count: number | null;
+}
 ```
 
 Markdown is the user-visible source of truth for progress. Queue records live under `${DATA_DIR}/library-processing/<vault-hash>/`, survive crashes, and retain the raw provider payload needed to resume. Ready records are removed; terminal blocked records remain addressable for Retry.
+
+`LibraryArtifactAttention` is read-time projection data, not markdown frontmatter. It combines terminal `processing` state with the existing `${DATA_DIR}/library-refetch-attempts/<vault-hash>.json` ledger. `capture_exhausted` requires both the shared capture-failure predicate and the standard two-attempt ceiling, so a healed artifact or an item still eligible for automatic retry does not remain in the attention lens.
 
 ### LibraryArtifact
 
@@ -1294,6 +1306,7 @@ interface LibraryArtifact {
   is_unread: boolean;      // Hilt-local read state, not markdown frontmatter
   read_at: string | null;  // ISO timestamp when the current user last marked it read
   processing?: LibraryProcessingState;
+  attention?: LibraryArtifactAttention; // Derived terminal-recovery state; never persisted in markdown
   eval_attrs?: LibraryEvalAttrs; // Dynamic worth eval for study items; absent for keep items
   recommendation?: RecommendationPresentation; // Current active episode, joined at read time when available
   connections: string[];
@@ -1750,13 +1763,13 @@ interface ChatSessionSummary {
 type ChatStreamEvent =
   | { type: "session"; chatId: string }
   | { type: "trace"; trace: ChatTraceEvent }
-  | { type: "message"; content: string }          // per assistant text block, as parsed
+  | { type: "message"; content: string }          // ordered assistant text delta
   | { type: "complete"; claudeSessionId: string | null }
   | { type: "error"; error: string };
 ```
 
-`src/components/chat/` is the shared render/stream contract for these models: `consumeNdjsonStream` parses line-delimited events, `mergeTraceEvent` updates in-flight trace rows by id, `ConversationTurn` owns the shared human-bubble/assistant-prose visual grammar, `ChatMessageList` renders persisted messages plus optional `liveTrace` / `liveDraft`, `ChatComposer` is the shared auto-growing input, and `ChatTracePanel` is the evidence pane attached to the assistant message whose tool and step trace it explains. `ThreadConversationTimeline` adapts thread messages and ordered outcomes onto those primitives. It joins an agent reply back to the attached chat's assistant message by normalized reply content and nearest timestamp, with ordered-turn fallback for older records; this keeps trace evidence attached correctly when a legacy thread later reuses the same chat session.
+`src/components/chat/` is the shared render/stream contract for these models: `consumeNdjsonStream` parses line-delimited events, `mergeTraceEvent` updates in-flight trace rows by stable id as they move from running to complete/error, `ConversationTurn` owns the shared human-bubble/assistant-prose visual grammar, `ChatMessageList` appends text deltas into `liveDraft`, `ChatComposer` is the shared auto-growing input (and may keep Send available for the next queued volley while Stop controls the current one), and `ChatTracePanel` is the evidence pane attached to the assistant message whose tool and step trace it explains. `ThreadConversationTimeline` adapts thread messages and ordered outcomes onto those primitives. It joins an agent reply back to the attached chat's assistant message by normalized reply content and nearest timestamp, with ordered-turn fallback for older records; this keeps trace evidence attached correctly when a legacy thread later reuses the same chat session.
 
 ---
 
-*Last updated: 2026-07-10*
+*Last updated: 2026-07-13*

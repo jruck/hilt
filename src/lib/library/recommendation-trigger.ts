@@ -120,8 +120,22 @@ export function contextChangeHasStrongMatch(vaultPath: string, changedPath: stri
   return contextTextHasStrongLibraryMatch(text, artifacts);
 }
 
+export function recommendationRunTimeoutMs(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number {
+  const override = Number(env.LIBRARY_RECOMMENDATION_RUN_TIMEOUT_MS);
+  if (env.LIBRARY_RECOMMENDATION_RUN_TIMEOUT_MS && Number.isFinite(override) && override > 0) return override;
+  const configuredEditorTimeout = Number(env.LIBRARY_EDITOR_TIMEOUT_MS || 10 * 60_000);
+  const editorTimeout = Number.isFinite(configuredEditorTimeout) && configuredEditorTimeout > 0
+    ? configuredEditorTimeout
+    : 10 * 60_000;
+  // The editor may make one initial model call plus one bounded repair call. Keep the supervising
+  // child alive for both call budgets and a minute of parsing/atomic-write/exit overhead.
+  return editorTimeout * 2 + 60_000;
+}
+
 async function runRecommendationChild(vaultPath: string): Promise<void> {
-  const timeoutMs = Number(process.env.LIBRARY_RECOMMENDATION_RUN_TIMEOUT_MS || 5 * 60_000);
+  const timeoutMs = recommendationRunTimeoutMs();
   await new Promise<void>((resolve, reject) => {
     const child = spawn(process.execPath, ["--import", "tsx", "scripts/library-editor-pass.ts", "--kind", "refresh"], {
       cwd: process.cwd(),

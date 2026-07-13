@@ -10,6 +10,7 @@ import { formatXurlFailureMessage, parseTwitterBookmarks } from "./adapters/twit
 import { fetchRaindropArtifacts } from "./adapters/raindrop";
 import { fetchYouTubeArtifacts } from "./adapters/youtube";
 import { buildCandidateMarkdown, listCandidates } from "./candidate-cache";
+import { libraryRefetchAttemptsPath } from "./attention";
 import { captureFailed, sourceMetadataCaptureHasEnoughProse } from "./capture-health";
 import { parseConnectionJudgment } from "./connection-prompt";
 import { connectionPassState } from "./connection-state";
@@ -189,14 +190,16 @@ test("library URL helpers encode item links and view controls", () => {
     mode: "study",
     source: "twitter-bookmarks",
     tag: null,
+    attention: false,
   }), "/library/item/abc123?view=list&rank=new&status=candidate&source=twitter-bookmarks");
-  assert.deepEqual(parseLibraryControls("?view=list&rank=for-you&status=saved&source=manual"), {
+  assert.deepEqual(parseLibraryControls("?view=list&rank=for-you&status=saved&source=manual&attention=true"), {
     density: "list",
     ranking: "for-you",
     status: "saved",
     mode: "study",
     source: "manual",
     tag: null,
+    attention: true,
   });
 });
 
@@ -1765,6 +1768,55 @@ published: ${date}
   assert.deepEqual(first.artifacts.map((artifact) => artifact.created_at), ["2026-05-29", "2026-05-28"]);
   assert.equal(second.total, 3);
   assert.deepEqual(second.artifacts.map((artifact) => artifact.created_at), ["2026-05-27"]);
+});
+
+test("library attention lens includes exhausted captures and terminal processing failures", () => {
+  const vault = tempVault();
+  const writeReference = (name: string, title: string, body: string, extra: Record<string, unknown> = {}) => {
+    fs.writeFileSync(path.join(vault, "references", `${name}.md`), stringifyMarkdown({
+      type: "reference",
+      description: `${title} summary.`,
+      url: `https://example.com/${name}`,
+      published: "2026-05-29",
+      ...extra,
+    }, `# ${title}\n\n${body}\n`), "utf-8");
+  };
+
+  writeReference("exhausted", "Exhausted Capture", "No cached source content available.");
+  writeReference("pending", "Pending Capture", "No cached source content available.");
+  writeReference("blocked", "Blocked Processing", "Source body.", {
+    processing: {
+      state: "blocked",
+      stage: "digest",
+      completed_stages: ["metadata", "capture"],
+      started_at: "2026-05-29T10:00:00.000Z",
+      updated_at: "2026-05-29T10:05:00.000Z",
+      attempt: 3,
+      next_retry_at: null,
+      last_error: { code: "digest_failed", message: "Digest retries were exhausted.", retryable: false },
+    },
+  });
+  writeReference("healthy", "Healthy Item", "Complete source body.");
+
+  const ledgerPath = libraryRefetchAttemptsPath(vault);
+  fs.mkdirSync(path.dirname(ledgerPath), { recursive: true });
+  fs.writeFileSync(ledgerPath, JSON.stringify({
+    "references/exhausted.md": { count: 2, last_at: "2026-05-29T11:00:00.000Z" },
+    "references/pending.md": { count: 1, last_at: "2026-05-29T11:00:00.000Z" },
+  }), "utf-8");
+
+  const attention = listLibraryArtifactDetails(vault, { attention: true, mode: "all", limit: 20 });
+  assert.equal(attention.total, 2);
+  assert.deepEqual(
+    new Map(attention.artifacts.map((artifact) => [artifact.title, artifact.attention?.kind])),
+    new Map([
+      ["Exhausted Capture", "capture_exhausted"],
+      ["Blocked Processing", "processing_blocked"],
+    ]),
+  );
+  assert.equal(buildWorkbenchRows(vault).facets.attention.capture_exhausted, 1);
+  assert.equal(buildWorkbenchRows(vault).facets.attention.processing_blocked, 1);
+  assert.equal(getLibraryArtifact(vault, attention.artifacts[0].id)?.attention?.kind, attention.artifacts[0].attention?.kind);
 });
 
 test("library detail lookup returns saved references and candidates by id", () => {
@@ -3551,6 +3603,34 @@ fixtures: []
   });
   assert.equal(health.scheduler.jobs[0].status, "warning");
   assert.match(health.scheduler.jobs[0].message || "", /STILL_FAILED/);
+});
+
+test("library health ignores retained stderr from an older successful run", () => {
+  const vault = tempVault();
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-library-logs-"));
+  const stderr = path.join(logDir, "job.err.log");
+  const stdout = path.join(logDir, "job.out.log");
+  fs.writeFileSync(stderr, "[refetch] STILL_FAILED old-item\n", "utf-8");
+  fs.writeFileSync(stdout, "{\"status\":\"ok\"}\n", "utf-8");
+  fs.utimesSync(stderr, new Date("2026-05-29T10:00:00.000Z"), new Date("2026-05-29T10:00:00.000Z"));
+  fs.utimesSync(stdout, new Date("2026-05-29T11:00:00.000Z"), new Date("2026-05-29T11:00:00.000Z"));
+
+  const health = getLibraryOperationalHealth(vault, {
+    launchctl: () => "last exit code = 0",
+    schedulerJobs: [{
+      id: "refetch",
+      label: "com.hilt.library.refetch",
+      script: "library:refetch",
+      schedule: { hour: 4, minute: 45 },
+      stdout,
+      stderr,
+    }],
+  });
+  const job = health.scheduler.jobs[0];
+  assert.equal(job.status, "ok");
+  assert.equal(job.stderr_current, false);
+  assert.equal(job.stderr_excerpt, null);
+  assert.match(job.message || "", /older stderr is retained/);
 });
 
 test("library health surfaces actionable scheduler stderr in warning message", () => {

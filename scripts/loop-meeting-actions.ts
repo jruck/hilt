@@ -20,9 +20,24 @@ import {
   OBSERVATION_EXTRACTOR_SYSTEM,
 } from "../src/lib/loops/meeting-extractor-prompt";
 import { formatLedgerDigest, openMeetingLedgerRuntime } from "../src/lib/loops/meeting-ledger-runtime";
-import { acquireMeetingLedgerLock, emitMeetingLedgerChanged, type IdentityContextSelection } from "../src/lib/loops/meeting-ledger-store";
+import { verifyMeetingExtractionCompletion } from "../src/lib/loops/meeting-extraction-completion";
+import {
+  acquireMeetingLedgerLock,
+  emitMeetingLedgerChanged,
+  MeetingLedgerStore,
+  meetingLedgerDbPath,
+  readMeetingLedgerStorageMarker,
+  type IdentityContextSelection,
+} from "../src/lib/loops/meeting-ledger-store";
 import { mintProposalFromLedgerEntry, resolveProposalSink } from "../src/lib/loops/proposal-mint";
 import type { LoopItem } from "../src/lib/loops/types";
+import {
+  getMeetingExtractionLeaseMs,
+  getMeetingExtractionLeaseRenewMs,
+  getMeetingExtractionMaxAttempts,
+  getMeetingExtractionRetryBaseMs,
+  getMeetingExtractionRetryMaxMs,
+} from "../src/lib/granola/config";
 
 loadEnvConfig(process.cwd());
 
@@ -365,6 +380,41 @@ async function resolveMeetingIdentity(input: {
   };
 }
 
+function settleOwnedExtractionJobs(input: {
+  store: MeetingLedgerStore;
+  meetingPaths: string[];
+  owner: string;
+  runId: string;
+  processError?: string;
+}): void {
+  const retryBase = getMeetingExtractionRetryBaseMs();
+  const retryMax = getMeetingExtractionRetryMaxMs();
+  for (const meeting of input.meetingPaths) {
+    const verification = verifyMeetingExtractionCompletion(input.store, vaultPath, meeting);
+    const now = new Date();
+    if (verification.ok) {
+      input.store.completeExtractionJob({
+        meetingPath: meeting,
+        owner: input.owner,
+        completedAt: now.toISOString(),
+        runId: input.runId,
+      });
+      continue;
+    }
+    const job = input.store.getExtractionJob(meeting);
+    if (!job) continue;
+    const delay = Math.min(retryMax, retryBase * (2 ** Math.max(0, job.attempt_count - 1)));
+    input.store.retryExtractionJob({
+      meetingPath: meeting,
+      owner: input.owner,
+      failedAt: now.toISOString(),
+      nextRetryAt: new Date(now.getTime() + delay).toISOString(),
+      error: [input.processError, ...verification.issues].filter(Boolean).join("; "),
+      maxAttempts: getMeetingExtractionMaxAttempts(),
+    });
+  }
+}
+
 async function main(): Promise<void> {
   const registry = loadRegistry(vaultPath);
   const loop = registry.loops.find((l) => l.id === "meeting-actions");
@@ -385,6 +435,19 @@ async function main(): Promise<void> {
     loopHome: home,
   });
 
+  // A live vault proposal must never be paired with a repo-local/legacy ledger. This is the
+  // exact split-brain footgun that can create files in Bridge while state lands under cwd/data.
+  if (!noProposals && proposalSink.kind === "vault") {
+    const marker = readMeetingLedgerStorageMarker(vaultPath);
+    const canonicalDb = meetingLedgerDbPath(vaultPath);
+    if (ledgerHomeOverride || marker.mode !== "sqlite" || !fs.existsSync(canonicalDb)) {
+      throw new Error(
+        `refusing live proposal writes without canonical SQLite meeting state ` +
+        `(mode=${marker.mode}, db=${canonicalDb}, ledgerHomeOverride=${ledgerHomeOverride ?? "none"})`,
+      );
+    }
+  }
+
   const now = isoNow();
   const runId = `meeting-actions:${now}`;
   const lock = await acquireMeetingLedgerLock({
@@ -401,6 +464,10 @@ async function main(): Promise<void> {
       forceSqlite: args.includes("--sqlite"),
     });
     let runFinished = false;
+    let queueStore: MeetingLedgerStore | null = null;
+    let ownedQueueOwner: string | null = null;
+    let ownedQueuePaths: string[] = [];
+    let leaseHeartbeat: ReturnType<typeof setInterval> | null = null;
     ledger.beginRun({ id: runId, startedAt: now });
     try {
 
@@ -450,7 +517,52 @@ async function main(): Promise<void> {
   // filenames contain commas/emoji — the explicit list is a JSON file, never comma-split argv.
   const meetingsFile = argValue("--meetings-file");
   const explicit = meetingsFile ? (JSON.parse(fs.readFileSync(meetingsFile, "utf-8")) as string[]) : null;
-  const queue = (explicit || findUnprocessedMeetings(ledger.processedMeetings())).slice(0, maxMeetings);
+  const processed = ledger.processedMeetings();
+  const skipProcessed = args.includes("--skip-processed");
+  const parentLeaseOwner = argValue("--extraction-lease-owner") || process.env.HILT_MEETING_EXTRACTION_LEASE_OWNER || null;
+  let queue: string[];
+  if (explicit) {
+    queue = explicit.filter((meeting) => !skipProcessed || !processed[meeting]).slice(0, maxMeetings);
+    if (parentLeaseOwner && ledger.mode === "sqlite" && !ledgerHomeOverride) {
+      queueStore = new MeetingLedgerStore(meetingLedgerDbPath(vaultPath));
+    }
+  } else if (ledger.mode === "sqlite" && !ledgerHomeOverride && !noProposals) {
+    // The nightly path discovers candidates but then uses the same durable claims as ws-server.
+    queueStore = new MeetingLedgerStore(meetingLedgerDbPath(vaultPath));
+    for (const meeting of findUnprocessedMeetings(processed)) {
+      queueStore.enqueueExtractionJob({ meetingPath: meeting, source: "nightly", queuedAt: now });
+    }
+    ownedQueueOwner = `nightly:${process.pid}:${runId}`;
+    const claimed = queueStore.claimExtractionJobs({
+      owner: ownedQueueOwner,
+      now,
+      leaseMs: getMeetingExtractionLeaseMs(),
+      limit: maxMeetings,
+    });
+    ownedQueuePaths = claimed.map((job) => job.meeting_path);
+    queue = ownedQueuePaths;
+  } else {
+    // Legacy and explicit no-proposal runs preserve their isolated direct behavior.
+    queue = findUnprocessedMeetings(processed).slice(0, maxMeetings);
+  }
+
+  const leaseOwner = parentLeaseOwner ?? ownedQueueOwner;
+  if (queueStore && leaseOwner && queue.length) {
+    const renew = () => {
+      try {
+        queueStore?.renewExtractionJobLeases({
+          meetingPaths: queue,
+          owner: leaseOwner,
+          now: isoNow(),
+          leaseMs: getMeetingExtractionLeaseMs(),
+        });
+      } catch (error) {
+        console.error("[loop-meeting-actions] extraction lease renewal failed:", error);
+      }
+    };
+    renew();
+    leaseHeartbeat = setInterval(renew, getMeetingExtractionLeaseRenewMs());
+  }
 
   // The report only renders recent summaries. Keep that query bounded as the processed-meeting
   // history grows; summaries for meetings handled in this run are added below before rendering.
@@ -727,6 +839,19 @@ async function main(): Promise<void> {
     ...(rateLimited ? { error: "rate-limited mid-queue" } : failures ? { error: `${failures} extraction failure(s)` } : {}),
   });
   runFinished = true;
+  if (leaseHeartbeat) {
+    clearInterval(leaseHeartbeat);
+    leaseHeartbeat = null;
+  }
+  if (queueStore && ownedQueueOwner && ownedQueuePaths.length) {
+    settleOwnedExtractionJobs({
+      store: queueStore,
+      meetingPaths: ownedQueuePaths,
+      owner: ownedQueueOwner,
+      runId,
+      ...(rateLimited ? { processError: "rate-limited mid-queue" } : failures ? { processError: `${failures} extraction failure(s)` } : {}),
+    });
+  }
   await ledger.finishSuccessfulRun(vaultPath, home, new Date(now));
 
   console.log(JSON.stringify({
@@ -745,8 +870,28 @@ async function main(): Promise<void> {
     proposal_failures: proposalFailures,
     identity_context_tokens: identityContextTokens,
     identity_chunks: identityChunks,
+    extraction_queue: queueStore ? {
+      owner: parentLeaseOwner ?? ownedQueueOwner,
+      claimed_by_this_run: ownedQueuePaths.length,
+      health: queueStore.extractionQueueHealth(),
+    } : null,
   }, null, 2));
     } catch (error) {
+      if (leaseHeartbeat) {
+        clearInterval(leaseHeartbeat);
+        leaseHeartbeat = null;
+      }
+      if (queueStore && ownedQueueOwner && ownedQueuePaths.length) {
+        try {
+          settleOwnedExtractionJobs({
+            store: queueStore,
+            meetingPaths: ownedQueuePaths,
+            owner: ownedQueueOwner,
+            runId,
+            processError: error instanceof Error ? error.message : String(error),
+          });
+        } catch { /* lease expiry is the final recovery path */ }
+      }
       if (!runFinished) {
         try {
           ledger.finishRun({
@@ -762,6 +907,8 @@ async function main(): Promise<void> {
       }
       throw error;
     } finally {
+      if (leaseHeartbeat) clearInterval(leaseHeartbeat);
+      queueStore?.close();
       ledger.close();
     }
   } finally {

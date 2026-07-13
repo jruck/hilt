@@ -18,6 +18,37 @@ export interface RawRecommendationPick {
   trigger_ids?: unknown;
 }
 
+export type RecommendationPickRejectionCode =
+  | "batch_limit"
+  | "invalid_shape"
+  | "duplicate_artifact"
+  | "unknown_artifact"
+  | "empty_reason"
+  | "missing_valid_trigger"
+  | "source_paraphrase"
+  | "missing_context_delta"
+  | "repeated_context"
+  | "unchanged_pitch"
+  | "missing_new_item_trigger"
+  | "near_duplicate";
+
+export interface RecommendationPickRejection {
+  index: number;
+  artifact_id: string | null;
+  code: RecommendationPickRejectionCode;
+  message: string;
+}
+
+export interface RecommendationPickValidation {
+  picks: RecommendationPickInput[];
+  rejections: RecommendationPickRejection[];
+}
+
+export interface RecommendationPickValidationRun extends RecommendationPickValidation {
+  raw: RawRecommendationPick[];
+  repair_attempted: boolean;
+}
+
 const CONTEXT_STOPWORDS = new Set([
   "about", "after", "again", "also", "because", "before", "being", "between", "could", "from",
   "have", "into", "just", "more", "most", "need", "only", "other", "should", "some", "than",
@@ -168,7 +199,7 @@ export function buildEditorialCandidatePool({
   return [...fresh, ...contextual].slice(0, config.pool);
 }
 
-export function validateRecommendationPicks({
+export function validateRecommendationPicksDetailed({
   raw,
   candidates,
   triggers,
@@ -182,36 +213,90 @@ export function validateRecommendationPicks({
   previousByArtifact: Map<string, RecommendationEpisode>;
   maxItems: number;
   nearDuplicate: (a: string, b: string) => boolean;
-}): RecommendationPickInput[] {
+}): RecommendationPickValidation {
   const byId = new Map(candidates.map((item) => [item.id, item]));
   const triggerById = new Map(triggers.map((trigger) => [trigger.id, trigger]));
   const selected: Array<{ item: RecommendedArtifact; pick: RecommendationPickInput }> = [];
+  const rejections: RecommendationPickRejection[] = [];
   const seen = new Set<string>();
 
-  for (const entry of raw.slice(0, maxItems)) {
-    if (typeof entry.id !== "string" || typeof entry.reason !== "string" || seen.has(entry.id)) continue;
+  const reject = (
+    index: number,
+    entry: RawRecommendationPick | null,
+    code: RecommendationPickRejectionCode,
+    message: string,
+  ): void => {
+    rejections.push({
+      index,
+      artifact_id: entry && typeof entry === "object" && typeof entry.id === "string" ? entry.id : null,
+      code,
+      message,
+    });
+  };
+
+  for (const [index, entry] of raw.entries()) {
+    if (index >= maxItems) {
+      reject(index, entry, "batch_limit", `pick ${index + 1} exceeds the ${maxItems}-item batch limit`);
+      continue;
+    }
+    if (!entry || typeof entry !== "object" || typeof entry.id !== "string" || typeof entry.reason !== "string") {
+      reject(index, entry, "invalid_shape", `pick ${index + 1} must include string id and reason fields`);
+      continue;
+    }
+    if (seen.has(entry.id)) {
+      reject(index, entry, "duplicate_artifact", `pick ${index + 1} repeats artifact ${entry.id}`);
+      continue;
+    }
     const item = byId.get(entry.id);
     const reason = entry.reason.trim();
+    if (!item) {
+      reject(index, entry, "unknown_artifact", `pick ${index + 1} references an artifact outside the candidate pool`);
+      continue;
+    }
+    if (!reason) {
+      reject(index, entry, "empty_reason", `pick ${index + 1} has an empty recommendation reason`);
+      continue;
+    }
     const triggerIds = Array.isArray(entry.trigger_ids)
       ? entry.trigger_ids.filter((id): id is string => typeof id === "string")
       : [];
     const pickedTriggers = triggerIds
       .map((id) => triggerById.get(id))
       .filter((trigger): trigger is RecommendationTrigger => Boolean(trigger));
-    if (!item || !reason || pickedTriggers.length === 0) continue;
+    if (pickedTriggers.length === 0) {
+      reject(index, entry, "missing_valid_trigger", `pick ${index + 1} cites no valid supplied trigger id`);
+      continue;
+    }
     const previous = previousByArtifact.get(item.id) || null;
-    if (recommendationTextSimilarity(`${item.title} ${item.summary || ""}`, reason) >= RECOMMENDATION_SOURCE_SIMILARITY_LIMIT) continue;
-    if (!recommendationPitchHasContextDelta(reason, item, pickedTriggers)) continue;
+    if (recommendationTextSimilarity(`${item.title} ${item.summary || ""}`, reason) >= RECOMMENDATION_SOURCE_SIMILARITY_LIMIT) {
+      reject(index, entry, "source_paraphrase", `pick ${index + 1} paraphrases the source instead of explaining why it matters now`);
+      continue;
+    }
+    if (!recommendationPitchHasContextDelta(reason, item, pickedTriggers)) {
+      reject(index, entry, "missing_context_delta", `pick ${index + 1} does not name a concrete detail from its context trigger`);
+      continue;
+    }
     if (previous) {
       const oldFingerprints = new Set(previous.triggers.map((trigger) => trigger.fingerprint));
       const hasNewEvidence = pickedTriggers.some((trigger) => (
         trigger.kind !== "artifact" && !oldFingerprints.has(trigger.fingerprint)
       ));
-      if (!hasNewEvidence || recommendationTextSimilarity(previous.why_now, reason) >= 0.8) continue;
+      if (!hasNewEvidence) {
+        reject(index, entry, "repeated_context", `pick ${index + 1} does not cite materially new evidence for this resurface`);
+        continue;
+      }
+      if (recommendationTextSimilarity(previous.why_now, reason) >= 0.8) {
+        reject(index, entry, "unchanged_pitch", `pick ${index + 1} repeats the previous recommendation pitch`);
+        continue;
+      }
     } else if (!pickedTriggers.some((trigger) => trigger.id === `artifact:${item.id}` || trigger.kind !== "artifact")) {
+      reject(index, entry, "missing_new_item_trigger", `pick ${index + 1} does not cite its own artifact or a non-artifact context trigger`);
       continue;
     }
-    if (selected.some(({ item: prior }) => nearDuplicate(prior.title, item.title))) continue;
+    if (selected.some(({ item: prior }) => nearDuplicate(prior.title, item.title))) {
+      reject(index, entry, "near_duplicate", `pick ${index + 1} duplicates the topic of an earlier pick`);
+      continue;
+    }
     seen.add(item.id);
     selected.push({
       item,
@@ -223,5 +308,24 @@ export function validateRecommendationPicks({
       },
     });
   }
-  return selected.map((entry) => entry.pick);
+  return { picks: selected.map((entry) => entry.pick), rejections };
+}
+
+export function validateRecommendationPicks(
+  input: Parameters<typeof validateRecommendationPicksDetailed>[0],
+): RecommendationPickInput[] {
+  return validateRecommendationPicksDetailed(input).picks;
+}
+
+export async function validateRecommendationPicksWithRepair(
+  input: Parameters<typeof validateRecommendationPicksDetailed>[0],
+  repair: (failed: { raw: RawRecommendationPick[]; rejections: RecommendationPickRejection[] }) => Promise<RawRecommendationPick[]>,
+): Promise<RecommendationPickValidationRun> {
+  const first = validateRecommendationPicksDetailed(input);
+  if (first.rejections.length === 0) {
+    return { ...first, raw: input.raw, repair_attempted: false };
+  }
+  const raw = await repair({ raw: input.raw, rejections: first.rejections });
+  const repaired = validateRecommendationPicksDetailed({ ...input, raw });
+  return { ...repaired, raw, repair_attempted: true };
 }

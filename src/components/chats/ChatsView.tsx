@@ -162,18 +162,10 @@ function formatSessionAge(timestamp: number): string {
   return `${Math.floor(deltaMs / day)}d`;
 }
 
-function relativeTime(value: string): string {
+function formatThreadAge(value: string): string {
   const time = Date.parse(value);
-  if (!Number.isFinite(time)) return "unknown";
-  const diff = Date.now() - time;
-  const abs = Math.abs(diff);
-  const minute = 60_000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-  if (abs < minute) return "just now";
-  if (abs < hour) return `${Math.round(diff / minute)}m ago`;
-  if (abs < hour * 24) return `${Math.round(diff / hour)}h ago`;
-  return `${Math.round(diff / day)}d ago`;
+  if (!Number.isFinite(time)) return "—";
+  return formatSessionAge(time);
 }
 
 export function ChatsView({ scopePath = "", workingFolder = "" }: ChatsViewProps) {
@@ -510,8 +502,8 @@ export function ChatsView({ scopePath = "", workingFolder = "" }: ChatsViewProps
   );
 
   const detailPane = selected?.type === "thread" ? (
-    // Keyed per thread: switching rows remounts the drawer, so an in-flight process
-    // stream aborts (unmount cleanup) instead of bleeding into another thread.
+    // Keyed per thread: switching rows remounts the drawer UI, while the server-owned turn
+    // keeps draining in the background and remains represented by the row's Working state.
     <ThreadDrawer
       key={selected.threadId}
       threadId={selected.threadId}
@@ -696,65 +688,67 @@ function ThreadRow({
   onProcess: () => void;
 }) {
   const Icon = targetIcon(thread.target);
+  const pendingCount = thread.pending_message_count ?? 0;
+  const canProcess = thread.status === "open" && pendingCount > 0 && !working;
 
   return (
     <div>
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={onSelect}
-        onKeyDown={(event) => {
-          if (event.target !== event.currentTarget) return;
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onSelect();
-          }
-        }}
-        className={`group flex cursor-pointer items-center gap-3 border-l-2 px-3 py-2 transition-colors ${
-          selected
-            ? "border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10"
-            : "border-transparent hover:bg-[var(--bg-secondary)]"
-        }`}
-      >
-        <Icon className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]" />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm text-[var(--text-primary)]">{targetLabel(thread.target)}</div>
-          {thread.last_message_snippet ? (
-            <div className="mt-0.5 truncate text-xs text-[var(--text-tertiary)]">{thread.last_message_snippet}</div>
-          ) : null}
-        </div>
-        {thread.dev_item ? (
-          <span
-            className="hidden shrink-0 items-center rounded border border-amber-500/20 bg-amber-500/5 px-1.5 text-[11px] leading-5 text-amber-600 md:inline-flex"
-            title={`Diagnosed ${thread.dev_item.diagnosed_at}`}
-          >
-            Dev item
-          </span>
-        ) : null}
-        <ThreadStatus thread={thread} working={working} />
-        <div className="flex shrink-0 items-center gap-1 text-xs text-[var(--text-quaternary)]">
-          <MessageSquare className="h-3.5 w-3.5" />
-          <span>{thread.message_count}</span>
-        </div>
-        <time
-          className="hidden shrink-0 text-xs text-[var(--text-quaternary)] sm:inline"
-          dateTime={thread.updated_at}
-          title={thread.updated_at}
+      <div className="group relative">
+        <button
+          type="button"
+          onClick={onSelect}
+          className={`flex w-full cursor-pointer items-start gap-3 border-l-2 px-3 py-2 text-left transition-colors ${
+            selected
+              ? "border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10"
+              : "border-transparent hover:bg-[var(--bg-secondary)]"
+          }`}
         >
-          {relativeTime(thread.updated_at)}
-        </time>
-        {thread.status === "open" && (thread.pending_message_count ?? 0) > 0 && !working ? (
+          <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--text-tertiary)]" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm text-[var(--text-primary)]">{targetLabel(thread.target)}</div>
+            <div className="mt-0.5 truncate text-xs text-[var(--text-tertiary)]">
+              {thread.last_message_snippet || "No comments yet"}
+            </div>
+          </div>
+          <div className="flex min-w-0 max-w-[58%] shrink-0 flex-col items-end gap-1 pl-2">
+            <time
+              className={`text-[11px] text-[var(--text-quaternary)] transition-opacity ${canProcess ? "group-hover:opacity-0 group-focus-within:opacity-0" : ""}`}
+              dateTime={thread.updated_at}
+              title={thread.updated_at}
+            >
+              {formatThreadAge(thread.updated_at)}
+            </time>
+            <div className="flex min-w-0 items-center justify-end gap-1.5 text-[11px]">
+              {thread.dev_item ? (
+                <span
+                  className="inline-flex shrink-0 items-center rounded border border-amber-500/20 bg-amber-500/5 px-1.5 leading-[18px] text-amber-600"
+                  title={`Diagnosed ${thread.dev_item.diagnosed_at}`}
+                >
+                  Dev item
+                </span>
+              ) : null}
+              <ThreadStatus thread={thread} working={working} />
+              <span
+                className="inline-flex shrink-0 items-center gap-1 text-[var(--text-quaternary)]"
+                aria-label={`${thread.message_count} ${thread.message_count === 1 ? "message" : "messages"}`}
+                title={`${thread.message_count} ${thread.message_count === 1 ? "message" : "messages"}`}
+              >
+                <MessageSquare aria-hidden="true" className="h-3.5 w-3.5" />
+                <span aria-hidden="true">{thread.message_count}</span>
+              </span>
+            </div>
+          </div>
+        </button>
+        {canProcess ? (
           <button
             type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onProcess();
-            }}
+            onClick={onProcess}
             disabled={processDisabled}
-            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium opacity-0 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] focus-within:opacity-100 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
+            aria-label={`Start chat with ${pendingCount} queued ${pendingCount === 1 ? "comment" : "comments"}`}
+            title="Start chat"
+            className="absolute right-2 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-md bg-[var(--content-surface,var(--bg-primary))] text-[var(--text-tertiary)] opacity-0 shadow-sm transition-[opacity,color,background-color] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] focus:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
           >
             <Play className="h-3.5 w-3.5" />
-            <span className="hidden md:inline">Process now</span>
           </button>
         ) : null}
       </div>
@@ -770,19 +764,19 @@ function ThreadRow({
 function ThreadStatus({ thread, working }: { thread: ThreadSummary; working: boolean }) {
   if (working) {
     return (
-      <div className="hidden shrink-0 items-center gap-1.5 text-xs font-medium text-emerald-600 md:flex">
+      <span className="inline-flex min-w-0 shrink items-center gap-1.5 font-medium text-emerald-600">
         <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-        <span>Processing</span>
-      </div>
+        <span className="truncate">Working</span>
+      </span>
     );
   }
 
   return (
-    <div className="hidden shrink-0 items-center gap-1.5 text-xs text-[var(--text-tertiary)] md:flex">
+    <span className="inline-flex min-w-0 shrink items-center gap-1.5 text-[var(--text-tertiary)]">
       {thread.status === "open" && (thread.pending_message_count ?? 0) > 0 ? (
-        <span>{thread.pending_message_count ?? 0} pending</span>
+        <span className="truncate">{thread.pending_message_count ?? 0} queued</span>
       ) : thread.status === "open" && thread.last_outcome ? (
-        <span className="text-[var(--text-quaternary)]" title={thread.last_outcome.summary || thread.last_outcome.at}>
+        <span className="truncate text-[var(--text-quaternary)]" title={thread.last_outcome.summary || thread.last_outcome.at}>
           {outcomeStory(thread.last_outcome)}
         </span>
       ) : thread.status === "open" ? (
@@ -802,7 +796,7 @@ function ThreadStatus({ thread, working }: { thread: ThreadSummary; working: boo
           </span>
         </>
       )}
-    </div>
+    </span>
   );
 }
 

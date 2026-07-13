@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { writeRecommendationRuntime } from "./recommendation-store";
-import { LibraryRecommendationRunner } from "./recommendation-trigger";
+import { LibraryRecommendationRunner, recommendationRunTimeoutMs } from "./recommendation-trigger";
 
 function setup(t: test.TestContext) {
   const previousData = process.env.DATA_DIR;
@@ -28,6 +28,15 @@ function setup(t: test.TestContext) {
 async function settle(ms = 40) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+test("recommendation child timeout covers the initial editor call and one repair", () => {
+  assert.equal(recommendationRunTimeoutMs({}), 21 * 60_000);
+  assert.equal(recommendationRunTimeoutMs({ LIBRARY_EDITOR_TIMEOUT_MS: "1000" }), 62_000);
+  assert.equal(recommendationRunTimeoutMs({
+    LIBRARY_EDITOR_TIMEOUT_MS: "1000",
+    LIBRARY_RECOMMENDATION_RUN_TIMEOUT_MS: "2500",
+  }), 2_500);
+});
 
 test("one saved item or three distinct candidates trigger, while duplicate candidate writes do not", async (t) => {
   const { vault } = setup(t);

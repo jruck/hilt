@@ -67,7 +67,7 @@ function storedBoolean(key: string, fallback: boolean): boolean {
 }
 
 function initialLibraryControls(): LibraryUrlControls {
-  if (typeof window === "undefined") return { density: "feed", ranking: "recent", status: "all", mode: "study", source: null, tag: null };
+  if (typeof window === "undefined") return { density: "feed", ranking: "recent", status: "all", mode: "study", source: null, tag: null, attention: false };
   const controls = parseLibraryControls(window.location.search);
   return controls.ranking === "for-you" ? { ...controls, density: "feed" } : controls;
 }
@@ -101,6 +101,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
   const [ranking, setRankingState] = useState<LibraryRanking>(() => initialLibraryControls().ranking);
   const [statusFilter, setStatusFilterState] = useState<LibraryStatusFilter>(() => initialLibraryControls().status);
   const [modeFilter, setModeFilterState] = useState<LibraryModeControl>(() => initialLibraryControls().mode);
+  const [attentionOnly, setAttentionOnly] = useState(() => initialLibraryControls().attention);
   const [sourcesOpen, setSourcesOpen] = useState(() => storedBoolean(SOURCES_OPEN_KEY, false));
   const [selectedSource, setSelectedSourceState] = useState<string | null>(() => initialLibraryControls().source);
   const [selectedTag, setSelectedTagState] = useState<string | null>(() => initialLibraryControls().tag);
@@ -151,14 +152,16 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
     mode: modeFilter,
     source: selectedSource,
     tag: selectedTag,
-  }), [density, modeFilter, ranking, selectedSource, selectedTag, statusFilter]);
+    attention: attentionOnly,
+  }), [attentionOnly, density, modeFilter, ranking, selectedSource, selectedTag, statusFilter]);
 
   const recent = useInfiniteLibrary({
-    source: selectedSourceId,
-    channel: selectedChannel,
-    tag: selectedTag,
-    mode: modeFilter,
-    status: statusFilter === "all" ? null : statusFilter,
+    source: attentionOnly ? null : selectedSourceId,
+    channel: attentionOnly ? null : selectedChannel,
+    tag: attentionOnly ? null : selectedTag,
+    mode: attentionOnly ? "all" : modeFilter,
+    status: attentionOnly || statusFilter === "all" ? null : statusFilter,
+    attention: attentionOnly,
     unread: ranking === "new",
     q: searchQuery || null,
     content_type: typeFilter,
@@ -486,6 +489,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
       setRankingState(controls.ranking);
       setStatusFilterState(controls.status);
       setModeFilterState(controls.mode);
+      setAttentionOnly(controls.attention);
       setSelectedSourceState(controls.source);
       setSelectedTagState(controls.tag);
       setSelectedRecommendationEpisodeId(recommendationEpisodeIdFromSearch(window.location.search));
@@ -850,11 +854,13 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
 
   const selectRanking = useCallback((nextRanking: LibraryRanking) => {
     const nextDensity = nextRanking === "for-you" ? "feed" : density;
-    const nextControls = { ...libraryControls, ranking: nextRanking, density: nextDensity };
+    const nextAttention = nextRanking === "recent" ? attentionOnly : false;
+    const nextControls = { ...libraryControls, ranking: nextRanking, density: nextDensity, attention: nextAttention };
     if (nextDensity !== density) setDensityState(nextDensity);
+    if (nextAttention !== attentionOnly) setAttentionOnly(nextAttention);
     setRankingState(nextRanking);
     pushControlChange(nextControls);
-  }, [density, libraryControls, pushControlChange]);
+  }, [attentionOnly, density, libraryControls, pushControlChange]);
 
   useEffect(() => {
     if (ranking === "new" && !recent.isLoading && newCount === 0) {
@@ -872,19 +878,22 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
   }, [libraryControls, newCount, ranking, recent.isLoading, replaceLibraryHistory, reviewQueue.isLoading, scopePath, updatedCount]);
 
   const selectStatusFilter = useCallback((nextStatus: LibraryStatusFilter) => {
-    const nextControls = { ...libraryControls, status: nextStatus };
+    const nextControls = { ...libraryControls, status: nextStatus, attention: false };
+    setAttentionOnly(false);
     setStatusFilterState(nextStatus);
     pushControlChange(nextControls);
   }, [libraryControls, pushControlChange]);
 
   const selectModeFilter = useCallback((nextMode: LibraryModeControl) => {
-    const nextControls = { ...libraryControls, mode: nextMode };
+    const nextControls = { ...libraryControls, mode: nextMode, attention: false };
+    setAttentionOnly(false);
     setModeFilterState(nextMode);
     pushControlChange(nextControls);
   }, [libraryControls, pushControlChange]);
 
   const selectSource = (source: string | null) => {
-    const nextControls = { ...libraryControls, source, tag: null };
+    const nextControls = { ...libraryControls, source, tag: null, attention: false };
+    setAttentionOnly(false);
     setSelectedSourceState(source);
     setSelectedTagState(null);
     pushControlChange(nextControls);
@@ -892,12 +901,50 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
   };
 
   const selectTag = (source: string | null, tag: string | null) => {
-    const nextControls = { ...libraryControls, source, tag };
+    const nextControls = { ...libraryControls, source, tag, attention: false };
+    setAttentionOnly(false);
     setSelectedSourceState(source);
     setSelectedTagState(tag);
     pushControlChange(nextControls);
     if (typeof window !== "undefined" && window.innerWidth < 1024) setSourcesOpen(false);
   };
+
+  const selectAttention = useCallback(() => {
+    const nextAttention = !attentionOnly;
+    const nextControls: LibraryUrlControls = {
+      ...libraryControls,
+      ranking: "recent",
+      status: "all",
+      source: null,
+      tag: null,
+      attention: nextAttention,
+    };
+    setAttentionOnly(nextAttention);
+    setRankingState("recent");
+    setStatusFilterState("all");
+    setSelectedSourceState(null);
+    setSelectedTagState(null);
+    setTypeFilter(null);
+    setEvalFilters({});
+    pushControlChange(nextControls);
+    if (typeof window !== "undefined" && window.innerWidth < 1024) setSourcesOpen(false);
+  }, [attentionOnly, libraryControls, pushControlChange]);
+
+  const selectTypeFilter = useCallback((nextType: string | null) => {
+    if (attentionOnly) {
+      setAttentionOnly(false);
+      pushControlChange({ ...libraryControls, attention: false });
+    }
+    setTypeFilter(nextType);
+  }, [attentionOnly, libraryControls, pushControlChange]);
+
+  const selectEvalFilters = useCallback((nextFilters: typeof evalFilters) => {
+    if (attentionOnly) {
+      setAttentionOnly(false);
+      pushControlChange({ ...libraryControls, attention: false });
+    }
+    setEvalFilters(nextFilters);
+  }, [attentionOnly, libraryControls, pushControlChange]);
 
   const handleFeedScroll = useCallback(() => {
     const node = feedScrollRef.current;
@@ -1053,9 +1100,11 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
               onStatusSelect={selectStatusFilter}
               onModeSelect={selectModeFilter}
               typeFilter={typeFilter}
-              onTypeSelect={setTypeFilter}
+              onTypeSelect={selectTypeFilter}
               evalFilters={evalFilters}
-              onEvalFilterChange={setEvalFilters}
+              onEvalFilterChange={selectEvalFilters}
+              attentionOnly={attentionOnly}
+              onAttentionSelect={selectAttention}
               className="absolute bottom-3 left-3 top-3 z-20 w-[min(82vw,320px)] rounded-lg border border-[var(--border-default)] content-card-shadow lg:static lg:bottom-auto lg:left-auto lg:top-auto lg:z-auto lg:block lg:w-[var(--library-source-width)] lg:flex-none lg:shrink-0 lg:rounded-none lg:border-0 lg:shadow-none"
               style={{ "--library-source-width": `${sourceWidth}px` } as CSSProperties}
             />
@@ -1114,7 +1163,7 @@ export function LibraryView({ searchQuery, activationToken = 0 }: { searchQuery:
                   {loading && <LoadingState label="Loading library" className="min-h-40 py-8" />}
                   {!loading && items.length === 0 && (
                     <div className="rounded-lg border border-[var(--border-default)] bg-[var(--content-surface)] p-5 text-sm text-[var(--text-secondary)]">
-                      No library items match these controls.
+                      {attentionOnly ? "No Library items need attention." : "No library items match these controls."}
                     </div>
                   )}
                   {items.length > 0 && (

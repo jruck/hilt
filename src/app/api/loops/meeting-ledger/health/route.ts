@@ -8,11 +8,25 @@ import {
   meetingLedgerDbPath,
   meetingLedgerRoot,
   readMeetingLedgerStorageMarker,
+  type MeetingExtractionQueueHealth,
 } from "@/lib/loops/meeting-ledger-store";
 import { errorMessage, findEnabledLoop, loadLoopRegistryContext, loopStoreHome } from "../../_shared";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+const EMPTY_EXTRACTION_QUEUE: MeetingExtractionQueueHealth = {
+  depth: 0,
+  queued: 0,
+  running: 0,
+  retry_wait: 0,
+  failed: 0,
+  complete: 0,
+  oldest_queued_at: null,
+  next_retry_at: null,
+  active: [],
+  last_error: null,
+};
 
 export async function GET() {
   try {
@@ -37,7 +51,14 @@ export async function GET() {
         context_chunks: context.chunks.length,
         last_verified_backup: fs.existsSync(backup) ? { path: backup, at: fs.statSync(backup).mtime.toISOString(), size_bytes: fs.statSync(backup).size } : null,
       };
-      if (!fs.existsSync(dbPath)) return NextResponse.json({ ...base, db: null, integrity: "legacy" });
+      if (!fs.existsSync(dbPath)) {
+        return NextResponse.json({
+          ...base,
+          db: null,
+          integrity: "legacy",
+          extraction_queue: EMPTY_EXTRACTION_QUEUE,
+        });
+      }
       const store = new MeetingLedgerStore(dbPath);
       try {
         return NextResponse.json({
@@ -49,6 +70,7 @@ export async function GET() {
           write_blocked: store.writeBlockReason(),
           last_transaction: store.latestEvent(),
           last_extraction_transaction: store.latestEvent("meeting-processed"),
+          extraction_queue: store.extractionQueueHealth(),
         });
       } finally {
         store.close();

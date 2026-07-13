@@ -182,21 +182,43 @@ Every action should have visible feedback:
 
 This section tracks design decisions and refinements over time. Each entry should note what was tried, what was rejected, and why.
 
-### 2026-07-13: Comment First, Process in the Conversation
+### 2026-07-13: Operational Failures Become a Review Lens
+
+**Principle**: Operational health chrome should describe what is broken now; durable item failures should become reviewable content. Append-only logs are diagnostic history, not an accumulating warning count. Once automated recovery is truly exhausted, collect the affected artifacts in one quiet `Needs attention` lens inside the existing Admin filters hierarchy so the user can inspect the actual items and decide whether intervention is worthwhile without promoting diagnostics to a primary browse dimension.
+
+**UI rules**:
+- Derive the lens from truthful terminal state; do not mint another markdown lifecycle or include work that is still retrying.
+- Let healed items disappear automatically even when old attempts or stderr remain on disk.
+- Use restrained amber status in cards, rows, and detail, with the concrete failure text and retry count where useful.
+- Keep the lens orthogonal to Saved/Candidate, Study/Keep, source, and type. Activating it clears those narrower controls and shows all affected Library items in Recent order.
+- Place it under a compact `Processing` subsection, and let the parent Admin filters dot and clear action carry its active state when collapsed.
+- Health alert badges and their drill-down share one accounting contract: every counted warning or blocker must have an amber/red diagnostic row below with its reason. Summary prose may orient, but it must never be the only place an alert is explained; the badge count includes all simultaneous blockers and warnings.
+
+### 2026-07-13: Comment First, Chat in Place
 
 **Principle**: Comment and chat are one object with two tempos. Every feedback-capable surface gets
 one comment gesture. The compact popover is an asynchronous capture lane; it should let the user
 drop a thought and continue multithreaded work without implicitly starting an agent.
 
 **UI rules**:
-- `Process now` always opens the full Chats conversation before the run begins. Live state, tool
-  calls, touched files, and the response belong in that pane, not behind a green status chip.
+- The popover has two modes over one durable thread: compact capture and a taller live conversation.
+  `Chat now` expands in place and starts the queued volley; `Open full chat` is an escape hatch, not
+  a mandatory detour away from the artifact being discussed.
+- A live chat must feel live before the final answer: render the user message immediately, stream
+  assistant text deltas, and show plain-language thinking/tool steps moving from running to complete.
+  Closing the surface should detach from presentation rather than silently turning Close into Stop.
 - Runs handle messages; they do not end conversations. Later comments reuse the same thread and
-  model session, including a comment queued while a turn is active.
+  model session, including a comment queued while a turn is active. Keep Send available beside Stop
+  during a run so a new thought can become the next volley without interrupting the current one.
 - `Close conversation` is the only deliberate fork boundary. Avoid inferring closure from an
   answer, edit, proposal, diagnosis, or scheduled calibration pass.
 - Show concrete outcomes (`Answered`, `Changed files`, `Proposal created`, `Dev item`, calibration,
   or steering), never the ambiguous catch-all `Processed`.
+- Conversation-list rows protect the durable title and latest-message preview. Put compact age on
+  the top-right and state (`Dev item`, `queued`, working/outcome, message count) in one bottom-right
+  rail; do not let metadata become independent flex siblings that squeeze the title to an ellipsis.
+- User-facing queue copy is `queued`, not `pending`: pending is an implementation state, while queued
+  says the comment is safely waiting for either a live turn or the background processor.
 
 ### 2026-07-13: Conversation Timeline — Loft Grammar, Hilt Materials
 

@@ -76,7 +76,7 @@ export interface ChatSessionSummary {
 export type ChatStreamEvent =
   | { type: "session"; chatId: string } // always first event
   | { type: "trace"; trace: ChatTraceEvent }
-  | { type: "message"; content: string } // per assistant text block, as parsed
+  | { type: "message"; content: string } // assistant text delta; clients append in order
   | { type: "complete"; claudeSessionId: string | null }
   | { type: "error"; error: string };
 

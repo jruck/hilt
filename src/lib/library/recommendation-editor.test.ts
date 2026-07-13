@@ -7,6 +7,9 @@ import {
   recommendationPitchHasContextDelta,
   recommendationTextSimilarity,
   validateRecommendationPicks,
+  validateRecommendationPicksDetailed,
+  validateRecommendationPicksWithRepair,
+  type RawRecommendationPick,
 } from "./recommendation-editor";
 import { DEFAULT_SCORING_CONFIG } from "./scoring-config";
 import type { RecommendationEpisode, RecommendationTrigger, RecommendedArtifact } from "./types";
@@ -111,6 +114,67 @@ test("recommendation pitches cannot restate the source description", () => {
   });
   assert.equal(picks.length, 0);
   assert.ok(recommendationTextSimilarity(`${item.title} ${item.summary}`, "Agent native software delivery is a workflow for agent native software delivery") >= 0.65);
+});
+
+test("pick validation explains every rejection without weakening the valid subset", () => {
+  const item = artifact("a", "Agent native software delivery", "A workflow for agent native software delivery", "2026-07-09T10:00:00.000Z");
+  const artifactTrigger = trigger(`artifact:${item.id}`, "artifact-a", "artifact");
+  const result = validateRecommendationPicksDetailed({
+    candidates: [item],
+    triggers: [artifactTrigger],
+    previousByArtifact: new Map(),
+    maxItems: 2,
+    nearDuplicate: () => false,
+    raw: [
+      { id: item.id, reason: "Agent native software delivery is a workflow for agent native software delivery", trigger_ids: [artifactTrigger.id] },
+      { id: "missing", reason: "A useful reason", trigger_ids: [artifactTrigger.id] },
+      { id: item.id, reason: "A third pick", trigger_ids: [artifactTrigger.id] },
+    ],
+  });
+  assert.deepEqual(result.picks, []);
+  assert.deepEqual(result.rejections.map((rejection) => rejection.code), [
+    "source_paraphrase",
+    "unknown_artifact",
+    "batch_limit",
+  ]);
+  assert.match(result.rejections[0].message, /pick 1/);
+});
+
+test("pick validation reports non-object model entries instead of throwing", () => {
+  const raw = [null, "not-a-pick"] as unknown as RawRecommendationPick[];
+  const result = validateRecommendationPicksDetailed({
+    raw,
+    candidates: [],
+    triggers: [],
+    previousByArtifact: new Map(),
+    maxItems: 2,
+    nearDuplicate: () => false,
+  });
+  assert.deepEqual(result.rejections.map((rejection) => rejection.code), ["invalid_shape", "invalid_shape"]);
+});
+
+test("invalid recommendation output gets one complete repair attempt", async () => {
+  const item = artifact("a", "Agent native software delivery", "A workflow for agent native software delivery", "2026-07-09T10:00:00.000Z");
+  const artifactTrigger = trigger(`artifact:${item.id}`, "artifact-a", "artifact");
+  let calls = 0;
+  const result = await validateRecommendationPicksWithRepair({
+    candidates: [item],
+    triggers: [artifactTrigger],
+    previousByArtifact: new Map(),
+    maxItems: 2,
+    nearDuplicate: () => false,
+    raw: [{ id: item.id, reason: "Agent native software delivery is a workflow for agent native software delivery", trigger_ids: [artifactTrigger.id] }],
+  }, async ({ raw, rejections }) => {
+    calls += 1;
+    assert.equal(raw.length, 1);
+    assert.deepEqual(rejections.map((rejection) => rejection.code), ["source_paraphrase"]);
+    return [{ id: item.id, reason: "Review this before the next implementation decision", trigger_ids: [artifactTrigger.id] }];
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.repair_attempted, true);
+  assert.equal(result.rejections.length, 0);
+  assert.equal(result.picks.length, 1);
+  assert.equal(result.raw.length, 1);
 });
 
 test("contextual recommendation pitches must carry a novel trigger detail", () => {

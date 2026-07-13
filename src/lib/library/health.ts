@@ -19,6 +19,11 @@ interface HealthOptions {
 
 const EXCERPT_MAX_CHARS = 1800;
 const CLASSIFY_MAX_CHARS = 64_000;
+// Scheduler jobs finish by writing their summary to stdout. If stderr has not changed within this
+// window of the latest stdout completion, it belongs to an older append-only run and cannot describe
+// the current job state. Actionable stderr is normally emitted near the terminal summary; this window
+// is long enough for that gap while remaining shorter than the most frequent scheduler cadence.
+const CURRENT_RUN_STDERR_WINDOW_MS = 30 * 60 * 1000;
 
 function defaultLaunchctl(label: string): string {
   const uid = process.getuid?.();
@@ -39,6 +44,14 @@ function fileSize(filePath: string): number {
     return fs.statSync(filePath).size;
   } catch {
     return 0;
+  }
+}
+
+function fileMtimeMs(filePath: string): number | null {
+  try {
+    return fs.statSync(filePath).mtimeMs;
+  } catch {
+    return null;
   }
 }
 
@@ -126,6 +139,15 @@ function isKnownSchedulerNoiseLine(line: string): boolean {
     || /^\[refetch\]\s+RECOVERED\b/.test(line);
 }
 
+function stderrBelongsToLatestRun(stdoutPath: string, stderrPath: string, stderrBytes: number): boolean {
+  if (stderrBytes <= 0) return false;
+  const stdoutMtime = fileMtimeMs(stdoutPath);
+  const stderrMtime = fileMtimeMs(stderrPath);
+  if (stderrMtime === null || stdoutMtime === null) return true;
+  if (stderrMtime >= stdoutMtime) return true;
+  return stdoutMtime - stderrMtime <= CURRENT_RUN_STDERR_WINDOW_MS;
+}
+
 function schedulerStatus(job: ReturnType<typeof librarySchedulerJobs>[number], options: HealthOptions): LibrarySchedulerJobSummary {
   const plistPath = path.join(libraryLaunchAgentsDir(), `${job.label}.plist`);
   let loaded = false;
@@ -140,26 +162,29 @@ function schedulerStatus(job: ReturnType<typeof librarySchedulerJobs>[number], o
 
   const stderrBytes = fileSize(job.stderr);
   const stdoutExcerpt = fileTail(job.stdout);
-  const stderrExcerpt = cleanSchedulerStderrExcerpt(fileTail(job.stderr));
-  const stderrForClassification = readLogText(job.stderr, CLASSIFY_MAX_CHARS);
-  const stderrIsBenign = stderrBytes > 0 && isBenignSchedulerStderr(stderrForClassification);
+  const stderrIsCurrent = stderrBelongsToLatestRun(job.stdout, job.stderr, stderrBytes);
+  const stderrExcerpt = stderrIsCurrent ? cleanSchedulerStderrExcerpt(fileTail(job.stderr)) : null;
+  const stderrForClassification = stderrIsCurrent ? readLogText(job.stderr, CLASSIFY_MAX_CHARS) : null;
+  const stderrIsBenign = stderrIsCurrent && isBenignSchedulerStderr(stderrForClassification);
   const actionableStderr = firstActionableStderrLine(stderrForClassification);
   const status: LibrarySchedulerJobSummary["status"] = !loaded
     ? "blocked"
     : lastExitCode !== null && lastExitCode !== 0
       ? "warning"
-      : stderrBytes > 0 && !stderrIsBenign
+      : stderrIsCurrent && !stderrIsBenign
         ? "warning"
         : "ok";
   const message = !loaded
     ? "LaunchAgent is not loaded."
     : lastExitCode !== null && lastExitCode !== 0
       ? `Last run exited with code ${lastExitCode}.`
-      : stderrBytes > 0 && stderrIsBenign
+      : stderrIsCurrent && stderrIsBenign
         ? "Completed successfully; stderr only contains known scheduler noise."
-      : stderrBytes > 0
+      : stderrIsCurrent
           ? `Completed with stderr: ${actionableStderr || "expand for details."}`
-          : "Loaded and clean.";
+          : stderrBytes > 0
+            ? "Latest run completed cleanly; older stderr is retained in the log."
+            : "Loaded and clean.";
 
   return {
     id: job.id,
@@ -174,6 +199,7 @@ function schedulerStatus(job: ReturnType<typeof librarySchedulerJobs>[number], o
     stdout_updated_at: fileUpdatedAt(job.stdout),
     stderr_updated_at: fileUpdatedAt(job.stderr),
     stderr_bytes: stderrBytes,
+    stderr_current: stderrIsCurrent,
     stdout_excerpt: stdoutExcerpt,
     stderr_excerpt: stderrExcerpt,
     message,

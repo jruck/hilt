@@ -10,8 +10,7 @@ import {
   pruneTriggerState,
   readProcessedMeetings,
   readTriggerState,
-  SerialMeetingRunner,
-  shouldFire,
+  shouldEnqueue,
   writeTriggerState,
   type MeetingObservation,
   type SettleConfig,
@@ -115,7 +114,7 @@ describe("observeMeeting (settle detection)", () => {
   });
 });
 
-describe("shouldFire (once-guard + processed-check)", () => {
+describe("shouldEnqueue (durable retry + processed-check)", () => {
   const entry = (overrides: Partial<TriggerMeetingState> = {}): TriggerMeetingState => ({
     meeting_path: "meetings/2026-07-07/Standup.md",
     transcript_measure: 40,
@@ -125,20 +124,20 @@ describe("shouldFire (once-guard + processed-check)", () => {
     ...overrides,
   });
 
-  it("fires a settled, un-fired, un-processed meeting", () => {
-    assert.equal(shouldFire(entry(), true, new Set()), true);
+  it("queues a settled, unprocessed meeting", () => {
+    assert.equal(shouldEnqueue(entry(), true, new Set()), true);
   });
 
-  it("never fires twice (fired_at persists)", () => {
-    assert.equal(shouldFire(entry({ fired_at: at(3) }), true, new Set()), false);
+  it("keeps submitting after legacy fired_at until canonical processing succeeds", () => {
+    assert.equal(shouldEnqueue(entry({ fired_at: at(3) }), true, new Set()), true);
   });
 
-  it("never fires when not settled", () => {
-    assert.equal(shouldFire(entry(), false, new Set()), false);
+  it("does not queue when not settled", () => {
+    assert.equal(shouldEnqueue(entry(), false, new Set()), false);
   });
 
-  it("never fires a meeting the nightly already processed", () => {
-    assert.equal(shouldFire(entry(), true, new Set(["meetings/2026-07-07/Standup.md"])), false);
+  it("does not queue a meeting the canonical ledger already processed", () => {
+    assert.equal(shouldEnqueue(entry(), true, new Set(["meetings/2026-07-07/Standup.md"])), false);
   });
 });
 
@@ -197,73 +196,6 @@ describe("trigger state persistence", () => {
     };
     const pruned = pruneTriggerState(state, at(5), 14);
     assert.deepEqual(Object.keys(pruned.meetings), ["fresh"]);
-  });
-});
-
-describe("SerialMeetingRunner (queue serialization)", () => {
-  const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
-
-  it("runs one batch at a time; a second enqueue waits behind the active run", async () => {
-    const events: string[] = [];
-    const releases: Array<() => void> = [];
-    const runner = new SerialMeetingRunner(async (batch) => {
-      events.push(`start:${batch.join("+")}`);
-      await new Promise<void>((resolve) => releases.push(resolve));
-      events.push(`end:${batch.join("+")}`);
-    });
-
-    runner.enqueue(["a"]);
-    await tick();
-    runner.enqueue(["b", "c"]);
-    await tick();
-    // Only the first batch has started; b+c are queued behind it.
-    assert.deepEqual(events, ["start:a"]);
-    assert.equal(runner.isActive(), true);
-
-    releases[0]();
-    await tick();
-    assert.deepEqual(events, ["start:a", "end:a", "start:b+c"]);
-
-    releases[1]();
-    await runner.idle();
-    assert.deepEqual(events, ["start:a", "end:a", "start:b+c", "end:b+c"]);
-    assert.equal(runner.isActive(), false);
-  });
-
-  it("dedupes a meeting enqueued twice while waiting", async () => {
-    const batches: string[][] = [];
-    const releases: Array<() => void> = [];
-    const runner = new SerialMeetingRunner(async (batch) => {
-      batches.push(batch);
-      await new Promise<void>((resolve) => releases.push(resolve));
-    });
-    runner.enqueue(["a"]);
-    await tick();
-    runner.enqueue(["b"]);
-    runner.enqueue(["b", "c"]);
-    releases[0]();
-    await tick();
-    releases[1]();
-    await runner.idle();
-    assert.deepEqual(batches, [["a"], ["b", "c"]]);
-  });
-
-  it("a failing run never wedges the queue or throws", async () => {
-    const ran: string[][] = [];
-    let first = true;
-    const runner = new SerialMeetingRunner(async (batch) => {
-      ran.push(batch);
-      if (first) {
-        first = false;
-        throw new Error("boom");
-      }
-    });
-    runner.enqueue(["a"]);
-    await runner.idle();
-    runner.enqueue(["b"]);
-    await runner.idle();
-    assert.deepEqual(ran, [["a"], ["b"]]);
-    assert.equal(runner.isActive(), false);
   });
 });
 

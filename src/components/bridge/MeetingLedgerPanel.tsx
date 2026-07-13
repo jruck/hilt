@@ -27,18 +27,31 @@ const SURFACES: Array<{ id: LedgerSurfaceState | "all"; label: string; descripti
 
 export function MeetingLedgerLauncher({ onOpen }: { onOpen: () => void }) {
   const { data, error } = useMeetingLedgerHealth();
+  // Older Hilt servers can briefly omit queue health during a rolling upgrade.
+  const failed = data?.extraction_queue?.failed ?? 0;
+  const active = data?.extraction_queue?.depth ?? 0;
+  const status = error
+    ? "Ledger unavailable"
+    : failed
+      ? `${failed.toLocaleString()} extraction ${failed === 1 ? "failure" : "failures"}`
+      : active
+        ? `${active.toLocaleString()} ${active === 1 ? "meeting" : "meetings"} processing`
+        : data
+          ? `${data.counts.total.toLocaleString()} entries · ${data.counts.latent.toLocaleString()} latent`
+          : "Loading";
+  const unhealthy = Boolean(error || failed);
   return (
     <button
       type="button"
       data-testid="meeting-ledger-launcher"
       onClick={onOpen}
       className="group flex w-full items-center gap-3 border-t border-[var(--border-default)] py-3 text-left transition-colors hover:text-[var(--text-primary)]"
-      title={error ? "Meeting ledger unavailable; open for details" : "Browse the meeting ledger"}
+      title={error ? "Meeting ledger unavailable; open for details" : failed ? "Meeting extraction needs attention" : active ? "Meeting extraction is processing" : "Browse the meeting ledger"}
     >
-      <Database className={`h-4 w-4 ${error ? "text-red-500" : "text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)]"}`} />
+      <Database className={`h-4 w-4 ${unhealthy ? "text-red-500" : active ? "text-blue-500" : "text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)]"}`} />
       <span className="text-sm font-medium text-[var(--text-secondary)]">Meeting ledger</span>
-      <span className={`text-xs tabular-nums ${error ? "text-red-500" : "text-[var(--text-quaternary)]"}`}>
-        {error ? "Ledger unavailable" : data ? `${data.counts.total.toLocaleString()} entries · ${data.counts.latent.toLocaleString()} latent` : "Loading"}
+      <span className={`text-xs tabular-nums ${unhealthy ? "text-red-500" : active ? "text-blue-500" : "text-[var(--text-quaternary)]"}`}>
+        {status}
       </span>
       <ChevronRight className="ml-auto h-4 w-4 text-[var(--text-quaternary)] group-hover:text-[var(--text-secondary)]" />
     </button>

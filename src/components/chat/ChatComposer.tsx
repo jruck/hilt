@@ -9,6 +9,9 @@ export interface ChatComposerProps {
   sending: boolean;
   placeholder?: string;
   disabled?: boolean;
+  autoFocus?: boolean;
+  /** Live thread chats can accept the next volley while the current one is still running. */
+  allowSendWhileSending?: boolean;
 }
 
 export function ChatComposer({
@@ -17,6 +20,8 @@ export function ChatComposer({
   sending,
   placeholder = "Message",
   disabled = false,
+  autoFocus = false,
+  allowSendWhileSending = false,
 }: ChatComposerProps) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -31,7 +36,7 @@ export function ChatComposer({
   function submit(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
     const trimmed = text.trim();
-    if (!trimmed || sending || disabled) return;
+    if (!trimmed || (sending && !allowSendWhileSending) || disabled) return;
     onSend(trimmed);
     setText("");
   }
@@ -39,7 +44,7 @@ export function ChatComposer({
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (!sending) submit();
+      if (!sending || allowSendWhileSending) submit();
     }
   }
 
@@ -53,22 +58,36 @@ export function ChatComposer({
           onKeyDown={handleKeyDown}
           rows={1}
           name="chat-message"
+          autoFocus={autoFocus}
           disabled={disabled}
           className="max-h-40 min-h-6 min-w-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent py-0.5 text-[13px] leading-[1.5] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none"
           placeholder={placeholder}
           aria-label={placeholder}
         />
         {sending ? (
-          <button
-            type="button"
-            onClick={onStop}
-            disabled={disabled || !onStop}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-red-500/20 bg-red-500/5 text-red-500 transition-colors hover:bg-red-500/10 disabled:cursor-default disabled:opacity-40"
-            title="Stop"
-            aria-label="Stop"
-          >
-            <Square className="h-3.5 w-3.5 fill-current" />
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={onStop}
+              disabled={disabled || !onStop}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-red-500/20 bg-red-500/5 text-red-500 transition-colors hover:bg-red-500/10 disabled:cursor-default disabled:opacity-40"
+              title="Stop current turn"
+              aria-label="Stop current turn"
+            >
+              <Square className="h-3.5 w-3.5 fill-current" />
+            </button>
+            {allowSendWhileSending ? (
+              <button
+                type="submit"
+                disabled={!text.trim() || disabled}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--interactive-active)] text-[var(--text-inverted)] transition-colors hover:bg-[var(--interactive-hover)] disabled:cursor-default disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-tertiary)]"
+                title="Queue next message"
+                aria-label="Queue next message"
+              >
+                <Send className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </>
         ) : (
           <button
             type="submit"

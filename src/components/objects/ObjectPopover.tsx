@@ -6,8 +6,8 @@
  * gets the exact same feel everywhere.
  *
  * - Anchors to the trigger's getBoundingClientRect (below the anchor, left-aligned).
- * - Viewport clamp is the CalendarEventPopoverContent.tsx clamp verbatim: maxHeight
- *   min(520, viewport - margins), then top/left clamped inside a 12px margin.
+ * - Viewport clamp follows CalendarEventPopoverContent.tsx: compact surfaces cap at 520px,
+ *   conversation surfaces at 720px, then top/left clamp inside a 12px margin.
  * - Dismissal is the AppHud idiom: outside-mousedown + Escape. Mousedown inside the
  *   anchor is exempt so the pill's own click handler toggles instead of racing a close.
  * - Rendered through a portal to document.body: pills live inline in prose, and a
@@ -22,10 +22,14 @@ interface ObjectPopoverProps {
   anchorRef: RefObject<HTMLElement | null>;
   onClose: () => void;
   children: ReactNode;
+  /** Conversation mode keeps the same anchored shell but gives chat a taller, wider canvas. */
+  variant?: "default" | "comment" | "conversation";
 }
 
-export function ObjectPopover({ anchorRef, onClose, children }: ObjectPopoverProps) {
+export function ObjectPopover({ anchorRef, onClose, children, variant = "default" }: ObjectPopoverProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const conversation = variant === "conversation";
+  const fixedComposer = variant === "comment" || conversation;
 
   // Anchor + viewport clamp (CalendarEventPopoverContent.tsx:66-84). Re-runs on resize and
   // whenever the popover's own size changes (loading skeleton → resolved card).
@@ -40,7 +44,7 @@ export function ObjectPopover({ anchorRef, onClose, children }: ObjectPopoverPro
         wrapper.style.top = `${Math.round(anchor.bottom + gap)}px`;
         wrapper.style.left = `${Math.round(anchor.left)}px`;
       }
-      wrapper.style.maxHeight = `${Math.min(520, window.innerHeight - margin * 2)}px`;
+      wrapper.style.maxHeight = `${Math.min(conversation ? 720 : 520, window.innerHeight - margin * 2)}px`;
       const rect = wrapper.getBoundingClientRect();
       const top = Math.min(Math.max(rect.top, margin), Math.max(margin, window.innerHeight - rect.height - margin));
       const left = Math.min(Math.max(rect.left, margin), Math.max(margin, window.innerWidth - rect.width - margin));
@@ -57,7 +61,7 @@ export function ObjectPopover({ anchorRef, onClose, children }: ObjectPopoverPro
       window.removeEventListener("resize", clamp);
       observer.disconnect();
     };
-  }, [anchorRef]);
+  }, [anchorRef, conversation]);
 
   // Dismissal (AppHud.tsx:164-184): outside-mousedown + Escape.
   useEffect(() => {
@@ -87,11 +91,19 @@ export function ObjectPopover({ anchorRef, onClose, children }: ObjectPopoverPro
     <div
       ref={wrapperRef}
       role="dialog"
-      className="hilt-object-popover-wrapper fixed z-[100] w-[min(360px,calc(100vw-24px))]"
+      className={`hilt-object-popover-wrapper fixed z-[100] transition-[width,max-height] duration-200 ${
+        conversation
+          ? "h-[min(720px,calc(100vh-24px))] w-[min(460px,calc(100vw-24px))]"
+          : variant === "comment"
+            ? "h-[min(520px,calc(100vh-24px))] w-[min(360px,calc(100vw-24px))]"
+            : "w-[min(360px,calc(100vw-24px))]"
+      }`}
       data-testid="object-popover"
     >
-      <div className="flex max-h-[inherit] min-h-0 flex-col overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-2xl">
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">{children}</div>
+      <div className={`flex max-h-[inherit] min-h-0 flex-col overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-2xl ${fixedComposer ? "h-full" : ""}`}>
+        <div className={`min-h-0 flex-1 ${fixedComposer ? "overflow-hidden" : "overflow-y-auto p-3"}`}>
+          {children}
+        </div>
       </div>
     </div>,
     document.body

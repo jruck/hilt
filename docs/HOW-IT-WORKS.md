@@ -30,18 +30,20 @@ The whole system is **one node design, repeated**. A node ("loop"):
 So every fact in a briefing is traceable: briefing line → node artifact → that node's state or
 its source (a transcript, a job exit code, a saved article).
 
-## Where things physically live (exactly two places + one symlink)
+## Where things physically live (two storage roots + one symlink)
 
-**1. The vault — `$VAULT`** ([open]($VAULT)). Your permanent, git-tracked knowledge base.
-Everything trusted lives here: your notes, references, the briefings, and the homes of the
-two *live* nodes (library, system) under `$VAULT/meta/loops/`.
+**1. The vault — `$VAULT`** ([open]($VAULT)). Your file-native, git-backed knowledge base:
+notes, references, briefings, tasks, and the homes of the two *live* nodes (library, system) under
+`$VAULT/meta/loops/`.
 
-**2. Hilt's private data directory — `$DATA`.** The app's own working folder: **outside the
-vault, not in git, not knowledge** — working machinery. This is where the **sandbox** lives:
+**2. Hilt's private data directory — `$DATA`.** The app's operational store, outside the vault and
+not in git. It contains both deliberate canonical app data (for example the Meeting SQLite ledger,
+conversation state, and recommendation episodes) and disposable/rebuildable machinery. It also
+contains the **sandbox**:
 
-- `$DATA/loops-shadow/` — the homes of the on-probation ("shadow") nodes: meetings, goals,
-  and the briefing node's feedback drawer. Identical drawer structure to the vault homes,
-  safer address: a misbehaving probation node can't touch anything permanent.
+- `$DATA/loops-shadow/` — the phase-resolved homes of on-probation ("shadow") nodes: Meeting
+  reports/verdict history, Goals reports, and the dormant Briefing node home. This no longer holds
+  Meeting's canonical ledger; that lives under `$DATA/meeting-ledgers/` independently of phase.
 - `$DATA/briefing-shadow/` — the v2 shadow briefings from the trial period (2026-06-26 →
   2026-07-06), kept as read-only history. Retired at the cutover: the loops-fed briefing now
   IS the vault briefing; nothing writes or reads here anymore.
@@ -55,10 +57,12 @@ directory, purely for inspectability:
 Same files, two paths. Links below use the vault symlink address (so they open in Docs), but
 anything under `meta/loops-shadow` **physically lives in `$DATA`**.
 
-**Graduation** = copying a probation node's home from `$DATA/loops-shadow/meta/loops/<domain>/`
-to `$VAULT/meta/loops/<domain>/` and flipping one line in the roster:
+**Graduation** = copying a probation node's phase-resolved files from
+`$DATA/loops-shadow/meta/loops/<domain>/` to `$VAULT/meta/loops/<domain>/` and flipping one line in
+the roster:
 [$VAULT/meta/loops/registry.yml]($VAULT/meta/loops/registry.yml). After every node graduates,
-the symlinks retire and *one* answer covers everything: `$VAULT/meta/loops/<domain>/<drawer>`.
+the symlink can retire. Canonical operational stores such as Meeting SQLite stay under `$DATA`;
+graduation does not relocate them.
 
 ## The tree as it stands today
 
@@ -105,19 +109,20 @@ commitments as asks.
 - **Minutes after a meeting ends** — the Granola sync daemon watches every meeting it syncs;
   once the meeting's enhanced notes have landed AND the transcript has stopped growing (no
   growth across 3 sync polls spanning at least 2 minutes — quality over speed: the extraction
-  reads the enhanced note), it runs the loop for just that meeting. Each meeting fires at most
-  once (tracked in `$DATA/loops/meeting-trigger-state.json`, which survives restarts), runs are
-  strictly one-at-a-time, and anything the nightly already read never re-fires. Kill switch:
+  reads the enhanced note), it writes an idempotent job to canonical SQLite and wakes the
+  ws-server coordinator. A renewable lease owns each active job; after a restart, an expired job
+  is reclaimed and its canonical ledger/proposal output is verified before any rerun. Kill switch:
   `HILT_MEETING_TRIGGER=0`.
-- **7:30 PM nightly sweep** — unchanged, the safety net: it catches meetings the trigger missed
-  (no transcript, trigger disabled, run failure) and skips everything the trigger already
-  processed (they share the same SQLite processed set and writer lock).
+- **7:30 PM nightly sweep** — the safety net discovers meetings the trigger missed (no transcript,
+  trigger disabled, or sync unavailable), enqueues them into the same table, and drains the same
+  leased queue. It never bypasses post-meeting retry or completion verification.
 
 - [$VAULT/meta/loops-shadow/meta/loops/meetings/reports/]($VAULT/meta/loops-shadow/meta/loops/meetings/reports)
   — daily artifact: meeting summaries, ledger deltas, escalated asks
 - `$DATA/meeting-ledgers/<vault-key>/meeting-ledger.sqlite` — canonical operational memory for every
   observed commitment, citation, sighting, state transition, meeting summary, processed stamp,
-  extraction run, and immutable event. It is evidence and deduplication memory, not a second task
+  extraction run, durable extraction job/lease, and immutable event. It is evidence and
+  deduplication memory, not a second task
   database. Only recent or first-touch observations owned by Justin (or with unclear ownership)
   cross the escalation gate and receive a proposal file; older backfill observations remain
   ledger-only so initial indexing cannot flood Priorities.
@@ -128,15 +133,13 @@ commitments as asks.
   and 12 monthly snapshots. A failed integrity check or backup latches writes off rather than opening
   or creating an empty database. Migration, audit, restore, and rollback commands are documented in
   [Meeting Ledger Operations and Recovery](MEETING-LEDGER-RECOVERY.md).
-- `$DATA/loops/meeting-trigger-state.json` — the post-meeting trigger's own memory: per meeting,
-  the transcript-stability countdown and the fired-at stamp that guarantees at-most-once firing
-- [$VAULT/meta/loops-shadow/meta/loops/meetings/proposals/]($VAULT/meta/loops-shadow/meta/loops/meetings/proposals)
-  — the proposals drawer: every ask that escalates to you ALSO becomes a task proposal file
-  here (full task-file format, status `proposed`). While the node is in shadow this drawer is
-  its sink; when the registry's `proposal_sink: vault` flips at the gate, new proposals land in
-  `$VAULT/tasks/.proposals/` instead — where the Priorities view's Proposals section and the
-  verdict buttons' instant file effects pick them up. A ledger entry mints its proposal exactly
-  once (`task_id` stamp), so re-runs never duplicate and a dismissed proposal can't come back.
+- `$DATA/loops/meeting-trigger-state.json` — settle-detector memory only: transcript stability and
+  compatibility telemetry. Its historical `fired_at` field never suppresses a SQLite retry.
+- `$VAULT/tasks/.proposals/` — the live proposal sink. `proposal_sink: vault` is already active even
+  though the Meeting report/verdict home remains shadow, so every newly escalated ask becomes a
+  normal proposed task here and is immediately visible in Priorities. The old shadow proposals
+  drawer is compatibility/history only. A ledger entry mints its proposal exactly once (`task_id`
+  stamp), so re-runs never duplicate and a dismissed proposal cannot silently re-mint.
 - `$VAULT/tasks/.id-sequences.json` — permanent per-date task-ID reservations. Proposal dismissal
   removes its Markdown file, but its number remains consumed; creation is lock-serialized and
   atomic so two writers cannot assign one identity to different work.
@@ -308,10 +311,9 @@ task is ever invisible. Every promoted task arrives with the **🆕 marker** in 
 same amber left-accent convention new tasks have always used — and viewing the task strips it
 (the read receipt), so you can see at a glance what the loops added since you last looked.
 (Only when the current list is the new v2 format; if the list write ever fails, the task file
-still exists and the verdict still counts.) Today the
-meetings node still mints proposals into its shadow drawer (see its inventory above), so the
-instant effect starts mattering when its `proposal_sink` graduates to the vault; pre-A6 asks
-never had files, and that's fine — the response just says so.
+still exists and the verdict still counts.) Meeting proposals already mint directly into the vault
+because `proposal_sink: vault` is independent of the node's shadow report/verdict home. Pre-A6 asks
+never had files, and that remains a supported compatibility case.
 
 Every verdict button explains itself on hover: Approve = "take this on — becomes your task and
 joins this week's list"; Assign to agent = "mark as agent work — joins this week's Ready for
@@ -367,10 +369,10 @@ Proposals also have their own surface now: the **Proposals** section in the Prio
 — title, the verbatim quote it came from, the meeting, the due date — with the same
 Approve / Assign to agent / Dismiss / Revise buttons as the briefing. New proposals also carry a
 short paragraph of the discussion the commitment arose from — open one and it's the first thing
-in the body (older proposals predate this and simply don't have it). Dismissed proposals are
-never gone from the UI: a quiet "Dismissed · N" divider expands into the meeting-ledger record
-of what you declined in the last 30 days, including the original title, time, optional reason,
-and a restore control. Restore recreates the same proposal identity immediately and records a
+in the body (older proposals predate this and simply don't have it). Priorities intentionally stays
+bounded to work awaiting a decision; dismissed history lives in **View ledger**, where the Meeting
+Ledger shows what was declined and why. Active briefing meeting groups can also expose their recent
+dismissals contextually. Restore recreates the same proposal identity immediately and records a
 ledger reopen for the next meetings-node run; it never mints a duplicate task.
 
 ## Chats — every conversation, one tab

@@ -10,7 +10,13 @@ import crypto from "crypto";
 import path from "path";
 import { getVaultPath } from "../bridge/vault";
 import { buildFirstTurnPrompt } from "../chat/context";
-import { runClaude, type ChatToolCall, type RunClaudeOptions, type RunClaudeResult } from "../chat/run-claude";
+import {
+  runClaude,
+  type ChatToolCall,
+  type ChatToolResult,
+  type RunClaudeOptions,
+  type RunClaudeResult,
+} from "../chat/run-claude";
 import { appendMessage, createChat, readChat, updateChat } from "../chat/store";
 import { deterministicTitle, type ChatContextRef, type ChatStreamEvent, type ChatTraceEvent } from "../chat/types";
 import { createProposalIn, proposalsDir } from "../tasks/store";
@@ -46,6 +52,17 @@ export interface ProcessThreadResult {
   error?: string;
 }
 
+export interface ProcessThreadOptions {
+  emit?: (event: ChatStreamEvent) => void;
+  runner?: ProcessorRunner;
+  signal?: AbortSignal;
+  vaultRoot?: string;
+}
+
+// A live turn is owned by the server process, not by whichever drawer happens to be open.
+// This guard keeps a detached/reopened conversation from starting an overlapping Claude turn.
+const activeThreadRuns = new Set<string>();
+
 const FILE_TOUCHING_TOOLS = new Set(["Edit", "Write", "MultiEdit"]);
 
 function traceId(prefix: string): string {
@@ -61,6 +78,8 @@ function makeTraceEvent(args: {
   toolName?: string | null;
   input?: Record<string, unknown> | null;
   outputSummary?: string | null;
+  timestamp?: number;
+  durationMs?: number | null;
 }): ChatTraceEvent {
   return {
     id: args.id ?? traceId(args.type),
@@ -71,9 +90,18 @@ function makeTraceEvent(args: {
     toolName: args.toolName ?? null,
     input: args.input ?? null,
     outputSummary: args.outputSummary ?? null,
-    timestamp: Date.now(),
-    durationMs: null,
+    timestamp: args.timestamp ?? Date.now(),
+    durationMs: args.durationMs ?? null,
   };
+}
+
+function toolTraceLabel(name: string, complete = false): string {
+  if (name === "Read") return complete ? "Read context" : "Reading context";
+  if (name === "Grep") return complete ? "Searched context" : "Searching context";
+  if (name === "Glob" || name === "LS") return complete ? "Found files" : "Finding files";
+  if (name === "Edit" || name === "MultiEdit") return complete ? "Updated a file" : "Updating a file";
+  if (name === "Write") return complete ? "Wrote a file" : "Writing a file";
+  return complete ? `Used ${name}` : `Using ${name}`;
 }
 
 /** Edit/Write paths become vault-relative for filesTouched; outside-vault stays absolute. */
@@ -188,12 +216,19 @@ export function deriveProcessorAuthor(target: CommentTarget): string {
   return feedback ? `agent:${feedback.loop}` : "agent:processor";
 }
 
-export async function processThread(threadId: string, opts: {
-  emit?: (event: ChatStreamEvent) => void;
-  runner?: ProcessorRunner;
-  signal?: AbortSignal;
-  vaultRoot?: string;
-}): Promise<ProcessThreadResult> {
+export async function processThread(threadId: string, opts: ProcessThreadOptions): Promise<ProcessThreadResult> {
+  if (activeThreadRuns.has(threadId)) {
+    return { ok: false, threadId, chatId: null, error: "already-processing" };
+  }
+  activeThreadRuns.add(threadId);
+  try {
+    return await processThreadRun(threadId, opts);
+  } finally {
+    activeThreadRuns.delete(threadId);
+  }
+}
+
+async function processThreadRun(threadId: string, opts: ProcessThreadOptions): Promise<ProcessThreadResult> {
   const emit = opts.emit ?? (() => {});
   const runner = opts.runner ?? runClaude;
   const thread = readThread(threadId);
@@ -204,12 +239,22 @@ export async function processThread(threadId: string, opts: {
 
   const vaultRoot = opts.vaultRoot ?? await getVaultPath();
   const contextRef = threadContextRef(thread.target);
-  const contextLabel = contextLabelForThread(thread);
   const existingSession = [...(thread.chat_ids ?? [])]
     .reverse()
     .map((id) => readChat(id))
     .find((candidate) => candidate !== null) ?? null;
-  const session = existingSession ?? createChat(contextRef, contextLabel);
+  // Older processor chats used "Thread: <first comment>" as their source label. Resolve the
+  // native object label when creating a chat and opportunistically repair that legacy label
+  // on the next turn, without rewriting completed transcripts.
+  let builtContext = (!existingSession || existingSession.contextLabel.startsWith("Thread:"))
+    ? await buildFirstTurnPrompt(contextRef)
+    : null;
+  const contextLabel = builtContext?.contextLabel.trim() || contextLabelForThread(thread);
+  const session = existingSession
+    ? (builtContext && existingSession.contextLabel !== contextLabel
+        ? updateChat(existingSession.id, { contextLabel })
+        : existingSession)
+    : createChat(contextRef, contextLabel);
   const chatId = session.id;
   emit({ type: "session", chatId });
   if (!existingSession) appendChatId(threadId, chatId);
@@ -236,25 +281,75 @@ export async function processThread(threadId: string, opts: {
     "Thread messages:",
     ...lines,
   ].join("\n");
+  if (firstTurn && !builtContext) builtContext = await buildFirstTurnPrompt(contextRef);
   const prompt = firstTurn
-    ? [(await buildFirstTurnPrompt(contextRef)).prompt, "", preamble, "", PROCESSOR_INSTRUCTIONS].join("\n")
+    ? [builtContext!.prompt, "", preamble, "", PROCESSOR_INSTRUCTIONS].join("\n")
     : [preamble, "", PROCESSOR_INSTRUCTIONS].join("\n");
 
   const traces: ChatTraceEvent[] = [];
   const filesTouched: string[] = [];
   const seenFiles = new Set<string>();
+  const toolRuns = new Map<string, {
+    traceId: string;
+    name: string;
+    startedAt: number;
+    timestamp: number;
+    input: Record<string, unknown> | null;
+  }>();
+  const turnStartedAt = Date.now();
+  const thinkingTraceId = traceId("turn");
+  let thinkingComplete = false;
+
+  const upsertTrace = (trace: ChatTraceEvent) => {
+    const index = traces.findIndex((candidate) => candidate.id === trace.id);
+    if (index >= 0) traces[index] = trace;
+    else traces.push(trace);
+    emit({ type: "trace", trace });
+  };
+  const completeThinking = (label = "Ready to respond") => {
+    if (thinkingComplete) return;
+    thinkingComplete = true;
+    upsertTrace(makeTraceEvent({
+      id: thinkingTraceId,
+      type: "step",
+      status: "complete",
+      label,
+      timestamp: turnStartedAt,
+      durationMs: Date.now() - turnStartedAt,
+    }));
+  };
+
+  upsertTrace(makeTraceEvent({
+    id: thinkingTraceId,
+    type: "step",
+    status: "running",
+    label: "Thinking through your feedback",
+    timestamp: turnStartedAt,
+  }));
 
   const onToolUse = (toolCall: ChatToolCall) => {
+    completeThinking("Context prepared");
+    const startedAt = Date.now();
+    const id = toolCall.id ? `claude-tool-${toolCall.id}` : traceId("claude-tool");
     const trace = makeTraceEvent({
-      id: toolCall.id ? `claude-tool-${toolCall.id}` : undefined,
+      id,
       type: "tool_call",
-      status: "complete",
-      label: `Used ${toolCall.name}`,
+      status: "running",
+      label: toolTraceLabel(toolCall.name),
       toolName: toolCall.name,
       input: toolCall.input,
+      timestamp: startedAt,
     });
-    traces.push(trace);
-    emit({ type: "trace", trace });
+    upsertTrace(trace);
+    if (toolCall.id) {
+      toolRuns.set(toolCall.id, {
+        traceId: id,
+        name: toolCall.name,
+        startedAt,
+        timestamp: trace.timestamp,
+        input: toolCall.input,
+      });
+    }
     if (toolCall.filePath && FILE_TOUCHING_TOOLS.has(toolCall.name)) {
       const rel = toVaultRelative(toolCall.filePath, vaultRoot);
       if (!seenFiles.has(rel)) {
@@ -263,7 +358,26 @@ export async function processThread(threadId: string, opts: {
       }
     }
   };
-  const onText = (content: string) => emit({ type: "message", content });
+  const onToolResult = (toolResult: ChatToolResult) => {
+    const run = toolRuns.get(toolResult.toolUseId);
+    if (!run) return;
+    upsertTrace(makeTraceEvent({
+      id: run.traceId,
+      type: "tool_result",
+      status: toolResult.isError ? "error" : "complete",
+      label: toolResult.isError ? `${run.name} failed` : toolTraceLabel(run.name, true),
+      toolName: run.name,
+      input: run.input,
+      outputSummary: toolResult.isError ? "Tool returned an error" : "Complete",
+      timestamp: run.timestamp,
+      durationMs: Date.now() - run.startedAt,
+    }));
+    toolRuns.delete(toolResult.toolUseId);
+  };
+  const onText = (content: string) => {
+    completeThinking("Response started");
+    emit({ type: "message", content });
+  };
 
   let result: RunClaudeResult;
   try {
@@ -274,6 +388,7 @@ export async function processThread(threadId: string, opts: {
       signal: opts.signal,
       onText,
       onToolUse,
+      onToolResult,
     });
   } catch (error) {
     const detail = errorDetail(error).slice(-500);
@@ -291,6 +406,21 @@ export async function processThread(threadId: string, opts: {
     emit({ type: "error", error: detail });
     return { ok: false, threadId, chatId, error: detail };
   }
+
+  completeThinking(result.code === 0 ? "Response prepared" : "Response interrupted");
+  for (const run of toolRuns.values()) {
+    upsertTrace(makeTraceEvent({
+      id: run.traceId,
+      type: "tool_result",
+      status: result.code === 0 ? "complete" : "error",
+      label: result.code === 0 ? toolTraceLabel(run.name, true) : `${run.name} interrupted`,
+      toolName: run.name,
+      input: run.input,
+      timestamp: run.timestamp,
+      durationMs: Date.now() - run.startedAt,
+    }));
+  }
+  toolRuns.clear();
 
   // A cancelled run (drawer close/stop, batch Cancel, client disconnect) SIGTERMs the child,
   // which resolves with a non-zero/null code but may have already collected partial text. Never

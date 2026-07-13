@@ -654,7 +654,7 @@ v1 lists are returned exactly as before (additive `listFormat: 1` only).
 
 **File**: `src/app/api/bridge/briefings/route.ts`
 
-List briefing summaries, newest first. Reads weekday daily files from `briefings/YYYY-MM-DD.md` and weekend editions from `briefings/weekend/YYYY-MM-DD.md`. Daily ids are `YYYY-MM-DD`; weekend ids are `weekend:YYYY-MM-DD`. If today's ET daily briefing markdown is missing but Hermes reports that the Morning Briefing cron job failed today, the response prepends a synthetic failed daily row so the Briefing tab shows today's failure instead of falling back to yesterday. Failed rows include the daily job's next run plus any auto-retry watcher `next_run_at` so the UI can distinguish recovery attempts from tomorrow's normal run.
+List briefing summaries, newest first. Reads weekday daily files from `briefings/YYYY-MM-DD.md` and weekend editions from `briefings/weekend/YYYY-MM-DD.md`. Daily ids are `YYYY-MM-DD`; weekend ids are `weekend:YYYY-MM-DD`. If today's ET daily briefing markdown is missing and `${DATA_DIR}/briefing-runs/YYYY-MM-DD.json` records a failed native run, the response prepends a synthetic failed daily row so the Briefing tab shows today's failure instead of falling back to yesterday. Failed rows include the calculated next daily run and next automatic-retry opportunity.
 
 **Response**
 
@@ -675,7 +675,7 @@ Array<{
 
 **File**: `src/app/api/bridge/briefings/[date]/route.ts`
 
-Read one briefing by stable id. Daily ids are ISO dates (`2026-06-17`); weekend ids are `weekend:YYYY-MM-DD` and should be URL-encoded by clients (`weekend%3A2026-06-20`). Returns rendered markdown content for successful briefing files. If a daily file is missing and Hermes has a same-day failed Morning Briefing run, returns a failed briefing payload instead of 404. The failed payload excludes the retry watcher itself from failure detection and surfaces the watcher's next auto-retry time separately.
+Read one briefing by stable id. Daily ids are ISO dates (`2026-06-17`); weekend ids are `weekend:YYYY-MM-DD` and should be URL-encoded by clients (`weekend%3A2026-06-20`). Returns rendered markdown content for successful briefing files. If a daily file is missing and the native run receipt records a same-day failure, returns a failed briefing payload instead of 404 and includes the next daily/automatic retry times.
 
 **Response**
 
@@ -723,7 +723,7 @@ Resolve a briefing markdown link into a native Hilt destination when possible. T
 
 **File**: `src/app/api/bridge/briefings/retry/route.ts`
 
-Queue a retry for a failed briefing by invoking the existing Hermes cron job with `hermes cron run --accept-hooks <job-id>`. This does not run a separate Hilt generator; Hermes remains the owner of briefing generation.
+Synchronously rerun the native Hilt daily generator for an existing failed date. The endpoint accepts daily ids only, requires a current failure receipt, and returns the generator's final `ok`, `invalid`, or `rate_limited` status. It currently invokes `scripts/briefing-generate.ts` directly; production parity with the scheduled loop-fed invocation is tracked in the canonical Briefings v2 completion roadmap.
 
 **Request Body**
 
@@ -735,11 +735,8 @@ Queue a retry for a failed briefing by invoking the existing Hermes cron job wit
 
 ```typescript
 {
-  ok: true;
-  status: "queued";
-  date: string;
-  jobId: string;
-  message: string;
+  status: "ok" | "invalid" | "rate_limited";
+  validation?: unknown;
 }
 ```
 
@@ -829,7 +826,7 @@ Returns one entry with complete citations, sightings, status history, its meetin
 
 ### GET /api/loops/meeting-ledger/health
 
-Returns storage marker/mode, schema version, database path/size, state counts including latent observations, 40,000-token context estimate and chunk count, quick-check status, latched write-block reason, last transaction, last extraction transaction, and the latest verified backup. A SQLite marker with a missing canonical database returns `503`; it never initializes a blank replacement.
+Returns storage marker/mode, schema version, database path/size, state counts including latent observations, 40,000-token context estimate and chunk count, quick-check status, latched write-block reason, last transaction, last extraction transaction, and the latest verified backup. `extraction_queue` reports depth plus queued/running/retry-wait/failed/complete counts, active leased jobs, oldest queued time, next retry, and the latest job error; a legacy-store response carries the same shape with zero counts. A SQLite marker with a missing canonical database returns `503`; it never initializes a blank replacement.
 
 ### GET /api/loops/dismissed
 
@@ -1531,10 +1528,12 @@ Run one chat turn: spawns `claude -p` (resuming via the stored `claudeSessionId`
 ```
 
 **Response**: `Content-Type: application/x-ndjson` — one `ChatStreamEvent` JSON object per line:
-`{type:"session", chatId}` (always first), then `{type:"trace", trace}` / `{type:"message", content}` events, then `{type:"complete", claudeSessionId}` or `{type:"error", error}` (stderr tail).
+`{type:"session", chatId}` (always first), then `{type:"trace", trace}` / `{type:"message", content}` events, then `{type:"complete", claudeSessionId}` or `{type:"error", error}` (stderr tail). `message.content` is an ordered assistant text delta. A trace id is stable across running → complete/error updates, so clients upsert rather than append duplicate activity rows.
 
 Behavior notes:
 - Turn 1 composes context block + user prompt for the CLI (`buildFirstTurnPrompt`), but stores the user's prompt alone; title set via `deterministicTitle`.
+- Claude runs with `--include-partial-messages`; `text_delta` events are canonical and the later full assistant snapshot is ignored to prevent duplication. If a CLI emits no deltas, the completed snapshot is used as a compatibility fallback.
+- The route emits an initial running step plus running tool calls; matching tool results complete/error the same trace id and include elapsed duration.
 - Resume failure (non-zero exit, no text, had a resume id) → warning trace + one fresh rerun.
 - Client abort → child SIGTERM; partial transcript persisted; no `error` event.
 - Empty-output success persists a "Claude returned no text." assistant message.
@@ -1836,6 +1835,7 @@ Lists saved references and, by default, unexpired candidates.
 | `tag` | string | Tag/facet filter. Matches semantic tags plus source-native taxonomy such as Raindrop tags/collections and X bookmark folders. |
 | `series` | string | Series/course/playlist id. Returns child items and any parent note carrying the same `series_id`. |
 | `mode` | string | `study`, `keep`, or `all`. Defaults to `study`; `keep` is quiet durable-save material such as products, clothing, recipes, restaurants, and other saved-for-later items. |
+| `attention` | boolean | When `true`, returns only artifacts with terminal blocked processing or a failed source capture whose bounded refetch attempts are exhausted. This is derived from current markdown plus Hilt-local retry state. |
 | `unread` | boolean | When `true`, returns only artifacts that are still unread in local Hilt read state |
 | `includeCandidates` | boolean | Defaults to `true` |
 | `offset` | number | Offset for incremental loading |
@@ -2047,6 +2047,7 @@ Returns the operational Reference Library dashboard contract: launchd scheduler 
       stderr_bytes: number;
       stdout_updated_at: string | null;
       stderr_updated_at: string | null;
+      stderr_current: boolean; // Retained stderr belongs to the latest completed run
       stdout_excerpt: string | null;
       stderr_excerpt: string | null;
       message: string | null;
@@ -2088,6 +2089,8 @@ Returns the operational Reference Library dashboard contract: launchd scheduler 
   };
 }
 ```
+
+Scheduler log files are append-only. Health uses the successful stdout completion and log modification times to scope stderr to the latest run; older retained stderr remains on disk for inspection but does not produce a current warning, notice count, or excerpt.
 
 ### CLI Source Utilities
 
@@ -2320,7 +2323,7 @@ Remove one message; deleting the last message deletes the thread.
 
 **File**: `src/app/api/threads/[id]/process/route.ts`
 
-Run the on-demand processor over ONE pending volley. Validates before streaming: `400` invalid thread-id shape, `404` unknown thread, `409` conversation closed or no pending comments. On success returns an **NDJSON stream** (`application/x-ndjson`) whose events are the SAME shapes as `POST /api/chat/message` (`session` → `trace`/`message` → `complete`|`error`) so Chats renders tool activity and response live.
+Run the on-demand processor over ONE queued volley. Validates before streaming: `400` invalid thread-id shape, `404` unknown thread, `409` conversation closed or no queued comments. On success returns an **NDJSON stream** (`application/x-ndjson`) whose events are the SAME shapes as `POST /api/chat/message` (`session` → `trace`/`message` → `complete`|`error`) so both the anchored popover and Chats render activity plus text deltas live. An overlapping invocation for the same thread emits `{type:"error", error:"already-processing"}`; the in-process guard is released in `finally` on every outcome.
 
 The processor (`src/lib/threads/processor.ts`) reuses the thread's attached chat session (creating and first-turn-hydrating it only once), resumes its Claude session, and sends only human messages without `handled_at`. It runs one Claude turn (Read/Edit/Write/Grep/Glob/LS — no Bash), then posts the assistant reply and records one structured outcome:
 - `answered`: no durable action; the reply must not promise vague future consideration;

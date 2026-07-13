@@ -14,7 +14,7 @@ import crypto from "crypto";
 import path from "path";
 import { getVaultPath } from "@/lib/bridge/vault";
 import { buildFirstTurnPrompt } from "@/lib/chat/context";
-import { runClaude, type ChatToolCall } from "@/lib/chat/run-claude";
+import { runClaude, type ChatToolCall, type ChatToolResult } from "@/lib/chat/run-claude";
 import {
   appendMessage,
   createChat,
@@ -44,6 +44,8 @@ function makeTraceEvent(args: {
   toolName?: string | null;
   input?: Record<string, unknown> | null;
   outputSummary?: string | null;
+  timestamp?: number;
+  durationMs?: number | null;
 }): ChatTraceEvent {
   return {
     id: args.id ?? traceId(args.type),
@@ -54,9 +56,18 @@ function makeTraceEvent(args: {
     toolName: args.toolName ?? null,
     input: args.input ?? null,
     outputSummary: args.outputSummary ?? null,
-    timestamp: Date.now(),
-    durationMs: null,
+    timestamp: args.timestamp ?? Date.now(),
+    durationMs: args.durationMs ?? null,
   };
+}
+
+function toolTraceLabel(name: string, complete = false): string {
+  if (name === "Read") return complete ? "Read context" : "Reading context";
+  if (name === "Grep") return complete ? "Searched context" : "Searching context";
+  if (name === "Glob" || name === "LS") return complete ? "Found files" : "Finding files";
+  if (name === "Edit" || name === "MultiEdit") return complete ? "Updated a file" : "Updating a file";
+  if (name === "Write") return complete ? "Wrote a file" : "Writing a file";
+  return complete ? `Used ${name}` : `Using ${name}`;
 }
 
 /**
@@ -168,18 +179,67 @@ export async function POST(request: NextRequest) {
     const traces: ChatTraceEvent[] = [];
     const filesTouched: string[] = [];
     const seenFiles = new Set<string>();
+    const toolRuns = new Map<string, {
+      traceId: string;
+      name: string;
+      startedAt: number;
+      timestamp: number;
+      input: Record<string, unknown> | null;
+    }>();
+    const turnStartedAt = Date.now();
+    const thinkingTraceId = traceId("turn");
+    let thinkingComplete = false;
+
+    const upsertTrace = (trace: ChatTraceEvent) => {
+      const index = traces.findIndex((candidate) => candidate.id === trace.id);
+      if (index >= 0) traces[index] = trace;
+      else traces.push(trace);
+      emit({ type: "trace", trace });
+    };
+    const completeThinking = (label = "Ready to respond") => {
+      if (thinkingComplete) return;
+      thinkingComplete = true;
+      upsertTrace(makeTraceEvent({
+        id: thinkingTraceId,
+        type: "step",
+        status: "complete",
+        label,
+        timestamp: turnStartedAt,
+        durationMs: Date.now() - turnStartedAt,
+      }));
+    };
+
+    upsertTrace(makeTraceEvent({
+      id: thinkingTraceId,
+      type: "step",
+      status: "running",
+      label: "Thinking through your request",
+      timestamp: turnStartedAt,
+    }));
 
     const onToolUse = (toolCall: ChatToolCall) => {
+      completeThinking("Context prepared");
+      const startedAt = Date.now();
+      const id = toolCall.id ? `claude-tool-${toolCall.id}` : traceId("claude-tool");
       const trace = makeTraceEvent({
-        id: toolCall.id ? `claude-tool-${toolCall.id}` : undefined,
+        id,
         type: "tool_call",
-        status: "complete",
-        label: `Used ${toolCall.name}`,
+        status: "running",
+        label: toolTraceLabel(toolCall.name),
         toolName: toolCall.name,
         input: toolCall.input,
+        timestamp: startedAt,
       });
-      traces.push(trace);
-      emit({ type: "trace", trace });
+      upsertTrace(trace);
+      if (toolCall.id) {
+        toolRuns.set(toolCall.id, {
+          traceId: id,
+          name: toolCall.name,
+          startedAt,
+          timestamp: trace.timestamp,
+          input: toolCall.input,
+        });
+      }
       if (toolCall.filePath && FILE_TOUCHING_TOOLS.has(toolCall.name)) {
         const rel = toVaultRelative(toolCall.filePath, vaultRoot);
         if (!seenFiles.has(rel)) {
@@ -188,7 +248,26 @@ export async function POST(request: NextRequest) {
         }
       }
     };
-    const onText = (text: string) => emit({ type: "message", content: text });
+    const onToolResult = (toolResult: ChatToolResult) => {
+      const run = toolRuns.get(toolResult.toolUseId);
+      if (!run) return;
+      upsertTrace(makeTraceEvent({
+        id: run.traceId,
+        type: "tool_result",
+        status: toolResult.isError ? "error" : "complete",
+        label: toolResult.isError ? `${run.name} failed` : toolTraceLabel(run.name, true),
+        toolName: run.name,
+        input: run.input,
+        outputSummary: toolResult.isError ? "Tool returned an error" : "Complete",
+        timestamp: run.timestamp,
+        durationMs: Date.now() - run.startedAt,
+      }));
+      toolRuns.delete(toolResult.toolUseId);
+    };
+    const onText = (text: string) => {
+      completeThinking("Response started");
+      emit({ type: "message", content: text });
+    };
 
     let result = await runClaude({
       claudeSessionId: resumeId,
@@ -197,6 +276,7 @@ export async function POST(request: NextRequest) {
       signal: request.signal,
       onText,
       onToolUse,
+      onToolResult,
     });
 
     // Retry-without-resume: the CLI's own session file can be pruned/expired — a dead
@@ -217,8 +297,24 @@ export async function POST(request: NextRequest) {
         signal: request.signal,
         onText,
         onToolUse,
+        onToolResult,
       });
     }
+
+    completeThinking(result.code === 0 ? "Response prepared" : "Response interrupted");
+    for (const run of toolRuns.values()) {
+      upsertTrace(makeTraceEvent({
+        id: run.traceId,
+        type: "tool_result",
+        status: result.code === 0 ? "complete" : "error",
+        label: result.code === 0 ? toolTraceLabel(run.name, true) : `${run.name} interrupted`,
+        toolName: run.name,
+        input: run.input,
+        timestamp: run.timestamp,
+        durationMs: Date.now() - run.startedAt,
+      }));
+    }
+    toolRuns.clear();
 
     const aborted = request.signal.aborted;
     const failed = result.code !== 0 && !result.collectedText;
@@ -257,4 +353,3 @@ export async function POST(request: NextRequest) {
     emit({ type: "complete", claudeSessionId });
   });
 }
-

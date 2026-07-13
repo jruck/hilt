@@ -35,6 +35,7 @@ export interface WorkbenchRow {
   youtube_clip_policy: string | null;
   youtube_content_form: string | null;
   content_type: LibraryContentType;
+  attention: import("./types").LibraryArtifactAttentionKind | null;
 }
 
 export interface WorkbenchData {
@@ -84,6 +85,7 @@ export function buildWorkbenchRows(vaultPath: string): WorkbenchData {
       youtube_clip_policy: a.youtube_clip?.policy_action || null,
       youtube_content_form: a.youtube_clip?.content_form || null,
       content_type: contentTypeForArtifact(a),
+      attention: a.attention?.kind || null,
     };
   });
 
@@ -92,7 +94,7 @@ export function buildWorkbenchRows(vaultPath: string): WorkbenchData {
   const hasUnprocessed = new Set(stored.filter((s) => s.comments.some((c) => !c.processed_at)).map((s) => s.id));
 
   const facets: Record<string, Record<string, number>> = {
-    disposition: {}, lifecycle: {}, content_type: {}, pipeline_version: {}, digested_with: {}, connection_state: {}, substance: {}, feedback: {}, youtube_clip_policy: {}, youtube_content_form: {},
+    disposition: {}, lifecycle: {}, content_type: {}, pipeline_version: {}, digested_with: {}, connection_state: {}, substance: {}, feedback: {}, youtube_clip_policy: {}, youtube_content_form: {}, attention: {},
   };
   const bump = (facet: string, key: string) => { facets[facet][key] = (facets[facet][key] || 0) + 1; };
   for (const r of rows) {
@@ -106,6 +108,7 @@ export function buildWorkbenchRows(vaultPath: string): WorkbenchData {
     bump("feedback", hasUnprocessed.has(r.id) ? "unprocessed" : hasComments.has(r.id) ? "processed" : "none");
     if (r.youtube_clip_policy) bump("youtube_clip_policy", r.youtube_clip_policy);
     if (r.youtube_content_form) bump("youtube_content_form", r.youtube_content_form);
+    if (r.attention) bump("attention", r.attention);
   }
 
   rows.sort((a, b) => (b.worth ?? -1) - (a.worth ?? -1));

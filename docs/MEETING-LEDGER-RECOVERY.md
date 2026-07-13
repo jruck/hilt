@@ -17,7 +17,23 @@ npm run meeting-ledger -- audit
 curl -s http://localhost:3000/api/loops/meeting-ledger/health
 ```
 
-`audit` must report matching supported/schema versions, `quick_check: ok`, `integrity_check: ok`, no `write_blocked` reason, and a SQLite storage marker after cutover. Health should also report a recent verified backup and extraction/event sequence.
+`audit` must report matching supported/schema versions, `quick_check: ok`, `integrity_check: ok`, no `write_blocked` reason, and a SQLite storage marker after cutover. Health should also report a recent verified backup, extraction/event sequence, and `extraction_queue.depth: 0` with no failed jobs after a clean drain.
+
+## Restart-safe extraction queue
+
+`meeting_extraction_jobs` is canonical intent for both the Granola post-meeting trigger and the
+7:30 PM sweep. A `running` row has a renewable owner/expiry lease. ws-server reconciles immediately
+on startup and every 15 seconds: expired work is reclaimed, then canonical output is checked before
+another worker is launched. Completion requires the meeting's processed stamp and valid reciprocal
+proposal/task links. Failed verification moves the row to `retry_wait` with bounded exponential
+backoff; five failed claims become a visible terminal `failed` row.
+
+Do not clear the legacy `$DATA_DIR/loops/meeting-trigger-state.json` to repair missed work. Its
+`fired_at` value is compatibility telemetry and no longer controls retries. Inspect
+`GET /api/loops/meeting-ledger/health` or query `meeting_extraction_jobs`; after correcting an
+upstream fault, a terminal job can be explicitly reset through `enqueueExtractionJob({ forceFailed:
+true })` from an operational repair script. Live proposal writes deliberately fail when the current
+`DATA_DIR` does not resolve the canonical SQLite marker and file.
 
 ## Migration and activation
 

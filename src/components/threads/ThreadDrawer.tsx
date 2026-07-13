@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
-import { Check, Play, X } from "lucide-react";
+import { ArrowUpRight, Check, Maximize2, Play, X } from "lucide-react";
 import { ChatComposer } from "@/components/chat/ChatComposer";
 import { ChatTracePanel } from "@/components/chat/ChatTracePanel";
 import { ConversationTurn } from "@/components/chat/ConversationTurn";
@@ -15,10 +15,12 @@ import { consumeNdjsonStream, mergeTraceEvent } from "@/components/chat/stream";
 import { formatRelativeDate } from "@/components/tasks/ProposalsSection";
 import { useScope } from "@/contexts/ScopeContext";
 import { THREAD_SUMMARIES_KEY } from "@/hooks/useThreadCounts";
+import { useObjectCard } from "@/hooks/useObjectCard";
 import { withBasePath } from "@/lib/base-path";
-import type { ChatStreamEvent, ChatTraceEvent } from "@/lib/chat/types";
+import type { ChatSession, ChatStreamEvent, ChatTraceEvent } from "@/lib/chat/types";
 import { postComment } from "@/lib/comments/post";
 import type { CommentTarget } from "@/lib/comments/types";
+import type { ObjectRef, ResolvedObject } from "@/lib/objects/types";
 import type { Thread } from "@/lib/threads/types";
 import { mutateThreadsForTarget, threadsUrlForTarget } from "./ThreadView";
 import { ThreadConversationTimeline } from "./ThreadConversationTimeline";
@@ -42,6 +44,8 @@ export interface ThreadDrawerProps {
   /** Deep-link handoff from an async comment surface: open this pane, then start one live turn. */
   autoProcess?: boolean;
   onAutoProcessConsumed?: () => void;
+  /** The compact host is the Loft-style feedback chat; it shares the durable thread. */
+  displayMode?: "pane" | "popover";
 }
 
 async function fetchThreads(url: string): Promise<{ threads: Thread[] }> {
@@ -53,6 +57,32 @@ async function fetchThreads(url: string): Promise<{ threads: Thread[] }> {
   return response.json() as Promise<{ threads: Thread[] }>;
 }
 
+async function fetchChatSession(url: string): Promise<ChatSession> {
+  const response = await fetch(withBasePath(url), { cache: "no-store" });
+  if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+  return response.json() as Promise<ChatSession>;
+}
+
+const DISABLED_OBJECT_REF: ObjectRef = { kind: "library", id: "" };
+
+function objectRefForTarget(target: CommentTarget): ObjectRef | null {
+  if (target.kind === "library" || target.kind === "task") return { kind: target.kind, id: target.id };
+  if (target.kind === "meeting") return { kind: "meeting", id: target.rel };
+  return null;
+}
+
+function resolvedObjectTitle(resolved: ResolvedObject | null): string | null {
+  if (!resolved) return null;
+  switch (resolved.card.kind) {
+    case "task": return resolved.card.task.title;
+    case "person": return resolved.card.name;
+    case "meeting":
+    case "project":
+    case "library":
+      return resolved.card.title;
+  }
+}
+
 function isAbortError(error: unknown): boolean {
   return (error instanceof DOMException || error instanceof Error) && error.name === "AbortError";
 }
@@ -62,7 +92,7 @@ function statusLine(thread: Thread | null): string {
   const pending = thread.messages.filter((message) => (
     (message.author === "justin" || message.author === "claude-sim") && !message.handled_at
   )).length;
-  if (thread.status === "open" && pending > 0) return `${pending} ${pending === 1 ? "comment" : "comments"} ready to process`;
+  if (thread.status === "open" && pending > 0) return `${pending} ${pending === 1 ? "comment" : "comments"} queued`;
   if (thread.status === "open" && thread.dev_item) {
     return `Dev item · diagnosed ${formatRelativeDate(thread.dev_item.diagnosed_at)}`;
   }
@@ -80,6 +110,7 @@ export function ThreadDrawer({
   onFollowThread,
   autoProcess = false,
   onAutoProcessConsumed,
+  displayMode = "pane",
 }: ThreadDrawerProps) {
   const threadKey = useMemo(() => threadsUrlForTarget(target), [target]);
   const { navigateTo } = useScope();
@@ -87,8 +118,22 @@ export function ThreadDrawer({
     keepPreviousData: true,
   });
   const thread = data?.threads.find((candidate) => candidate.id === threadId) ?? null;
+  const latestChatId = thread?.chat_ids?.at(-1) ?? null;
+  const { data: contextSession } = useSWR<ChatSession>(
+    latestChatId ? `/api/chat/sessions/${latestChatId}` : null,
+    fetchChatSession,
+    { keepPreviousData: true },
+  );
+  const sourceObjectRef = objectRefForTarget(target);
+  const { resolved: resolvedSource } = useObjectCard(
+    sourceObjectRef ?? DISABLED_OBJECT_REF,
+    Boolean(sourceObjectRef),
+  );
   const Icon = targetIcon(target);
-  const openTarget = targetOpenHandler(target, navigateTo);
+  const fallbackOpenTarget = targetOpenHandler(target, navigateTo);
+  const openTarget = resolvedSource?.nav
+    ? () => navigateTo(resolvedSource.nav!.view, resolvedSource.nav!.scope)
+    : fallbackOpenTarget;
   const pendingCount = thread?.messages.filter((message) => (
     (message.author === "justin" || message.author === "claude-sim") && !message.handled_at
   )).length ?? 0;
@@ -96,6 +141,9 @@ export function ThreadDrawer({
     message.author === "justin" || message.author === "claude-sim"
   ));
   const conversationTitle = firstHumanMessage?.text.replace(/\s+/g, " ").trim().slice(0, 96)
+    || targetLabel(target);
+  const sourceLabel = resolvedObjectTitle(resolvedSource)
+    || contextSession?.contextLabel.trim()
     || targetLabel(target);
 
   const [processing, setProcessing] = useState(false);
@@ -113,16 +161,12 @@ export function ThreadDrawer({
   const autoProcessStartedRef = useRef(false);
   const liveChatIdRef = useRef<string | null>(null);
   const processThreadRef = useRef<(requestedThreadId?: string | null) => Promise<void>>(async () => undefined);
-  const onProcessingChangeRef = useRef(onProcessingChange);
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    onProcessingChangeRef.current = onProcessingChange;
-  }, [onProcessingChange]);
 
   // Escape closes the drawer (TaskFilePanel parity) — but a composer draft is protected:
   // first Escape only blurs the textarea, a second one closes.
   useEffect(() => {
+    if (displayMode === "popover") return;
     function onKeyDown(event: globalThis.KeyboardEvent) {
       if (event.key !== "Escape") return;
       const active = document.activeElement;
@@ -134,22 +178,12 @@ export function ThreadDrawer({
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, [displayMode, onClose]);
 
   useEffect(() => {
     if (!processing) return;
     conversationEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [processing, liveDraft, liveTrace.length]);
-
-  useEffect(() => {
-    return () => {
-      const controller = abortControllerRef.current;
-      if (!controller) return;
-      controller.abort();
-      abortControllerRef.current = null;
-      onProcessingChangeRef.current?.(false);
-    };
-  }, []);
 
   async function processThread(requestedThreadId: string | null = thread?.id ?? null) {
     if (!requestedThreadId || processingRef.current) return;
@@ -276,7 +310,7 @@ export function ThreadDrawer({
       await mutate();
       if (postedThread.id !== threadId) {
         onFollowThread?.(postedThread.id);
-        navigateTo("chats", `/${postedThread.id}/process`);
+        if (displayMode === "pane") navigateTo("chats", `/${postedThread.id}/process`);
       } else if (processingRef.current) {
         // The active run snapshots pending messages at start. A comment arriving mid-run is
         // deliberately the next volley, never silently folded into the in-flight answer.
@@ -300,18 +334,20 @@ export function ThreadDrawer({
             <div className="truncate text-sm font-semibold text-[var(--text-primary)]" title={conversationTitle}>
               {conversationTitle}
             </div>
-            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 truncate text-[11px] text-[var(--text-tertiary)]">
+            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-[var(--text-tertiary)]">
               {openTarget ? (
                 <button
                   type="button"
                   onClick={openTarget}
-                  className="shrink-0 transition-colors hover:text-[var(--text-primary)]"
+                  className="flex min-w-0 items-center gap-1 transition-colors hover:text-[var(--text-primary)]"
+                  title={`Open ${sourceLabel}`}
                 >
-                  {targetLabel(target)}
+                  <span className="truncate">{sourceLabel}</span>
+                  <ArrowUpRight className="h-3 w-3 shrink-0" />
                 </button>
-              ) : <span className="shrink-0">{targetLabel(target)}</span>}
+              ) : <span className="truncate">{sourceLabel}</span>}
               <span aria-hidden="true">·</span>
-              <span className="truncate" title={thread?.status === "resolved" ? resolvedAt(thread) : undefined}>
+              <span className="shrink-0" title={thread?.status === "resolved" ? resolvedAt(thread) : undefined}>
                 {statusLine(thread)}
               </span>
             </div>
@@ -322,10 +358,24 @@ export function ThreadDrawer({
               onClick={() => void processThread()}
               disabled={processing}
               className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] disabled:cursor-default disabled:text-emerald-600"
-              title={processing ? "Processing" : "Process now"}
-              aria-label={processing ? "Processing" : "Process now"}
+              title={processing ? "Chat is running" : `Chat now with ${pendingCount} queued ${pendingCount === 1 ? "comment" : "comments"}`}
+              aria-label={processing ? "Chat is running" : "Chat now"}
             >
               <Play className={`h-3.5 w-3.5 ${processing ? "animate-pulse" : ""}`} />
+            </button>
+          ) : null}
+          {displayMode === "popover" ? (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                navigateTo("chats", `/${threadId}`);
+              }}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+              title="Open full chat"
+              aria-label="Open full chat"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
             </button>
           ) : null}
           {thread?.status === "open" ? (
@@ -344,8 +394,8 @@ export function ThreadDrawer({
             type="button"
             onClick={onClose}
             className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-            title="Close pane"
-            aria-label="Close pane"
+            title={displayMode === "popover" ? "Close chat" : "Close pane"}
+            aria-label={displayMode === "popover" ? "Close chat" : "Close pane"}
           >
             <X className="h-4 w-4" />
           </button>
@@ -395,8 +445,11 @@ export function ThreadDrawer({
         <ChatComposer
           onSend={(text) => void submitComment(text)}
           onStop={processing ? () => abortControllerRef.current?.abort() : undefined}
-          sending={processing || commentBusy}
-          placeholder="Reply and process now"
+          sending={processing}
+          disabled={commentBusy}
+          allowSendWhileSending
+          autoFocus={displayMode === "popover"}
+          placeholder={processing ? "Add to the next turn" : "Reply"}
         />
         {commentError ? <p className="mt-1 text-xs text-red-500">{commentError}</p> : null}
       </div>

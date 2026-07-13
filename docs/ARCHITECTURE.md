@@ -486,6 +486,10 @@ LibraryProcessingRunner starts one detached child on demand
 
 The user-visible checkpoint is stored in markdown frontmatter as `processing`; the queue record holds the resumable raw work payload. `digestArtifact` remains the compatibility wrapper used by scripts and the awaited `/api/sources/ingest` path. Capture health is evaluated before starting the expensive in-vault reweave: a t.co/X Article wrapper or other metadata stub retries capture and eventually becomes `Needs source`, while a readable L1 digest may be `ready` with `reweave_pending`. That deferred state is static (`Ready · Connections pending`), excluded from worth/recommendation scoring, and becomes fully complete only when a successful reweave clears the flag and stamps the `reweave` processing stage. A failed reweave never checks off the Connections stage, including in manual redigest runs. Automatic retry delay is measured from failure time, not attempt start, so a slow phase cannot collapse the intended cooldown. The supervised worker resolves Claude from explicit config and standard local install locations, including `~/.local/bin/claude`. The dedicated Library watcher emits debounced `library:artifact-changed` events (`add`/`change`/`unlink`, stable id, path, processing state) and `library:queue-changed` summaries. Library SWR hooks patch by stable id and use five-second polling only while WebSocket delivery is disconnected. Deep-feed insertions preserve the first visible card until the user activates the quiet new-items control; Recent/New pin active work, while other rankings expose only a processing count.
 
+`Needs attention` is a derived cross-lifecycle review lens rather than another persisted lifecycle. On each Library read, `attention.ts` joins current artifact state to `${DATA_DIR}/library-refetch-attempts/<vault-hash>.json`: any `processing.state = blocked` item qualifies, as does a legacy capture-health failure after the standard two refetch attempts. Healed items and captures still inside their retry budget do not qualify. The API exposes the projection through `attention=true`; the workbench exposes an `attention` facet for the rail count. Nothing is written back to markdown, keeping operational triage distinct from saved/candidate lifecycle and study/keep disposition.
+
+Library scheduler stdout/stderr logs remain append-only. Health treats stderr as current only when its modification time is at or within the bounded completion window of the latest stdout result (or when no completion comparison is available). Thus a clean zero-exit run supersedes retained stderr from an older run without deleting diagnostic history; only current stderr participates in status, notice counts, and excerpts.
+
 #### Unified For You recommendation stream
 
 For You is a durable editorial history, not a live score sort. Each successful editor run writes one immutable batch under `${DATA_DIR}/library-recommendations/<vault-hash>/batches/`; `feed.json` is an atomically rebuilt projection containing only the latest episode for each artifact, `verdicts.json` stores recommendation-only dismissals, and `runtime.json` stores pending refresh/backoff state. Markdown remains the source of truth for each artifact; the ledger stores only selection history, contextual evidence, and changing `why_now` pitches.
@@ -505,7 +509,7 @@ immutable batch → atomic feed projection → cursor API → Library For You
                                                      └→ `rec:<episode-id>` row
 ```
 
-Fresh ready items from the last seven days enter the candidate pool directly. Older items require a novel context match; recurring meetings or repeated evidence fingerprints cannot resurface an item by themselves. Exposure, read, and dismissal cooldowns default to 7, 14, and 30 days. A resurface writes a new episode, updates the pitch, and moves the same stable artifact card to the top; read state never reorders the feed. Invalid model output and provider backoff leave the prior projection intact.
+Fresh ready items from the last seven days enter the candidate pool directly. Older items require a novel context match; recurring meetings or repeated evidence fingerprints cannot resurface an item by themselves. Exposure, read, and dismissal cooldowns default to 7, 14, and 30 days. A resurface writes a new episode, updates the pitch, and moves the same stable artifact card to the top; read state never reorders the feed. If deterministic validation rejects any pick, the editor makes one bounded repair call with the per-pick rejection reasons and requires a complete replacement set to pass the same rules; it never writes the valid subset of an invalid response. The on-demand child timeout covers two configured editor-call budgets plus an exit margin. A second validation failure records the concrete rejection summary for health and leaves the prior projection intact. Provider backoff likewise preserves the prior projection.
 
 The scheduler runs the main batch at 5:20 AM, before the 6:00 briefing. `ws-server` owns a non-resident child runner for meaningful refreshes: one newly ready explicit save, three distinct newly ready candidates, or a strong novel context match can mark a refresh pending; runs debounce for 20 minutes, require two hours between automated batches, and cap catch-up work at three runs per day. Batch, dismissal, and restore writes emit `library:recommendations-changed`; the client revalidates cursor pages, deduplicates by stable artifact id, preserves a deep-scroll anchor, and reports impressions only when an episode actually becomes visible.
 
@@ -668,8 +672,8 @@ The **third derived cache** (`src/lib/semantic/`, flag-gated `HILT_SEMANTIC_ENAB
 | Briefing markdown | `briefings/YYYY-MM-DD.md`, `briefings/weekend/YYYY-MM-DD.md` | Bridge vault markdown | Weekday daily briefings plus Saturday-start weekend editions; weekend ids use `weekend:YYYY-MM-DD` in Hilt |
 | Task identity high-water | `tasks/.id-sequences.json` | Bridge vault JSON | Locked, atomic per-date reservation state; prevents a dismissed/deleted proposal ID from being assigned to another task |
 | Briefing shadow markdown (historical) | `${DATA_DIR}/briefing-shadow/` | Retired at the v3 Phase 0 cutover (2026-07-07): the loops-fed briefing IS the vault briefing now. Directory kept as read-only history of the shadow period; no writer, no reader. |
-| Briefing run status | `~/.hermes/cron/jobs.json` + `~/.hermes/cron/output/` | Read-only Hermes files | Same-day failed weekday Morning Briefing detection when no `briefings/YYYY-MM-DD.md` exists; retry watcher status is read separately from the real generator job |
-| Briefing v2 loop artifacts/responses | Bridge vault `meta/loops/*` for live loops; `${DATA_DIR}/loops-shadow/meta/loops/*` for shadow loops | Markdown artifacts + append-only JSONL | Loop escalations shown in Briefing; verdict and feedback logs remain file-native under each loop home |
+| Briefing run status | `${DATA_DIR}/briefing-runs/YYYY-MM-DD.json` | Native generator JSON receipt | Same-day missing/invalid/rate-limited daily detection when no `briefings/YYYY-MM-DD.md` exists; records validation, draft, commit, and push outcomes from the native generator |
+| Briefing v2 loop artifacts/responses | Bridge vault `meta/loops/*` for live loops; `${DATA_DIR}/loops-shadow/meta/loops/*` for shadow loops; `${DATA_DIR}/threads/` for current conversations | Markdown artifacts + append-only verdict JSONL + conversation records | Loop escalations shown in Briefing; verdict queues remain under each phase-resolved loop home, while new feedback uses unified global conversations and per-message outcomes |
 | Scope path | URL + ScopeContext | URL state | Current folder scope |
 
 ### Briefing Work and decisions
@@ -692,6 +696,16 @@ their user-editable notes blank; context and stated due language remain canonica
 detail composes attachments, notes, and the inline Meeting action accordion in one scroll region.
 The task-ID audit fails on a missing, orphaned, duplicated, or mismatched reciprocal origin.
 
+Meeting extraction delivery is at-least-once with verified completion. Granola settle detection and
+the 7:30 PM sweep both enqueue `meeting_extraction_jobs` in the canonical per-vault SQLite database.
+The ws-server coordinator claims work with renewable leases and reconciles immediately at startup;
+the scheduled script claims from the same table when ws-server is unavailable. A worker exit is not
+success: Hilt checks the canonical processed stamp, first-touch escalation state, and reciprocal
+proposal/task origin before completing the job. Expired or incomplete jobs retry with bounded
+backoff. The legacy trigger JSON records transcript stability only and cannot suppress recovery.
+Live vault proposal writes fail closed unless the storage marker and database resolve to canonical
+SQLite, preventing a wrong `DATA_DIR` from splitting state and file effects.
+
 Task-object identity is allocated separately from task-file presence. Every creation reserves the next per-date sequence under an exclusive short-lived lock, writes the durable high-water file atomically, and only then exclusively creates the Markdown task or proposal. A crash may leave an unused gap, but neither a crash nor a later dismissal can recycle an identity. Current files remain the task source of truth; `tasks/.id-sequences.json` stores only the allocation invariant, and `tasks/.id-sequences.json.lock` is ephemeral and ignored.
 
 Weekend refresh gathers the full source window again but never includes the target weekend briefing's generated body as evidence; this prevents a prior synthesis from becoming its own source of truth. Required heading boilerplate is harness-owned: if the model omits the H1, the generator inserts the date-correct heading before the unchanged structural and editorial validators run.
@@ -711,15 +725,15 @@ Weekend refresh gathers the full source window again but never includes the targ
 | `/api/bridge/notes` | GET/PUT | Read/write notes section | `content` |
 | `/api/bridge/recycle` | POST | Roll over to new week | - |
 | `/api/bridge/upload` | POST | Upload file to vault | multipart |
-| `/api/bridge/briefings` | GET | List daily and weekend briefing markdown plus same-day daily Hermes failure row | - |
-| `/api/bridge/briefings/[date]` | GET | Read briefing markdown by id or failed daily Hermes run payload | `date` / `weekend:date` id |
+| `/api/bridge/briefings` | GET | List daily and weekend briefing markdown plus same-day native-generator failure row | - |
+| `/api/bridge/briefings/[date]` | GET | Read briefing markdown by id or failed native-generator run payload | `date` / `weekend:date` id |
 | `/api/bridge/briefings/link-target` | GET | Resolve briefing links to native Hilt destinations | `href`, `date` |
-| `/api/bridge/briefings/retry` | POST | Queue existing Hermes Morning Briefing cron job | daily `id` or `date` |
+| `/api/bridge/briefings/retry` | POST | Synchronously rerun the native daily generator for an existing failed date | daily `id` or `date` |
 | `/api/loops/escalations` | GET | List escalated enabled-loop items and existing ask verdicts | - |
 | `/api/loops/verdicts` | POST | Append ask verdict records | `loop`, `item_id`, `verdict`, `note` |
 | `/api/loops/meeting-ledger` | GET | Cursor-paginated read-only meeting ledger | search/status/surface/owner/meeting/date/cursor |
 | `/api/loops/meeting-ledger/[id]` | GET | Full ledger entry evidence, history, task, and events | `id` |
-| `/api/loops/meeting-ledger/health` | GET | Canonical storage, integrity, backup, counts, and context health | - |
+| `/api/loops/meeting-ledger/health` | GET | Canonical storage, integrity, backup, counts, context, and extraction-queue health | - |
 | `/api/loops/dismissed/[itemId]/restore` | POST | Restore a dismissed proposal under its original identity | `loop` |
 | `/api/loops/feedback` | POST | Append free-form loop feedback | `loop`, `target`, `text` |
 | `/api/bridge/people` | GET | List people + groups | - |
@@ -1147,13 +1161,19 @@ outcomes, and the id of its normally-single attached chat session. The top-level
 both shapes and de-duplicates attached sessions beneath their owning thread.
 
 Commenting and processing are two tempos of that same conversation. `postComment` appends without
-starting a model turn. `Process now` deep-links to `/chats/<threadId>/process`, opens the full pane,
-and then consumes the NDJSON stream so trace/tool/message events are visible as they happen. The
+starting a model turn. The universal comment popover begins as a compact queued-comment surface;
+`Chat now` expands it into an embedded `ThreadDrawer` and consumes the same NDJSON stream in place.
+The top-level Chats pane remains the durable workspace and can be opened explicitly. The
 processor snapshots only unhandled human messages, reuses the attached chat and Claude resume id,
 records one outcome, and marks exactly that volley handled. It never closes the conversation;
 `resolveAction: "closed"` is the explicit boundary after which the next comment creates a new thread.
 Scheduled consumers use the same per-message contract, preventing an on-demand volley from being
 consumed again overnight.
+
+Closing an embedded or full conversation surface does not explicitly abort its live fetch; the
+request continues draining and refreshes the durable thread/session caches when it settles. Explicit
+Stop still aborts. `processThread` keeps an in-process active-thread guard so detaching and reopening
+cannot start a second Claude turn for the same thread; an overlap receives `already-processing`.
 
 The full conversation UI also converges at the presentation layer. `ConversationTurn` and
 `ChatComposer` provide the shared role layout, Markdown typography, and input behavior for free
@@ -1167,9 +1187,9 @@ The chat runtime is a port of Loft's chat system with two settled divergences: n
 and server-side persistence (the streaming route writes the transcript as the run progresses; the
 client only renders).
 
-- **Execution model**: per-message CLI spawn — each user turn is one `claude -p --output-format stream-json` run (`src/lib/chat/run-claude.ts`); the CLI's own session store carries conversation context via `--resume`. `cwd` = vault root (`getVaultPath()`), model pinned to Sonnet, tools `Read,Edit,Write,Grep,Glob,LS` (no Bash in v1) — both single exported constants. Edits go straight to disk; existing vault watchers surface them in the UI.
+- **Execution model**: per-message CLI spawn — each user turn is one `claude -p --output-format stream-json --include-partial-messages` run (`src/lib/chat/run-claude.ts`); the CLI's own session store carries conversation context via `--resume`. `cwd` = vault root (`getVaultPath()`), model pinned to Sonnet, tools `Read,Edit,Write,Grep,Glob,LS` (no Bash in v1) — both single exported constants. Edits go straight to disk; existing vault watchers surface them in the UI.
 - **Persistence**: one JSON per chat at `DATA_DIR/chat-sessions/<chatId>.json` (`src/lib/chat/store.ts`) — app state, never the vault, never `~/.claude/projects/` (the CLI manages its own store there; Hilt only passes `--resume` ids). Atomic temp+rename writes; normalize-on-read so schema drift or corruption degrades to defaults instead of crashing the list.
-- **Streaming**: `POST /api/chat/message` responds `application/x-ndjson` — `session` → `trace`/`message` → `complete`|`error`. Tool calls become trace events with `summarizeToolInput`-reduced inputs (full inputs are never persisted); Edit/Write/MultiEdit paths are collected vault-relative as `filesTouched`. Client abort → child SIGTERM, partial transcript persisted, no error event. A dead `--resume` id triggers one retry-without-resume flagged by a warning trace.
+- **Streaming**: `POST /api/chat/message` responds `application/x-ndjson` — `session` → `trace`/`message` → `complete`|`error`. `message` carries ordered text deltas; the parser ignores the later completed assistant snapshot so text is never duplicated, while retaining that snapshot as a compatibility fallback. Every turn emits an initial running step. Tool-use blocks become running traces and matching tool-result blocks update the same ids to complete/error with durations; inputs remain reduced through `summarizeToolInput` and Edit/Write/MultiEdit paths are collected vault-relative as `filesTouched`. Client abort → child SIGTERM, partial transcript persisted, no error event. A dead `--resume` id triggers one retry-without-resume flagged by a warning trace.
 - **First-turn context**: `src/lib/chat/context.ts` composes a context block per `ChatContextRef` kind (library/task/meeting hydrated; doc/person/loop-item/briefing-line stubs until their workstreams). The block goes only to the CLI — the stored transcript keeps the user's prompt alone.
 - Because `cwd` is the vault, these CLI sessions also appear in System → Sessions — intended.
 

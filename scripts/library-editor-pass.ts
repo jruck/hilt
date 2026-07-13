@@ -16,9 +16,11 @@ import {
 import {
   buildEditorialCandidatePool,
   recommendationCooldownEligible,
-  validateRecommendationPicks,
+  validateRecommendationPicksDetailed,
+  validateRecommendationPicksWithRepair,
   type RawRecommendationPick,
   type RecommendationExposure,
+  type RecommendationPickRejection,
 } from "../src/lib/library/recommendation-editor";
 import { listLibraryArtifactDetails } from "../src/lib/library/library";
 import { readLibraryEvents, appendLibraryEvents } from "../src/lib/library/events";
@@ -108,7 +110,25 @@ function releaseLock(fd: number): void {
   try { fs.unlinkSync(lock); } catch { /* ignore */ }
 }
 
-async function modelPicks(candidates: RecommendedArtifact[], contextText: string, evidenceText: string, maxItems: number): Promise<RawRecommendationPick[]> {
+interface RecommendationRepairContext {
+  attempted: RawRecommendationPick[];
+  rejections: RecommendationPickRejection[];
+}
+
+function rejectionSummary(rejections: RecommendationPickRejection[]): string {
+  return rejections
+    .slice(0, 6)
+    .map((rejection) => rejection.message)
+    .join("; ");
+}
+
+async function modelPicks(
+  candidates: RecommendedArtifact[],
+  contextText: string,
+  evidenceText: string,
+  maxItems: number,
+  repair: RecommendationRepairContext | null = null,
+): Promise<RawRecommendationPick[]> {
   const itemBlocks = candidates.map((item) => {
     const previous = latestRecommendationEpisode(vaultPath, item.id);
     return [
@@ -139,7 +159,18 @@ async function modelPicks(candidates: RecommendedArtifact[], contextText: string
     "paraphrase the title or Summary. When citing a meeting/task/project/area/briefing trigger, the",
     "reason must name a concrete detail from that evidence that is not already in the source Summary.",
     "Never invent a trigger.",
+    "The batch is atomic: if even one pick violates these rules, none of the picks will be saved.",
     "Return ONLY JSON: {\"picks\":[{\"id\":\"...\",\"reason\":\"...\",\"trigger_ids\":[\"...\"]}]}",
+    ...(repair ? [
+      "",
+      "=== REPAIR REQUIRED ===",
+      "The previous complete response failed deterministic validation. Return a complete replacement picks array,",
+      "not only the rejected entries. You may drop a weak pick or choose a different eligible candidate.",
+      `Previous response: ${JSON.stringify({ picks: repair.attempted })}`,
+      `Validation failures: ${rejectionSummary(repair.rejections)}`,
+      "Re-check every replacement pick for exact supplied IDs, exact supplied trigger IDs, a non-summary",
+      "why-now reason, concrete changed-context language, and duplicate topics before returning JSON.",
+    ] : []),
     "",
     "=== ACTIVE WORK ===",
     contextText,
@@ -187,23 +218,40 @@ async function main(): Promise<void> {
       config: config.for_you,
     });
     const fixture = readFixture();
+    const contextText = candidates.length > 0 ? buildKbIndex(vaultPath, { noWrite: true }) : "";
+    const evidenceText = candidates.length > 0 ? recommendationContextPrompt(evidence) : "";
     const raw = fixture || (candidates.length > 0 ? await modelPicks(
       candidates,
-      buildKbIndex(vaultPath, { noWrite: true }),
-      recommendationContextPrompt(evidence),
+      contextText,
+      evidenceText,
       config.for_you.batch_max,
     ) : []);
-    const picks = validateRecommendationPicks({
-      raw,
+    const validationInput = {
       candidates,
       triggers: evidence,
       previousByArtifact,
       maxItems: config.for_you.batch_max,
       nearDuplicate: nearDuplicateRecommendationTitles,
-    });
-    if (raw.length > config.for_you.batch_max || picks.length !== raw.length) {
-      throw new Error("invalid_model_output: one or more picks failed validation");
+    };
+    const validation = fixture
+      ? { ...validateRecommendationPicksDetailed({ ...validationInput, raw }), raw, repair_attempted: false }
+      : await validateRecommendationPicksWithRepair({ ...validationInput, raw }, async (failed) => {
+        console.warn(JSON.stringify({
+          event: "recommendation_output_repair",
+          rejected: failed.rejections.map(({ index, artifact_id, code }) => ({ index, artifact_id, code })),
+        }));
+        return modelPicks(
+          candidates,
+          contextText,
+          evidenceText,
+          config.for_you.batch_max,
+          { attempted: failed.raw, rejections: failed.rejections },
+        );
+      });
+    if (validation.rejections.length > 0) {
+      throw new Error(`invalid_model_output: ${rejectionSummary(validation.rejections)}`);
     }
+    const picks = validation.picks;
     const generatedAt = now.toISOString();
     const batch = writeRecommendationBatch(vaultPath, {
       kind,

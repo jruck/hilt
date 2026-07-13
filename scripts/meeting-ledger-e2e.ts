@@ -87,11 +87,13 @@ if (system.includes("You extract COMMITMENT and CLOSURE observations")) {
   const crash = "meetings/2026-07-12/Launch crash retry.md";
   const sameRunOpen = "meetings/2026-07-12/Same-run open.md";
   const sameRunClose = "meetings/2026-07-12/Same-run close.md";
+  const nightly = "meetings/2026-07-12/Nightly queue.md";
   meeting(first, "transcripts/2026-07-12/Launch review.md", "## Next Steps\n\n- Send the launch scorecard (Justin)");
   meeting(second, "transcripts/2026-07-12/Launch follow-up.md", "## Next Steps\n\n- Send the launch scorecard (Justin)");
   meeting(crash, "transcripts/2026-07-12/Launch crash retry.md", "## Next Steps\n\n- Send the launch scorecard (Justin)");
   meeting(sameRunOpen, "transcripts/2026-07-12/Same-run open.md", "## Next Steps\n\n- Publish the decision memo (Justin)");
   meeting(sameRunClose, "transcripts/2026-07-12/Same-run close.md", "## Notes\n\nThe decision memo is no longer needed.");
+  meeting(nightly, "transcripts/2026-07-12/Nightly queue.md", "## Next Steps\n\n- Send the launch scorecard (Justin)");
 
   await runMeeting([first]);
   let store = new MeetingLedgerStore(meetingLedgerDbPath(vault));
@@ -136,6 +138,27 @@ if (system.includes("You extract COMMITMENT and CLOSURE observations")) {
   assert.equal(store.getEntry(ledgerEntry.id)!.sightings.length, 2);
   store.close();
 
+  // The scheduler path discovers the remaining meeting, persists/claims it from the same queue,
+  // and completes the job only after canonical output verifies.
+  await runScript("scripts/loop-meeting-actions.ts", ["--vault", vault, "--date", "2026-07-12", "--max-meetings", "1"]);
+  store = new MeetingLedgerStore(meetingLedgerDbPath(vault));
+  assert.equal(store.isProcessed(nightly), true);
+  assert.equal(store.getExtractionJob(nightly)?.status, "complete");
+  assert.equal(store.extractionQueueHealth().depth, 0);
+  store.close();
+  assert.equal(listProposals(vault).length, 1, "nightly queue must not duplicate a sighted proposal");
+
+  // A missing DATA_DIR used to split state into cwd/data while still writing live Bridge files.
+  // The canonical storage guard now fails before extraction or proposal mutation.
+  const guardList = path.join(root, "guard.json");
+  write(guardList, `${JSON.stringify([first])}\n`);
+  await assert.rejects(
+    runScript("scripts/loop-meeting-actions.ts", ["--vault", vault, "--date", "2026-07-12", "--meetings-file", guardList], {
+      DATA_DIR: path.join(root, "wrong-data-dir"),
+    }),
+    (error: unknown) => String((error as { stderr?: string }).stderr ?? error).includes("refusing live proposal writes without canonical SQLite meeting state"),
+  );
+
   dismissProposal(vault, taskId);
   appendVerdict(loopHome, { id: "v-dismiss", author: "justin", created_at: "2026-07-12T15:00:00.000Z", loop: "meeting-actions", item_id: ledgerEntry.id, verdict: "dismiss" });
   await runMeeting([]);
@@ -174,7 +197,7 @@ if (system.includes("You extract COMMITMENT and CLOSURE observations")) {
   assert.equal(audited.ok, true);
   assert.equal(audited.parity.ok, true);
 
-  console.log(JSON.stringify({ ok: true, entries: 2, same_run_closed: 1, sightings: 2, task_id: taskId, decisions: decisions.task_ids.length, integrity: "ok", rollback: "verified" }, null, 2));
+  console.log(JSON.stringify({ ok: true, entries: 2, same_run_closed: 1, sightings: 3, nightly_queue: "verified", canonical_guard: "verified", task_id: taskId, decisions: decisions.task_ids.length, integrity: "ok", rollback: "verified" }, null, 2));
 }
 
 main().finally(() => {

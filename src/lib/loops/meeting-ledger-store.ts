@@ -4,7 +4,7 @@ import Database from "better-sqlite3";
 import { atomicWriteFile, hashId } from "../library/utils";
 import type { Ledger, LedgerEntry, LedgerStatus } from "./meeting-ledger";
 
-export const MEETING_LEDGER_SCHEMA_VERSION = 2;
+export const MEETING_LEDGER_SCHEMA_VERSION = 3;
 const DB_SCHEMA_VERSION = MEETING_LEDGER_SCHEMA_VERSION;
 const STORAGE_MARKER_VERSION = 1 as const;
 const LEDGER_STATUSES = new Set<LedgerStatus>(["open", "carried", "resolved", "dropped"]);
@@ -47,6 +47,39 @@ export interface MeetingLedgerCounts {
   accepted_open: number;
   stamped: number;
   event_sequence: number;
+}
+
+export type MeetingExtractionJobStatus = "queued" | "running" | "retry_wait" | "complete" | "failed";
+export type MeetingExtractionJobSource = "trigger" | "nightly" | "manual";
+
+export interface MeetingExtractionJob {
+  meeting_path: string;
+  granola_id: string | null;
+  status: MeetingExtractionJobStatus;
+  last_enqueued_by: MeetingExtractionJobSource;
+  settled_at: string | null;
+  queued_at: string;
+  updated_at: string;
+  attempt_count: number;
+  lease_owner: string | null;
+  lease_expires_at: string | null;
+  next_retry_at: string | null;
+  last_error: string | null;
+  completed_at: string | null;
+  completion_run_id: string | null;
+}
+
+export interface MeetingExtractionQueueHealth {
+  depth: number;
+  queued: number;
+  running: number;
+  retry_wait: number;
+  failed: number;
+  complete: number;
+  oldest_queued_at: string | null;
+  next_retry_at: string | null;
+  active: MeetingExtractionJob[];
+  last_error: { meeting_path: string; error: string; at: string } | null;
 }
 
 export type LedgerSurfaceState = "pending" | "accepted" | "latent" | "observed" | "dismissed" | "resolved";
@@ -138,6 +171,8 @@ interface HistoryRow {
   to_status: LedgerStatus;
   evidence: string | null;
 }
+
+type ExtractionJobRow = MeetingExtractionJob;
 
 function dataRoot(): string {
   return process.env.DATA_DIR || path.join(process.cwd(), "data");
@@ -254,6 +289,20 @@ export function readMeetingLedgerStorageMarker(vaultPath: string): MeetingLedger
 
 export function writeMeetingLedgerStorageMarker(vaultPath: string, marker: MeetingLedgerStorageMarker): void {
   atomicWriteFile(meetingLedgerMarkerPath(vaultPath), `${JSON.stringify(marker, null, 2)}\n`);
+}
+
+/** Open only the production canonical store. Unlike the low-level constructor, this never creates
+ * a database when the storage marker or canonical file is missing. */
+export function openCanonicalMeetingLedgerStore(vaultPath: string): MeetingLedgerStore {
+  const marker = readMeetingLedgerStorageMarker(vaultPath);
+  const dbPath = meetingLedgerDbPath(vaultPath);
+  if (marker.mode !== "sqlite") {
+    throw new Error(`canonical meeting ledger is not SQLite (storage mode: ${marker.mode})`);
+  }
+  if (!fs.existsSync(dbPath)) {
+    throw new Error(`canonical meeting ledger is missing at ${dbPath}; refusing to initialize a blank database`);
+  }
+  return new MeetingLedgerStore(dbPath);
 }
 
 function assertIso(value: string, label: string): void {
@@ -420,6 +469,28 @@ export class MeetingLedgerStore {
           context_tokens INTEGER NOT NULL DEFAULT 0
         );
 
+        CREATE TABLE meeting_extraction_jobs (
+          meeting_path TEXT PRIMARY KEY,
+          granola_id TEXT,
+          status TEXT NOT NULL CHECK(status IN ('queued','running','retry_wait','complete','failed')),
+          last_enqueued_by TEXT NOT NULL CHECK(last_enqueued_by IN ('trigger','nightly','manual')),
+          settled_at TEXT,
+          queued_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+          lease_owner TEXT,
+          lease_expires_at TEXT,
+          next_retry_at TEXT,
+          last_error TEXT,
+          completed_at TEXT,
+          completion_run_id TEXT,
+          CHECK(status <> 'running' OR (lease_owner IS NOT NULL AND lease_expires_at IS NOT NULL))
+        );
+        CREATE INDEX idx_meeting_extraction_jobs_status_retry
+          ON meeting_extraction_jobs(status, next_retry_at, queued_at);
+        CREATE INDEX idx_meeting_extraction_jobs_lease
+          ON meeting_extraction_jobs(status, lease_expires_at);
+
         CREATE TABLE ledger_events (
           sequence INTEGER PRIMARY KEY AUTOINCREMENT,
           event_id TEXT NOT NULL UNIQUE,
@@ -461,7 +532,11 @@ export class MeetingLedgerStore {
         END;
       `);
       this.db.pragma(`user_version = ${DB_SCHEMA_VERSION}`);
-    } else if (version === 1) {
+      return;
+    }
+
+    let current = version;
+    if (current === 1) {
       this.db.exec(`
         CREATE TRIGGER IF NOT EXISTS validate_ledger_status_transition
         BEFORE UPDATE OF status ON ledger_entries
@@ -474,7 +549,36 @@ export class MeetingLedgerStore {
           SELECT RAISE(ABORT, 'invalid ledger status transition');
         END;
       `);
-      this.db.pragma(`user_version = ${DB_SCHEMA_VERSION}`);
+      this.db.pragma("user_version = 2");
+      current = 2;
+    }
+    if (current === 2) {
+      this.db.transaction(() => {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS meeting_extraction_jobs (
+            meeting_path TEXT PRIMARY KEY,
+            granola_id TEXT,
+            status TEXT NOT NULL CHECK(status IN ('queued','running','retry_wait','complete','failed')),
+            last_enqueued_by TEXT NOT NULL CHECK(last_enqueued_by IN ('trigger','nightly','manual')),
+            settled_at TEXT,
+            queued_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+            lease_owner TEXT,
+            lease_expires_at TEXT,
+            next_retry_at TEXT,
+            last_error TEXT,
+            completed_at TEXT,
+            completion_run_id TEXT,
+            CHECK(status <> 'running' OR (lease_owner IS NOT NULL AND lease_expires_at IS NOT NULL))
+          );
+          CREATE INDEX IF NOT EXISTS idx_meeting_extraction_jobs_status_retry
+            ON meeting_extraction_jobs(status, next_retry_at, queued_at);
+          CREATE INDEX IF NOT EXISTS idx_meeting_extraction_jobs_lease
+            ON meeting_extraction_jobs(status, lease_expires_at);
+        `);
+        this.db.pragma(`user_version = ${DB_SCHEMA_VERSION}`);
+      })();
     }
   }
 
@@ -737,6 +841,245 @@ export class MeetingLedgerStore {
     })();
   }
 
+  getExtractionJob(meetingPath: string): MeetingExtractionJob | null {
+    return (this.db.prepare("SELECT * FROM meeting_extraction_jobs WHERE meeting_path = ?")
+      .get(meetingPath) as ExtractionJobRow | undefined) ?? null;
+  }
+
+  extractionJobs(): MeetingExtractionJob[] {
+    return this.db.prepare("SELECT * FROM meeting_extraction_jobs ORDER BY queued_at, meeting_path").all() as ExtractionJobRow[];
+  }
+
+  enqueueExtractionJob(input: {
+    meetingPath: string;
+    source: MeetingExtractionJobSource;
+    queuedAt: string;
+    granolaId?: string;
+    settledAt?: string;
+    forceFailed?: boolean;
+  }): MeetingExtractionJob | null {
+    if (!input.meetingPath.startsWith("meetings/")) throw new Error(`invalid meeting extraction path: ${input.meetingPath}`);
+    assertIso(input.queuedAt, "meeting extraction queuedAt");
+    if (input.settledAt) assertIso(input.settledAt, "meeting extraction settledAt");
+    this.assertWritable();
+    return this.db.transaction(() => {
+      const existing = this.getExtractionJob(input.meetingPath);
+      if (!existing && this.isProcessed(input.meetingPath)) return null;
+      if (existing) {
+        if (existing.status !== "failed" || !input.forceFailed) return existing;
+        this.db.prepare(`
+          UPDATE meeting_extraction_jobs SET
+            status='queued', last_enqueued_by=?, granola_id=COALESCE(?, granola_id),
+            settled_at=COALESCE(?, settled_at), queued_at=?, updated_at=?, attempt_count=0,
+            lease_owner=NULL, lease_expires_at=NULL, next_retry_at=NULL, last_error=NULL,
+            completed_at=NULL, completion_run_id=NULL
+          WHERE meeting_path=?
+        `).run(input.source, input.granolaId ?? null, input.settledAt ?? null, input.queuedAt, input.queuedAt, input.meetingPath);
+        this.appendEvent({
+          eventType: "meeting-extraction-job-requeued",
+          meeting: input.meetingPath,
+          at: input.queuedAt,
+          payload: { source: input.source, prior_status: existing.status, forced: true },
+        });
+        return this.getExtractionJob(input.meetingPath)!;
+      }
+      this.db.prepare(`
+        INSERT INTO meeting_extraction_jobs(
+          meeting_path, granola_id, status, last_enqueued_by, settled_at, queued_at, updated_at
+        ) VALUES (?, ?, 'queued', ?, ?, ?, ?)
+      `).run(
+        input.meetingPath,
+        input.granolaId ?? null,
+        input.source,
+        input.settledAt ?? null,
+        input.queuedAt,
+        input.queuedAt,
+      );
+      this.appendEvent({
+        eventType: "meeting-extraction-job-enqueued",
+        meeting: input.meetingPath,
+        at: input.queuedAt,
+        payload: { source: input.source, granola_id: input.granolaId ?? null, settled_at: input.settledAt ?? null },
+      });
+      return this.getExtractionJob(input.meetingPath)!;
+    })();
+  }
+
+  claimExtractionJobs(input: {
+    owner: string;
+    now: string;
+    leaseMs: number;
+    limit?: number;
+  }): MeetingExtractionJob[] {
+    if (!input.owner.trim()) throw new Error("meeting extraction lease owner is required");
+    assertIso(input.now, "meeting extraction claim time");
+    const leaseMs = Math.max(10_000, Math.round(input.leaseMs));
+    const limit = Math.max(1, Math.min(25, input.limit ?? 10));
+    const leaseExpiresAt = new Date(Date.parse(input.now) + leaseMs).toISOString();
+    this.assertWritable();
+    return this.db.transaction(() => {
+      const expired = this.db.prepare(`
+        SELECT * FROM meeting_extraction_jobs
+        WHERE status='running' AND lease_expires_at <= ? ORDER BY lease_expires_at, meeting_path
+      `).all(input.now) as ExtractionJobRow[];
+      for (const job of expired) {
+        this.db.prepare(`
+          UPDATE meeting_extraction_jobs SET status='retry_wait', updated_at=?, lease_owner=NULL,
+            lease_expires_at=NULL, next_retry_at=?, last_error=? WHERE meeting_path=?
+        `).run(input.now, input.now, `worker lease expired (${job.lease_owner ?? "unknown"})`, job.meeting_path);
+        this.appendEvent({
+          eventType: "meeting-extraction-lease-expired",
+          meeting: job.meeting_path,
+          at: input.now,
+          payload: { prior_owner: job.lease_owner, prior_expiry: job.lease_expires_at, attempt: job.attempt_count },
+        });
+      }
+      this.db.prepare(`
+        UPDATE meeting_extraction_jobs SET status='queued', updated_at=?, next_retry_at=NULL
+        WHERE status='retry_wait' AND next_retry_at <= ?
+      `).run(input.now, input.now);
+      const due = this.db.prepare(`
+        SELECT meeting_path FROM meeting_extraction_jobs
+        WHERE status='queued' ORDER BY queued_at, meeting_path LIMIT ?
+      `).all(limit) as Array<{ meeting_path: string }>;
+      for (const { meeting_path } of due) {
+        this.db.prepare(`
+          UPDATE meeting_extraction_jobs SET status='running', updated_at=?, attempt_count=attempt_count+1,
+            lease_owner=?, lease_expires_at=?, next_retry_at=NULL
+          WHERE meeting_path=? AND status='queued'
+        `).run(input.now, input.owner, leaseExpiresAt, meeting_path);
+        const claimed = this.getExtractionJob(meeting_path)!;
+        this.appendEvent({
+          eventType: "meeting-extraction-job-claimed",
+          meeting: meeting_path,
+          at: input.now,
+          payload: { owner: input.owner, lease_expires_at: leaseExpiresAt, attempt: claimed.attempt_count },
+        });
+      }
+      return due.map(({ meeting_path }) => this.getExtractionJob(meeting_path)!).filter((job) => job.lease_owner === input.owner);
+    })();
+  }
+
+  renewExtractionJobLeases(input: {
+    meetingPaths: string[];
+    owner: string;
+    now: string;
+    leaseMs: number;
+  }): number {
+    if (!input.meetingPaths.length) return 0;
+    assertIso(input.now, "meeting extraction lease renewal time");
+    this.assertWritable();
+    const expiresAt = new Date(Date.parse(input.now) + Math.max(10_000, Math.round(input.leaseMs))).toISOString();
+    const placeholders = input.meetingPaths.map(() => "?").join(",");
+    return this.db.prepare(`
+      UPDATE meeting_extraction_jobs SET lease_expires_at=?, updated_at=?
+      WHERE status='running' AND lease_owner=? AND meeting_path IN (${placeholders})
+    `).run(expiresAt, input.now, input.owner, ...input.meetingPaths).changes;
+  }
+
+  completeExtractionJob(input: {
+    meetingPath: string;
+    owner?: string;
+    completedAt: string;
+    runId?: string;
+  }): boolean {
+    assertIso(input.completedAt, "meeting extraction completion time");
+    this.assertWritable();
+    return this.db.transaction(() => {
+      const existing = this.getExtractionJob(input.meetingPath);
+      if (!existing) return false;
+      if (existing.status === "complete") return true;
+      if (input.owner && existing.lease_owner !== input.owner) return false;
+      this.db.prepare(`
+        UPDATE meeting_extraction_jobs SET status='complete', updated_at=?, lease_owner=NULL,
+          lease_expires_at=NULL, next_retry_at=NULL, last_error=NULL, completed_at=?, completion_run_id=?
+        WHERE meeting_path=?
+      `).run(input.completedAt, input.completedAt, input.runId ?? null, input.meetingPath);
+      this.appendEvent({
+        eventType: "meeting-extraction-job-completed",
+        meeting: input.meetingPath,
+        at: input.completedAt,
+        runId: input.runId,
+        payload: { attempt: existing.attempt_count, owner: input.owner ?? existing.lease_owner },
+      });
+      return true;
+    })();
+  }
+
+  retryExtractionJob(input: {
+    meetingPath: string;
+    owner: string;
+    failedAt: string;
+    nextRetryAt: string;
+    error: string;
+    maxAttempts: number;
+  }): "retry_wait" | "failed" | null {
+    assertIso(input.failedAt, "meeting extraction failure time");
+    assertIso(input.nextRetryAt, "meeting extraction retry time");
+    this.assertWritable();
+    return this.db.transaction(() => {
+      const existing = this.getExtractionJob(input.meetingPath);
+      if (!existing || existing.status !== "running" || existing.lease_owner !== input.owner) return null;
+      const status = existing.attempt_count >= Math.max(1, input.maxAttempts) ? "failed" : "retry_wait";
+      this.db.prepare(`
+        UPDATE meeting_extraction_jobs SET status=?, updated_at=?, lease_owner=NULL, lease_expires_at=NULL,
+          next_retry_at=?, last_error=?, completed_at=NULL, completion_run_id=NULL WHERE meeting_path=?
+      `).run(
+        status,
+        input.failedAt,
+        status === "retry_wait" ? input.nextRetryAt : null,
+        input.error.slice(0, 2_000),
+        input.meetingPath,
+      );
+      this.appendEvent({
+        eventType: status === "failed" ? "meeting-extraction-job-failed" : "meeting-extraction-job-retry-scheduled",
+        meeting: input.meetingPath,
+        at: input.failedAt,
+        payload: {
+          attempt: existing.attempt_count,
+          max_attempts: input.maxAttempts,
+          next_retry_at: status === "retry_wait" ? input.nextRetryAt : null,
+          error: input.error.slice(0, 500),
+        },
+      });
+      return status;
+    })();
+  }
+
+  extractionQueueHealth(): MeetingExtractionQueueHealth {
+    const counts = Object.fromEntries((this.db.prepare(`
+      SELECT status, COUNT(*) AS count FROM meeting_extraction_jobs GROUP BY status
+    `).all() as Array<{ status: MeetingExtractionJobStatus; count: number }>).map((row) => [row.status, row.count])) as Partial<Record<MeetingExtractionJobStatus, number>>;
+    const oldest = this.db.prepare(`
+      SELECT MIN(queued_at) AS at FROM meeting_extraction_jobs WHERE status IN ('queued','running','retry_wait')
+    `).get() as { at: string | null };
+    const nextRetry = this.db.prepare(`
+      SELECT MIN(next_retry_at) AS at FROM meeting_extraction_jobs WHERE status='retry_wait'
+    `).get() as { at: string | null };
+    const active = this.db.prepare(`
+      SELECT * FROM meeting_extraction_jobs WHERE status='running' ORDER BY queued_at, meeting_path
+    `).all() as ExtractionJobRow[];
+    const error = this.db.prepare(`
+      SELECT meeting_path, last_error AS error, updated_at AS at FROM meeting_extraction_jobs
+      WHERE last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1
+    `).get() as { meeting_path: string; error: string; at: string } | undefined;
+    const queued = counts.queued ?? 0;
+    const running = counts.running ?? 0;
+    const retryWait = counts.retry_wait ?? 0;
+    return {
+      depth: queued + running + retryWait,
+      queued,
+      running,
+      retry_wait: retryWait,
+      failed: counts.failed ?? 0,
+      complete: counts.complete ?? 0,
+      oldest_queued_at: oldest.at,
+      next_retry_at: nextRetry.at,
+      active,
+      last_error: error ?? null,
+    };
+  }
+
   private hydrateRows(rows: EntryRow[]): LedgerEntry[] {
     if (!rows.length) return [];
     const ids = rows.map((row) => row.id);
@@ -804,6 +1147,17 @@ export class MeetingLedgerStore {
     const rows = this.db.prepare(`SELECT * FROM ledger_entries WHERE id IN (${ids.map(() => "?").join(",")})`).all(...ids) as EntryRow[];
     const byId = new Map(this.hydrateRows(rows).map((entry) => [entry.id, entry]));
     return ids.flatMap((id) => byId.get(id) ? [byId.get(id)!] : []);
+  }
+
+  entriesForMeeting(meeting: string): LedgerEntry[] {
+    const rows = this.db.prepare(`
+      SELECT DISTINCT e.* FROM ledger_entries e
+      LEFT JOIN ledger_citations c ON c.entry_id=e.id
+      LEFT JOIN ledger_sightings s ON s.entry_id=e.id
+      WHERE e.opened_from=? OR c.source=? OR s.meeting=?
+      ORDER BY e.id
+    `).all(meeting, meeting, meeting) as EntryRow[];
+    return this.hydrateRows(rows);
   }
 
   readAll(): Ledger {
@@ -964,6 +1318,7 @@ export class MeetingLedgerStore {
         DELETE FROM meeting_summaries;
         DELETE FROM processed_meetings;
         DELETE FROM extraction_runs;
+        DELETE FROM meeting_extraction_jobs;
         DELETE FROM ledger_meta;
       `);
     })();

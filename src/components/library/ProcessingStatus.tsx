@@ -48,6 +48,9 @@ export function ProcessingStatus({
     );
   }
   const blocked = processing.state === "blocked";
+  const blockedLabel = processing.stage === "capture" || processing.stage === "transcribe"
+    ? "Needs source"
+    : `${STAGE_LABELS[processing.stage]} blocked`;
   const stageText = processing.state === "queued"
     ? `Queued · ${processingStageLabel(processing.stage)}`
     : `Processing · ${processingStageLabel(processing.stage)}`;
@@ -65,7 +68,7 @@ export function ProcessingStatus({
           ? <AlertTriangle className="h-4 w-4 shrink-0" />
           : <Loader2 className="h-4 w-4 shrink-0 motion-safe:animate-spin motion-reduce:animate-none" />}
         <span className="min-w-0 truncate text-xs font-medium">
-          {blocked ? "Needs source" : stageText}
+          {blocked ? blockedLabel : stageText}
         </span>
       </div>
       {blocked && processing.last_error?.message && (

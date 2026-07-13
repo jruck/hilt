@@ -9,10 +9,12 @@
 
 import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import { mutate as globalMutate } from "swr";
-import { X } from "lucide-react";
+import { ArrowUpRight, X } from "lucide-react";
 import { useScope } from "@/contexts/ScopeContext";
 import { withBasePath } from "@/lib/base-path";
 import type { ChatContextRef } from "@/lib/chat/types";
+import { libraryItemScope } from "@/lib/library/url";
+import { requestTaskOpen } from "@/lib/tasks/deeplink";
 import { ChatComposer } from "./ChatComposer";
 import { ChatMessageList } from "./ChatMessageList";
 import { useChat } from "./useChat";
@@ -115,6 +117,19 @@ export function ChatPanel({
 
   const title = session?.title ?? (initialChatId ? "Chat" : "New chat");
   const subtitle = (session?.contextLabel ?? contextLabel ?? "").trim();
+  const activeContext = session?.context ?? context;
+  const openContext = (() => {
+    if (!activeContext) return null;
+    if (activeContext.kind === "library") return () => navigateTo("library", libraryItemScope(activeContext.id));
+    if (activeContext.kind === "doc") return () => navigateTo("docs", activeContext.path);
+    if (activeContext.kind === "person") return () => navigateTo("people", `/${activeContext.slug}`);
+    if (activeContext.kind === "task") return () => requestTaskOpen(activeContext.id);
+    if (activeContext.kind === "meeting" && workingFolder) {
+      const path = activeContext.path.startsWith("/") ? activeContext.path : `${workingFolder}/${activeContext.path}`;
+      return () => navigateTo("docs", path);
+    }
+    return null;
+  })();
 
   return (
     <div className={`flex h-full min-h-0 flex-col bg-[var(--content-surface,var(--bg-primary))] ${className}`}>
@@ -122,7 +137,17 @@ export function ChatPanel({
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-[var(--text-primary)]">{title}</div>
           {subtitle ? (
-            <div className="truncate text-[11px] text-[var(--text-tertiary)]">{subtitle}</div>
+            openContext ? (
+              <button
+                type="button"
+                onClick={openContext}
+                className="flex max-w-full items-center gap-1 text-[11px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-primary)]"
+                title={`Open ${subtitle}`}
+              >
+                <span className="truncate">{subtitle}</span>
+                <ArrowUpRight className="h-3 w-3 shrink-0" />
+              </button>
+            ) : <div className="truncate text-[11px] text-[var(--text-tertiary)]">{subtitle}</div>
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">

@@ -32,7 +32,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   return createThreadProcessStream(async (emit) => {
     const result = await processThread(id, { emit, signal: request.signal });
-    if (!result.ok && (result.error === "not-found" || result.error === "already-resolved" || result.error === "nothing-pending")) {
+    if (!result.ok && (
+      result.error === "not-found"
+      || result.error === "already-resolved"
+      || result.error === "nothing-pending"
+      || result.error === "already-processing"
+    )) {
       emit({ type: "error", error: result.error });
     }
   });

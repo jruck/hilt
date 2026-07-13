@@ -28,6 +28,7 @@ export interface LibraryUrlControls {
   mode: LibraryModeControl;
   source: string | null;
   tag: string | null;
+  attention: boolean;
 }
 
 export interface LibraryUrlContext {
@@ -41,6 +42,7 @@ export const defaultLibraryUrlControls: LibraryUrlControls = {
   mode: "study",
   source: null,
   tag: null,
+  attention: false,
 };
 
 function validDensity(value: string | null): LibraryDensity {
@@ -71,6 +73,7 @@ export function parseLibraryControls(search: string): LibraryUrlControls {
     mode: validMode(params.get("mode")),
     source: params.get("source") || null,
     tag: params.get("tag") || null,
+    attention: params.get("attention") === "true",
   };
 }
 
@@ -82,6 +85,7 @@ export function buildLibrarySearch(controls: LibraryUrlControls, context: Librar
   if (controls.mode !== defaultLibraryUrlControls.mode) params.set("mode", controls.mode);
   if (controls.source) params.set("source", controls.source);
   if (controls.tag) params.set("tag", controls.tag);
+  if (controls.attention) params.set("attention", "true");
   if (context.recommendationEpisodeId) params.set("rec", context.recommendationEpisodeId);
   const search = params.toString();
   return search ? `?${search}` : "";

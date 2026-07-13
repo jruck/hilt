@@ -22,12 +22,13 @@ export interface LibraryEvalFilters {
   feedback?: string | null;
   youtube_clip_policy?: string | null;
 }
-import { Bookmark, Check, CircleDot, FileText, Sparkles } from "lucide-react";
+import { AlertTriangle, Bookmark, Check, CircleDot, FileText, Sparkles } from "lucide-react";
 import { SECONDARY_TOOLBAR_BODY_GUTTER_CLASS } from "@/components/layout/SecondaryToolbar";
 import { EvalMetricPills, formatEvalScore } from "./EvalMetricPills";
 import { LibraryArtifactDetailPane } from "./LibraryArtifactDetailPane";
 import { SeriesBadge } from "./SeriesBadge";
 import { ProcessingStatus } from "./ProcessingStatus";
+import { AttentionStatus } from "./AttentionStatus";
 
 const SOURCE_WIDTH_KEY = "hilt-library-source-width";
 const LIST_WIDTH_KEY = "hilt-library-list-width";
@@ -152,6 +153,8 @@ export function SourceNav({
   onTypeSelect,
   evalFilters,
   onEvalFilterChange,
+  attentionOnly = false,
+  onAttentionSelect,
   className = "",
   style,
 }: {
@@ -168,6 +171,8 @@ export function SourceNav({
   onTypeSelect?: (type: string | null) => void;
   evalFilters?: LibraryEvalFilters;
   onEvalFilterChange?: (next: LibraryEvalFilters) => void;
+  attentionOnly?: boolean;
+  onAttentionSelect?: () => void;
   className?: string;
   style?: CSSProperties;
 }) {
@@ -239,6 +244,7 @@ export function SourceNav({
   const youtubeExpanded = selectedSource === youtubeToken || youtubeSources.some((source) => source.id === selectedSource);
   const newsletterExpanded = selectedSource === newsletterToken || selectedChannel === "email";
   const newsletterFacets = mergeFacets(newsletterSources);
+  const attentionCount = Object.values(evalFacets.attention || {}).reduce((sum, count) => sum + count, 0);
 
   const sourceButtonClass = (active: boolean) => `flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm ${active ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`;
   const facetButtonClass = (active: boolean) => `flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs ${active ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"}`;
@@ -278,7 +284,11 @@ export function SourceNav({
     </div>
   );
 
-  const evalActive = Boolean(evalFilters && (evalFilters.lifecycle || evalFilters.connection_state || evalFilters.digested_with || evalFilters.pipeline_version || evalFilters.substance_graded || evalFilters.feedback || evalFilters.youtube_clip_policy || (typeof evalFilters.worth_min === "number" && evalFilters.worth_min > 0)));
+  const evalActive = Boolean(attentionOnly || (evalFilters && (evalFilters.lifecycle || evalFilters.connection_state || evalFilters.digested_with || evalFilters.pipeline_version || evalFilters.substance_graded || evalFilters.feedback || evalFilters.youtube_clip_policy || (typeof evalFilters.worth_min === "number" && evalFilters.worth_min > 0))));
+  const clearAdminFilters = () => {
+    if (attentionOnly) onAttentionSelect?.();
+    else onEvalFilterChange?.({});
+  };
   const renderEvalGroup = (label: string, facetKey: string, stateKey: keyof LibraryEvalFilters) => {
     const opts = Object.entries(evalFacets[facetKey] || {}).filter(([value]) => value !== "(none)").sort((a, b) => b[1] - a[1]);
     if (!opts.length || !onEvalFilterChange) return null;
@@ -314,7 +324,7 @@ export function SourceNav({
               <button
                 key={status.id}
                 onClick={() => onStatusSelect(status.id)}
-                className={`flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm ${statusFilter === status.id ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`}
+                className={`flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm ${!attentionOnly && statusFilter === status.id ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`}
               >
                 <span className="min-w-0 truncate">{status.label}</span>
                 <CountBadge count={status.count} unread={status.unread} review={status.review} />
@@ -326,7 +336,7 @@ export function SourceNav({
       <div className="mb-1 px-3 text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Sources</div>
       <button
         onClick={() => onSelect(null)}
-        className={`mb-2 flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm ${selectedSource === null ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`}
+        className={`mb-2 flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm ${!attentionOnly && selectedSource === null ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`}
       >
         <span className="min-w-0 truncate">All sources</span>
         <CountBadge count={totalCount} unread={totalUnreadCount} review={totalReviewCount} />
@@ -398,7 +408,7 @@ export function SourceNav({
         <div className="mt-4 border-t border-[var(--border-default)] pt-3">
           <div className="mb-1 px-3 text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Type</div>
           <div className="space-y-1">
-            <button onClick={() => onTypeSelect(null)} className={sourceButtonClass(!typeFilter)}>
+            <button onClick={() => onTypeSelect(null)} className={sourceButtonClass(!attentionOnly && !typeFilter)}>
               <span className="min-w-0 truncate">All types</span>
               <CountBadge count={Object.values(evalFacets.content_type || {}).reduce((sum, count) => sum + count, 0)} />
             </button>
@@ -433,7 +443,7 @@ export function SourceNav({
               <button
                 key={mode.id}
                 onClick={() => onModeSelect(mode.id)}
-                className={sourceButtonClass(modeFilter === mode.id)}
+                className={sourceButtonClass(!attentionOnly && modeFilter === mode.id)}
               >
                 <span className="min-w-0 truncate">{mode.label}</span>
                 <CountBadge count={mode.count} unread={mode.unread} />
@@ -455,10 +465,28 @@ export function SourceNav({
               <span className="normal-case">{adminOpen ? "\u25be" : "\u25b8"}</span>
             </button>
             {evalActive && (
-              <button onClick={() => onEvalFilterChange({})} className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">clear</button>
+              <button onClick={clearAdminFilters} className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">clear</button>
             )}
           </div>
           {adminOpen && (<>
+          {onAttentionSelect && (attentionCount > 0 || attentionOnly) && (
+            <div className="mb-2">
+              <div className="mb-1 px-3 text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">Processing</div>
+              <div className="flex flex-wrap gap-1 px-3">
+                <button
+                  type="button"
+                  onClick={onAttentionSelect}
+                  aria-pressed={attentionOnly}
+                  title="Show items whose automatic processing or source recovery is blocked"
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${attentionOnly ? "border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300" : "border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`}
+                >
+                  <AlertTriangle className={`h-3 w-3 ${attentionCount > 0 ? "text-amber-500" : "text-[var(--text-tertiary)]"}`} />
+                  <span>Needs attention</span>
+                  <span className="text-[var(--text-tertiary)]">{attentionCount}</span>
+                </button>
+              </div>
+            </div>
+          )}
           {renderEvalGroup("Lifecycle", "lifecycle", "lifecycle")}
           {renderEvalGroup("Feedback", "feedback", "feedback")}
           {renderEvalGroup("YouTube clips", "youtube_clip_policy", "youtube_clip_policy")}
@@ -627,6 +655,8 @@ export function ArtifactList({
                     {artifact.series && <SeriesBadge artifact={artifact} compact />}
                     {artifact.processing && artifact.processing.state !== "ready" ? (
                       <ProcessingStatus processing={artifact.processing} compact standalone />
+                    ) : artifact.attention ? (
+                      <AttentionStatus attention={artifact.attention} compact standalone />
                     ) : (
                       <EvalMetricPills
                         evalAttrs={artifact.eval_attrs}

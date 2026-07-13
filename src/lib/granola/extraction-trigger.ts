@@ -12,21 +12,14 @@
  *     quality over speed (settled decision, v3 scope Phase 2): Granola generates the enhanced
  *     note after the meeting ends, so it is the strongest "meeting is over" signal; the stable
  *     window guards against declaring a mid-meeting lull "settled" during the 5s fast poll.
- *  2. ONCE-GUARDS: a granola_id fires at most once, persisted to
- *     $DATA_DIR/loops/meeting-trigger-state.json so ws-server restarts don't re-fire. Meetings
- *     already in the canonical meeting ledger's processed set never fire.
- *  3. SERIALIZES runs: one `scripts/loop-meeting-actions.ts --meetings-file <tmp>` child at a
- *     time (the ledger is single-writer and shares its process lock with the nightly). A meeting settling while a run is active queues behind
- *     it. Deliberately NO --proposals-dir / --ledger-home flags — the loop resolves its ledger
- *     home from the registry phase and its proposal sink from registry `proposal_sink`, exactly
- *     like the nightly. Run failures are logged, never thrown; the 19:30 nightly stays as the
- *     safety net for anything this trigger misses.
+ *  2. DURABLY ENQUEUES the meeting in canonical SQLite. Repeated settled observations are
+ *     idempotent; the old JSON `fired_at` field is telemetry only and can never suppress recovery.
+ *  3. WAKES the ws-server extraction coordinator. Renewable leases, verification, retries, and
+ *     the nightly runner all operate on that same queue.
  *
  * Gate: HILT_MEETING_TRIGGER (default ON whenever the granola daemon is enabled; "0" disables).
  */
-import { spawn } from "child_process";
 import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
 import { atomicWriteFile } from "../library/utils";
 import { defaultSandboxDir } from "../loops/emit";
@@ -35,10 +28,10 @@ import { loadRegistry, loopHome } from "../loops/registry";
 import {
   getGranolaDataDir,
   getGranolaVaultPath,
-  getMeetingTriggerRunTimeoutMs,
   getMeetingTriggerSettleMs,
   getMeetingTriggerSettlePolls,
 } from "./config";
+import { enqueueMeetingExtractionJobs } from "./extraction-coordinator";
 
 /** One meeting doc as seen by a single sync cycle (built in sync.ts, doc in hand). */
 export interface MeetingObservation {
@@ -59,7 +52,7 @@ export interface TriggerMeetingState {
   /** ISO time of the first observation at the current measure. */
   stable_since: string;
   last_observed_at: string;
-  /** Once set, this meeting never fires again (survives restarts). */
+  /** Compatibility telemetry: first time this settled meeting was submitted to durable intake. */
   fired_at?: string;
   fired_reason?: "settled" | "already-processed";
 }
@@ -81,7 +74,7 @@ export const RECENT_MEETING_DAYS = 2;
 const STATE_MAX_AGE_DAYS = 14;
 
 // ---------------------------------------------------------------------------
-// Pure: settle detection + once-guard (unit-tested directly)
+// Pure: settle detection + processed guard (unit-tested directly)
 // ---------------------------------------------------------------------------
 
 /** Fold one observation into the per-meeting settle state. Pure. */
@@ -114,13 +107,12 @@ export function observeMeeting(
   return { next, settled };
 }
 
-/** Once-guard + nightly's processed-check. Pure. */
-export function shouldFire(
+/** A settled meeting keeps submitting idempotently until canonical processing succeeds. */
+export function shouldEnqueue(
   entry: TriggerMeetingState,
   settled: boolean,
   processedMeetings: ReadonlySet<string>,
 ): boolean {
-  if (entry.fired_at) return false;
   if (!settled) return false;
   return !processedMeetings.has(entry.meeting_path);
 }
@@ -146,52 +138,6 @@ export function pruneTriggerState(state: TriggerState, nowIso: string, maxAgeDay
     if (Number.isFinite(seen) && seen >= cutoff) meetings[id] = entry;
   }
   return { version: 1, meetings };
-}
-
-// ---------------------------------------------------------------------------
-// Serialized runner (queue; ledger single-writer)
-// ---------------------------------------------------------------------------
-
-/**
- * Runs batches strictly one at a time. Meetings enqueued while a run is active are collected
- * (deduped) and run as the next batch after the active run finishes. A batch failure is logged
- * and never propagates (the daemon must survive any run outcome).
- */
-export class SerialMeetingRunner {
-  private pending = new Set<string>();
-  private draining: Promise<void> | null = null;
-
-  constructor(private readonly runBatch: (meetingPaths: string[]) => Promise<void>) {}
-
-  enqueue(meetingPaths: string[]): void {
-    for (const p of meetingPaths) this.pending.add(p);
-    if (this.pending.size > 0 && !this.draining) this.draining = this.drain();
-  }
-
-  isActive(): boolean {
-    return this.draining !== null;
-  }
-
-  /** Resolves once everything queued so far has run (tests / graceful shutdown). */
-  async idle(): Promise<void> {
-    while (this.draining) await this.draining;
-  }
-
-  private async drain(): Promise<void> {
-    try {
-      while (this.pending.size > 0) {
-        const batch = [...this.pending];
-        this.pending.clear();
-        try {
-          await this.runBatch(batch);
-        } catch (error) {
-          console.error("[MeetingTrigger] extraction run failed:", error);
-        }
-      }
-    } finally {
-      this.draining = null;
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -253,109 +199,12 @@ export function readProcessedMeetings(vaultPath: string): Set<string> | null {
 }
 
 // ---------------------------------------------------------------------------
-// Child-process batch runner
-// ---------------------------------------------------------------------------
-
-function resolveRunnerCwd(): string | null {
-  const candidates = [process.env.HILT_REPO_ROOT, process.cwd()].filter((d): d is string => Boolean(d));
-  for (const dir of candidates) {
-    if (fs.existsSync(path.join(dir, "scripts", "loop-meeting-actions.ts"))) return dir;
-  }
-  return null;
-}
-
-function lastLines(text: string, n: number): string {
-  const lines = text.trimEnd().split("\n");
-  return lines.slice(-n).join("\n");
-}
-
-export async function runMeetingActionsBatch(meetingPaths: string[]): Promise<void> {
-  const cwd = resolveRunnerCwd();
-  if (!cwd) {
-    console.error(
-      `[MeetingTrigger] cannot locate scripts/loop-meeting-actions.ts from cwd=${process.cwd()} ` +
-      `(set HILT_REPO_ROOT); skipping run for: ${meetingPaths.join(", ")}`,
-    );
-    return;
-  }
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-meeting-trigger-"));
-  const meetingsFile = path.join(tmpDir, "meetings.json");
-  fs.writeFileSync(meetingsFile, `${JSON.stringify(meetingPaths)}\n`, "utf-8");
-  const startedAt = Date.now();
-  try {
-    const result = await new Promise<{ code: number | null; tail: string; timedOut: boolean }>((resolve) => {
-      // No --proposals-dir / --ledger-home: registry precedence applies (same sinks as nightly).
-      // detached: the npx wrapper spawns tsx which spawns node — a plain child.kill() only hits
-      // the wrapper, leaving the real worker running AND holding the stdio pipes open, which
-      // wedged the serial queue forever (adversarial finding, 2026-07-07). detached gives the
-      // tree its own process group so the timeout can kill ALL of it.
-      // PATH discipline from scripts/hilt-launchd-npm.sh: the supervised ws-server's PATH
-      // resolves the FOSSIL /usr/local/bin/claude (npm-era v1.x) ahead of the real
-      // ~/.local/bin/claude — the loop's extraction then dies in ~1s on an unknown flag
-      // (first live trigger fire, 2026-07-07: exited 0, failures:1). Same fix as the
-      // launchd jobs got on 2026-07-02.
-      const home = process.env.HOME || os.homedir();
-      const PATH = `${home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH || ""}`;
-      const child = spawn("npx", ["tsx", "scripts/loop-meeting-actions.ts", "--meetings-file", meetingsFile], {
-        cwd,
-        env: { ...process.env, PATH },
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
-      });
-      let tail = "";
-      let timedOut = false;
-      let done = false;
-      const finish = (code: number | null, extra?: string) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        // Resolve on exit/error, not `close`: an orphan inheriting the pipes would hold
-        // `close` open indefinitely. Destroy our ends so nothing dangles.
-        child.stdout?.destroy();
-        child.stderr?.destroy();
-        resolve({ code, tail: extra ? `${tail}\n${extra}` : tail, timedOut });
-      };
-      const capture = (chunk: Buffer) => {
-        tail = `${tail}${chunk.toString("utf-8")}`.slice(-4_000);
-      };
-      child.stdout?.on("data", capture);
-      child.stderr?.on("data", capture);
-      const timer = setTimeout(() => {
-        timedOut = true;
-        try {
-          if (child.pid) process.kill(-child.pid, "SIGKILL"); // whole process group
-          else child.kill("SIGKILL");
-        } catch {
-          child.kill("SIGKILL");
-        }
-      }, getMeetingTriggerRunTimeoutMs());
-      child.on("error", (error) => finish(null, `spawn error: ${error.message}`));
-      child.on("exit", (code) => finish(code));
-    });
-    const seconds = Math.round((Date.now() - startedAt) / 1000);
-    const summary =
-      `[MeetingTrigger] loop-meeting-actions ${result.timedOut ? "TIMED OUT" : `exited ${result.code}`} ` +
-      `after ${seconds}s for ${meetingPaths.length} meeting(s): ${meetingPaths.join(", ")}`;
-    if (result.code === 0 && !result.timedOut) console.log(`${summary}\n${lastLines(result.tail, 8)}`);
-    else console.error(`${summary}\n${lastLines(result.tail, 20)}`);
-  } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  }
-}
-
-let runnerSingleton: SerialMeetingRunner | null = null;
-function getRunner(): SerialMeetingRunner {
-  if (!runnerSingleton) runnerSingleton = new SerialMeetingRunner(runMeetingActionsBatch);
-  return runnerSingleton;
-}
-
-// ---------------------------------------------------------------------------
 // The post-sync observer (registered by daemon.ts)
 // ---------------------------------------------------------------------------
 
 /**
- * Fold one sync cycle's observations into the settle state; fire settled, un-fired, un-processed
- * meetings through the serialized runner. Fully self-contained failure domain: never throws.
+ * Fold one sync cycle's observations into settle state and idempotently enqueue every settled,
+ * unprocessed meeting. Fully self-contained failure domain: never throws.
  */
 export function observeGranolaSyncForExtraction(observations: MeetingObservation[]): void {
   try {
@@ -371,28 +220,35 @@ export function observeGranolaSyncForExtraction(observations: MeetingObservation
 
     const state = readTriggerState();
     let processed: Set<string> | null | undefined; // lazy — registry read only when something settles
-    const toFire: string[] = [];
+    const toQueue: Array<{ meetingPath: string; source: "trigger"; queuedAt: string; granolaId: string; settledAt: string }> = [];
     for (const obs of recent) {
       const { next, settled } = observeMeeting(state.meetings[obs.granolaId], obs, nowIso, cfg);
       state.meetings[obs.granolaId] = next;
-      if (!settled || next.fired_at) continue;
+      if (!settled) continue;
       if (processed === undefined) processed = readProcessedMeetings(getGranolaVaultPath());
       if (processed === null) continue; // registry unreadable — retry next poll
-      if (shouldFire(next, settled, processed)) {
-        // Stamp BEFORE spawning: at-most-once even if the run crashes (nightly is the net).
-        next.fired_at = nowIso;
+      if (shouldEnqueue(next, settled, processed)) {
+        // Compatibility telemetry only. Durable SQLite state, not this field, decides retries.
+        next.fired_at ??= nowIso;
         next.fired_reason = "settled";
-        toFire.push(next.meeting_path);
+        toQueue.push({
+          meetingPath: next.meeting_path,
+          source: "trigger",
+          queuedAt: nowIso,
+          granolaId: obs.granolaId,
+          settledAt: next.stable_since,
+        });
       } else {
-        // Settled but already processed by the nightly — stop tracking it.
-        next.fired_at = nowIso;
+        next.fired_at ??= nowIso;
         next.fired_reason = "already-processed";
       }
     }
     writeTriggerState(pruneTriggerState(state, nowIso));
-    if (toFire.length > 0) {
-      console.log(`[MeetingTrigger] settled → extracting ${toFire.length} meeting(s): ${toFire.join(", ")}`);
-      getRunner().enqueue(toFire);
+    if (toQueue.length > 0) {
+      const enqueued = enqueueMeetingExtractionJobs(toQueue);
+      if (enqueued > 0) {
+        console.log(`[MeetingTrigger] settled → queued ${enqueued} meeting(s): ${toQueue.map((job) => job.meetingPath).join(", ")}`);
+      }
     }
   } catch (error) {
     console.error("[MeetingTrigger] observe failed:", error);

@@ -5,9 +5,9 @@ import { promisify } from "util";
 import { loadEnvConfig } from "@next/env";
 import { parseMarkdownFile, relativeVaultPath, stringifyMarkdown } from "../src/lib/library/markdown";
 import { CANDIDATE_CACHE_DIR } from "../src/lib/library/candidate-cache";
-import { walkMarkdown } from "../src/lib/library/utils";
-import { hashId, isoNow } from "../src/lib/library/utils";
+import { isoNow, walkMarkdown } from "../src/lib/library/utils";
 import { captureFailed, NO_SOURCE_MARKER } from "../src/lib/library/capture-health";
+import { LIBRARY_REFETCH_MAX_ATTEMPTS, libraryRefetchAttemptsPath } from "../src/lib/library/attention";
 
 loadEnvConfig(process.cwd());
 const execFileAsync = promisify(execFile);
@@ -37,14 +37,14 @@ const finiteArg = (name: string, fallback: number): number => {
 
 const vaultPath = argValue("--vault") || process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || process.cwd();
 const maxItems = Math.max(1, finiteArg("--max-items", 10));
-const maxAttempts = Math.max(1, finiteArg("--max-attempts", 2));
+const maxAttempts = Math.max(1, finiteArg("--max-attempts", LIBRARY_REFETCH_MAX_ATTEMPTS));
 const dryRun = args.includes("--dry-run");
 
 
 function attemptsPath(): string {
-  const dir = path.join(process.env.DATA_DIR || path.join(process.cwd(), "data"), "library-refetch-attempts");
-  fs.mkdirSync(dir, { recursive: true });
-  return path.join(dir, `${hashId(path.resolve(vaultPath), 16)}.json`);
+  const filePath = libraryRefetchAttemptsPath(vaultPath);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  return filePath;
 }
 
 interface AttemptRecord { count: number; last_at: string }

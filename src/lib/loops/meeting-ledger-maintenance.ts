@@ -69,6 +69,8 @@ export function writeReadableMeetingLedgerExport(
     ledger: store.readAll(),
     meeting_summaries: store.meetingSummaries(),
     processed_meetings: store.processedMeetings(),
+    extraction_jobs: store.extractionJobs(),
+    extraction_queue: store.extractionQueueHealth(),
   };
   atomicWriteFile(target, `${JSON.stringify(body, null, 1)}\n`);
   return target;

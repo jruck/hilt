@@ -13,6 +13,7 @@ import { EvalMetricPills } from "./EvalMetricPills";
 import { LibraryLifecycleMenu } from "./LibraryLifecycleMenu";
 import { SeriesBadge } from "./SeriesBadge";
 import { ProcessingStatus } from "./ProcessingStatus";
+import { AttentionStatus } from "./AttentionStatus";
 import { RecommendationDismissPopover } from "./RecommendationDismissPopover";
 import { CommentPopover } from "@/components/comments/CommentPopover";
 import { recordRecommendationImpressions } from "@/hooks/useLibrary";
@@ -208,6 +209,7 @@ export function FeedCard({
         )}
 
         {artifact.processing && <ProcessingStatus processing={artifact.processing} />}
+        {artifact.attention && artifact.processing?.state !== "blocked" && <AttentionStatus attention={artifact.attention} />}
 
         {hasCardActionRow && (
           <div className="flex flex-wrap items-center justify-start gap-1 border-t border-[var(--border-default)] pt-3">

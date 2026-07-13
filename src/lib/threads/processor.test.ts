@@ -164,6 +164,33 @@ describe("deriveProcessorAuthor", () => {
 });
 
 describe("processThread", () => {
+  it("rejects an overlapping live turn for the same thread", async () => {
+    const thread = createLoopItemThread();
+    let releaseRunner!: (result: RunClaudeResult) => void;
+    let markRunnerStarted!: () => void;
+    const runnerResult = new Promise<RunClaudeResult>((resolve) => { releaseRunner = resolve; });
+    const runnerStarted = new Promise<void>((resolve) => { markRunnerStarted = resolve; });
+    const runner: ProcessorRunner = async (options) => {
+      markRunnerStarted();
+      const result = await runnerResult;
+      options.onText?.(result.collectedText);
+      return result;
+    };
+
+    const first = processThread(thread.id, { runner, vaultRoot: vaultRoot() });
+    await runnerStarted;
+    const overlapping = await processThread(thread.id, { runner, vaultRoot: vaultRoot() });
+
+    expect(overlapping).toMatchObject({ ok: false, error: "already-processing" });
+    releaseRunner({
+      collectedText: "Finished once.",
+      claudeSessionId: "cli-session-overlap",
+      code: 0,
+      stderr: "",
+    });
+    await expect(first).resolves.toMatchObject({ ok: true, reply: "Finished once." });
+  });
+
   it("plain reply answers pending comments without closing the conversation", async () => {
     const thread = createLoopItemThread();
     const events: ChatStreamEvent[] = [];
@@ -194,7 +221,21 @@ describe("processThread", () => {
     expect(chat?.messages[1]).toMatchObject({ role: "assistant", content: "Done. Fixed the owner." });
     expect(chat?.claudeSessionId).toBe("cli-session-1");
     expect(chat?.status).toBe("idle");
-    expect(events.map((event) => event.type)).toEqual(["session", "message", "complete"]);
+    expect(events.map((event) => event.type)).toEqual([
+      "session",
+      "trace",
+      "trace",
+      "message",
+      "complete",
+    ]);
+    const turnTraces = events.flatMap((event) => event.type === "trace" ? [event.trace] : []);
+    expect(turnTraces.map((trace) => trace.status)).toEqual(["running", "complete"]);
+    expect(turnTraces[0].id).toBe(turnTraces[1].id);
+    expect(chat?.messages[1].trace?.[0]).toMatchObject({
+      id: turnTraces[0].id,
+      status: "complete",
+      label: "Response started",
+    });
   });
 
   it("PROPOSAL marker mints and strips", async () => {

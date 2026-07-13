@@ -5,7 +5,7 @@ import { loadEnvConfig } from "@next/env";
 import { EventServer } from "./event-server";
 import { getScopeWatcher, getInboxWatcher, getBridgeWatcher, getLibraryWatcher } from "./watchers";
 import { startCalendarSyncDaemon } from "../src/lib/calendar/daemon";
-import { startGranolaSyncDaemon } from "../src/lib/granola/daemon";
+import { startGranolaSyncDaemon, stopGranolaSyncDaemon } from "../src/lib/granola/daemon";
 import { startMetricsCollectorDaemon } from "../src/lib/system/telemetry/daemon";
 import { isGraphEnabled, getGraphMarkerPath } from "../src/lib/graph/config";
 import { isSemanticEnabled } from "../src/lib/semantic/config";
@@ -454,8 +454,12 @@ async function startServer() {
     console.log(`  Events WebSocket: ws://127.0.0.1:${port}/events (reached via app-server's /events proxy)`);
   });
 
-  // Handle graceful shutdown
-  process.on("SIGINT", async () => {
+  // Handle both interactive and supervisor rebuild shutdowns. Durable extraction jobs remain in
+  // SQLite; a detached worker may finish, and the next ws-server verifies it before any retry.
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log("\nShutting down WebSocket server...");
     removePortFile();
     releaseLock();
@@ -486,6 +490,7 @@ async function startServer() {
     libraryWatcher.stop();
     libraryIntakeDaemon.stop();
     libraryRecommendationRunner.stop();
+    stopGranolaSyncDaemon();
     stopCalendarSyncDaemon();
     fs.unwatchFile(CALENDAR_MARKER_FILE);
     fs.unwatchFile(meetingLedgerMarker);
@@ -493,7 +498,9 @@ async function startServer() {
     httpServer.close(() => {
       process.exit(0);
     });
-  });
+  };
+  process.once("SIGINT", () => { void shutdown(); });
+  process.once("SIGTERM", () => { void shutdown(); });
 }
 
 // Start the server

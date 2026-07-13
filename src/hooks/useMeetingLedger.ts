@@ -6,7 +6,12 @@ import useSWRInfinite from "swr/infinite";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
 import { withBasePath } from "@/lib/base-path";
 import type { LedgerEntry } from "@/lib/loops/meeting-ledger";
-import type { LedgerEventRecord, LedgerSurfaceState, MeetingLedgerCounts } from "@/lib/loops/meeting-ledger-store";
+import type {
+  LedgerEventRecord,
+  LedgerSurfaceState,
+  MeetingExtractionQueueHealth,
+  MeetingLedgerCounts,
+} from "@/lib/loops/meeting-ledger-store";
 import type { TaskFile } from "@/lib/tasks/types";
 
 const fetcher = async <T,>(url: string): Promise<T> => {
@@ -46,6 +51,7 @@ export interface MeetingLedgerHealth {
   recent_context_tokens: number;
   context_chunks: number;
   integrity: string;
+  extraction_queue: MeetingExtractionQueueHealth;
 }
 
 function useLedgerEvents(onChange: () => void): boolean {

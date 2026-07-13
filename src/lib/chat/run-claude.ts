@@ -102,14 +102,21 @@ export interface ChatToolCall {
   filePath: string | null;
 }
 
+export interface ChatToolResult {
+  /** Matches the id from the corresponding tool_use block. */
+  toolUseId: string;
+  isError: boolean;
+}
+
 export interface RunClaudeOptions {
   claudeSessionId: string | null;
   prompt: string;
   cwd: string;
   signal?: AbortSignal;
-  /** Fired per assistant text block as the stdout parser sees it (also accumulated). */
+  /** Fired per assistant text delta as the stdout parser sees it (also accumulated). */
   onText?: (text: string) => void;
   onToolUse?: (toolCall: ChatToolCall) => void;
+  onToolResult?: (toolResult: ChatToolResult) => void;
 }
 
 export interface RunClaudeResult {
@@ -117,6 +124,118 @@ export interface RunClaudeResult {
   claudeSessionId: string | null;
   code: number | null;
   stderr: string;
+}
+
+export interface ClaudeStreamParserResult {
+  collectedText: string;
+  claudeSessionId: string | null;
+}
+
+export interface ClaudeStreamParser {
+  parseLine: (line: string) => void;
+  /** Flushes the completed-message fallback and returns the accumulated turn state. */
+  finish: () => ClaudeStreamParserResult;
+}
+
+/**
+ * Parse Claude CLI stream-json output without double-emitting assistant prose. With
+ * `--include-partial-messages`, Claude sends `text_delta` events followed by a completed
+ * assistant snapshot containing the same text. Deltas are canonical; snapshots are retained
+ * only as an end-of-stream compatibility fallback for CLIs that do not emit partial messages.
+ */
+export function createClaudeStreamParser(
+  callbacks: Pick<RunClaudeOptions, "onText" | "onToolUse" | "onToolResult"> = {},
+): ClaudeStreamParser {
+  let collectedText = "";
+  let resolvedSessionId: string | null = null;
+  let sawTextDelta = false;
+  let finished = false;
+  const fallbackAssistantText: string[] = [];
+  const seenToolUseIds = new Set<string>();
+  const seenToolResultIds = new Set<string>();
+
+  const emitText = (text: string) => {
+    if (!text) return;
+    collectedText += text;
+    callbacks.onText?.(text);
+  };
+
+  const parseLine = (line: string) => {
+    if (finished) return;
+    const trimmed = line.trim();
+    if (!trimmed) return;
+
+    try {
+      const parsed = JSON.parse(trimmed);
+
+      if (typeof parsed.session_id === "string") {
+        resolvedSessionId = parsed.session_id;
+      }
+
+      if (
+        parsed.type === "stream_event"
+        && parsed.event?.type === "content_block_delta"
+        && parsed.event.delta?.type === "text_delta"
+        && typeof parsed.event.delta.text === "string"
+      ) {
+        // Completed assistant snapshots repeat these deltas. Once any delta arrives, discard
+        // the fallback buffer and emit only the true stream.
+        if (!sawTextDelta) {
+          sawTextDelta = true;
+          fallbackAssistantText.length = 0;
+        }
+        emitText(parsed.event.delta.text);
+      }
+
+      if (parsed.type === "assistant" && Array.isArray(parsed.message?.content)) {
+        for (const block of parsed.message.content) {
+          if (block.type === "text" && typeof block.text === "string" && block.text) {
+            if (!sawTextDelta) fallbackAssistantText.push(block.text);
+          } else if (block.type === "tool_use" && typeof block.name === "string") {
+            const id = typeof block.id === "string" ? block.id : null;
+            if (id && seenToolUseIds.has(id)) continue;
+            if (id) seenToolUseIds.add(id);
+
+            const rawInput = block.input && typeof block.input === "object" && !Array.isArray(block.input)
+              ? (block.input as Record<string, unknown>)
+              : null;
+            callbacks.onToolUse?.({
+              id,
+              name: block.name,
+              input: summarizeToolInput(block.name, block.input),
+              filePath: typeof rawInput?.file_path === "string" ? rawInput.file_path : null,
+            });
+          }
+        }
+      }
+
+      if (parsed.type === "user" && Array.isArray(parsed.message?.content)) {
+        for (const block of parsed.message.content) {
+          if (block.type !== "tool_result" || typeof block.tool_use_id !== "string") continue;
+          if (seenToolResultIds.has(block.tool_use_id)) continue;
+          seenToolResultIds.add(block.tool_use_id);
+          callbacks.onToolResult?.({
+            toolUseId: block.tool_use_id,
+            isError: block.is_error === true,
+          });
+        }
+      }
+    } catch {
+      // Skip unparseable lines.
+    }
+  };
+
+  const finish = (): ClaudeStreamParserResult => {
+    if (!finished) {
+      finished = true;
+      if (!sawTextDelta) {
+        for (const text of fallbackAssistantText) emitText(text);
+      }
+    }
+    return { collectedText, claudeSessionId: resolvedSessionId };
+  };
+
+  return { parseLine, finish };
 }
 
 /**
@@ -127,11 +246,12 @@ export interface RunClaudeResult {
  * it, including the final `result` event. Abort → child SIGTERM.
  */
 export function runClaude(options: RunClaudeOptions): Promise<RunClaudeResult> {
-  const { claudeSessionId, prompt, cwd, signal, onText, onToolUse } = options;
+  const { claudeSessionId, prompt, cwd, signal, onText, onToolUse, onToolResult } = options;
   return new Promise((resolve) => {
     const args = [
       "-p",
       "--output-format", "stream-json",
+      "--include-partial-messages",
       "--verbose",
       "--model", CHAT_MODEL,
       "--allowedTools", CHAT_ALLOWED_TOOLS,
@@ -152,49 +272,13 @@ export function runClaude(options: RunClaudeOptions): Promise<RunClaudeResult> {
     signal?.addEventListener("abort", abort, { once: true });
 
     let stdoutBuffer = "";
-    let collectedText = "";
-    let resolvedSessionId: string | null = null;
-
-    const parseEventLine = (line: string) => {
-      const trimmed = line.trim();
-      if (!trimmed) return;
-      try {
-        const parsed = JSON.parse(trimmed);
-
-        if (parsed.type === "assistant" && parsed.message?.content) {
-          for (const block of parsed.message.content) {
-            if (block.type === "text" && block.text) {
-              collectedText += block.text;
-              onText?.(block.text);
-            } else if (block.type === "tool_use" && typeof block.name === "string") {
-              const rawInput = block.input && typeof block.input === "object" && !Array.isArray(block.input)
-                ? (block.input as Record<string, unknown>)
-                : null;
-              onToolUse?.({
-                id: typeof block.id === "string" ? block.id : null,
-                name: block.name,
-                input: summarizeToolInput(block.name, block.input),
-                filePath: typeof rawInput?.file_path === "string" ? rawInput.file_path : null,
-              });
-            }
-          }
-        }
-
-        if (parsed.session_id) {
-          resolvedSessionId = parsed.session_id;
-        } else if (parsed.type === "result" && parsed.session_id) {
-          resolvedSessionId = parsed.session_id;
-        }
-      } catch {
-        // Skip unparseable lines.
-      }
-    };
+    const parser = createClaudeStreamParser({ onText, onToolUse, onToolResult });
 
     child.stdout.on("data", (chunk: Buffer) => {
       stdoutBuffer += chunk.toString();
       const lines = stdoutBuffer.split("\n");
       stdoutBuffer = lines.pop() ?? "";
-      for (const line of lines) parseEventLine(line);
+      for (const line of lines) parser.parseLine(line);
     });
 
     let stderr = "";
@@ -204,13 +288,15 @@ export function runClaude(options: RunClaudeOptions): Promise<RunClaudeResult> {
 
     child.on("close", (code) => {
       signal?.removeEventListener("abort", abort);
-      if (stdoutBuffer.trim()) parseEventLine(stdoutBuffer);
-      resolve({ collectedText, claudeSessionId: resolvedSessionId, code, stderr });
+      if (stdoutBuffer.trim()) parser.parseLine(stdoutBuffer);
+      const parsed = parser.finish();
+      resolve({ ...parsed, code, stderr });
     });
 
     child.on("error", (error) => {
       signal?.removeEventListener("abort", abort);
-      resolve({ collectedText: "", claudeSessionId: null, code: 1, stderr: error.message });
+      const parsed = parser.finish();
+      resolve({ ...parsed, code: 1, stderr: error.message });
     });
   });
 }

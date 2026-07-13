@@ -1,7 +1,7 @@
 # Briefings v2 — Completion Roadmap
 
-> **Status:** canonical roadmap for remaining Briefings v2 work, based on a live source audit on
-> 2026-07-10.
+> **Status:** canonical roadmap for remaining Briefings v2 work, refreshed against pushed Hilt
+> `4a4a983` and the live app/vault state on 2026-07-13.
 >
 > **Decision:** clean up and make the current production path honest first; finish the original
 > Briefings v2 contract second; only then add briefing intelligence and autonomous behavior.
@@ -19,7 +19,7 @@ kind of obligation the work closes:
 | Class | Test | Examples |
 |---|---|---|
 | **P0 — Cleanup and production honesty** | Does current production behavior disagree with itself, hide failure, misreport health, risk durability, or contradict its documented contract? | Retry disagreement, silent loop errors, misleading counters, untracked live artifacts |
-| **P1 — Finish the promised v2 contract** | Was this behavior explicitly designed, scaffolded, or partially shipped as part of Briefings v2, but never closed end to end? | Permanent Meeting/Goals state, Briefing as a real node, surfacing memory, Calendar/Tasks conformance |
+| **P1 — Finish the promised v2 contract** | Was this behavior explicitly designed, scaffolded, or partially shipped as part of Briefings v2, but never closed end to end? | Meeting/Goals phase graduation, Briefing as a real node, surfacing memory, Calendar/Tasks conformance |
 | **P2 — Meaningful enhancement** | Would this make an already-correct briefing materially more useful without repairing current correctness? | Folder-native workstream intelligence, People projections, richer calendar reasoning |
 | **P3 — New capability or autonomy** | Does this expand the action/risk envelope or create a new operating model? | Actual agent execution, auto-accept, direct self-tuning |
 
@@ -41,7 +41,8 @@ The mess is narrower and more concrete:
 - Some paths that claim to be equivalent are not equivalent.
 - Some failures are collected by the backend but hidden by the reader.
 - Some health receipts overstate what actually ran or learned.
-- Two production inputs still depend on sandbox continuity.
+- Production-visible Meeting reports/verdict queues and Goals reports still depend on sandbox-home
+  continuity, even though Meeting's canonical operational ledger no longer does.
 - The system contains contract scaffolding that production does not use.
 - Several canonical documents describe an older topology.
 
@@ -54,8 +55,10 @@ The following are **not** cleanup:
 - Auto-accepting loop proposals.
 
 Shadow isolation was also not a mistake. It was the correct safe-launch mechanism. It becomes debt
-only because Meeting Actions and Goals now influence production while their continuity state remains
-outside the permanent vault.
+only where Meeting Actions and Goals now influence production while their loop artifacts and
+decision queues still resolve through probation homes. The canonical Meeting ledger is a deliberate
+per-vault SQLite operational store in Hilt data; moving it into the vault is no longer a roadmap
+goal.
 
 ## 3. Current-state matrix
 
@@ -63,16 +66,16 @@ The live registry is `/Users/jruck/work/bridge/meta/loops/registry.yml`.
 
 | Node/domain | Registry state | Production reality | Remaining-work class |
 |---|---|---|---|
-| **Library / references** | enabled, live | Real vault artifact; read by the production briefing | P0 provenance and contract-truth cleanup; optional later card enhancement |
+| **Library / references** | enabled, live | Real vault artifact; read by the production briefing; durable For You episodes now hydrate as passive Library cards | P0 provenance and contract-truth cleanup |
 | **Runtime / system** | enabled, live | Real vault artifact; monitors the tree before the briefing | P0 timing, failure-visibility, feedback, and provenance cleanup |
-| **Meeting Actions / meetings** | enabled, shadow; `proposal_sink: vault` | Production briefing reads it; real task proposals and verdict effects enter the vault; ledger/history remain under `$DATA/loops-shadow` | P0 backup/accounting, then P1 safe graduation |
+| **Meeting Actions / meetings** | enabled, shadow; `proposal_sink: vault` | Production briefing reads its shadow report and verdict queue; real task proposals enter the vault; canonical ledger/history is now per-vault SQLite under `$DATA/meeting-ledgers/`, with verified backups and a read-only Bridge surface | P0 remaining accounting/recovery truth, then a narrower P1 loop-home graduation |
 | **Goals/Areas / areas** | enabled, shadow | Production briefing reads it; reports remain under `$DATA/loops-shadow` | P0 schedule/evidence cleanup, then P1 graduation |
 | **Calendar/Tasks / calendar** | disabled, shadow | No runner; Today still comes from raw calendar, reminders, and weekly-task gather | P1 base conformance; P2 richer calendar intelligence |
-| **People Projections / people** | disabled, shadow; writer is Meeting Actions | No writer, artifacts, or production surface | P2 enhancement after Meeting state is permanent |
+| **People Projections / people** | disabled, shadow; writer is Meeting Actions | No writer, artifacts, or production surface; the stable canonical Meeting ledger it will project now exists | P2 enhancement after Meeting loop-home graduation |
 | **Briefing / briefings** | disabled, shadow | The real loops-fed generator is live, but it emits no normal loop artifact and has no surfacing state or health pass | P1 unfinished top-node contract |
 | **Workstream intelligence** | not registered | Work & Product broadly infers activity from git, sessions, tasks, meetings, and available Bridge evidence; it does not yet traverse folder-native project/roadmap state deeply | P2 highest-value enhancement |
 
-### 3.1 Audit snapshot — 2026-07-10
+### 3.1 Original audit baseline — 2026-07-10
 
 These numbers establish the closeout baseline; they are a dated snapshot and will naturally drift:
 
@@ -91,25 +94,61 @@ These numbers establish the closeout baseline; they are a dated snapshot and wil
 - Live Library and Runtime reports dated July 3–10, plus Runtime feedback data, were present in the
   vault but untracked by Bridge git.
 
+### 3.2 Refresh delta — 2026-07-13
+
+The 2026-07-10 baseline remains useful historical evidence. These are the material changes and
+newly confirmed edges in pushed Hilt `4a4a983`:
+
+- The Meeting operational ledger migration is complete. The live health API reports canonical
+  SQLite, schema/migration version 2, integrity `ok`, no write block, **400 entries**, **119 not
+  surfaced**, **2 pending**, **7 accepted-open**, **46 task stamps**, and a verified 1,069,056-byte
+  `latest.sqlite` backup from the latest successful run.
+- The old JSON ledger, summaries, and processed set remain recovery inputs only. Migration tooling
+  now supports dry-run, parity audit, migrate, activate, export, verified backup, restore, and
+  rollback; the Bridge Meeting Ledger surface and paginated read-only APIs are live.
+- The two-stage extractor evaluation now reports precision **0.923** and core recall **0.881** with
+  one suspected duplicate pair, versus the prior monolithic pipeline's **0.957 / 0.796** and two
+  suspected pairs. This is model-pipeline evidence, separate from exact storage-migration parity.
+- Unified conversations materially finish the manual feedback path: `Process now` produces a
+  concrete outcome and trace, handles only the messages actually processed, keeps the conversation
+  open, and reuses the same chat/session for later volleys. Runtime and Goals no longer need a fake
+  scheduled “calibrated” receipt to count as having a truthful feedback path.
+- Durable For You episodes and passive briefing Library-card hydration shipped. The earlier Library
+  portion of the “richer object hydration” enhancement is complete; Project/People hydration is not.
+- The live app exposed **118 briefings**, four healthy dated loop artifacts, three escalated items,
+  and no escalation read errors at this refresh.
+- The Goals/Runtime race is unchanged: Goals still starts at 05:40 with a measured five-to-eight
+  minute model call, while Runtime starts at 05:45.
+- Manual retry still omits `--loops`; automatic retry remains weekday-only; surfacing state still has
+  no production caller; the Meeting rate-limit counters and premature feedback-handled receipt are
+  still present; and the verdict API still accepts globally valid verbs without proving item
+  existence, kind, or per-item policy.
+- Provenance debt has grown rather than disappeared: Bridge currently has untracked Library and
+  Runtime reports through July 13 plus Runtime feedback state, as well as two modified historical
+  briefings and an invalid weekend draft. The loop emitter still has no targeted commit/push path.
+- SQLite's verified snapshots protect against database corruption and bad writes, but they live
+  beside the active database under the same Hilt data root. Off-machine/disk-loss recovery for this
+  now-canonical operational store is not yet an explicit, tested contract.
+
 ## 4. Ordered roadmap
 
-| Order | Workstream | Class | Depends on | Completion checkpoint |
-|---:|---|---|---|---|
-| 1 | Back up production-significant shadow state | P0 | — | Hash-verified snapshot exists outside the active home |
-| 2 | Separate run/watch from publication | P0 | — | A loop can run in unpublished shadow |
-| 3 | Unify generation/retry paths and same-morning failure coverage | P0 | — | Weekday/weekend induced failures are visible and recoverable |
-| 4 | Make health, feedback, verdicts, and UI errors truthful | P0 | — | No false success/consumption and no silent partial state |
-| 5 | Close live-artifact provenance and migration tooling | P0 | — | Permanent files have documented recoverable history; migration dry-run verifies |
-| 6 | Graduate Meeting Actions | P1 | P0 | Permanent state; no duplicate/lost proposals or verdicts |
-| 7 | Graduate Goals/Areas | P1 | Meeting graduation | Same-day permanent artifact completes before Runtime |
-| 8 | Make Briefing a full node; wire surfacing and feedback | P1 | P0; preferably permanent inputs | Every attempt emits health; surfacing is deterministic |
-| 9 | Conform Calendar/Tasks and retire duplicate raw inputs | P1 | Run/publish split; full Briefing node | Parity-proven loop owns Today inputs |
-| 10 | Produce current launch evidence and close v2 | P1 | All prior P1 work | Current launch report proves the operating claims |
-| 11 | Add folder-native workstream intelligence | P2 | v2 closeout | Work & Product evaluates emergent workstreams against plans without an allowlist |
-| 12 | Add advanced Calendar intelligence | P2 | Calendar conformance | Preparation/conflict/risk reasoning is source-linked |
-| 13 | Add People projections | P2 | Stable permanent Meeting ledger | Reviewable waiting-on/aging projections without editing notes |
-| 14 | Add richer object hydration and decision analytics | P2 | Durable domain contracts | Better drill-down without changing core semantics |
-| 15 | Add agent execution and measured autonomy | P3 | Decision metrics and explicit product design | Draft-and-present first; auto-action only after evidence |
+| Order | Workstream | Class | Status | Depends on | Completion checkpoint |
+|---:|---|---|---|---|---|
+| 1 | Finish recovery coverage for canonical data and remaining shadow homes | P0 | **Partial:** Meeting SQLite backup/recovery shipped; same-disk and Goals/loop-home gaps remain | — | Hash-verified, restorable snapshots plus an explicit off-machine recovery contract |
+| 2 | Separate run/watch from publication | P0 | Remaining | — | A loop can run in unpublished shadow |
+| 3 | Unify generation/retry paths and same-morning failure coverage | P0 | Remaining | — | Weekday/weekend induced failures are visible and recoverable |
+| 4 | Make health, feedback, verdicts, and UI errors truthful | P0 | Remaining; manual conversation path shipped | — | No false success/consumption and no silent partial state |
+| 5 | Close live-artifact provenance and finish generic loop-home migration tooling | P0 | **Partial:** Meeting-specific migration stack shipped | — | Permanent files/data have documented recoverable history; remaining migration dry-run verifies |
+| 6 | Graduate the Meeting loop home | P1 | Narrowed by SQLite cutover | P0 | Reports/verdict queue are permanent; SQLite identity and proposal joins are unchanged |
+| 7 | Graduate Goals/Areas | P1 | Remaining | Meeting graduation | Same-day permanent artifact completes before Runtime |
+| 8 | Make Briefing a full node; wire surfacing and scheduled feedback | P1 | Remaining | P0; preferably permanent inputs | Every attempt emits health; surfacing is deterministic |
+| 9 | Conform Calendar/Tasks and retire duplicate raw inputs | P1 | Remaining | Run/publish split; full Briefing node | Parity-proven loop owns Today inputs |
+| 10 | Produce current launch evidence and close v2 | P1 | Remaining | All prior P1 work | Current launch report proves the operating claims |
+| 11 | Add folder-native workstream intelligence | P2 | Remaining | v2 closeout | Work & Product evaluates emergent workstreams against plans without an allowlist |
+| 12 | Add advanced Calendar intelligence | P2 | Remaining | Calendar conformance | Preparation/conflict/risk reasoning is source-linked |
+| 13 | Add People projections | P2 | Foundation shipped; projection remains | Meeting loop-home graduation | Reviewable waiting-on/aging projections without editing notes |
+| 14 | Add remaining object hydration and decision analytics | P2 | Library-card portion shipped | Durable domain contracts | Better Project/People drill-down without changing core semantics |
+| 15 | Add agent execution and measured autonomy | P3 | Remaining | Decision metrics and explicit product design | Draft-and-present first; auto-action only after evidence |
 
 ---
 
@@ -118,25 +157,34 @@ These numbers establish the closeout baseline; they are a dated snapshot and wil
 P0 changes should add little or no new briefing intelligence. Their purpose is to make the system
 we already rely on consistent, observable, truthful, and recoverable.
 
-### P0.1 Back up production-significant shadow state immediately
+### P0.1 Finish recovery coverage for canonical data and remaining shadow homes — partial
 
-Meeting state is no longer disposable evaluation state. It drives proposals and verdict effects in
-the real vault.
+The highest-risk part of this item shipped on 2026-07-12: Meeting's canonical operational state is
+now SQLite with integrity checks, a latched write block, readable exports, verified latest/daily/
+monthly snapshots, restore/rollback tooling, and preserved pre-migration JSON. It is independent of
+the node's live/shadow publication phase.
+
+What remains is narrower but still real: the snapshots share a data root with the active database,
+and the Goals home plus Meeting reports/verdict queue are still production-significant shadow data.
 
 Work:
 
-- Snapshot the complete Meeting and Goals shadow homes before structural changes.
-- Include reports, ledger, processed-meeting history, summaries, verdict history, task-id stamps,
-  and frozen feedback history.
+- Define and test off-machine/disk-loss recovery for the canonical Meeting SQLite store; local
+  sibling snapshots are not sufficient for total machine loss.
+- Snapshot the complete remaining Meeting and Goals shadow homes before phase changes.
+- Include reports, verdict history, any unacted queue, and frozen pre-thread feedback history. Do
+  **not** duplicate the SQLite database into the vault or treat compatibility JSON as runtime truth.
 - Write a file-count and SHA-256 manifest.
 - Store the snapshot outside the active loop homes and record its source paths and creation time.
-- Do not treat the current vault proposal files as a substitute for the Meeting ledger: they do not
-  preserve extraction identity, dismissal history, or processed-meeting continuity.
+- Keep the existing `tasks:ids:audit`, ledger/task reciprocal-origin audit, and SQLite integrity
+  audit in the recovery proof. Vault proposal files are projections, not substitutes for the ledger.
 
 Done when:
 
-- The snapshot can be independently verified from its manifest.
-- Restoring it to a temporary home reproduces the same counts and joins.
+- The loop-home snapshot can be independently verified from its manifest.
+- Restoring the SQLite backup and loop-home snapshot to temporary locations reproduces counts,
+  event/task joins, and unacted-verdict state.
+- A documented second failure domain can recover the canonical ledger after loss of `$DATA`.
 
 ### P0.2 Separate runner state from publication state
 
@@ -245,8 +293,9 @@ Current problems:
 
 - When rate limiting stops Meeting extraction mid-queue, the artifact reports the full queue as
   processed/attempted and can overstate succeeded/coverage.
-- The feedback health pass resolves a thread before the extraction queue proves that any successful
-  call actually incorporated it.
+- The feedback health pass now correctly leaves the conversation open, but it records a
+  `calibrated` outcome and marks the pending messages handled **before** the extraction queue proves
+  that any successful call incorporated them.
 - An empty queue or first-call rate limit can therefore produce a “calibrated” receipt without a
   calibrated extraction.
 
@@ -254,7 +303,8 @@ Work:
 
 - Track selected, started, succeeded, failed, rate-limited, and remaining meetings separately.
 - Calculate coverage from actual attempts and completions.
-- Mark feedback consumed only after a successful extraction call includes the feedback payload.
+- Mark feedback handled only after a successful extraction call includes the exact pending message
+  IDs in its guidance payload.
 - If no work used the guidance, leave the thread open or record “noticed; not yet applied” without
   claiming calibration.
 - Add rate-limit and empty-queue fixtures that assert the exact receipt and counters.
@@ -311,10 +361,12 @@ Done when:
 
 ### P0.9 Make live artifact durability and provenance true
 
-The contract and comments promise permanent, git-tracked loop artifacts. In the audited tree,
-Library and Runtime reports from July 3–10 and Runtime feedback data were untracked. The shared
+The contract and comments promise permanent, recoverable loop artifacts. In the refreshed tree,
+Library and Runtime reports from July 3–13 and Runtime feedback state remain untracked. The shared
 loop emitter writes files but does not commit or push; only the final briefing has a targeted vault
-commit path.
+commit path. The canonical Meeting SQLite store adds a separate form of the same question: its local
+snapshots are robust against process/database failure but not yet an explicit off-machine recovery
+mechanism.
 
 Decision required:
 
@@ -323,6 +375,9 @@ Decision required:
 - explicitly revise the contract and designate another permanent synchronization/provenance
   mechanism.
 
+Treat vault Markdown/JSON and Hilt operational SQLite according to their actual storage models; do
+not put a live WAL database in git merely to make the word “permanent” easy.
+
 Constraints:
 
 - Never stage unrelated dirty vault files.
@@ -330,6 +385,8 @@ Constraints:
 - Record commit and push outcomes in loop health.
 - Make retry idempotent and tolerate “nothing changed.”
 - Define conflict behavior instead of silently leaving an untracked artifact behind.
+- Define backup destination, retention, encryption/access, verification cadence, and restore drill
+  for canonical Hilt operational databases.
 
 Done when:
 
@@ -337,7 +394,12 @@ Done when:
   truth.
 - Failed commit/push is visible health, not a successful green artifact.
 
-### P0.10 Build one safe loop-home migration command
+### P0.10 Finish safe migration tooling for the remaining loop homes — partial
+
+Meeting's operational-state migration is complete and should not be reimplemented generically. Its
+CLI already provides dry-run, exact JSON/SQLite parity audit, migrate, activate, export, verified
+backup, restore, rollback, and idempotent recovery tests. The remaining need is a copy-and-verify
+tool for phase-resolved files: Meeting reports/verdict history and the Goals home.
 
 The phase flip must not be the migration mechanism.
 
@@ -350,12 +412,13 @@ Required behavior:
   exists.
 - `--write` and independent `--verify` modes.
 - Backup/rollback manifest.
-- Domain-specific join audits, especially Meeting ledger ↔ task/proposal/verdict identity.
+- Domain-specific join audits. For Meeting, invoke the existing SQLite/task identity audits and
+  prove the phase flip does not change the database path; only reports/verdict files migrate.
 - Preserve existing permanent files such as the Meeting gold set.
 
 Use the Library migration's copy-and-parity discipline as the precedent. A disposable Goals copy
-can rehearse the generic command, but Meeting should be the first real phase cutover because Goals
-depends on its ledger.
+can rehearse the generic command; Meeting remains the first real phase cutover, but its canonical
+ledger stays in place throughout.
 
 Done when:
 
@@ -363,34 +426,36 @@ Done when:
 - Re-running write/verify is idempotent.
 - Any conflict stops before the registry changes.
 
-### P0.11 Make feedback behavior truthful per node
+### P0.11 Keep feedback behavior truthful per node — substantially shipped
 
-The current generic wording implies every node consumes feedback on its next run. The code
-deliberately allows automatic calibration only for Meeting Actions; Runtime and Goals keep feedback
-open for substantive manual processing, Library uses its own pipeline, and Briefing has no consuming
-runner.
+Unified conversations now establish the correct base contract: Runtime and Goals feedback stays
+pending until `Process now` produces a substantive answer/change/proposal/dev outcome; Library uses
+its scheduled steering path; only Meeting Actions claims scheduled calibration; Briefing still has
+no consuming runner. A handled volley stays in its open conversation and is not consumed twice.
 
-Cleanup work:
+Remaining cleanup work:
 
-- Remove hollow shared health-pass calls or label them accurately.
+- Remove stale code comments that claim the Goals no-op health pass “consumes” threads.
 - Document each current node's actual feedback path.
 - Do not auto-resolve a Runtime question such as “what broke and how do we fix it?” with a generic
   calibration stamp.
 - Keep unprocessed feedback open and visible.
 
-The missing automatic behavior itself is P1. This P0 item is about not claiming it already exists.
+Automatic scheduled calibration is not inherently required for deterministic Runtime or Goals
+nodes; their real on-demand processor is a valid feedback path. The remaining automatic behavior
+for Meeting/Briefing is tracked where it is genuinely part of those nodes' contracts.
 
-### P0.12 Reconcile documentation and launch evidence with production
+### P0.12 Reconcile documentation and launch evidence with production — partial
 
-Known drift includes:
+This 2026-07-13 refresh corrects the canonical storage, proposal-sink, native failure/retry, and
+Library-hydration descriptions. Remaining drift includes:
 
-- `docs/ARCHITECTURE.md` and API descriptions retain Hermes-era failure/retry wording.
-- `docs/HOW-IT-WORKS.md` overstates universal next-run feedback consumption.
-- It describes an older Meeting proposal sink even though the registry now has
-  `proposal_sink: vault`.
-- Old visible Revise/Assign-to-me controls remain in prose or compatibility contracts.
 - Gather and scheduler comments describe the pre-cutover shadow/live relationship.
 - The phase board and launch report still show pre-cutover gates as pending.
+- Several code comments still describe pre-unified-thread feedback behavior or the old Meeting JSON
+  ledger, even where runtime behavior is current.
+- Visible controls, global verdict compatibility verbs, and some prose still disagree about
+  `assign_to_me` and `revise`.
 - The strong “missing loop is never reconstructed from raw data” claim is only true for conformed
   domains.
 
@@ -412,7 +477,8 @@ Done when:
 
 All must be true:
 
-- [ ] Shadow state has a verified backup.
+- [ ] Canonical operational data and remaining production-significant shadow state have verified,
+  restorable backups across an appropriate second failure domain.
 - [ ] Run/watch and publish are separate controls.
 - [ ] Scheduled, automatic-retry, and manual-retry paths use the same loops-fed contract.
 - [ ] Weekday and weekend failures surface and recover the same morning.
@@ -421,7 +487,8 @@ All must be true:
 - [ ] Verdict policy is server-enforced and vocabulary is reconciled.
 - [ ] Goals completes before Runtime or explicitly reports degraded state.
 - [ ] Permanent loop artifacts have a real, documented provenance/sync mechanism.
-- [ ] The migration command passes dry-run, write, repeat, and verify tests.
+- [ ] Remaining loop-home migration passes dry-run, write, repeat, and verify tests; the shipped
+  Meeting SQLite audit/recovery suite remains green.
 - [ ] Current documentation matches current behavior.
 
 ---
@@ -435,36 +502,50 @@ product expansion.
 
 Why first:
 
-- It has the largest and most consequential state.
+- It has the most consequential joins, even though its largest operational state is now already on
+  canonical SQLite.
 - Its proposals and verdicts already have real vault effects.
-- Goals resolves the Meeting ledger according to the Meeting node's phase.
+- Goals reads the same canonical Meeting repository regardless of the Meeting node's phase.
 - People Projections will depend on the same ledger later.
+
+What graduation means now:
+
+- **Move:** the phase-resolved daily reports, verdict audit/queue, and any remaining loop-home
+  compatibility files from `$DATA/loops-shadow/meta/loops/meetings/` to
+  `$VAULT/meta/loops/meetings/`.
+- **Do not move:** `$DATA/meeting-ledgers/<vault-key>/meeting-ledger.sqlite`, its exports/backups, or
+  its storage marker. That database is canonical operational state independent of publication
+  phase, not sandbox residue.
+- **Already live:** proposal files and task-ID allocation under `$VAULT/tasks/`, plus unified
+  conversations under Hilt's global thread store.
 
 Cutover sequence:
 
 1. Pause the 19:30 sweep and the Granola post-meeting trigger.
 2. Run a controlled zero-new-meeting shadow pass to apply pending known-item verdicts.
 3. Require zero unacted known-item verdicts, or explicitly preserve and test a pending queue.
-4. Snapshot and hash reports, ledger, processed meetings, summaries, verdict history, task stamps,
-   and frozen feedback history.
-5. Build a temporary destination containing the migrated state plus existing permanent assets such
-   as `meta/loops/meetings/state/gold-set.json`; never overwrite them blindly.
-6. Verify counts, hashes, ledger ↔ task/proposal joins, proposal origins, processed-meeting identity,
-   terminal dismiss explanations, and duplicate suspects.
-7. Atomically install the destination and change `phase` to `live`; retain
+4. Take and verify a fresh SQLite backup, then snapshot/hash the shadow reports, verdict history,
+   pending queue, and frozen feedback history separately.
+5. Build a temporary vault destination containing only the phase-resolved files plus existing
+   permanent assets such as `meta/loops/meetings/state/gold-set.json`; never overwrite blindly.
+6. Verify file counts/hashes, SQLite integrity, ledger ↔ task/proposal reciprocal joins, proposal
+   origins, task-ID high-water, terminal dismiss explanations, and duplicate suspects.
+7. Atomically install the file destination and change `phase` to `live`; retain
    `proposal_sink: vault`.
-8. Run an idempotent zero-meeting live smoke; verify APIs resolve the permanent home.
+8. Run an idempotent zero-meeting live smoke; verify reports/verdict APIs resolve the vault home and
+   the ledger API resolves the exact same SQLite database path and event sequence as before.
 9. Restore the post-meeting trigger and nightly schedule.
 10. Preserve the sandbox copy for a defined rollback window.
 
 Gate:
 
-- [ ] Counts and hashes match the migration manifest.
+- [ ] Loop-home counts and hashes match the migration manifest; SQLite integrity/backup checks pass.
 - [ ] No duplicate or orphan task/proposal origins exist.
 - [ ] Every missing stamped proposal file has an understood terminal explanation.
-- [ ] Verdict, dismissed, and escalation APIs read the permanent store.
-- [ ] One organic post-meeting run writes only to the vault and creates no duplicate extraction or
-  proposal.
+- [ ] Verdict and escalation APIs read the vault loop home; ledger/dismissed/task-detail APIs still
+  read the unchanged canonical database.
+- [ ] One organic post-meeting run writes its artifact/verdict effects only to their intended live
+  homes and creates no duplicate extraction or proposal.
 - [ ] Runtime sees the live artifact.
 - [ ] Seven consecutive scheduled/triggered runs show no continuity regression.
 
@@ -484,7 +565,7 @@ Minimum stabilization before the flip:
 
 Cutover:
 
-1. Confirm it resolves the permanent Meeting ledger.
+1. Confirm it resolves the canonical phase-independent Meeting SQLite repository.
 2. Copy historical reports with byte parity.
 3. Flip `phase` to `live`.
 4. Verify same-day Runtime and briefing consumption.
@@ -492,7 +573,7 @@ Cutover:
 Gate:
 
 - [ ] Seven consecutive same-day healthy artifacts complete before Runtime.
-- [ ] No shadow-ledger fallback remains.
+- [ ] No legacy JSON-ledger fallback is active; the Goals runner reads canonical SQLite.
 - [ ] Copied history matches byte-for-byte.
 - [ ] Findings cite the actual supporting sources.
 
@@ -550,23 +631,23 @@ Gate:
 - [ ] Editorial overrides are visible and testable.
 - [ ] Failed/invalid drafts do not advance surfacing counts.
 
-### P1.5 Complete the feedback flywheel for current nodes
+### P1.5 Close the remaining scheduled feedback gaps
 
 Current paths:
 
 | Node | Current behavior | Required closeout |
 |---|---|---|
-| Meeting Actions | Feedback is inserted into extraction prompts; accounting needs P0 repair | Receipt only after successful incorporation |
-| Library | Separate mature clustering/evaluation workflow; the shared loop verdict log is not consumed by the steering runner | Decide deliberately whether Library stays on its separate application path or conforms to the shared verdict contract; normalize health/receipt semantics either way |
-| Runtime | Threads remain open for manual Process | A substantive diagnosis/fix/proposal path, not a hollow calibration stamp |
-| Goals | Threads remain open for manual Process | Feed relevant guidance into analysis or produce a reviewed tuning proposal |
+| Meeting Actions | Pending feedback is inserted into extraction prompts, but messages are marked handled too early | Receipt only after a successful extraction actually includes the identified volley |
+| Library | Scheduled steering plus unified per-message outcomes | Document this as the deliberate domain-specific path; no forced generic calibration shim |
+| Runtime | Unified `Process now` produces an answer/change/proposal/dev-item outcome and trace | **Base path complete**; scheduled automation is optional unless a separate product need appears |
+| Goals | Same truthful on-demand conversation path as Runtime | **Base path complete**; feeding guidance automatically into daily analysis is an enhancement, not honesty cleanup |
 | Briefing | Feedback can be captured; no consuming runner | Next-run guidance plus visible tuning proposal/receipt |
 
 Rules:
 
 - A node may auto-consume feedback only if its next run genuinely receives and uses it.
-- Deterministic/monitor nodes should answer, diagnose, or propose a change; they should not pretend a
-  free-form comment calibrated an extractor they do not have.
+- Deterministic/monitor nodes may satisfy the contract through a substantive on-demand processor;
+  they should not pretend a free-form comment calibrated an extractor they do not have.
 - Failed incorporation leaves the thread open.
 - Feedback may produce a visible prompt/policy/budget proposal; it must not silently rewrite those
   controls.
@@ -658,8 +739,10 @@ P2.
 
 All must be true:
 
-- [ ] Every enabled production input uses permanent, recoverable state.
-- [ ] Meeting Actions and Goals no longer read or write their sandbox homes.
+- [ ] Every enabled production input uses a documented canonical store with tested recovery across
+  the failures that matter for that store.
+- [ ] Meeting Actions and Goals no longer read or write sandbox homes for production reports,
+  verdict queues, or phase-resolved state; Meeting continues to use canonical Hilt SQLite by design.
 - [ ] Briefing is an enabled, monitored node with honest success and failure artifacts.
 - [ ] Surfacing memory controls repetition and verdict suppression deterministically.
 - [ ] Every current node has a truthful feedback path and traceable receipts.
@@ -754,7 +837,9 @@ Constraints:
 - Decide whether People is a subordinate Meeting output or an enabled node that also emits a dated
   daily health artifact; Runtime currently expects enabled nodes to have dated reports.
 
-Dependency: Meeting Actions must first prove stable in its permanent home.
+Dependency: the canonical Meeting ledger foundation is now stable enough to design against. Wait
+for Meeting loop-home graduation before publishing projections so their health/artifact ownership is
+unambiguous.
 
 Gate:
 
@@ -774,14 +859,18 @@ After Projects and Calendar exist:
 
 This is enhancement after the P1 Goals node is trustworthy and permanent.
 
-### P2.5 Richer object hydration and drill-down
+### P2.5 Remaining object hydration and drill-down — Library portion shipped
 
-Examples:
+Shipped on 2026-07-12/13:
 
-- Richer Library cards inside briefing sections.
+- Durable For You episodes are frozen into briefing markdown as `rec:<episode-id>`.
+- Briefing hydration is passive and does not record an open; click-through records real navigation.
+- Compact Library cards preserve provenance, lifecycle/read state, comment/dismiss actions, and the
+  exact historical recommendation pitch.
+
+Remaining examples:
+
 - Project/People object cards backed by their durable projections.
-- Read-only Library lookup that does not record an “open” merely because the briefing hydrated a
-  card.
 - Better source-to-artifact-to-state drill-down.
 
 These improve comprehension but are not prerequisites for loop correctness.
@@ -856,9 +945,11 @@ memory, feedback receipts, operating metrics, and rollback are all proven.
 
 - **P0 precedes all migration:** otherwise a phase flip can hide incorrect health, lose provenance,
   or publish an unreviewed shadow loop.
-- **Meeting precedes Goals:** Goals resolves and reads the Meeting ledger according to its phase.
-- **Permanent Meeting precedes People:** relationship projections depend on trustworthy identity and
-  commitment history.
+- **Meeting loop-home graduation precedes Goals graduation:** the phase-resolved artifacts and
+  verdict queue should settle in order, even though both runners can already read canonical SQLite.
+- **Canonical Meeting identity precedes People:** the SQLite migration now supplies trustworthy
+  identity and commitment history; publish People projections only after Meeting's loop-home
+  ownership is unambiguous.
 - **Run/publish separation precedes Calendar development:** otherwise enabling Calendar for shadow
   evidence changes production immediately.
 - **Briefing node precedes autonomy:** surfacing, feedback, and failure health are the evidence base
@@ -889,7 +980,9 @@ Primary current sources used for this audit:
 - Loop contract/types/stores: `src/lib/loops/{artifacts,emit,registry,stores,types}.ts`
 - Runtime checks: `src/lib/loops/runtime.ts`, `scripts/loop-runtime.ts`
 - Feedback health pass: `src/lib/loops/health-pass.ts`
-- Meeting runner and ledger: `scripts/loop-meeting-actions.ts`, `src/lib/loops/meeting-ledger.ts`
+- Meeting runner, canonical store, and recovery: `scripts/loop-meeting-actions.ts`,
+  `scripts/meeting-ledger.ts`, `src/lib/loops/{meeting-ledger,meeting-ledger-store,
+  meeting-ledger-runtime,meeting-ledger-maintenance}.ts`
 - Goals runner: `scripts/loop-goals-areas.ts`
 - Loop APIs: `src/app/api/loops/{escalations,verdicts,feedback}/route.ts`
 - Briefing generation/retry: `src/lib/briefing/{generate,scheduler-jobs,vault-commit}.ts`,

@@ -2,6 +2,7 @@ import * as fs from "fs";
 import { CALENDAR_FIXTURE_ICS } from "./fixtures";
 import { CALENDAR_SOURCE_CONFIGS, getCalendarSyncLockPath, getSyncWindow, sourceUrl } from "./config";
 import { parseIcsFeed } from "./ics";
+import { enrichEverCommerceEventsFromFantastical } from "./fantastical";
 import {
   calendarHealth,
   ensureConfiguredSources,
@@ -64,6 +65,21 @@ async function syncCalendarSourcesUnlocked(options: { sourceIds?: string[] } = {
       const parsed = parseIcsFeed(source, ics, syncWindow);
       upsertCalendar(source.id, parsed.calendarName, source.color);
       replaceSourceEvents(source.id, parsed.events);
+      if (source.id === "evercommerce") {
+        try {
+          const enrichment = enrichEverCommerceEventsFromFantastical();
+          if (enrichment.status === "ok" && enrichment.enrichedEvents > 0) {
+            console.info(
+              `[calendar] Enriched ${enrichment.enrichedEvents} EverCommerce events from Fantastical (${enrichment.eventsWithAttendeesAdded} with attendees).`,
+            );
+          }
+        } catch (error) {
+          console.warn(
+            "[calendar] Fantastical attendee enrichment failed; keeping the ICS calendar data.",
+            error,
+          );
+        }
+      }
       const duplicateCounts = refreshVisibleDuplicates();
       const fetchMs = Date.now() - started;
       updateSourceSyncResult(source.id, {

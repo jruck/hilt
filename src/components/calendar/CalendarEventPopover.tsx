@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from "react";
 import {
   Check,
+  ChevronDown,
   Clock,
   ExternalLink,
   FileText,
@@ -20,7 +21,7 @@ import { useScope } from "@/contexts/ScopeContext";
 import { prepareCalendarDescription, type CalendarDescriptionDisplay } from "@/lib/calendar/description";
 import { shouldRenderCalendarProviderUrl } from "@/lib/calendar/links";
 import { displayCalendarEventTitle } from "@/lib/calendar/title";
-import type { CalendarEvent, CalendarEventNoteTarget } from "@/lib/calendar/types";
+import type { CalendarEvent, CalendarEventNoteTarget, CalendarParticipant } from "@/lib/calendar/types";
 import { withBasePath } from "@/lib/base-path";
 import { formatHiltWeekdayDate } from "@/lib/display-date";
 import { CopyReferenceButton } from "@/components/ui/CopyReferenceButton";
@@ -143,7 +144,7 @@ export function CalendarEventPopoverContent({
           {calendarDetailLabel ? <DetailRow icon={<CalendarSourceDot color={calendarColor} />} label={calendarDetailLabel} /> : null}
           {availabilityWarning ? <DetailRow icon={<Clock className="h-4 w-4" />} label="Not blocked on EverCommerce" /> : null}
           {event.organizer ? <DetailRow icon={<UserRound className="h-4 w-4" />} label={event.organizer.name || event.organizer.email || "Organizer"} /> : null}
-          {event.attendees.length ? <DetailRow icon={<UsersRound className="h-4 w-4" />} label={`${event.attendees.length} attendees`} /> : null}
+          {event.attendees.length ? <AttendeeList attendees={event.attendees} /> : null}
           {event.duplicateSourceCount > 1 ? <DetailRow icon={<Check className="h-4 w-4" />} label={`${event.duplicateSourceCount} sources`} /> : null}
 
           {description.full ? (
@@ -417,6 +418,59 @@ function DetailRow({ icon, label }: { icon: ReactNode; label: ReactNode }) {
       <div className="min-w-0 flex-1 break-words text-[var(--text-secondary)]">{label}</div>
     </div>
   );
+}
+
+function AttendeeList({ attendees }: { attendees: CalendarParticipant[] }) {
+  return (
+    <div className="flex gap-3 text-sm">
+      <div className="mt-0.5 shrink-0 text-[var(--text-tertiary)]">
+        <UsersRound className="h-4 w-4" />
+      </div>
+      <details className="group min-w-0 flex-1">
+        <summary
+          className="flex cursor-pointer list-none items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] [&::-webkit-details-marker]:hidden"
+          data-testid="calendar-attendees-toggle"
+        >
+          <span>{attendees.length} {attendees.length === 1 ? "attendee" : "attendees"}</span>
+          <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+        </summary>
+        <div
+          className="mt-2 max-h-48 space-y-1.5 overflow-y-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-2"
+          data-testid="calendar-attendee-list"
+        >
+          {attendees.map((attendee, index) => {
+            const label = attendee.name || attendee.email || "Attendee";
+            const secondary = attendee.name && attendee.email && attendee.name.toLowerCase() !== attendee.email.toLowerCase()
+              ? attendee.email
+              : null;
+            const responseStatus = attendeeResponseStatusLabel(attendee.responseStatus);
+            return (
+              <div key={`${attendee.email || attendee.name || "attendee"}-${index}`} className="flex min-w-0 items-start justify-between gap-2 rounded px-1 py-0.5">
+                <div className="min-w-0">
+                  <div className="truncate text-[var(--text-primary)]">{label}</div>
+                  {secondary ? <div className="truncate text-xs text-[var(--text-tertiary)]">{secondary}</div> : null}
+                </div>
+                {responseStatus ? (
+                  <span className="shrink-0 rounded border border-[var(--border-subtle)] px-1.5 py-0.5 text-[10px] leading-4 text-[var(--text-tertiary)]">
+                    {responseStatus}
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function attendeeResponseStatusLabel(value?: string | null): string | null {
+  if (!value) return null;
+  if (value === "accepted") return "Accepted";
+  if (value === "tentative") return "Tentative";
+  if (value === "declined") return "Declined";
+  if (value === "needs-action") return "Needs response";
+  return value.replace(/[-_]+/g, " ").replace(/^./, (character) => character.toUpperCase());
 }
 
 function CalendarSourceDot({ color }: { color?: string | null }) {

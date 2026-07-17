@@ -230,7 +230,7 @@ The queue includes only canonical `status: proposed` task files whose `origin.lo
 
 ### Calendar
 
-Hilt Calendar is read-only and stores normalized events in `${DATA_DIR}/calendar.sqlite`. The sync adapter consumes one private/public ICS URL per configured source; Google secondary calendars do not ride inside the primary account feed, so shared calendars need their own env key.
+Hilt Calendar is read-only and stores normalized events in `${DATA_DIR}/calendar.sqlite`. The sync adapter consumes one private/public ICS URL per configured source; Google secondary calendars do not ride inside the primary account feed, so shared calendars need their own env key. ICS owns event identity, schedule, recurrence, title, location, and cancellation state. `calendar:refresh-fantastical` explicitly reads Fantastical's protected cache in the foreground and writes a mode-`0600`, participant-only `${DATA_DIR}/fantastical-evercommerce-calendar.json` snapshot. Following a successful EverCommerce sync, the supervised worker reads only that Hilt-owned snapshot and fills otherwise-missing attendee and organizer fields by normalized Outlook UID, preferring an exact recurrence occurrence before falling back to its series roster. It never turns Fantastical records into standalone current events. Enrichment provenance (`source`, source-cache timestamp, match method, and Fantastical row ids) is stored under `raw_json.fantasticalEnrichment`, allowing later refreshes to replace only fields they previously supplied.
 
 ```typescript
 type CalendarSourceId = "evercommerce" | "priceless" | "personal" | "family" | "us-holidays" | string;
@@ -256,9 +256,17 @@ interface CalendarDefinition {
   selected: boolean;
   readOnly: boolean;
 }
+
+interface CalendarParticipant {
+  name: string | null;
+  email: string | null;
+  responseStatus?: string | null; // accepted, tentative, declined, needs-action
+}
 ```
 
 Configured calendar sources live in `src/lib/calendar/config.ts`: EverCommerce, Priceless, Personal, Family (`family02812820750125202686@group.calendar.google.com`), and US Holidays. The Family source uses `HILT_CALENDAR_ICS_FAMILY_URL`; the US Holidays source keeps a public default feed.
+
+Fantastical enrichment is local and best-effort. `HILT_FANTASTICAL_DB_PATH` overrides the source group-container database used only by the explicit refresh command, `HILT_FANTASTICAL_SNAPSHOT_PATH` overrides the normalized snapshot, `HILT_FANTASTICAL_EVERCOMMERCE_CALENDAR_ID` overrides the matched Fantastical calendar, and `HILT_FANTASTICAL_ENRICHMENT=0` disables the bridge. Missing, locked, or incompatible snapshot data leaves the normalized ICS event unchanged.
 
 ### PinnedFolder
 

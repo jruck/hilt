@@ -872,4 +872,15 @@ two mutable copies or hiding the best context in a separate database browser.
 - Pending, resolved, and dismissed are different information classes. Pending owns the count; accepted/completed work belongs behind `Resolved`; deliberately declined work belongs behind a separate `Dismissed` recovery disclosure. The active surface may show full meeting history for error recovery, but historical editorial membership stays frozen. Undo should restore the original object identity and provenance, not create a lookalike duplicate.
 - When nothing materially moved, one honest sentence is better than padding, commit logs, or a general meeting recap.
 
+### 2026-07-17: Calendar Detail Can Enrich Truth Without Replacing It
+
+**Principle**: A secondary local app may fill a field that a primary feed omits, but it must not become a shadow source of schedule truth. Calendar timing, recurrence, cancellation, and identity stay anchored to ICS; Fantastical supplies only missing people context and can disappear without making the calendar unusable.
+
+**Pattern**:
+- Match enrichment through stable provider identity and exact occurrences where available; use a series roster only as a deliberate recurrence fallback.
+- Normalize protected third-party state into a minimal Hilt-owned snapshot at an explicit boundary; background sync should not repeatedly open another app's coordinated database.
+- Record provenance and overwrite only the fields that the enrichment source previously supplied.
+- Keep people detail quiet until requested. Show an attendee count in the event metadata, then disclose a bounded roster with names, addresses, and response states in place.
+- Treat a missing or unreadable local integration as reduced detail, not a failed calendar sync.
+
 *This document should grow as design work continues. After UI changes are committed, consider what preferences or principles the changes reveal and add them here.*

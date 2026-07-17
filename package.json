@@ -39,6 +39,8 @@
     "clean:build-artifacts": "node scripts/clean-build-artifacts.mjs",
     "check:build-artifacts": "node scripts/check-build-artifacts.mjs",
     "calendar:import-fantastical-cache": "DATA_DIR=${DATA_DIR:-$HOME/.hilt/data} tsx scripts/calendar-import-fantastical-cache.ts",
+    "calendar:enrich-fantastical": "DATA_DIR=${DATA_DIR:-$HOME/.hilt/data} tsx scripts/calendar-enrich-fantastical.ts",
+    "calendar:refresh-fantastical": "DATA_DIR=${DATA_DIR:-$HOME/.hilt/data} tsx scripts/calendar-enrich-fantastical.ts --refresh-snapshot",
     "calendar:audit-ics": "DATA_DIR=${DATA_DIR:-$HOME/.hilt/data} tsx scripts/calendar-audit-ics.ts",
     "test:weather": "tsx --test src/lib/weather/**/*.test.ts",
     "test:map:perf": "tsx --test src/lib/map/**/*.perf.ts",

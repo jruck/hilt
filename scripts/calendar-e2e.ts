@@ -32,7 +32,7 @@ async function main() {
         DATA_DIR: dataDir,
         HILT_CALENDAR_FIXTURE_MODE: "1",
         HILT_WEATHER_FIXTURE_MODE: "1",
-        HILT_CALENDAR_SYNC_PAST_DAYS: "30",
+        HILT_CALENDAR_SYNC_PAST_DAYS: "120",
         HILT_CALENDAR_SYNC_FUTURE_DAYS: "90",
         NEXT_TELEMETRY_DISABLED: "1",
       },
@@ -53,12 +53,22 @@ async function main() {
       });
       page.on("pageerror", (error) => consoleErrors.push(error.message));
 
-      await verifyCalendarFlow(page, baseUrl);
-      for (const viewport of VIEWPORTS) {
-        await verifyViewport(page, baseUrl, viewport.width, viewport.height);
+      if (process.env.HILT_CALENDAR_E2E_ATTENDEES_ONLY === "1") {
+        await verifyAttendeeRoster(page, baseUrl);
+      } else {
+        await verifyCalendarFlow(page, baseUrl);
+        for (const viewport of VIEWPORTS) {
+          await verifyViewport(page, baseUrl, viewport.width, viewport.height);
+        }
       }
 
-      assert.deepEqual(consoleErrors, []);
+      const actionableConsoleErrors = process.env.HILT_CALENDAR_E2E_ATTENDEES_ONLY === "1"
+        ? consoleErrors.filter((message) => (
+            !message.includes("Connection closed before receiving a handshake response")
+            && !message.includes("net::ERR_NAME_NOT_RESOLVED")
+          ))
+        : consoleErrors;
+      assert.deepEqual(actionableConsoleErrors, []);
     } finally {
       await browser.close();
     }
@@ -104,6 +114,9 @@ async function verifyCalendarFlow(page: Page, baseUrl: string) {
   const eventPopover = page.getByTestId("calendar-event-popover");
   await eventPopover.waitFor();
   await page.getByText("Meet").first().waitFor();
+  await eventPopover.getByTestId("calendar-attendees-toggle").click();
+  await eventPopover.getByTestId("calendar-attendee-list").getByText("Alex Example").waitFor();
+  await eventPopover.getByTestId("calendar-attendee-list").getByText("Accepted").waitFor();
   assert.equal((await eventPopover.textContent())?.includes("Read-only"), false);
 
   await page.getByTestId("calendar-actions-menu").filter({ visible: true }).click();
@@ -117,6 +130,17 @@ async function verifyCalendarFlow(page: Page, baseUrl: string) {
   const syncResponse = page.waitForResponse((response) => response.url().includes("/api/calendar/sync") && response.request().method() === "POST");
   await page.getByTestId("calendar-sync-button").click();
   assert.equal((await syncResponse).ok(), true);
+}
+
+async function verifyAttendeeRoster(page: Page, baseUrl: string) {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${baseUrl}${FIXTURE_CALENDAR_PATH}`, { waitUntil: "networkidle" });
+  await page.getByText("Client review").first().waitFor({ timeout: 20_000 });
+  await page.getByText("Client review").first().click();
+  const eventPopover = page.getByTestId("calendar-event-popover");
+  await eventPopover.getByTestId("calendar-attendees-toggle").click();
+  await eventPopover.getByTestId("calendar-attendee-list").getByText("Alex Example").waitFor();
+  await eventPopover.getByTestId("calendar-attendee-list").getByText("Accepted").waitFor();
 }
 
 async function verifySundayFirstCalendar(page: Page, mode: string) {

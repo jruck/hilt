@@ -60,10 +60,10 @@ export function structuralSubstance(s: SubstanceSignals): number {
   return Math.max(0.05, Math.min(1, Number(v.toFixed(3))));
 }
 
-function freshnessDecay(createdAt: string): number {
+function freshnessDecay(createdAt: string, now: Date): number {
   const t = new Date(createdAt).getTime();
   if (!Number.isFinite(t)) return 0.8;
-  const days = (Date.now() - t) / 86_400_000;
+  const days = (now.getTime() - t) / 86_400_000;
   if (days <= 7) return 1.0;
   if (days <= 30) return 0.95;
   if (days <= 90) return 0.85;
@@ -105,7 +105,11 @@ export interface WorthResult {
   why: string;
 }
 
-export function evaluateArtifact(input: EvalInputs, config: LibraryScoringConfig = DEFAULT_SCORING_CONFIG): WorthResult {
+export function evaluateArtifact(
+  input: EvalInputs,
+  config: LibraryScoringConfig = DEFAULT_SCORING_CONFIG,
+  now: Date = new Date(),
+): WorthResult {
   const firstParty = input.connections.filter((c) => isFirstParty(c.target));
   const fp = firstParty.length;
   const other = input.connections.length - fp;
@@ -113,7 +117,7 @@ export function evaluateArtifact(input: EvalInputs, config: LibraryScoringConfig
   // Diminishing returns on ties so heavily-connected items don't all pin at the ceiling.
   const relevance = Number(Math.min(1, r.first_party_coeff * Math.sqrt(fp) + r.other_coeff * other + Math.min(r.context_fit_cap, Math.max(0, input.contextFit))).toFixed(3));
   const substance = Math.max(0, Math.min(1, input.substance));
-  const freshness = freshnessDecay(input.createdAt);
+  const freshness = freshnessDecay(input.createdAt, now);
   const worth = Number((relevance * substance * freshness).toFixed(3));
 
   // Never flag an item we haven't actually analyzed — absence of ties there means "unknown", not "low".

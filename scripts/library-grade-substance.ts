@@ -1,6 +1,6 @@
 /**
  * Substance backfill (eval plan, step 3). Grades each library item's SUBSTANCE — how much worthwhile,
- * dense, non-obvious material the source carries — 0..1, via the cheap Gemini `summarize` CLI over the
+ * dense, non-obvious material the source carries — 0..1, via Hilt's Claude-pinned `summarize` CLI over the
  * digest we already have (no Claude reweave, no re-extraction). Version-stamped; the model grade
  * overrides the structural proxy the eval falls back to.
  *
@@ -18,6 +18,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { loadEnvConfig } from "@next/env";
 import { parseMarkdownFile, stringifyMarkdown } from "../src/lib/library/markdown";
+import { assertLibrarySummarizeInvocation, validateLibrarySummarizeModel, withPinnedLibrarySummarizeModel } from "../src/lib/library/summarize-policy";
 import { atomicWriteFile, walkMarkdown } from "../src/lib/library/utils";
 
 const execFileAsync = promisify(execFile);
@@ -63,11 +64,14 @@ function extractJson(text: string): { substance: number; reason: string } | null
 
 async function gradeOne(title: string, format: string, body: string): Promise<{ substance: number; reason: string } | null> {
   const bin = process.env.SUMMARIZE_BIN || "summarize";
+  validateLibrarySummarizeModel();
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "hilt-substance-"));
   const filePath = path.join(dir, "digest.md");
   try {
     await fs.promises.writeFile(filePath, `# ${title}\n\nformat: ${format}\n\n${body.slice(0, 16000)}`, "utf-8");
-    const { stdout } = await execFileAsync(bin, [filePath, "--plain", "--no-color", "--force-summary", "--length", "short", "--timeout", "2m", "--prompt", SUBSTANCE_PROMPT], { timeout: 150000, maxBuffer: 1024 * 1024 * 4 });
+    const summarizeArgs = withPinnedLibrarySummarizeModel([filePath, "--plain", "--no-color", "--force-summary", "--length", "short", "--timeout", "2m", "--prompt", SUBSTANCE_PROMPT]);
+    assertLibrarySummarizeInvocation(summarizeArgs);
+    const { stdout } = await execFileAsync(bin, summarizeArgs, { timeout: 150000, maxBuffer: 1024 * 1024 * 4 });
     return extractJson(stdout || "");
   } catch (error) {
     const code = (error as NodeJS.ErrnoException)?.code;

@@ -10,6 +10,19 @@ Format: `date · item · user verdict · root cause · resolution · round`
 
 ## Labels
 
+### 2026-07-18 · Current-fit scoring s3 — replace the semantic graph
+- **User verdict:** Preserve the semantic/visual graph as a recoverable time capsule, but remove it
+  from live Hilt and stop the Gemini cost. Keep For You, Library, and Briefing behavior without an
+  ongoing comparison program or user-run training loop.
+- **Root cause:** semantic embedding similarity added cost and operational complexity without a
+  demonstrated user-visible advantage large enough to justify it. The one-time July 10–17 bake-off
+  found the explicit-context hybrid to be the best deterministic replacement.
+- **Resolution:** scoring config `s3` keeps Worth, substance, freshness, lifecycle, suppression, and
+  cooldown behavior, while Current fit now combines BM25F matches to active work, readable explicit
+  Connections, and attention judgment. New recommendation episodes record
+  `explicit_context_hybrid` / `s3`; historical episode score snapshots remain unchanged.
+- **Round:** one-time historical bake-off and retirement cutover.
+
 ### 2026-07-10 · For You/briefing attention model — replace evergreen score resurfacing
 - **User verdict:** For You and the Library briefing should be the same personal attention feed: rank
   what is newly worth seeing in light of recent saves, conversations, meetings, and project movement;

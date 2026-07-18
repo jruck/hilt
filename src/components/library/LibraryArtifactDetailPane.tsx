@@ -1,11 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Archive, ArrowLeft, Check, ChevronDown, Clock, Copy, FileText, Layers, Link2, Loader2, Network, Play, RotateCcw, Sparkles, ThumbsDown, X, Zap, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Archive, ArrowLeft, Check, ChevronDown, Clock, Copy, FileText, Layers, Link2, Loader2, Play, RotateCcw, Sparkles, Target, ThumbsDown, X, Zap, type LucideIcon } from "lucide-react";
 import type { ReviewQueueStatus } from "@/lib/library/review-queue";
+import type { LibraryEvalAttrs, RecommendationPresentation } from "@/lib/library/types";
 import { useScope } from "@/contexts/ScopeContext";
-import { isGraphEnabled } from "@/lib/graph/config";
-import { buildGraphScope } from "@/components/graph/graph-deeplink";
 import { retryLibraryProcessing, useLibraryArtifact, useRecommendationEpisodes } from "@/hooks/useLibrary";
 import { attentionJudgmentFromFrontmatter, connectionPassEvidence, connectionPassState, connectionSuggestionsFromFrontmatter } from "@/lib/library/connection-state";
 import { stripLegacyReferenceBodyCruft } from "@/lib/library/legacy-cleanup";
@@ -89,9 +88,122 @@ function EvalMetadataField({
 }
 
 function formatEvalExplanation(text: string): string {
-  return text.replace(/\b(worth|relevance|substance|freshness)\s+([01](?:\.\d+)?)/g, (_match, label: string, value: string) => {
-    return `${label} ${formatEvalScore(Number(value))}`;
-  });
+  return text
+    .replace(/\b(worth|relevance|substance|freshness)\s+([01](?:\.\d+)?)/g, (_match, label: string, value: string) => {
+      const visibleLabel = label === "relevance" ? "current fit" : label;
+      return `${visibleLabel} ${formatEvalScore(Number(value))}`;
+    })
+    .replace(/\btopical:/g, "current work:");
+}
+
+function formatEvalAdjustment(value: number): string {
+  const score = Math.round(value * 100);
+  return `${score > 0 ? "+" : ""}${score}`;
+}
+
+function contextSignalLabel(kind: "task" | "project" | "area" | "person"): string {
+  if (kind === "task") return "Task";
+  if (kind === "project") return "Project";
+  if (kind === "area") return "Area";
+  return "Person";
+}
+
+function EvalContextExplanation({ evalAttrs }: { evalAttrs: LibraryEvalAttrs }) {
+  const evidence = evalAttrs.context_evidence;
+  if (!evidence) {
+    return (
+      <div data-testid="library-eval-explanation" className="text-[var(--text-secondary)]">
+        {formatEvalExplanation(evalAttrs.why)}
+      </div>
+    );
+  }
+
+  const hasCurrentWorkEvidence = evidence.matched_signals.length > 0
+    || evidence.lexical_score > 0
+    || evidence.active_connection_boost !== 0
+    || evidence.attention_adjustment !== 0
+    || evidence.connection_score > 0;
+
+  return (
+    <div data-testid="library-eval-explanation" className="space-y-2">
+      {evidence.connection_score > 0 && (
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-[var(--text-secondary)]">Connection evidence</span>
+          <span className="shrink-0 tabular-nums text-[var(--text-primary)]">{formatEvalScore(evidence.connection_score)}</span>
+        </div>
+      )}
+      {evidence.lexical_score > 0 && (
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-[var(--text-secondary)]">Current-work match</span>
+          <span className="shrink-0 tabular-nums text-[var(--text-primary)]">{formatEvalScore(evidence.lexical_score)}</span>
+        </div>
+      )}
+      {evidence.matched_signals.slice(0, 2).map((signal) => (
+        <div key={`${signal.kind}:${signal.target || signal.label}`} className="rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] px-2 py-1.5">
+          <div className="text-[var(--text-primary)]">
+            <span className="text-[var(--text-tertiary)]">{contextSignalLabel(signal.kind)} · </span>
+            {signal.label}
+          </div>
+          {signal.matched_terms.length > 0 && (
+            <div className="mt-0.5 line-clamp-2 text-[11px] text-[var(--text-tertiary)]">
+              {signal.matched_terms.join(" · ")}
+            </div>
+          )}
+        </div>
+      ))}
+      {evidence.active_connection_boost !== 0 && (
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="min-w-0 text-[var(--text-secondary)]">
+            Active connection{evidence.active_connection_targets.length > 1 ? "s" : ""}
+            {evidence.active_connection_targets.length > 0 && (
+              <span className="text-[var(--text-tertiary)]"> · {evidence.active_connection_targets.map((target) => target.label).join(", ")}</span>
+            )}
+          </span>
+          <span className="shrink-0 tabular-nums text-[var(--text-primary)]">{formatEvalAdjustment(evidence.active_connection_boost)}</span>
+        </div>
+      )}
+      {evidence.attention_adjustment !== 0 && (
+        <div>
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-[var(--text-secondary)]">Attention · {evidence.attention_tier || "not judged"}</span>
+            <span className="shrink-0 tabular-nums text-[var(--text-primary)]">{formatEvalAdjustment(evidence.attention_adjustment)}</span>
+          </div>
+          {evidence.attention_reason && <div className="mt-0.5 text-[11px] text-[var(--text-tertiary)]">{evidence.attention_reason}</div>}
+        </div>
+      )}
+      {hasCurrentWorkEvidence ? (
+        <div className="flex items-baseline justify-between gap-3 border-t border-[var(--border-default)] pt-2 font-medium">
+          <span className="text-[var(--text-secondary)]">Current-work contribution</span>
+          <span className="shrink-0 tabular-nums text-[var(--text-primary)]">
+            {formatEvalScore(evidence.context_score)}{evidence.context_capped ? " · capped" : ""}
+          </span>
+        </div>
+      ) : (
+        <div className="text-[var(--text-tertiary)]">No strong match to current work was found.</div>
+      )}
+    </div>
+  );
+}
+
+function RecommendationScoreSnapshot({ recommendation }: { recommendation: RecommendationPresentation }) {
+  if (!recommendation.selection_scores) return null;
+  const scores = recommendation.selection_scores;
+  return (
+    <div data-testid="library-recommendation-score-snapshot" className="mt-2 border-t border-[var(--border-default)] pt-2">
+      <div className="mb-1 text-[var(--text-tertiary)]">At recommendation time</div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 tabular-nums text-[var(--text-secondary)]">
+        <span>Worth {formatEvalScore(scores.worth)}</span>
+        <span>Current fit {formatEvalScore(scores.relevance)}</span>
+        <span>Substance {formatEvalScore(scores.substance)}</span>
+        <span>Freshness {formatEvalScore(scores.freshness)}</span>
+      </div>
+      {(recommendation.scoring_method || recommendation.scoring_config_version) && (
+        <div className="mt-1 text-[11px] text-[var(--text-tertiary)]">
+          {[recommendation.scoring_method?.replace(/_/g, " "), recommendation.scoring_config_version].filter(Boolean).join(" · ")}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function clipPolicyLabel(policy: string): string {
@@ -270,7 +382,6 @@ export function LibraryArtifactDetailPane({
   const { artifact, isLoading, mutate } = useLibraryArtifact(id, artifactPath);
   const recommendationEpisodes = useRecommendationEpisodes(recommendationEpisodeId ? [recommendationEpisodeId] : []);
   const { navigateTo } = useScope();
-  const graphEnabled = isGraphEnabled();
   const [mode, setMode] = useState<"summary" | "cache">("summary");
   const [reviewOpen, setReviewOpen] = useState(false);
   const [lifecycleOpen, setLifecycleOpen] = useState(false);
@@ -441,7 +552,7 @@ export function LibraryArtifactDetailPane({
               type="button"
               onClick={toggleMeta}
               aria-expanded={metaOpen}
-              title="Show pipeline + eval metadata"
+              title="Show score and processing details"
               className="inline-flex items-center gap-2 rounded-md px-1 py-0.5 tabular-nums text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
             >
               {artifact.pipeline_version && (
@@ -549,7 +660,7 @@ export function LibraryArtifactDetailPane({
           const fields: Array<[string, string, boolean?]> = [
             ["disposition", artifact.library_mode || "study"],
             ["connections", `${connCount} · ${connState}`, connState === "never"],
-            ["connection pass", reweaveState, meta.reweave_pending === true || missingConnectionPass],
+            ["connection review", reweaveState, meta.reweave_pending === true || missingConnectionPass],
             ["attention", attentionJudgment ? attentionJudgment.tier : "—"],
             ["digest", typeof meta.digested_with === "string" ? meta.digested_with : "—"],
             ["version", artifact.pipeline_version || "—"],
@@ -560,107 +671,128 @@ export function LibraryArtifactDetailPane({
           return metaOpen ? (
             <div className="mt-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-2.5 text-xs text-[var(--text-secondary)]">
               {ev && (
-                <div className="mb-2 grid grid-cols-2 gap-x-6 gap-y-1.5 border-b border-[var(--border-default)] pb-2 sm:grid-cols-3">
-                  <EvalMetadataField icon={Zap} label="worth" value={formatEvalScore(ev.worth)} title={evalMetricTitle("worth")} />
-                  <EvalMetadataField icon={Network} label="relevance" value={formatEvalScore(ev.relevance)} title={evalMetricTitle("relevance")} />
-                  <EvalMetadataField icon={Layers} label="substance" value={substanceGraded ? formatEvalScore(ev.substance) : `${formatEvalScore(ev.substance)} · est.`} title={substanceGraded ? evalMetricTitle("substance") : "Structural estimate from format + length — not yet model-graded. A reweave assigns the model grade."} />
-                  <EvalMetadataField icon={Clock} label="freshness" value={formatEvalScore(ev.freshness)} title={evalMetricTitle("freshness")} />
-                  <EvalMetadataField icon={evalNeedsRefetch ? AlertTriangle : Archive} label="lifecycle" value={evalLifecycleLabel} warn={evalLifecycleWarn} />
-                  <EvalMetadataField icon={Archive} label="archive threshold" value={`< ${formatEvalScore(TO_ARCHIVE_WORTH)}`} title="Worth below this threshold, after analysis, enters archive review." />
-                </div>
-              )}
-              {clip && (
-                <div className="mb-2 grid grid-cols-1 gap-y-1.5 border-b border-[var(--border-default)] pb-2 sm:grid-cols-2">
-                  <EvalMetadataField icon={Play} label="clip policy" value={clipPolicyLabel(clip.policy_action)} warn={clip.policy_action === "suppress" || clip.policy_action === "label_review"} />
-                  <EvalMetadataField icon={Play} label="content form" value={`${clip.content_form} · ${formatEvalScore(clip.confidence)}`} title={`clip score ${formatEvalScore(clip.clip_score)}, episode score ${formatEvalScore(clip.episode_score)}`} />
-                  {clip.signals.length > 0 && (
-                    <div className="sm:col-span-2">
-                      <div className="mb-1 text-[var(--text-tertiary)]">clip evidence</div>
-                      <div className="text-[var(--text-secondary)]">{clipSignalSummary(clip.signals)}</div>
-                    </div>
-                  )}
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-3">
-                {fields.map(([key, value, warn]) => (
-                  <div key={key} className="flex items-baseline justify-between gap-2">
-                    <span className="text-[var(--text-tertiary)]">{key}</span>
-                    <span className={`tabular-nums ${warn ? "text-amber-500" : "text-[var(--text-primary)]"}`}>{value}</span>
+                <div data-testid="library-eval-summary" className="border-b border-[var(--border-default)] pb-2.5">
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-3">
+                    <EvalMetadataField icon={Zap} label="worth" value={formatEvalScore(ev.worth)} title={evalMetricTitle("worth")} />
+                    <EvalMetadataField icon={Target} label="current fit" value={formatEvalScore(ev.relevance)} title={evalMetricTitle("relevance")} />
+                    <EvalMetadataField icon={Layers} label="substance" value={substanceGraded ? formatEvalScore(ev.substance) : `${formatEvalScore(ev.substance)} · est.`} title={substanceGraded ? evalMetricTitle("substance") : "Structural estimate from format + length — not yet model-graded. A reweave assigns the model grade."} />
+                    <EvalMetadataField icon={Clock} label="freshness" value={formatEvalScore(ev.freshness)} title={evalMetricTitle("freshness")} />
+                    <EvalMetadataField icon={evalNeedsRefetch ? AlertTriangle : Archive} label="lifecycle" value={evalLifecycleLabel} warn={evalLifecycleWarn} />
+                    <EvalMetadataField icon={Archive} label="archive threshold" value={`< ${formatEvalScore(TO_ARCHIVE_WORTH)}`} title="Worth below this threshold, after analysis, enters archive review." />
                   </div>
-                ))}
-              </div>
-              {ev?.why && (
+                  <div className="mt-2 text-[11px] text-[var(--text-tertiary)]">Worth = Current fit × Substance × Freshness</div>
+                  <div className="mt-2 border-t border-[var(--border-default)] pt-2">
+                    <div className="mb-1.5 font-medium text-[var(--text-primary)]">Why this score</div>
+                    <EvalContextExplanation evalAttrs={ev} />
+                  </div>
+                </div>
+              )}
+              <details data-testid="library-technical-details" className="group mt-2">
+                <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]">
+                  <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+                  Technical details
+                </summary>
                 <div className="mt-2 border-t border-[var(--border-default)] pt-2">
-                  <div className="mb-1 text-[var(--text-tertiary)]">eval explanation</div>
-                  <div className="text-[var(--text-secondary)]">{formatEvalExplanation(ev.why)}</div>
-                </div>
-              )}
-              <div className="mt-2 border-t border-[var(--border-default)] pt-2">
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <span className="text-[var(--text-tertiary)]">connection pass</span>
-                  <span className={`tabular-nums ${missingConnectionPass || meta.reweave_pending === true ? "text-amber-500" : "text-[var(--text-primary)]"}`}>{connState}</span>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {passEvidence.length ? passEvidence.map((signal) => (
-                    <span key={signal} className="rounded border border-[var(--border-default)] bg-[var(--content-surface)] px-1.5 py-0.5 text-[10px] text-[var(--text-secondary)]">
-                      {signal}
-                    </span>
-                  )) : (
-                    <span className="text-[var(--text-tertiary)]">no pass markers</span>
-                  )}
-                </div>
-                {attentionJudgment && (
-                  <div className="mt-2 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] px-2 py-1.5">
-                    <div className="mb-0.5 flex items-baseline justify-between gap-2">
-                      <span className="text-[var(--text-tertiary)]">attention_judgment</span>
-                      <span className={`font-medium ${tierClass(attentionJudgment.tier)}`}>{attentionJudgment.tier}</span>
+                  {clip && (
+                    <div className="mb-2 grid grid-cols-1 gap-y-1.5 border-b border-[var(--border-default)] pb-2 sm:grid-cols-2">
+                      <EvalMetadataField icon={Play} label="clip policy" value={clipPolicyLabel(clip.policy_action)} warn={clip.policy_action === "suppress" || clip.policy_action === "label_review"} />
+                      <EvalMetadataField icon={Play} label="content form" value={`${clip.content_form} · ${formatEvalScore(clip.confidence)}`} title={`clip score ${formatEvalScore(clip.clip_score)}, episode score ${formatEvalScore(clip.episode_score)}`} />
+                      {clip.signals.length > 0 && (
+                        <div className="sm:col-span-2">
+                          <div className="mb-1 text-[var(--text-tertiary)]">clip evidence</div>
+                          <div className="text-[var(--text-secondary)]">{clipSignalSummary(clip.signals)}</div>
+                        </div>
+                      )}
                     </div>
-                    {attentionJudgment.reason && <div className="text-[var(--text-secondary)]">{attentionJudgment.reason}</div>}
+                  )}
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-3">
+                    {fields.map(([key, value, warn]) => (
+                      <div key={key} className="flex items-baseline justify-between gap-2">
+                        <span className="text-[var(--text-tertiary)]">{key}</span>
+                        <span className={`tabular-nums ${warn ? "text-amber-500" : "text-[var(--text-primary)]"}`}>{value}</span>
+                      </div>
+                    ))}
                   </div>
-                )}
-                {connectionReasoning && (
-                  <div className="mt-2">
-                    <div className="mb-0.5 text-[var(--text-tertiary)]">connection reasoning</div>
-                    <div className="text-[var(--text-secondary)]">{connectionReasoning}</div>
+                  {ev && (ev.scoring_method || ev.scoring_config_version || ev.why) && (
+                    <div className="mt-2 border-t border-[var(--border-default)] pt-2">
+                      <div className="mb-1 text-[var(--text-tertiary)]">score calculation</div>
+                      {(ev.scoring_method || ev.scoring_config_version) && (
+                        <div className="mb-1 text-[11px] text-[var(--text-tertiary)]">
+                          {[ev.scoring_method?.replace(/_/g, " "), ev.scoring_config_version].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
+                      {ev.why && <div className="text-[var(--text-secondary)]">{formatEvalExplanation(ev.why)}</div>}
+                    </div>
+                  )}
+                  {recommendation && <RecommendationScoreSnapshot recommendation={recommendation} />}
+                  <div className="mt-2 border-t border-[var(--border-default)] pt-2">
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <span className="text-[var(--text-tertiary)]">connection review</span>
+                      <span className={`tabular-nums ${missingConnectionPass || meta.reweave_pending === true ? "text-amber-500" : "text-[var(--text-primary)]"}`}>{connState}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {passEvidence.length ? passEvidence.map((signal) => (
+                        <span key={signal} className="rounded border border-[var(--border-default)] bg-[var(--content-surface)] px-1.5 py-0.5 text-[10px] text-[var(--text-secondary)]">
+                          {signal}
+                        </span>
+                      )) : (
+                        <span className="text-[var(--text-tertiary)]">no review markers</span>
+                      )}
+                    </div>
+                    {attentionJudgment && (
+                      <div className="mt-2 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] px-2 py-1.5">
+                        <div className="mb-0.5 flex items-baseline justify-between gap-2">
+                          <span className="text-[var(--text-tertiary)]">attention judgment</span>
+                          <span className={`font-medium ${tierClass(attentionJudgment.tier)}`}>{attentionJudgment.tier}</span>
+                        </div>
+                        {attentionJudgment.reason && <div className="text-[var(--text-secondary)]">{attentionJudgment.reason}</div>}
+                      </div>
+                    )}
+                    {connectionReasoning && (
+                      <div className="mt-2">
+                        <div className="mb-0.5 text-[var(--text-tertiary)]">connection reasoning</div>
+                        <div className="text-[var(--text-secondary)]">{connectionReasoning}</div>
+                      </div>
+                    )}
+                    {connectionSuggestions.length > 0 && (
+                      <div className="mt-2">
+                        <div className="mb-1 text-[var(--text-tertiary)]">connection output</div>
+                        <ul className="space-y-1">
+                          {connectionSuggestions.slice(0, 5).map((connection, index) => (
+                            <li key={`${connection.target || connection.label}-${index}`} className="rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] px-2 py-1">
+                              <span className="text-[var(--text-primary)]">{connection.label}</span>
+                              {connection.relationship && <span className="text-[var(--text-secondary)]"> — {connection.relationship}</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {reweaveCandidates.length > 0 && (
+                      <div className="mt-2">
+                        <div className="mb-1 text-[var(--text-tertiary)]">reweave candidates</div>
+                        <ul className="space-y-1">
+                          {reweaveCandidates.slice(0, 3).map((candidate, index) => (
+                            <li key={`${candidate.target}-${index}`} className="text-[var(--text-secondary)]">
+                              <span className="text-[var(--text-primary)]">{candidate.target || "untitled"}</span>{candidate.why ? ` — ${candidate.why}` : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {missingConnectionPass && (
+                      <div className="mt-2 flex gap-1.5 rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1.5 text-amber-700 dark:text-amber-300">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>Hot study item has no connection-review marker; the repair queue treats this as missing_connection_pass.</span>
+                      </div>
+                    )}
+                    {attentionJudgment && !reconnectedAt && (
+                      <div className="mt-2 text-[var(--text-tertiary)]">
+                        Legacy v2.2 signal: attention judgment proves the review ran, but reconnected_at was not stamped.
+                      </div>
+                    )}
                   </div>
-                )}
-                {connectionSuggestions.length > 0 && (
-                  <div className="mt-2">
-                    <div className="mb-1 text-[var(--text-tertiary)]">connection output</div>
-                    <ul className="space-y-1">
-                      {connectionSuggestions.slice(0, 5).map((connection, index) => (
-                        <li key={`${connection.target || connection.label}-${index}`} className="rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] px-2 py-1">
-                          <span className="text-[var(--text-primary)]">{connection.label}</span>
-                          {connection.relationship && <span className="text-[var(--text-secondary)]"> — {connection.relationship}</span>}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {reweaveCandidates.length > 0 && (
-                  <div className="mt-2">
-                    <div className="mb-1 text-[var(--text-tertiary)]">reweave candidates</div>
-                    <ul className="space-y-1">
-                      {reweaveCandidates.slice(0, 3).map((candidate, index) => (
-                        <li key={`${candidate.target}-${index}`} className="text-[var(--text-secondary)]">
-                          <span className="text-[var(--text-primary)]">{candidate.target || "untitled"}</span>{candidate.why ? ` — ${candidate.why}` : ""}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {missingConnectionPass && (
-                  <div className="mt-2 flex gap-1.5 rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1.5 text-amber-700 dark:text-amber-300">
-                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>Hot study item has no connection-pass marker; the repair queue treats this as missing_connection_pass.</span>
-                  </div>
-                )}
-                {attentionJudgment && !reconnectedAt && (
-                  <div className="mt-2 text-[var(--text-tertiary)]">
-                    Legacy v2.2 signal: attention_judgment proves the pass ran, but reconnected_at was not stamped.
-                  </div>
-                )}
-              </div>
+                </div>
+              </details>
               <ThreadView target={{ kind: "library", id: artifact.id }} title="Feedback" className="mt-2 border-t border-[var(--border-default)] pt-2" />
             </div>
           ) : null;
@@ -729,17 +861,6 @@ export function LibraryArtifactDetailPane({
             >
               {copied === "path" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
             </button>
-            {graphEnabled ? (
-              <button
-                type="button"
-                onClick={() => navigateTo("system", buildGraphScope({ focus: artifact.id }))}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                aria-label="Show in graph"
-                title="Show in graph"
-              >
-                <Network className="h-4 w-4" />
-              </button>
-            ) : null}
             {!processingIncomplete && !isCandidate && (
               <>
                 {onReviewStatus && (

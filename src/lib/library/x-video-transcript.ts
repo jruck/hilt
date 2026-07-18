@@ -6,6 +6,7 @@ import { promisify } from "util";
 import type { SourceCache } from "./types";
 import { parseTimedTranscript } from "./transcript";
 import { isoNow } from "./utils";
+import { assertLibrarySummarizeInvocation } from "./summarize-policy";
 
 const execFileAsync = promisify(execFile);
 
@@ -168,6 +169,7 @@ async function inspectVideo(url: string): Promise<{ hasAudio: boolean; unavailab
 async function runSummarize(args: string[], timeoutValue: string, maxBuffer: number): Promise<string | null> {
   const summarizeBin = process.env.SUMMARIZE_BIN || "summarize";
   try {
+    assertLibrarySummarizeInvocation(args);
     const { stdout } = await execFileAsync(summarizeBin, args, {
       timeout: durationToMs(timeoutValue, 15 * 60_000) + 5000,
       maxBuffer,

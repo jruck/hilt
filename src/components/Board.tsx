@@ -19,7 +19,7 @@ import { PullToRefresh } from "./PullToRefresh";
 import { MobileChromeProvider } from "@/contexts/MobileChromeContext";
 import { CALENDAR_EVENT_OPEN_EVENT, PENDING_CALENDAR_EVENT_STORAGE_KEY, type CalendarEventOpenDetail } from "@/lib/calendar/deeplink";
 import { TASK_OPEN_EVENT, type TaskOpenDetail } from "@/lib/tasks/deeplink";
-import { isSystemMode, legacyConversationScopeFromSystemUrl, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode, type SystemMode } from "@/lib/system/navigation";
+import { isRetiredGraphSystemUrl, isSystemMode, legacyConversationScopeFromSystemUrl, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode, type SystemMode } from "@/lib/system/navigation";
 import { withBasePath } from "@/lib/base-path";
 import type { BridgeMode } from "./bridge/BridgeModeToggle";
 
@@ -191,16 +191,20 @@ export function Board() {
     : "bridge"; // fallback
   const systemMode = systemModeFromUrl(urlViewMode, scopePath);
   const stackScopePath = stackScopeFromSystemUrl(urlViewMode, scopePath);
-  const systemSubScopePath = systemMode === "graph"
-    ? scopePath.split("/").filter(Boolean).slice(1).join("/") // remainder after the mode segment
-    : "";
-
   // Legacy System → Threads/Chats deep links (stale briefing/doc links, old localStorage)
   // redirect to the top-level Chats view instead of dead-ending on the sessions fallback.
   useEffect(() => {
     const legacyScope = legacyConversationScopeFromSystemUrl(urlViewMode, scopePath);
     if (legacyScope !== null) navigateTo("chats", legacyScope);
   }, [navigateTo, scopePath, urlViewMode]);
+
+  // The retired knowledge graph has no live surface. Canonicalize stale links and
+  // stored scopes in place so Back does not loop through a dead route.
+  useEffect(() => {
+    if (isRetiredGraphSystemUrl(urlViewMode, scopePath)) {
+      replaceViewMode("system", "/sessions");
+    }
+  }, [replaceViewMode, scopePath, urlViewMode]);
 
   // Unified setter
   const setViewMode = useCallback((mode: ViewMode) => {
@@ -508,7 +512,6 @@ export function Board() {
             onModeChange={setSystemMode}
             searchQuery={searchQuery}
             workingFolder={stackScopePath || workingFolder || ""}
-            scopePath={systemSubScopePath}
           />
         ) : viewMode === "briefings" ? (
           <BriefingsView
@@ -560,7 +563,6 @@ export function Board() {
             onModeChange={setSystemMode}
             searchQuery={searchQuery}
             workingFolder={stackScopePath || workingFolder || ""}
-            scopePath={systemSubScopePath}
           />
         ) : viewMode === "briefings" ? (
           <BriefingsView

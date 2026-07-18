@@ -1,6 +1,6 @@
 ---
 name: process-library-feedback
-description: Process the user's accumulated Reference Library eval feedback — read every item with unprocessed feedback, diagnose why the eval mis-scored it, cluster the critiques into root-cause patterns, propose fixes (logic vs data, quick vs semantic), and after approval implement + re-score + report the delta. Use when the user says "process library feedback", "act on my library feedback", or similar.
+description: Process the user's accumulated Reference Library eval feedback — read every item with unprocessed feedback, diagnose why the eval mis-scored it, cluster critiques into root-cause patterns, propose deterministic hybrid or data fixes, and after approval implement + re-score + report the delta. Use when the user says "process library feedback", "act on my library feedback", or similar.
 ---
 
 # Process Library Feedback
@@ -12,7 +12,7 @@ list of `{ id, text, created_at, updated_at?, processed_at? }`. This skill turns
 into calibrated eval improvements. It is the human-in-the-loop tuning loop for the worth eval.
 
 **The eval model** (`docs/plans/reference-library-roadmap.md`): every study item gets
-`worth = relevance × substance × freshness`. Disposition (`study`/`keep`) is orthogonal. Lifecycle
+`worth = current fit × substance × freshness`. The compatible internal `relevance` field stores Current fit. Disposition (`study`/`keep`) is orthogonal. Lifecycle
 (`active`/`to_archive`/`archived`) is the surfacing state; `to_archive` is a non-destructive review flag.
 
 ## Protocol (follow in order)
@@ -31,14 +31,14 @@ comment as a distinct critique.
 
 ### 2. Diagnose each — pull the breakdown, don't guess
 For each item, fetch its eval breakdown + pipeline status (`GET /api/library/{id}` → `eval_attrs` +
-`raw_frontmatter`) and read the feedback. Identify **which axis misfired**: relevance (and *why* —
-zero first-party connections? topical miss?), substance, disposition, or a data gap.
+`raw_frontmatter`) and read the feedback. Identify **which axis misfired**: Current fit (and *why* —
+weak lexical match, missing active-work connection, wrong attention adjustment, or weak first-party connection?), substance, disposition, or a data gap. Use `eval_attrs.context_evidence` rather than guessing.
 **For a batch (≳4 items), run a Workflow** to diagnose items in parallel (one agent per item:
 read item + feedback + breakdown → return `{id, axis, root_cause, logic_or_data}`), then proceed.
 
 ### 3. Cluster into root-cause PATTERNS (not items)
 Group the diagnoses. Fix patterns, never single items (avoid overfitting). Typical clusters:
-- *on-domain but unanchored* → relevance under-counts topical fit (often needs the semantic layer)
+- *on-domain but unanchored* → Current fit under-counts a lexical or explicit active-work signal
 - *judged thin but actually dense* (or vice-versa) → substance grade wrong
 - *mis-disposed* (study↔keep) → taxonomy signal
 - *never judged / abstained* → **data gap**, fix by reprocessing, not by changing weights
@@ -47,8 +47,8 @@ Group the diagnoses. Fix patterns, never single items (avoid overfitting). Typic
 For each pattern, propose a change and tag it:
 - **logic** (weight/threshold/new structural signal in `library-eval.ts` / `recommendations.ts` /
   `taxonomy.ts`) — cheap, re-scores instantly — **vs data** (re-grade substance / reweave connections).
-- **quick heuristic now vs needs the semantic layer** — be honest when a pattern is only truly fixable
-  with topical relevance (Step 6); note it rather than bolting on a fragile hack.
+- **hybrid logic vs missing source/context data** — prefer general improvements to tokenization,
+  thresholds, active targets, Connections, or attention evidence; do not reintroduce hidden semantic calls.
 - State the **expected blast radius** (what else the change moves).
 **Present the proposal and STOP for approval. Do not implement unilaterally.**
 
@@ -73,6 +73,6 @@ This is both the **progress metric** (error rate: of N labeled "shouldn't archiv
 and a **regression guard** for future rounds. Then add a CHANGELOG entry for the logic changes.
 
 ## Notes
-- The eval is structural/dynamic — logic re-scores are free and instant; only substance/reweave cost.
+- The eval is deterministic and structural — logic re-scores are free and instant; only Claude-backed substance/reweave work costs model usage.
 - Never auto-archive or move files as part of this; `to_archive` is a flag, archiving stays manual.
 - Keep the canonical plan (`docs/plans/reference-library-roadmap.md`) in sync if a fix changes the model.

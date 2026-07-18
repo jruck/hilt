@@ -12,8 +12,8 @@ interface ScopeContextValue {
   viewMode: ViewPrefix | null;
   /** Update view mode and push a new history entry */
   setViewMode: (mode: ViewPrefix) => void;
-  /** Replace current URL with view prefix (no new history entry — for legacy URL migration) */
-  replaceViewMode: (mode: ViewPrefix) => void;
+  /** Replace current URL and optionally its scope (no new history entry — for legacy URL migration) */
+  replaceViewMode: (mode: ViewPrefix, scope?: string) => void;
   /** Atomically change both view mode and scope in a single history entry */
   navigateTo: (mode: ViewPrefix, scope: string) => void;
 }
@@ -74,12 +74,15 @@ export function ScopeProvider({
     }
   }, []);
 
-  const replaceViewMode = useCallback((mode: ViewPrefix) => {
+  const replaceViewMode = useCallback((mode: ViewPrefix, scope = scopeRef.current) => {
+    setScopePathInternal(scope);
+    scopeRef.current = scope;
     setViewModeInternal(mode);
     viewModeRef.current = mode;
     if (typeof window !== "undefined") {
-      const url = buildViewUrl(mode, scopeRef.current);
-      window.history.replaceState({ scope: scopeRef.current }, "", url);
+      localStorage.setItem(SCOPE_STORAGE_KEY, scope);
+      const url = buildViewUrl(mode, scope);
+      window.history.replaceState({ scope }, "", url);
     }
   }, []);
 

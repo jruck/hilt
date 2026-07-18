@@ -21,8 +21,6 @@ const buildDirs = [
   ".next-gateway",
   ".next-devtest",
   ".next-prod-test",
-  ".next-graph-dev",
-  ".next-graph-live",
   "out",
   "release",
   path.join("dist", "mac"),

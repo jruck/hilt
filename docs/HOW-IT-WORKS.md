@@ -155,7 +155,7 @@ commitments as asks.
 
 ### 📚 Library node — live · home in the vault · a sub-team, the fractal's clearest example
 
-The one node whose scope is big enough to have its own workers underneath — eleven scheduled
+The one node whose scope is big enough to have its own workers underneath — nine scheduled
 jobs in three roles. Its real output is continuous enrichment of the knowledge files; the daily
 artifact is the synthesis on top.
 
@@ -164,8 +164,7 @@ is open, five minutes otherwise, with hourly fallback) · newsletters (7:10 AM)
 **Synthesis workers**: reweave — digests + cross-connections written into the reference files
 (3:35 AM) · morning report (5:10 AM) · For You editorial batch (5:20 AM) · editor's memo
 (Saturday 5:30 AM, before the weekend edition)
-**Upkeep workers**: cleanup (4:15) · refetch (4:45) · retry (hourly) · semantic index refit/gc
-(3:30 weekdays / 4:30)
+**Upkeep workers**: cleanup (4:15) · refetch (4:45) · retry (hourly)
 
 The knowledge itself:
 - [$VAULT/references/]($VAULT/references) — one file per saved reference; reweave edits these
@@ -188,6 +187,12 @@ Bookkeeping:
 - `$DATA/library-recommendations/<vault-key>/` — immutable For You batches, the latest-episode feed
   projection, recommendation-only dismissals, and refresh/backoff state. Recommending an old item
   again writes a new episode and moves the same Library card to the top with a new contextual pitch.
+
+Library priority is deterministic. **Worth = Current fit × Substance × Freshness**. Current fit combines
+important term matches against current tasks/projects/areas/people, readable Connections to active work,
+and the stored attention judgment. Hilt builds that score map once over the complete eligible Library;
+For You and Briefing consume the same map before Claude Sonnet 4.6 makes the bounded editorial choice.
+There is no live semantic/vector scorer or Gemini fallback.
 
 ### 🎯 Goals node — shadow · runs 5:40 AM · home physically in $DATA · a roll-up node
 
@@ -422,7 +427,7 @@ Old `System → Threads` / `System → Chats` links still work — they redirect
 | hourly | library intake (ingest, retry) |
 | minutes after each meeting | meetings node (post-meeting trigger, just that meeting) |
 | 7:30 PM | meetings node (nightly sweep — the safety net) |
-| 3:30–4:45 AM | library synthesis + upkeep (reweave, cleanup, refetch, semantic) |
+| 3:30–4:45 AM | library synthesis + upkeep (reweave, cleanup, refetch) |
 | 5:10–5:20 AM daily; 5:30 AM Saturday | daily library report → For You editorial batch; weekly memo before the weekend edition |
 | 5:40 AM | goals node |
 | 5:45 AM | system node |

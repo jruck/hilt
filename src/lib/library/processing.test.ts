@@ -209,10 +209,12 @@ test("processing and deferred-reweave artifacts cannot be read or scored as comp
   assert.ok(ready);
   assert.equal(ready.raw_frontmatter.reweave_pending, true);
   assert.equal(scoreArtifacts(vault, [ready]).length, 0);
+  // s3 scores from one canonical full-corpus map. A caller-side clone cannot bypass
+  // the persisted deferred-reweave gate and create a list/detail score mismatch.
   assert.equal(scoreArtifacts(vault, [{
     ...ready,
     raw_frontmatter: { ...ready.raw_frontmatter, reweave_pending: undefined },
-  }]).length, 1);
+  }]).length, 0);
 });
 
 test("poll scheduling persists cadence and rate-limit backoff overrides force", () => {

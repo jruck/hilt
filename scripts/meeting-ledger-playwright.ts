@@ -160,7 +160,7 @@ async function main(): Promise<void> {
     ...process.env, HOME: home, DATA_DIR: data, BRIDGE_VAULT_PATH: vault, HILT_WORKING_FOLDER: vault,
     HOST, PORT: String(port), WS_PORT: String(wsPort), HILT_DIST_DIR: ".next-meeting-ledger-e2e", HILT_NEXT_DEV_BUNDLER: "webpack",
     HILT_GRANOLA_SYNC_DAEMON: "0", HILT_CALENDAR_SYNC_DAEMON: "0", HILT_LIBRARY_INTAKE_DAEMON: "0",
-    HILT_GRAPH_ENABLED: "false", HILT_SEMANTIC_ENABLED: "false", NEXT_TELEMETRY_DISABLED: "1",
+    NEXT_TELEMETRY_DISABLED: "1",
   } as NodeJS.ProcessEnv;
   let ws: RunningProcess | null = null;
   let app: RunningProcess | null = null;

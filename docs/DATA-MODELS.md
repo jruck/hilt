@@ -597,29 +597,9 @@ Additional Map tables:
 | `map_checkpoints` | Schema-ready local resume checkpoints for future human-written sign-offs |
 | `map_meta` | Last scan timestamp and diagnostics JSON |
 
-### graph.sqlite
+### Retired semantic/knowledge-graph stores
 
-Stored at `${DATA_DIR}/graph.sqlite` (override `HILT_GRAPH_DB_PATH`). The flag-gated (`HILT_GRAPH_ENABLED`) **derived** knowledge-graph index for System → Graph — markdown remains source of truth. Mirrors `calendar/db.ts` (better-sqlite3, WAL, `synchronous=NORMAL`, path-keyed singleton, `ensureGraphSchema()` with `IF NOT EXISTS`). Created and read only when the flag is on.
-
-| Table | Columns (key) | Purpose |
-|-------|---------------|---------|
-| `graph_nodes` | `id` PK, `type`, `label`, `ref_path`, `degree`, `color_key`, `source_file`, `attrs_json`, `updated_at` | One row per node. `source_file` powers incremental delete-by-file; indexed on `type`/`ref_path`/`source_file`. |
-| `graph_edges` | `id` PK, `source_id`, `target_id`, `kind`, `weight`, `source_file`, `attrs_json`, `updated_at` | One row per edge; indexed on `source_id`/`target_id`/`kind`/`source_file`. |
-| `node_positions` | `id` PK, `x`, `y`, `z` (reserved, 2D in v1), `dirty`, `layout_version`, `updated_at` | Precomputed force-layout coordinates. `dirty` marks the region a scoped relayout must relax; `layout_version` gates warm-start reuse. |
-| `graph_meta` | `key` PK, `value` | Key/value store assembled into `GraphMeta` (counts exclude `type='tag'`/`kind='tag'`; `dirty` derived from `node_positions`). |
-
-### semantic.sqlite
-
-Stored at `${DATA_DIR}/semantic.sqlite` (override `HILT_SEMANTIC_DB_PATH`). The flag-gated (`HILT_SEMANTIC_ENABLED`) **third derived cache** alongside `graph.sqlite` and `calendar.sqlite` for the Phase-2 Semantic Knowledge Layer — markdown stays source of truth (`rm semantic.sqlite*` + a cold-start rebuild reproduces it). Mirrors the graph/calendar db conventions (better-sqlite3, WAL, `synchronous=NORMAL`, path-keyed singleton, `IF NOT EXISTS`) with one deliberate deviation: **`PRAGMA foreign_keys = ON`** (ruling R4) so deleting an item cascades to its chunks/mentions/memberships. Tables: `semantic_items` (one row per source unit, `item_id` = the graph node id), `chunks` (canonical LE-float32 `embedding_blob`), `entities`/`entity_aliases`/`item_entities`/`item_entity_mentions`/`entity_merges` (Layer B), hierarchical `topics` + `item_topics` + `topic_lineage` (Layer C), and `semantic_meta`. The `vec0` KNN virtual tables (`chunk_vectors`/`entity_vectors`/`topic_vectors`) exist only when the optional `sqlite-vec` extension loads; the BLOBs are canonical so search degrades to an in-process cosine scan.
-
-**Versioning (P2.4).** Every derived row carries `semantic_version` (`SEMANTIC_VERSION`, the `vN`/`vN.M` integer-published/decimal-test scheme from `src/lib/semantic/pipeline.ts`, mirroring the Library `PIPELINE_VERSION`). A model/prompt bump is a **backfill, not a migration**: new-version rows are written **alongside** prior-version rows until blessed (coexistence), then `gcStaleVersions()` drops `version != active_version`. `semantic_meta` keys:
-
-| Key | Purpose |
-|-----|---------|
-| `db_format_version` | `SEMANTIC_DB_FORMAT_VERSION` — orthogonal to `SEMANTIC_VERSION` (the `LAYOUT_VERSION` precedent). On open, a lagging value **discards every derived table and rebuilds** (schema/wire change invalidates the cache file independently of a model upgrade). |
-| `active_version` | The "of record" version queries default to (`getActiveVersion()`); defaults to the headline `SEMANTIC_VERSION` until a cold-start blesses one. Surfaced in `query.status()` as `activeVersion` (+ `versions`, the coexistence window). |
-| `active_embedding` / `active_extraction` / `active_taxonomy` | The component versions recorded at the blessed baseline (the upgrade blast-radius record). |
-| `built_at` / `blessed_at` / `gc_at` / `last_backfill_version` / `last_backfill_at` | Operational timestamps. |
+The former `graph.sqlite` and `semantic.sqlite` derived stores are no longer active Hilt persistence. Their verified 2026-07-18 snapshots, schemas, checksums, and row inventories live only in the private time capsule described by the [semantic graph v1 tombstone](retired/semantic-graph-v1.md).
 
 ### local-apps/settings.json
 
@@ -1350,16 +1330,38 @@ Series metadata is orthogonal to duplicate/citation handling. A child item in a 
 
 ```typescript
 interface LibraryEvalAttrs {
-  worth: number;       // relevance × substance × freshness
-  relevance: number;   // active-context and first-party connection fit
+  worth: number;       // Current fit × substance × freshness
+  relevance: number;   // Compatible internal name for user-facing Current fit
   substance: number;   // source depth / idea density
   freshness: number;   // recency multiplier
   lifecycle: "active" | "to_archive" | "archived";
   why: string;         // Compact explanation for the scores
+  scoring_method?: "explicit_context_hybrid";
+  scoring_config_version?: string; // "s3" for the production hybrid
+  context_evidence?: {
+    method: "explicit_context_hybrid";
+    scoring_config_version: string;
+    connection_score: number;       // Readable Connections contribution
+    lexical_score: number;          // BM25F contribution before adjustments
+    matched_signals: Array<{
+      kind: "task" | "project" | "area" | "person";
+      label: string;
+      target: string | null;
+      matched_terms: string[];
+    }>;
+    matched_terms: string[];
+    active_connection_targets: Array<{ target: string; label: string }>;
+    active_connection_boost: number;
+    attention_tier: "high" | "medium" | "low" | null;
+    attention_adjustment: number;
+    attention_reason?: string;
+    context_score: number;
+    context_capped: boolean;
+  };
 }
 ```
 
-The UI uses `worth` as the compact priority signal in normal reading surfaces. Admin/eval review surfaces can progressively disclose the component scores (`relevance`, `substance`, `freshness`) and the non-destructive `to_archive` lifecycle flag. Artificial label buckets such as `must_read`, `recommended`, and `interesting` are not part of the artifact contract.
+The UI uses `worth` as the compact priority signal in normal reading surfaces. Admin/eval review surfaces progressively disclose Current fit (`relevance` internally), substance, freshness, the non-destructive `to_archive` flag, and plain-language context evidence. Pipeline versions and raw diagnostics stay in a collapsed Technical details section. Old records without structured evidence remain readable. Artificial label buckets such as `must_read`, `recommended`, and `interesting` are not part of the artifact contract.
 
 Library read state is stored outside the bridge vault in `${DATA_DIR}/library-read-state/<vault-hash>.json`. The first Library API read creates a baseline timestamp so historical stock is treated as already seen; newly ingested artifacts become unread until marked read by the UI. Unread status is based on source-aware arrival metadata (`captured_at`/`saved_at` for saved references, `digested_at` for candidates) with stable source dates as fallback, not file modification time, so redigestion, metadata repair, and formatting cleanup do not light up old stock as "New." `/api/library?unread=true` applies the same local read state before filtering, which powers the Library `New` ranking without adding unread flags to reference markdown. `/api/library/unread` returns a boolean shell hint for the top-level Library nav dot.
 
@@ -1390,7 +1392,7 @@ Cross-source merging (content match by YouTube video-id or normalized title) is 
 
 The **"Updated" review lane** (`src/lib/library/review-queue.ts`) isolates pipeline-version evaluation batches from organic ingestion. It is **Hilt-local state, not vault markdown** — the manifest lives at `${DATA_DIR}/library-review-queue/<vault-hash>.json` (the vault hash is `hashId(resolve(vaultPath), 16)`), written atomically.
 
-The queue's data model is **not Library-specific**, so the Phase-2 semantic layer reuses it verbatim via a `kind` parameter (ruling R10): the internal store dir is `reviewQueueDir(kind)` and every public function (`readReviewQueue`/`addToReviewQueue`/`setReviewStatus`/`listPendingReview`/`getActiveBatchNotes`/`removeFromReviewQueue`) takes an optional `kind: "library" | "semantic"` that **defaults to `"library"`** (so existing callers are unchanged). `kind = "semantic"` (`semanticReviewQueueDir()`) writes to the **sibling** `${DATA_DIR}/semantic-review-queue/<vault-hash>.json`, so the two queues never collide. The decimal/integer badge semantics carry straight over.
+The queue is Library-only. Every public function (`readReviewQueue`/`addToReviewQueue`/`setReviewStatus`/`listPendingReview`/`getActiveBatchNotes`/`removeFromReviewQueue`) reads and writes `${DATA_DIR}/library-review-queue/<vault-hash>.json`; the retired semantic review queue is not part of the current model.
 
 ```typescript
 type ReviewQueueStatus = "pending" | "approved" | "rejected";
@@ -1458,6 +1460,10 @@ interface RecommendationEpisode {
   is_resurface: boolean;
   previous_episode_id: string | null;
   previous_recommended_at: string | null;
+  scoring_method?: "explicit_context_hybrid";
+  scoring_config_version?: string;
+  editor_model?: string;
+  editor_prompt_version?: string;
 }
 
 interface RecommendationBatch {
@@ -1468,6 +1474,10 @@ interface RecommendationBatch {
   context_window: { start: string; end: string };
   pool_size: number;
   episodes: RecommendationEpisode[];
+  scoring_method?: "explicit_context_hybrid";
+  scoring_config_version?: string;
+  editor_model?: string;
+  editor_prompt_version?: string;
 }
 
 interface RecommendationDismissal {
@@ -1487,10 +1497,15 @@ interface RecommendationPresentation {
   triggers: RecommendationTrigger[];
   is_resurface: boolean;
   previous_recommended_at: string | null;
+  selection_scores?: { worth: number; relevance: number; substance: number; freshness: number };
+  scoring_method?: "explicit_context_hybrid";
+  scoring_config_version?: string;
+  editor_model?: string;
+  editor_prompt_version?: string;
 }
 ```
 
-Recommendation state is Hilt-local under `${DATA_DIR}/library-recommendations/<vault-hash>/`. Batch files are immutable. `feed.json` is a derived latest-episode-per-artifact projection, `verdicts.json` suppresses recommendation episodes without changing saved/candidate lifecycle, and `runtime.json` persists pending refresh reasons, rate-limit backoff, the last successful batch, and per-day automated-run counts. Existing editor-cache picks may bootstrap one legacy batch; reliable episode history begins at rollout.
+Recommendation state is Hilt-local under `${DATA_DIR}/library-recommendations/<vault-hash>/`. Batch files are immutable. `feed.json` is a derived latest-episode-per-artifact projection, `verdicts.json` suppresses recommendation episodes without changing saved/candidate lifecycle, and `runtime.json` persists pending refresh reasons, rate-limit backoff, the last successful batch, and per-day automated-run counts. New batches and episodes record `explicit_context_hybrid` / `s3`; old batches remain readable because provenance fields are optional. Current Library views use current hybrid evaluation, while `selection_scores` is the immutable score snapshot from the historical recommendation event.
 
 ### LibraryOperationalHealth
 
@@ -1544,102 +1559,9 @@ interface LibraryOperationalHealth {
 
 A dead letter is **unresolved** only if its source has no `last_success_at` later than the failure's timestamp; transient failures that a later run recovered are treated as self-healed and don't count as warnings (so the health panel doesn't read "N warnings" while every row is green).
 
-## Knowledge Graph Models (System → Graph)
+## Retired Knowledge-Graph Models
 
-Flag-gated behind `HILT_GRAPH_ENABLED` (`isGraphEnabled()`). The graph is a **derived cache** over the vault (markdown stays canonical). Domain types live in `src/lib/graph/types.ts`.
-
-> **Index-vs-ID gotcha (baked in everywhere):** cosmos.gl `onPointClick` returns the point-array **index**, not a node id, and `setLinks`/`setPointPositions` consume `Float32Array`. The encoder assigns a deterministic index per node; the decoded payload's `nodes[]` sidecar is the index → `GraphNode` (hence index → id/refPath) map the renderer uses for click-through and hover.
-
-### GraphNode / GraphEdge
-
-```typescript
-type GraphNodeType =
-  | "note" | "reference" | "candidate" | "person"
-  | "project" | "north_star" | "library_cluster" | "tag" // tag OFF by default
-  | "topic" | "entity"; // semantic overlay (Phase 2) — OFF unless HILT_GRAPH_SEMANTIC
-
-type GraphEdgeKind =
-  | "wikilink" | "connection" | "connected_project" | "meeting" | "tag" // tag OFF by default
-  // Semantic overlay (Phase 2) — OFF unless HILT_GRAPH_SEMANTIC. `similar`/`co_occurrence`
-  // are further off in GLOBAL scope unless `?semanticEdges=1`; LOCAL scope includes them.
-  | "item_topic"     // item → emergent topic (item_topics.score)
-  | "topic_parent"   // topic hierarchy, directed child → parent (weight 2)
-  | "item_entity"    // item → resolved entity (item_entities.salience)
-  | "co_occurrence"  // entity ↔ entity, shared-item count
-  | "similar";       // item ↔ item, embedding-KNN cosine
-
-interface GraphNode {
-  id: string;                  // note:/ref:/cand:/person:/project:/north_star:areas/libcluster:/tag:/topic:/entity:
-  type: GraphNodeType;
-  label: string;
-  refPath: string | null;      // absolute vault path, person slug, or null for synthetic nodes (tag/topic/entity)
-  degree: number;
-  colorKey: string | null;     // topic→"topic" (fuchsia), entity→"entity" (cyan)
-  attrs: Record<string, unknown>;
-}
-
-interface GraphEdge {
-  id: string;                  // hash(source|target|kind)
-  source: string;              // node ids (NOT array indices)
-  target: string;
-  kind: GraphEdgeKind;
-  weight: number;              // wikilink=1, connected_project=1.5, item_topic=score, similar=cosine, etc.
-  attrs: Record<string, unknown>;
-}
-```
-
-The `topic`/`entity` nodes and the five semantic edge kinds are a derived **overlay** written into the same `graph_nodes`/`graph_edges` tables by `src/lib/graph/semantic-overlay.ts` (`buildSemanticOverlay()`/`removeSemanticOverlay()`), reading `semantic.sqlite` via `query.ts` bulk variants (ruling R3). A `topic`/`entity` node carries `source_file = null` (cleared by `type`); `item_topic`/`item_entity` edges carry the owning item's abs path as `source_file` (so a re-digest's `deleteEdgesBySourceFile` wipes them); `co_occurrence`/`similar`/`topic_parent` carry `source_file = null` (cleared by `kind`). `topic` `attrs`: `{ topicId, level, parentId, memberCount, summary, trending, recentCount }`; `entity` `attrs`: `{ entityId, entityType, aliases[], salienceTotal }`. The overlay is fully reversible and the transport ordinals are append-only (`topic`=8, `entity`=9) — no `TRANSPORT_FORMAT_VERSION` bump.
-
-### GraphMeta
-
-Returned by `GET /api/system/graph/meta`. Drives the client first-run state machine and scope/limit choice.
-
-```typescript
-type GraphScope = "global" | "local";
-type GraphLayoutState = "idle" | "building" | "running" | "frozen" | "stale";
-
-interface GraphMeta {
-  enabled: boolean;
-  nodeCount: number;
-  edgeCount: number;
-  tagNodeCount: number;        // reported only; tags never ship in the default payload
-  topicNodeCount: number;      // semantic overlay; gate the legend on this + semanticBuilt
-  entityNodeCount: number;
-  semanticBuilt: boolean;      // true once buildSemanticOverlay() has populated the overlay
-  builtAt: string | null;      // null => first-run "building" state
-  layoutVersion: number;
-  layoutState: GraphLayoutState;
-  layoutPhase: string | null;  // coarse first-run progress (null until a build is in flight)
-  nodesPlaced: number | null;
-  totalNodes: number | null;
-  dirty: boolean;
-  stale: boolean;
-  lastError: string | null;
-  truncated?: boolean;
-  budgets: {
-    mobileMaxNodes: number;
-    desktopMaxNodes: number;
-    defaultHops: number;
-    defaultScope: { desktop: "global"; mobile: "local" };
-  };
-}
-```
-
-### GraphPayload (decoded, in-memory)
-
-The decoded shape of `GET /api/system/graph` (NOT the wire layout — see `encode.ts` / the Binary Transport in the API reference). `positions` and `links` carry array **indices**, index-aligned to `nodes[]`.
-
-```typescript
-interface GraphPayload {
-  positions: Float32Array;     // [x0,y0, x1,y1, ...] index-aligned to nodes[]
-  links: Float32Array;         // [src0,tgt0, ...] node-array INDICES (consumed by cosmos.gl setLinks)
-  colorKeys: Uint8Array;       // enum index per node
-  nodes: GraphNode[];          // sidecar; index i <-> positions[2i..2i+1]
-  truncated: boolean;
-}
-
-class GraphFormatError extends Error {} // thrown on magic/version mismatch → client hard-refresh
-```
+Knowledge-graph and semantic-overlay models are no longer part of Hilt's active data contract. Their historical definitions are preserved on the archive branch and in the private capsule referenced by the [semantic graph v1 tombstone](retired/semantic-graph-v1.md). System Sessions and Map retain their own unrelated graph-shaped response models.
 
 ## API Response Types
 

@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import http from "node:http";
-import { isSystemMode, legacyConversationScopeFromSystemUrl, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode } from "./navigation";
+import { isRetiredGraphSystemUrl, isSystemMode, legacyConversationScopeFromSystemUrl, stackScopeFromSystemUrl, systemModeFromUrl, systemScopeForMode } from "./navigation";
 import { decodeSystemNodeId, decodeSystemSessionId, systemMachineNodeId, systemNodeId, systemSessionId } from "./map";
 import { machineIdentity } from "../local-apps/tailnet";
 import { localSystemMachineResponse, machineId, machineLabel, systemMachineFromResponse } from "./peers";
@@ -118,6 +118,16 @@ describe("system navigation", () => {
     assert.equal(legacyConversationScopeFromSystemUrl("system", "/chats/abc-def"), "/abc-def");
     assert.equal(legacyConversationScopeFromSystemUrl("system", "/sync"), null);
     assert.equal(legacyConversationScopeFromSystemUrl("docs", "/threads/th-123"), null);
+  });
+
+  it("resolves retired knowledge-graph links to Sessions", () => {
+    assert.equal(isSystemMode("graph"), false);
+    assert.equal(systemModeFromUrl("system", "/graph"), "sessions");
+    assert.equal(systemModeFromUrl("system", "/graph/focus/something"), "sessions");
+    assert.equal(isRetiredGraphSystemUrl("system", "/graph"), true);
+    assert.equal(isRetiredGraphSystemUrl("system", "/graph/focus/something"), true);
+    assert.equal(isRetiredGraphSystemUrl("system", "/sessions"), false);
+    assert.equal(isRetiredGraphSystemUrl("docs", "/graph"), false);
   });
 });
 

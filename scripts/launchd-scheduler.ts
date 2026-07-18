@@ -1,12 +1,11 @@
 /**
  * Shared launchd plist + launchctl install/uninstall/plan logic (ruling R10).
  *
- * Both `scripts/library-scheduler.ts` and `scripts/semantic-scheduler.ts` call `runScheduler()`
- * with their own `{ id, label, script, schedule, stdout, stderr }` job array (the
+ * `scripts/library-scheduler.ts` calls `runScheduler()` with its
+ * `{ id, label, script, schedule, stdout, stderr }` job array (the
  * `LibrarySchedulerJobDefinition` shape from src/lib/library/scheduler-jobs.ts). This is the
  * single place that knows how to render a launchd plist, bootstrap/bootout via launchctl, and
- * print the dry-run plan — extracted verbatim from the original `library-scheduler.ts` so the
- * two feature families stay byte-identical except for their job lists, labels, and log dirs.
+ * print the dry-run plan.
  *
  * Contract preserved from the Library scheduler: `--install` / `--uninstall`, dry-run by
  * default (neither flag → only print the plan), and `RunAtLoad=false` unless a job's schedule
@@ -35,7 +34,7 @@ interface ResolvedJob {
 }
 
 export interface RunSchedulerOptions {
-  /** Human family name for the plan output (e.g. "library", "semantic"). */
+  /** Human family name for the plan output (for example, "library"). */
   feature: string;
   /** The job definitions (the per-family scheduler-jobs array). */
   jobs: LibrarySchedulerJobDefinition[];

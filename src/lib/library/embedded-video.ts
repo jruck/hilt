@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { parseTimedTranscript } from "./transcript";
 import type { SourceCache } from "./types";
 import { isoNow } from "./utils";
+import { assertLibrarySummarizeInvocation } from "./summarize-policy";
 
 const execFileAsync = promisify(execFile);
 
@@ -397,7 +398,7 @@ async function readAudioTranscript(candidate: EmbeddedVideoCandidate): Promise<s
     });
     const file = (await fs.promises.readdir(dir)).find((name) => /\.(m4a|mp3|mp4|webm|aac|opus|wav)$/i.test(name));
     if (!file) return null;
-    const { stdout } = await execFileAsync(summarizeBin, [
+    const summarizeArgs = [
       path.join(dir, file),
       "--extract",
       "--plain",
@@ -406,7 +407,9 @@ async function readAudioTranscript(candidate: EmbeddedVideoCandidate): Promise<s
       "transcript",
       "--timeout",
       transcriptTimeout,
-    ], {
+    ];
+    assertLibrarySummarizeInvocation(summarizeArgs);
+    const { stdout } = await execFileAsync(summarizeBin, summarizeArgs, {
       timeout: durationToMs(transcriptTimeout, 20 * 60_000) + 5_000,
       maxBuffer: 1024 * 1024 * 20,
     });

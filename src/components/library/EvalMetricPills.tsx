@@ -1,7 +1,7 @@
 "use client";
 
 import type { MouseEvent } from "react";
-import { AlertTriangle, Archive, Clock, Layers, Network, Zap, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Archive, Clock, Layers, Target, Zap, type LucideIcon } from "lucide-react";
 import type { LibraryEvalAttrs } from "@/lib/library/types";
 
 export function formatEvalScore(value: number): string {
@@ -10,8 +10,8 @@ export function formatEvalScore(value: number): string {
 }
 
 export function evalMetricTitle(metric: "worth" | "relevance" | "substance" | "freshness"): string {
-  if (metric === "worth") return "Worth: priority score = relevance × substance × freshness; displayed 0–100";
-  if (metric === "relevance") return "Relevance: fit to active projects, tasks, areas, people, and recent saves; displayed 0–100";
+  if (metric === "worth") return "Worth: Current fit × Substance × Freshness; displayed 0–100";
+  if (metric === "relevance") return "Current fit: connection and current-work fit; displayed 0–100";
   if (metric === "substance") return "Substance: source depth and idea density; displayed 0–100";
   return "Freshness: recency multiplier; displayed 0–100";
 }
@@ -75,7 +75,7 @@ export function EvalMetricPills({
       <EvalMetricPill icon={Zap} value={evalAttrs.worth} title={evalMetricTitle("worth")} onClick={onWorthClick} />
       {breakdown && (
         <>
-          <EvalMetricPill icon={Network} value={evalAttrs.relevance} title={evalMetricTitle("relevance")} />
+          <EvalMetricPill icon={Target} value={evalAttrs.relevance} title={evalMetricTitle("relevance")} />
           <EvalMetricPill icon={Layers} value={evalAttrs.substance} title={evalMetricTitle("substance")} />
           <EvalMetricPill icon={Clock} value={evalAttrs.freshness} title={evalMetricTitle("freshness")} />
         </>

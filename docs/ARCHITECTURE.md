@@ -298,14 +298,12 @@ SystemView
          ├── Sessions → MapView using /api/system/sessions/*
          ├── Apps     → LocalAppsView using /api/local-apps*
          ├── Stack    → local StackView or remote read-only Stack inspector
-         ├── Sync     → read-only Syncthing health via /api/system/sync*
-         └── Graph    → GraphView (cosmos.gl WebGL2) using /api/system/graph*
-                        — flag-gated (HILT_GRAPH_ENABLED), tab + branch inert when off
+         └── Sync     → read-only Syncthing health via /api/system/sync*
 ```
 
 System is the parent inspection area. It uses Hilt-to-Hilt peer discovery only: the serving machine asks Tailscale for online peers, probes those peers for `/api/system/machine?scope=local`, and only aggregates machines that identify as Hilt. `HILT_SYSTEM_NETWORK_ENABLED=false` disables peer aggregation while keeping local System inspection available.
 
-**Full server vs System Agent.** A discovered peer carries a `role: "full" | "agent"` (additive; absent peers are treated as `"full"`). Most machines run the full Hilt app and respond `role: "full"`. An observer machine such as Hestia can instead run a **System Agent** — a lightweight read-only Node HTTP runtime (`server/system-agent.ts`, NOT Next.js; `docs/plans/system-agent-mode.md`) that serves the same local Sync/Apps/Stack/Sessions snapshots from the same `@/lib` functions without the UI, `ws-server`, Bridge/Library write routes, Granola/calendar daemons, or graph/semantic runners. The agent binds `127.0.0.1:${HILT_SYSTEM_AGENT_PORT:-3200}` and is exposed via Tailscale Serve mapping the origin **root** to that loopback port, so the unchanged `https://<peer-dns>/api/system/machine` probe reaches it — discovery required no change to `src/lib/system/peers.ts` because the handshake only checks `app`/`enabled`/`machine`. The agent answers a strict route allowlist (every other path → JSON 404, no HTML, no peer fan-out) and reports `role: "agent"`, `app_server: null`. Aggregate fan-out always stays on full servers; the agent only ever returns local snapshots.
+**Full server vs System Agent.** A discovered peer carries a `role: "full" | "agent"` (additive; absent peers are treated as `"full"`). Most machines run the full Hilt app and respond `role: "full"`. An observer machine such as Hestia can instead run a **System Agent** — a lightweight read-only Node HTTP runtime (`server/system-agent.ts`, NOT Next.js; `docs/plans/system-agent-mode.md`) that serves the same local Sync/Apps/Stack/Sessions snapshots from the same `@/lib` functions without the UI, `ws-server`, Bridge/Library write routes, or Granola/calendar daemons. The agent binds `127.0.0.1:${HILT_SYSTEM_AGENT_PORT:-3200}` and is exposed via Tailscale Serve mapping the origin **root** to that loopback port, so the unchanged `https://<peer-dns>/api/system/machine` probe reaches it — discovery required no change to `src/lib/system/peers.ts` because the handshake only checks `app`/`enabled`/`machine`. The agent answers a strict route allowlist (every other path → JSON 404, no HTML, no peer fan-out) and reports `role: "agent"`, `app_server: null`. Aggregate fan-out always stays on full servers; the agent only ever returns local snapshots.
 
 Sessions mode keeps a local SQLite Map index on each machine. `/api/system/sessions/graph` queries each peer's local Map graph, namespaces machine/tree/session ids, and returns a normal Map graph with top-level machine nodes. `/api/system/sessions` and `/api/system/sessions/detail` route pagination/history reads back to the machine that owns the selected tree node or session id. This avoids central transcript storage while letting the UI show Xochipilli, Mercury, and future Hilt machines in one session map.
 
@@ -527,12 +525,13 @@ The **"Updated" review lane** isolates evaluation from organic ingestion. When a
 
 `src/lib/library/taxonomy.ts` runs before reference/candidate writes. It separates semantic display tags from source-native taxonomy (`source_tags`, `source_collection`, `source_folder`) and classifies each item as `library_mode: "study"` or `"keep"`. Study is the default path for material that should be reviewed, recommended, and woven into Bridge context. Keep is a quiet durable-save path for products, shopping, clothing, furniture, recipes, restaurants, and similar saved-for-later objects; keep items are searchable and durable, but the default Library list hides them and digestion skips forced connection weaving.
 
-Study-mode references and candidates are produced by a single **reweave** pass: one in-vault, read-only Claude run that both digests the source and discovers its connections, but only after source capture passes the shared health gate. The CLI call uses Claude's native `--json-schema` structured output and reads the envelope's `structured_output` object before the legacy text result; quoted prose can no longer invalidate an otherwise complete weave and silently defer it. X bookmark intake requests `tweet.fields=article`; long-form `article.title` and `article.plain_text` become the canonical title/source instead of the wrapper t.co link, with browser recovery remaining the fallback when X omits the field. The summarize CLI is narrowed to *extraction* (recovering source text), while the model owns the *shaping* of the note. When an already-reweaved candidate is later explicitly saved, promotion is a lifecycle transition: it preserves the candidate's free-form digest, connection metadata, and positive `reconnected_at` marker while adding the explicit-save relevance signal. The old `suggestArtifactConnections` keyword scorer was removed; `judgeConnections` remains as the offline-safe fallback when reweave can't run.
+Study-mode durable references are produced by a single **reweave** pass: one in-vault, read-only Claude run that both digests the source and discovers its connections, but only after source capture passes the shared health gate. The CLI call uses Claude's native `--json-schema` structured output and reads the envelope's `structured_output` object before the legacy text result; quoted prose can no longer invalidate an otherwise complete weave and silently defer it. X bookmark intake requests `tweet.fields=article`; long-form `article.title` and `article.plain_text` become the canonical title/source instead of the wrapper t.co link, with browser recovery remaining the fallback when X omits the field. The `summarize` CLI handles source extraction and the initial candidate digest; every model-backed invocation is forced to `cli/claude/claude-sonnet-4-6`, while extraction-only invocations carry no model. Missing Claude leaves the item pending or source-limited—Hilt never falls back to Gemini. When an already-reweaved candidate is later explicitly saved, promotion is a lifecycle transition: it preserves the candidate's free-form digest, connection metadata, and positive `reconnected_at` marker while adding the explicit-save relevance signal. The old `suggestArtifactConnections` keyword scorer was removed; `judgeConnections` remains as the offline-safe fallback when reweave can't run and is likewise pinned to `claude-sonnet-4-6`.
 
 ```
 Ingestion adapter → digestion.ts (digestArtifact)
-         │ summarize CLI runs first as EXTRACTION ONLY: recover/clean source text
-         │ (article body, transcript, X post text). It no longer dictates note shape.
+         │ summarize CLI recovers/cleans source text and may shape the initial
+         │ candidate digest. Model-backed calls name Claude Sonnet 4.6 exactly;
+         │ `--extract`-only calls do not select an LLM.
          │ X/Twitter video posts are a special source-capture path: yt-dlp resolves
          │ captions first, then audio transcription, and the transcript becomes the
          │ canonical Raw Content. Wrapper tweet text is context, not source completion.
@@ -553,7 +552,7 @@ reweaveArtifact(kbIndex, { title, sourceContent }, { vaultPath })   (connections
          │   claude -p "<KB index + new reference: title + ~8000-char excerpt>"
          │     --append-system-prompt-file <tmp REWEAVE_PROMPT>
          │     --allowed-tools Read Grep Glob --add-dir <vaultPath>
-         │     --output-format json [--model <...>]   (cwd = vaultPath)
+         │     --output-format json --model claude-sonnet-4-6   (cwd = vaultPath)
          │ Runs IN the vault, READ-ONLY: the model explores projects/, areas/,
          │ thoughts/, libraries/*, references/, people/ with its read tools to
          │ ground the digest and find real connection targets. Default timeout 300s.
@@ -589,67 +588,39 @@ Backfill / re-weaving uses `scripts/library-reweave.ts` (modeled on `library-rej
 
 Book capture is a manual ingress beside automated sources. The upstream `book-capture` tool handles visible-page capture/OCR/markdown generation for Kindle, Apple Books, Kindle Cloud Reader, and PDFs. Hilt's `library:book:import` command then normalizes the generated markdown into the same file-native Library contract: `references/books/<book>/index.md` is the durable `type: reference`, generated topic files are copied under `topics/`, cover art can be attached as Library media, and the full generated capture plus optional page-level OCR is cached under `references/.cache/book-captures/`. Write imports immediately run the same durable-reference reweave pass as other saved sources so books do not bypass Bridge-aware `connection_suggestions`. This path is intentionally not part of scheduler/backfill because it depends on a visible user-controlled reading source and must stop on app/DRM/screenshot blockers.
 
-### 11. Knowledge Graph Data Flow (System → Graph)
+### 11. Library Current-Fit Scoring
 
-> **Opt-in.** The entire subsystem ships behind `HILT_GRAPH_ENABLED` (`isGraphEnabled()` in `src/lib/graph/config.ts`, the single predicate: `process.env.HILT_GRAPH_ENABLED === "true"`). With the flag off (default) the Graph tab is absent, no graph DB/watcher/build work runs, the four routes 404, and `GraphView`/cosmos.gl stay in dynamic chunks the default bundle never fetches. The graph is a **derived cache** — markdown remains source of truth (Critical Constraint #2). The performance strategy is deliberate: **the renderer is the replaceable half; the data pipeline is the durable investment.** The host does all heavy work (parse → index → precompute layout → serve compact binary); the client loads finished GPU coordinates and freezes at rest.
+Library scoring configuration `s3` uses one deterministic explicit-context
+hybrid. Every ready study item is indexed once across the complete eligible
+corpus using BM25F (title weight 3, summary/tags 2, body 1; `k1=1.2`,
+`b=0.75`). Terms present in more than 15% of the corpus are excluded; current
+tasks/projects require two meaningful terms and areas/people require three.
+The strongest match plus 35% of the second is normalized against the corpus
+95th percentile and capped at 0.3. An explicit connection to active work adds
+0.10, and stored attention judgment adjusts high +0.05, medium +0.02, or low
+-0.05 before the same cap.
 
-```
-VAULT (~/work/bridge, read-only)
-   │  build.ts scans INCLUDED_DIRS (projects/people/meetings/references/
-   │  areas/thoughts/lists/now/docs); dotdirs + node_modules excluded;
-   │  libraries/ NOT walked (opt-in via HILT_GRAPH_INCLUDE_LIBRARIES,
-   │  one library_cluster node per nested sub-vault). Reuses existing
-   │  parsers READ-ONLY; wikilink resolver map built ONCE per pass (perf).
-   ▼
-graph.sqlite (${DATA_DIR}, derived cache — db.ts, mirrors calendar/db.ts:
-   │  better-sqlite3, WAL, singleton). Tables: graph_nodes, graph_edges,
-   │  node_positions, graph_meta. Node ids: note:/ref:/cand:/person:/
-   │  project:/north_star:areas/libcluster:/tag:. Edge kinds: wikilink,
-   │  connection, connected_project, meeting, tag. Candidates pulled from
-   │  the cache API (never the walker) and carry NO connection edges (leaves
-   │  by design). Tags OFF by default (Decision 4 — buildTagLayer() on demand).
-   │  buildFullGraph clears+rebuilds in one tx; updateGraphForFile/
-   │  removeGraphForFile do incremental delete-by-source_file + 1-hop dirty mark.
-   ▼
-layout.ts — seeded, deterministic ngraph.forcelayout (Barnes-Hut) run as a
-   │  CHUNKED cooperative main-loop (setImmediate yielding; NO worker_threads
-   │  in v1), FIXED iteration count (never wall-clock). Warm-start from
-   │  persisted (x,y) at the current LAYOUT_VERSION; new nodes seed from the
-   │  centroid of placed neighbors. Incremental relayout relaxes only the
-   │  dirty seed set + 1-hop and PINS the rest. Single-flight; persists
-   │  positions in one tx, marks clean, sets layout_state running → frozen.
-   │  Crashed "running" with no in-flight pass self-heals to "stale".
-   ▼
-encode.ts — canonical BINARY wire format: 32-byte u32 header (magic
-   │  0x48474C31, TRANSPORT_FORMAT_VERSION, node/edge counts, flag bits),
-   │  Float32 interleaved positions, Uint8 interned color-key enum, Float32
-   │  edge INDEX-pairs (the cosmos.gl setLinks type — never Uint32), u32
-   │  METALEN + UTF-8 JSON sidecar (ids/labels/interned types/colorKeyTable).
-   │  refPaths DROPPED from the bulk sidecar → resolved lazily via /node/:id.
-   ▼
-GET /api/system/graph (selectGlobalGraph / selectLocalGraph BFS; device
-   │  ceilings enforced server-side: desktop=GLOBAL capped at desktopMaxNodes,
-   │  mobile=LOCAL capped at mobileMaxNodes — the global buffer is NEVER shipped
-   │  to a phone). decode + render in the client.
-   ▼
-CosmosRenderer.ts (the ONLY @cosmos.gl/graph importer) uploads server coords
-   straight into GPU buffers (setPointPositions(.., dontRescale=true), setLinks,
-   setPointColors/Sizes) and FREEZES via render() then pause() (enableSimulation
-   false). Idle is pure GPU render. GraphView swaps renderers behind the
-   renderer-agnostic GraphRenderer interface (WebGPU is a later drop-in).
-```
+This contextual contribution joins the existing readable-connection term,
+substance, freshness, capture-health guard, archive threshold, cooldowns, and
+suppression rules. The resulting `Current fit` is explainable through
+structured evidence on `LibraryEvalAttrs`; Worth remains
+`Current fit × Substance × Freshness`. The scorer is pure TypeScript and
+does not import a vector database or instantiate an AI client. The
+Claude-authored Connections and attention judgment remain because they are
+human-readable Library content as well as bounded scoring inputs.
 
-**Incremental updates (server-side, flag-gated).** A long-lived `GraphRunner` (`src/lib/graph/runner.ts`, instantiated by `ws-server` only when the flag is on) hooks the existing vault watchers. BridgeWatcher events trigger a **dir-rescan-by-mtime** (`onDirChanged`) rather than trusting the single collapsed path (BridgeWatcher debounces by type and watches at `depth:2`); a persistent ScopeWatcher client at the vault root covers `references/`+`docs/` (`onFileChanged`/`onFileRemoved`); candidates refresh on an eventual poll; a periodic full mtime reconcile backstops missed drift. The runner coalesces a burst into one debounced scoped relayout of the accumulated dirty seeds plus one notify. `notify.ts touchGraphChanged()` writes a `graph-build-event.json` marker under `DATA_DIR` that `ws-server` watches (mirroring the calendar marker) and broadcasts a `graph` `changed` WS event from; the client subscribes to the `graph` channel and refetches, with a 10s `/meta` poll fallback when the socket is down.
+New recommendation batches and episodes carry
+`scoring_method: "explicit_context_hybrid"` and
+`scoring_config_version: "s3"`. Current Library surfaces always show current
+hybrid evaluation; immutable selection-time scores remain nested on the
+recommendation episode for historical audit. The Claude editor stays pinned to
+`claude-sonnet-4-6`; its editorial choice is intentionally separate from the
+deterministic candidate scores.
 
-**Device budgets & deep-links.** `device-budget.ts` maps device-class → `GraphBudget` (Electron → desktop GLOBAL; coarse-pointer small viewport → mobile LOCAL with DPR clamped to 1.0, `allowGlobal: false`, `maxHops: 2`). The scope grammar is **path-segment only** (no query strings — `navigateTo(mode, scope)` builds `/${mode}${scope}`), defined once in `src/components/graph/graph-deeplink.ts` (`buildGraphScope`/`parseGraphScope`). A "Show in graph" affordance in Docs / People / Library detail views deep-links into `/system/graph/focus/<encoded-id>` — the reciprocal of node click-through.
-
-### 12. Semantic Knowledge Layer (Phase 2 — `semantic.sqlite`)
-
-The **third derived cache** (`src/lib/semantic/`, flag-gated `HILT_SEMANTIC_ENABLED`) layers continuous semantic analysis over the same vault scope the graph walks: embeddings (gemini-embedding-001@1536), Flash-extracted typed entities, and an emergent hierarchical topic taxonomy. It surfaces the serendipitous through-lines explicit wikilinks structurally can't (the `semantic` CLI + `/api/system/semantic/*` routes + the graph overlay). It is a **pure derived cache** — `rm semantic.sqlite*` + a cold-start rebuilds it — with `foreign_keys=ON` (ruling R4) for cascade-on-item-delete.
-
-**Versioning is a backfill, not a migration.** `SEMANTIC_VERSION` (the Library `PIPELINE_VERSION` integer/decimal scheme) stamps every derived row; a model/prompt bump writes new-version rows **alongside** the prior baseline (coexistence) until blessed, then `gcStaleVersions()` (the `semantic:gc` job) drops the superseded rows. `active_version` in `semantic_meta` is what queries default to. `SEMANTIC_DB_FORMAT_VERSION` is orthogonal (the `LAYOUT_VERSION` precedent): a lagging on-disk `db_format_version` discards and rebuilds the whole cache file on open — a schema/wire change invalidates independently of a model upgrade. The decimal sample lane is reviewed in the **sibling** semantic review queue (`reviewQueueDir("semantic")`, ruling R10), carrying a `docs/semantic-review-notes/<version>.md` note.
-
-**Three cadences.** (1) The **cold-start backfill** (`scripts/semantic-backfill.ts`, `semantic:backfill:cold`) embeds/extracts/clusters the whole corpus once and blesses the baseline. (2) The **SemanticRunner** (`src/lib/semantic/runner.ts`) is the incremental path — structurally a copy of `GraphRunner`, instantiated by `ws-server` only when `isSemanticEnabled()` (dynamic `import()` so the flag-off path never loads it; `ws-server` boots fully inert with the flag off). It keeps a `source_file → content_hash` map, reuses the same BridgeWatcher/ScopeWatcher signals, and on a change embeds the item (one embed call), extracts + resolves its entities, and slots it into the nearest **existing** leaf topic by cosine — **never re-clustering**. A debounce (`SEMANTIC_INCREMENTAL_DEBOUNCE_MS`, 2s) + single-flight + queued-rerun coalesces an edit burst; a 5-min content-hash reconcile self-heals; the scope guard excludes `libraries/` + dotdirs. (3) The **balanced weekly re-fit** (`semantic:refit`) is the heavy launchd job that re-clusters with a warm start and records `topic_lineage`. The `com.hilt.semantic.*` launchd family (cold-start / refit / gc) installs via `scripts/semantic-scheduler.ts`, which reuses the shared `scripts/launchd-scheduler.ts` plist/launchctl helper that the Library scheduler also calls (R10); the scheduled scripts short-circuit on the flag so a stray plist is a no-op.
+The former semantic/knowledge graph and its one-time historical bake-off are
+retired. Their source, database snapshots, evaluation evidence, and restoration
+notes are indexed by [the retirement record](./retired/semantic-graph-v1.md).
+There is no production shadow comparison or semantic fallback.
 
 ## State Management
 
@@ -666,9 +637,6 @@ The **third derived cache** (`src/lib/semantic/`, flag-gated `HILT_SEMANTIC_ENAB
 | Meeting ledger | `${DATA_DIR}/meeting-ledgers/<vault-key>/meeting-ledger.sqlite` | SQLite, canonical operational state | Normalized commitments, citations, sightings, status history, meeting summaries, processed meetings, extraction runs, and immutable events. Proposal/task Markdown and verdict JSONL remain their existing sources of truth; task detail joins this record live through the reciprocal ledger/task IDs. |
 | Map index | `${DATA_DIR}/map.sqlite` | SQLite | Local Codex/Claude session metadata, source scan status, overrides |
 | Local Apps settings/previews | `${DATA_DIR}/local-apps/` | Server JSON + PNG cache | Local service monitor settings and optional screenshots |
-| Graph index | `${DATA_DIR}/graph.sqlite` | SQLite (derived cache) | Nodes/edges/positions/meta for System → Graph (flag-gated; markdown stays canonical) |
-| Semantic index | `${DATA_DIR}/semantic.sqlite` | SQLite (derived cache) | Items/chunks/embeddings/entities/topics/lineage for the Phase-2 Semantic Knowledge Layer (flag-gated `HILT_SEMANTIC_ENABLED`; `foreign_keys=ON`; markdown stays canonical) |
-| Semantic review queue | `${DATA_DIR}/semantic-review-queue/<vault>.json` | Server JSON | Sibling of the Library review queue — the semantic sample/decimal lane (ruling R10) |
 | Reweave attempt counts | `${DATA_DIR}/library-reweave-attempts/<vault>.json` | Server JSON | Per-item failure counts for the nightly reweave drain — repeat-failers sink to the back of the bounded worklist; cleared on success, pruned when items leave the backlog (operational state, never vault markdown) |
 | Briefing markdown | `briefings/YYYY-MM-DD.md`, `briefings/weekend/YYYY-MM-DD.md` | Bridge vault markdown | Weekday daily briefings plus Saturday-start weekend editions; weekend ids use `weekend:YYYY-MM-DD` in Hilt |
 | Task identity high-water | `tasks/.id-sequences.json` | Bridge vault JSON | Locked, atomic per-date reservation state; prevents a dismissed/deleted proposal ID from being assigned to another task |
@@ -761,10 +729,6 @@ Weekend refresh gathers the full source window again but never includes the targ
 | `/api/system/stack/file` | GET | Stack file preview with discovered-path validation | `machine`, `path`, `project`, `scope` |
 | `/api/system/sync` | GET | Local + peer Syncthing sync snapshots | `scope`, `force` |
 | `/api/system/sync/conflicts` | GET | Local + peer sync conflict files | `folder`, `scope`, `force` |
-| `/api/system/graph` | GET | Binary graph payload (flag-gated) | `scope`, `node`, `hops`, `limit`, `includeTags`, `includeIsolated`, `fmt` |
-| `/api/system/graph/meta` | GET | Graph build/layout meta + budgets (flag-gated) | - |
-| `/api/system/graph/node/[id]` | GET | Single node + edges + lazy `refPath` (flag-gated) | `id` |
-| `/api/system/graph/rebuild` | POST | Full rebuild + relayout, single-flight (flag-gated) | `fullLayout`, `bumpLayoutVersion` |
 | `/api/local-apps` | GET | Cached local service monitor snapshot | - |
 | `/api/local-apps/refresh` | POST | Force local scan and optional screenshot recapture | `scope`, `previews` |
 | `/api/local-apps/settings` | GET | Local Apps settings metadata | - |
@@ -1137,8 +1101,8 @@ still reloads ws-server, while Electron picks the refreshed production bundle up
 next switch to prod. Electron-side changes (`electron/*.ts`) still require
 re-running `npm run app` / `app:prod`. If prod mode is active but `.next-prod/BUILD_ID`
 is missing, startup falls back to the dev server with a console warning. Note: prod
-builds inline `next.config.ts` `env` flags (graph/semantic) at build time — flipping
-those in `.env*` requires a rebuild, not just an app relaunch.
+builds inline `next.config.ts` client settings at build time, so changing one
+of those values requires a rebuild rather than only an app relaunch.
 
 *Build artifact hygiene.* Daily builds do not request Next standalone output. Standalone
 is opt-in via `HILT_STANDALONE_BUILD=1` for distribution-style `electron:build` flows,
@@ -1213,14 +1177,6 @@ client only renders).
 | `claude-config/parsers.ts` | 195 | JSON/JSONC parsing |
 | `claude-config/writers.ts` | 131 | Config file writing |
 | `docs/wikilink-resolver.ts` | 254 | [[wikilink]] resolution for markdown |
-| `graph/build.ts` | 1075 | Vault → graph index (scan, node/edge extraction, incremental, tag layer) — flag-gated |
-| `graph/db.ts` | 626 | `graph.sqlite` substrate + global/local selection helpers — flag-gated |
-| `graph/layout.ts` | 611 | Seeded deterministic ngraph.forcelayout, chunked main-loop, warm/incremental — flag-gated |
-| `graph/runner.ts` | 454 | Long-lived incremental index runner wired into watchers — flag-gated |
-| `graph/encode.ts` | 316 | Canonical binary wire format encode/decode — flag-gated |
-| `graph/config.ts` | 149 | `isGraphEnabled()` predicate + bounded env getters |
-| `graph/types.ts` | 102 | Graph domain types (nodes/edges/meta/payload) |
-| `graph/notify.ts` | 26 | `graph-build-event.json` marker writer (WS notify) — flag-gated |
 | `types.ts` | 81 | Shared TypeScript interfaces |
 | `user-config.ts` | 56 | User settings loading |
 | `url-utils.ts` | 35 | View URL building/parsing |
@@ -1241,8 +1197,6 @@ client only renders).
 | File | Lines | Purpose |
 |------|-------|---------|
 | `Board.tsx` | 274 | Main container, view routing, toolbar |
-| `graph/GraphView.tsx` | 489 | System → Graph shell, first-run state machine, deep-link focus — flag-gated |
-| `graph/CosmosRenderer.ts` | 182 | Only `@cosmos.gl/graph` importer; uploads coords + freezes — flag-gated |
 | `bridge/BridgeTaskEditor.tsx` | 441 | Tiptap WYSIWYG task editor |
 | `docs/DocsEditor.tsx` | 522 | Tiptap markdown editor |
 | `docs/DocsContentPane.tsx` | 434 | File content display + routing |

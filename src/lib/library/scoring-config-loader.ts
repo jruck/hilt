@@ -35,11 +35,15 @@ function finiteLeaves<T extends Record<string, number>>(defaults: T, overrides: 
 
 function mergeConfig(overrides: Partial<LibraryScoringConfig>): LibraryScoringConfig {
   const d = DEFAULT_SCORING_CONFIG;
+  const requestedVersion = typeof overrides.version === "string" ? overrides.version : d.version;
   return {
-    version: typeof overrides.version === "string" ? overrides.version : d.version,
+    // s1/s2 files predate the hybrid constants. Preserve their compatible numeric leaves below,
+    // but identify the effective runtime algorithm honestly as s3.
+    version: /^s3(?:\.|$)/.test(requestedVersion) ? requestedVersion : d.version,
     to_archive_worth: typeof overrides.to_archive_worth === "number" && Number.isFinite(overrides.to_archive_worth) ? overrides.to_archive_worth : d.to_archive_worth,
     relevance: finiteLeaves(d.relevance, overrides.relevance),
     signal_weights: finiteLeaves(d.signal_weights, overrides.signal_weights),
+    hybrid: finiteLeaves(d.hybrid, overrides.hybrid),
     for_you: finiteLeaves(d.for_you, overrides.for_you),
   };
 }

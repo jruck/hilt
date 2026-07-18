@@ -2,10 +2,8 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowLeft, CalendarDays, Check, Copy, ExternalLink, EyeOff, FileText, FolderOpen, Inbox, Link as LinkIcon, Loader2, MoreVertical, Network, Plus, Settings, Trash2, Video } from "lucide-react";
+import { ArrowLeft, CalendarDays, Check, Copy, ExternalLink, EyeOff, FileText, FolderOpen, Inbox, Link as LinkIcon, Loader2, MoreVertical, Plus, Settings, Trash2, Video } from "lucide-react";
 import { useScope } from "@/contexts/ScopeContext";
-import { isGraphEnabled } from "@/lib/graph/config";
-import { buildGraphScope } from "@/components/graph/graph-deeplink";
 import { buildReference } from "@/lib/references/build";
 import { copyToClipboard } from "@/lib/references/clipboard";
 import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
@@ -62,7 +60,6 @@ export function PersonMeetingList({
   onHideSuggested,
 }: PersonMeetingListProps) {
   const { navigateTo } = useScope();
-  const graphEnabled = isGraphEnabled();
   const [showConfig, setShowConfig] = useState(false);
   const [showSuggestedActions, setShowSuggestedActions] = useState(false);
   const [showPromoteForm, setShowPromoteForm] = useState(false);
@@ -372,19 +369,6 @@ export function PersonMeetingList({
                       </button>
                       {showActionsMenu && (
                         <div className="absolute right-0 top-full z-50 mt-1 w-48 overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] py-1 shadow-lg">
-                          {graphEnabled && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowActionsMenu(false);
-                                navigateTo("system", buildGraphScope({ focus: person.slug }));
-                              }}
-                              className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)]"
-                            >
-                              <Network className="h-4 w-4 text-[var(--text-tertiary)]" />
-                              Show in Graph
-                            </button>
-                          )}
                           <button
                             type="button"
                             onClick={() => {

@@ -1,5 +1,11 @@
 # Library v2 — Implementation Report
 
+> **Historical report:** This records the June 2026 implementation state and measurements. Its semantic
+> scorer, environment flags, and follow-up assumptions were retired on 2026-07-18. Current production
+> behavior is `explicit_context_hybrid` / `s3`; see the
+> [semantic graph v1 tombstone](../retired/semantic-graph-v1.md). Do not use the commands or operational
+> recommendations below to restore the retired system.
+
 Living report for the build of [`library-v2.md`](library-v2.md). Updated at each phase boundary.
 Records: what was implemented, what differed from the spec and why, scorecard results, dead ends.
 

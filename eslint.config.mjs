@@ -26,8 +26,6 @@ const eslintConfig = defineConfig([
     ".next/**",
     ".next-prod/**",
     ".next-gateway/**",
-    ".next-graph-dev/**",
-    ".next-graph-live/**",
     "out/**",
     "build/**",
     "dist/**",

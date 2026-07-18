@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { forcedTokenEnv } from "./connections";
+import { LIBRARY_CONNECTIONS_MODEL, forcedTokenEnv, withPinnedConnectionsModel } from "./connections";
 
 // The headless `claude` subprocess (scheduled reweave + editor-pass) must authenticate with the
 // long-lived CLAUDE_CODE_OAUTH_TOKEN, NOT the macOS Keychain — which Claude prefers but can't refresh in
@@ -35,5 +35,22 @@ test("forcedTokenEnv strips to a minimal allowlist (token forced, Keychain unrea
     else process.env.CLAUDE_CODE_OAUTH_TOKEN = original;
     if (originalSecret === undefined) delete process.env.SOME_UNRELATED_SECRET;
     else process.env.SOME_UNRELATED_SECRET = originalSecret;
+  }
+});
+
+test("Connections and reweave calls are always pinned to Claude Sonnet 4.6", () => {
+  const original = process.env.LIBRARY_CONNECTIONS_MODEL;
+  process.env.LIBRARY_CONNECTIONS_MODEL = "some-other-model";
+  try {
+    assert.equal(LIBRARY_CONNECTIONS_MODEL, "claude-sonnet-4-6");
+    assert.deepEqual(withPinnedConnectionsModel(["-p", "task"]), [
+      "-p",
+      "task",
+      "--model",
+      "claude-sonnet-4-6",
+    ]);
+  } finally {
+    if (original === undefined) delete process.env.LIBRARY_CONNECTIONS_MODEL;
+    else process.env.LIBRARY_CONNECTIONS_MODEL = original;
   }
 });

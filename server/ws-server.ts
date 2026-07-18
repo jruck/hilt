@@ -7,23 +7,21 @@ import { getScopeWatcher, getInboxWatcher, getBridgeWatcher, getLibraryWatcher }
 import { startCalendarSyncDaemon } from "../src/lib/calendar/daemon";
 import { startGranolaSyncDaemon, stopGranolaSyncDaemon } from "../src/lib/granola/daemon";
 import { startMetricsCollectorDaemon } from "../src/lib/system/telemetry/daemon";
-import { isGraphEnabled, getGraphMarkerPath } from "../src/lib/graph/config";
-import { isSemanticEnabled } from "../src/lib/semantic/config";
 import type {
   TreeChangedEvent,
   FileChangedEvent,
   InboxChangedEvent,
 } from "./watchers";
-import type { GraphRunner } from "../src/lib/graph/runner";
-import type { SemanticRunner } from "../src/lib/semantic/runner";
 import { getVaultPathSync } from "../src/lib/bridge/vault";
 import { LibraryProcessingRunner } from "../src/lib/library/processing-trigger";
 import { LibraryRecommendationRunner } from "../src/lib/library/recommendation-trigger";
 import { startLibraryIntakeDaemon } from "../src/lib/library/intake-daemon";
 import { appendActiveBriefingDecisions } from "../src/lib/briefing/decision-append";
 import { meetingLedgerEventMarkerPath } from "../src/lib/loops/meeting-ledger-store";
+import { installGeminiNetworkTripwire } from "../src/lib/ai/gemini-tripwire";
 
 loadEnvConfig(process.cwd());
+installGeminiNetworkTripwire();
 
 const PREFERRED_PORT = parseInt(process.env.WS_PORT || "3001", 10);
 const PORT_FILE = path.join(process.env.HOME || "~", ".hilt-ws-port");
@@ -340,97 +338,6 @@ async function startServer() {
     }
   });
 
-  // --- System → Graph runner + marker watch (flag-gated; inert when off) ---
-  // ENTIRELY no-op unless HILT_GRAPH_ENABLED === "true". The runner module (which
-  // pulls in build/layout/db) is dynamically imported so the flag-off path never
-  // loads it. Mirrors the calendar marker watch above.
-  let graphRunner: GraphRunner | null = null;
-  let graphMarkerWatched = false;
-  if (isGraphEnabled()) {
-    const graphMarker = getGraphMarkerPath();
-    fs.watchFile(graphMarker, { interval: 1000 }, (curr, prev) => {
-      if (curr.mtimeMs > 0 && curr.mtimeMs !== prev.mtimeMs) {
-        eventServer.broadcast("graph", "changed", {});
-      }
-    });
-    graphMarkerWatched = true;
-
-    void (async () => {
-      try {
-        const { getGraphRunner, GRAPH_RUNNER_CLIENT_ID } = await import(
-          "../src/lib/graph/runner"
-        );
-        graphRunner = getGraphRunner();
-        const vaultRoot = graphRunner.getVaultRoot();
-
-        // BridgeWatcher: dir-rescan-by-mtime (do NOT trust the single collapsed path).
-        bridgeWatcher.on("projects-changed", () => graphRunner?.onDirChanged("projects"));
-        bridgeWatcher.on("people-changed", () => graphRunner?.onDirChanged("people")); // + meetings
-        bridgeWatcher.on("areas-changed", () => graphRunner?.onDirChanged("areas"));
-        bridgeWatcher.on("thoughts-changed", () => graphRunner?.onDirChanged("thoughts"));
-        bridgeWatcher.on("weekly-changed", () => graphRunner?.onDirChanged("weekly"));
-        bridgeWatcher.on("tasks-changed", () => graphRunner?.onDirChanged("tasks"));
-
-        // ScopeWatcher: persistent internal client at the vault root covers
-        // references/ + docs/ (BridgeWatcher does not). Ref-counted; survives UI subs.
-        scopeWatcher.watchScope(vaultRoot, GRAPH_RUNNER_CLIENT_ID);
-        scopeWatcher.on("file:changed", (e: FileChangedEvent) => graphRunner?.onFileChanged(e.path));
-        scopeWatcher.on("tree:changed", (e: TreeChangedEvent) =>
-          e.type === "unlink"
-            ? graphRunner?.onFileRemoved(e.path)
-            : graphRunner?.onFileChanged(e.path),
-        );
-
-        await graphRunner.start();
-        console.log("[GraphRunner] Started (graph feature enabled)");
-      } catch (err) {
-        console.error("[GraphRunner] Failed to start:", err);
-      }
-    })();
-  }
-
-  // --- Phase 2 → Semantic runner (flag-gated; inert when off) ---
-  // ENTIRELY no-op unless HILT_SEMANTIC_ENABLED === "true". The runner module (which pulls
-  // in db/chunking/embed/Gemini) is dynamically imported so the flag-off path never loads it
-  // — identical inert posture to the GraphRunner block above. The runner reuses the SAME
-  // watcher signals (BridgeWatcher dir events + the ScopeWatcher persistent client) and keeps
-  // its own content-hash map; it never writes the vault (the cache lives under DATA_DIR).
-  let semanticRunner: SemanticRunner | null = null;
-  if (isSemanticEnabled()) {
-    void (async () => {
-      try {
-        const { getSemanticRunner, SEMANTIC_RUNNER_CLIENT_ID } = await import(
-          "../src/lib/semantic/runner"
-        );
-        semanticRunner = getSemanticRunner();
-        const vaultRoot = semanticRunner.getVaultRoot();
-
-        // BridgeWatcher: dir-rescan-by-content-hash (do NOT trust the single collapsed path).
-        bridgeWatcher.on("projects-changed", () => semanticRunner?.onDirChanged("projects"));
-        bridgeWatcher.on("people-changed", () => semanticRunner?.onDirChanged("people")); // + meetings
-        bridgeWatcher.on("areas-changed", () => semanticRunner?.onDirChanged("areas"));
-        bridgeWatcher.on("thoughts-changed", () => semanticRunner?.onDirChanged("thoughts"));
-        bridgeWatcher.on("weekly-changed", () => semanticRunner?.onDirChanged("weekly"));
-        bridgeWatcher.on("tasks-changed", () => semanticRunner?.onDirChanged("tasks"));
-
-        // ScopeWatcher: persistent internal client at the vault root covers references/ + docs/.
-        // Ref-counted via a reserved client id, so it coexists with the GraphRunner's client.
-        scopeWatcher.watchScope(vaultRoot, SEMANTIC_RUNNER_CLIENT_ID);
-        scopeWatcher.on("file:changed", (e: FileChangedEvent) => semanticRunner?.onFileChanged(e.path));
-        scopeWatcher.on("tree:changed", (e: TreeChangedEvent) =>
-          e.type === "unlink"
-            ? semanticRunner?.onFileRemoved(e.path)
-            : semanticRunner?.onFileChanged(e.path),
-        );
-
-        await semanticRunner.start();
-        console.log("[SemanticRunner] Started (semantic feature enabled)");
-      } catch (err) {
-        console.error("[SemanticRunner] Failed to start:", err);
-      }
-    })();
-  }
-
   console.log(`Scope, inbox, bridge, library, and calendar watchers configured`);
 
   // Manually handle WebSocket upgrades and route to appropriate server
@@ -463,27 +370,6 @@ async function startServer() {
     console.log("\nShutting down WebSocket server...");
     removePortFile();
     releaseLock();
-    if (graphRunner) {
-      graphRunner.stop();
-      try {
-        const { GRAPH_RUNNER_CLIENT_ID } = await import("../src/lib/graph/runner");
-        scopeWatcher.unwatchScope(graphRunner.getVaultRoot(), GRAPH_RUNNER_CLIENT_ID);
-      } catch {
-        // Ignore — teardown best-effort.
-      }
-    }
-    if (semanticRunner) {
-      semanticRunner.stop();
-      try {
-        const { SEMANTIC_RUNNER_CLIENT_ID } = await import("../src/lib/semantic/runner");
-        scopeWatcher.unwatchScope(semanticRunner.getVaultRoot(), SEMANTIC_RUNNER_CLIENT_ID);
-      } catch {
-        // Ignore — teardown best-effort.
-      }
-    }
-    if (graphMarkerWatched) {
-      fs.unwatchFile(getGraphMarkerPath());
-    }
     scopeWatcher.stop();
     inboxWatcher.stop();
     bridgeWatcher.stop();

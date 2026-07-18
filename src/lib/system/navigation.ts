@@ -1,9 +1,9 @@
 import type { ViewPrefix } from "@/lib/url-utils";
 
-export type SystemMode = "sessions" | "apps" | "stack" | "sync" | "graph" | "performance";
+export type SystemMode = "sessions" | "apps" | "stack" | "sync" | "performance";
 
 export function isSystemMode(value: string | null | undefined): value is SystemMode {
-  return value === "apps" || value === "stack" || value === "sessions" || value === "sync" || value === "graph" || value === "performance";
+  return value === "apps" || value === "stack" || value === "sessions" || value === "sync" || value === "performance";
 }
 
 export function systemScopeForMode(mode: SystemMode, stackScope = ""): string {
@@ -39,4 +39,10 @@ export function legacyConversationScopeFromSystemUrl(viewMode: ViewPrefix | null
   const parts = scopePath.split("/").filter(Boolean);
   if (parts[0] !== "threads" && parts[0] !== "chats") return null;
   return parts.length > 1 ? `/${parts.slice(1).join("/")}` : "";
+}
+
+/** Retired knowledge-graph deep links always resolve to System Sessions. */
+export function isRetiredGraphSystemUrl(viewMode: ViewPrefix | null, scopePath: string): boolean {
+  if (viewMode !== "system") return false;
+  return scopePath.split("/").filter(Boolean)[0] === "graph";
 }

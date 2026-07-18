@@ -24,8 +24,6 @@ const generatedBuildDirs = [
   ".next-gateway",
   ".next-devtest",
   ".next-prod-test",
-  ".next-graph-dev",
-  ".next-graph-live",
 ];
 
 const traceExcludes = generatedBuildDirs.flatMap((dir) =>
@@ -62,8 +60,8 @@ const nextConfig: NextConfig = {
       }
     : {}),
 
-  // Allow an isolated build/dist directory (e.g. a parallel `next dev` for graph
-  // visual iteration) so it never fights the live :3000 server over `.next`.
+  // Allow an isolated build/dist directory so parallel tooling never fights the
+  // live :3000 server over `.next`.
   // Unset => ".next" => live server unaffected.
   distDir,
 
@@ -73,15 +71,7 @@ const nextConfig: NextConfig = {
   // Keep native local-only modules out of the client/server bundle.
   serverExternalPackages: ["better-sqlite3"],
 
-  // Expose the graph feature flags to the client bundle so the System → Graph
-  // sub-mode can gate its tab/render via isGraphEnabled() (one predicate,
-  // src/lib/graph/config.ts) and the toolbar can gate the tag/semantic legend rows
-  // via isGraphTagsEnabled()/graphSemanticOverlayEnabled(). Unset => inlined as
-  // undefined => flag off.
   env: {
-    HILT_GRAPH_ENABLED: process.env.HILT_GRAPH_ENABLED,
-    HILT_GRAPH_TAGS: process.env.HILT_GRAPH_TAGS,
-    HILT_GRAPH_SEMANTIC: process.env.HILT_GRAPH_SEMANTIC,
     // Inline the normalized base path so src/lib/base-path.ts and the
     // ws bootstrap in useEventSocket see a canonical value.
     NEXT_PUBLIC_BASE_PATH: basePath,

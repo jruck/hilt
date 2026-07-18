@@ -7,6 +7,7 @@ import { extractSection, markdownToPlain, parseMarkdownFile, stringifyMarkdown }
 import { buildMediaMarkdown, getYouTubeVideoId, stripDetailsWrapper } from "../src/lib/library/media";
 import type { RawArtifact } from "../src/lib/library/types";
 import { atomicWriteFile, dateOnly, isoNow, walkMarkdown } from "../src/lib/library/utils";
+import { assertLibrarySummarizeInvocation } from "../src/lib/library/summarize-policy";
 
 loadEnvConfig(process.cwd());
 
@@ -195,7 +196,9 @@ async function extractSourceCache(url: string, isVideo: boolean): Promise<Source
   }
 
   try {
-    const { stdout } = await execFileAsync("summarize", cliArgs, {
+    assertLibrarySummarizeInvocation(cliArgs);
+    const summarizeBin = process.env.SUMMARIZE_BIN || "summarize";
+    const { stdout } = await execFileAsync(summarizeBin, cliArgs, {
       timeout: durationToMs(timeoutValue, 240_000) + 5000,
       maxBuffer: 1024 * 1024 * 12,
     });

@@ -156,6 +156,41 @@ test("invalid or duplicate picks reject the whole batch without a partial write"
   assert.equal(readRecommendationBatches(vault).length, 0);
 });
 
+test("s3 recommendation provenance is frozen on both the batch and its episodes", (t) => {
+  const { vault } = setup(t);
+  const created = writeRecommendationBatch(vault, {
+    kind: "fixture",
+    generated_at: "2026-07-18T09:20:00.000Z",
+    context_window: { start: "2026-07-18T06:00:00.000Z", end: "2026-07-18T09:20:00.000Z" },
+    pool_size: 1,
+    scoring_method: "explicit_context_hybrid",
+    scoring_config_version: "s3",
+    editor_model: "claude-sonnet-4-6",
+    editor_prompt_version: "library-recommendations-v1",
+    picks: [{ artifact_id: "a", why_now: "Useful now", triggers: [trigger("artifact:a", "2026-07-18T09:00:00.000Z")], scores }],
+  });
+
+  const expected = {
+    scoring_method: "explicit_context_hybrid",
+    scoring_config_version: "s3",
+    editor_model: "claude-sonnet-4-6",
+    editor_prompt_version: "library-recommendations-v1",
+  } as const;
+  assert.deepEqual({
+    scoring_method: created.scoring_method,
+    scoring_config_version: created.scoring_config_version,
+    editor_model: created.editor_model,
+    editor_prompt_version: created.editor_prompt_version,
+  }, expected);
+  assert.deepEqual({
+    scoring_method: created.episodes[0].scoring_method,
+    scoring_config_version: created.episodes[0].scoring_config_version,
+    editor_model: created.episodes[0].editor_model,
+    editor_prompt_version: created.episodes[0].editor_prompt_version,
+  }, expected);
+  assert.deepEqual(readRecommendationBatches(vault)[0], created);
+});
+
 test("legacy cache bootstraps once and deduplicates artifacts", (t) => {
   const { vault, data } = setup(t);
   const legacyDir = path.join(data, "library-for-you");

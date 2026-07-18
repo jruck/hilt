@@ -2729,7 +2729,9 @@ ${fixtures.map((fixture) => `  - url: ${fixture.url}
   assert.equal(recommendations.items[0].eval_attrs?.worth, recommendations.items[0].worth);
   assert.equal(recommendations.items[0].eval_attrs?.freshness, recommendations.items[0].freshness);
   assert.match(recommendations.items[0].why, /relevance|substance/i);
-  assert.ok(recommendations.items[0].matched_terms.includes("agentic"));
+  // `agentic` is a source tag on every fixture item, so s3 correctly drops it as a >15%-frequency
+  // corpus term. The rarer project phrase remains visible evidence for why this item fits.
+  assert.ok(recommendations.items[0].matched_terms.includes("discovery"));
 });
 
 test("scoreArtifacts attaches eval attrs for card/list progressive disclosure", async () => {

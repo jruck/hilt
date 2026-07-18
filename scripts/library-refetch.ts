@@ -8,6 +8,7 @@ import { CANDIDATE_CACHE_DIR } from "../src/lib/library/candidate-cache";
 import { isoNow, walkMarkdown } from "../src/lib/library/utils";
 import { captureFailed, NO_SOURCE_MARKER } from "../src/lib/library/capture-health";
 import { LIBRARY_REFETCH_MAX_ATTEMPTS, libraryRefetchAttemptsPath } from "../src/lib/library/attention";
+import { assertLibrarySummarizeInvocation } from "../src/lib/library/summarize-policy";
 
 loadEnvConfig(process.cwd());
 const execFileAsync = promisify(execFile);
@@ -16,8 +17,8 @@ const execFileAsync = promisify(execFile);
  * The needs_refetch drain (Library v2, steering round 1 follow-through): a bounded daily pass that
  * retries the source capture for study items stuck in the needs_refetch bucket (the explicit
  * "No cached source content available" marker). Per item it runs the proven repair path
- * (scripts/library-redigest.ts --refetch) with LIBRARY_CONNECTIONS_DISABLED=1 — fetch + Gemini digest
- * only, ZERO Claude window — and lets the degradation machinery flag `reweave_pending`, so the 03:35
+ * (scripts/library-redigest.ts --refetch) with LIBRARY_CONNECTIONS_DISABLED=1 — fetch + pinned-Claude
+ * digest only, with the Connections pass deferred — and lets the degradation machinery flag `reweave_pending`, so the 03:35
  * nightly drain weaves recovered items inside its own budget. Attempts are capped per item (sidecar in
  * DATA_DIR): a permanently-paywalled source stops consuming fetches after the cap but stays visibly in
  * the bucket (honest state, no silent churn).
@@ -101,9 +102,11 @@ async function waybackRecover(relativePath: string): Promise<boolean> {
   const summarizeBin = process.env.SUMMARIZE_BIN || "summarize";
   let extract = "";
   try {
+    const summarizeArgs = [snapshotUrl, "--extract", "--format", "md", "--plain", "--no-color", "--timeout", "90s"];
+    assertLibrarySummarizeInvocation(summarizeArgs);
     const { stdout } = await execFileAsync(
       summarizeBin,
-      [snapshotUrl, "--extract", "--format", "md", "--plain", "--no-color", "--timeout", "90s"],
+      summarizeArgs,
       { timeout: 120_000, maxBuffer: 1024 * 1024 * 16 },
     );
     extract = stdout.trim();
@@ -140,7 +143,7 @@ async function refetchOne(relativePath: string): Promise<"recovered" | "still_fa
         env: {
           ...process.env,
           BRIDGE_VAULT_PATH: vaultPath,
-          // Fetch + Gemini digest only. The reweave is DEFERRED: digestion flags reweave_pending and
+          // Fetch + pinned-Claude digest only. The Connections pass is DEFERRED: digestion flags reweave_pending and
           // the 03:35 nightly drain weaves recovered items inside its own Claude budget.
           LIBRARY_CONNECTIONS_DISABLED: "1",
         },

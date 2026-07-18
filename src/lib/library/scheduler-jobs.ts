@@ -78,7 +78,7 @@ export function librarySchedulerJobs(logDir = librarySchedulerLogDir()): Library
       id: "refetch",
       label: "com.hilt.library.refetch",
       // The needs_refetch drain (steering round 1): bounded daily retry of failed source captures —
-      // fetch + Gemini digest only (zero Claude window; recovered items get reweave_pending and the
+      // fetch + pinned-Claude digest only (Connections pass deferred; recovered items get reweave_pending and the
       // 03:35 drain weaves them next night). Attempt-capped so dead sources stop consuming fetches.
       script: "library:refetch",
       schedule: { hour: 4, minute: 45 },

@@ -49,6 +49,85 @@ export interface RecommendationPickValidationRun extends RecommendationPickValid
   repair_attempted: boolean;
 }
 
+export interface RecommendationEditorRepairContext {
+  attempted: RawRecommendationPick[];
+  rejections: RecommendationPickRejection[];
+}
+
+export interface RecommendationEditorPromptInput {
+  candidates: RecommendedArtifact[];
+  contextText: string;
+  evidenceText: string;
+  maxItems: number;
+  previousByArtifact: Map<string, RecommendationEpisode>;
+  repair?: RecommendationEditorRepairContext | null;
+}
+
+/** Shared production/replay prompt builder. Keeping the prose in one place makes an offline
+ * counterfactual editor pass comparable to the live pass without giving the replay write access. */
+export function buildRecommendationEditorPrompt({
+  candidates,
+  contextText,
+  evidenceText,
+  maxItems,
+  previousByArtifact,
+  repair = null,
+}: RecommendationEditorPromptInput): string {
+  const itemBlocks = candidates.map((item) => {
+    const previous = previousByArtifact.get(item.id) || null;
+    return [
+      `ID: ${item.id}`,
+      `Title: ${item.title}`,
+      `State: ${item.lifecycle_status}`,
+      `Created: ${item.created_at}`,
+      `Worth: ${item.worth} (${item.why})`,
+      `Source: ${item.source_name || item.source_id}`,
+      item.summary ? `Summary: ${item.summary.slice(0, 450)}` : "",
+      previous ? `Last recommended: ${previous.recommended_at}` : "Never recommended",
+      previous ? `Previous pitch: ${previous.why_now}` : "",
+      previous ? `Previous triggers: ${previous.triggers.map((trigger) => trigger.id).join(", ")}` : "",
+    ].filter(Boolean).join("\n");
+  }).join("\n\n");
+  const repairSummary = repair?.rejections.slice(0, 6).map((rejection) => rejection.message).join("; ") || "";
+  return [
+    "You are the editor of Justin's personal Library attention feed. Select every item he should",
+    "put his eyes on now, not a fixed quota. Usually select 3-7; return zero on a thin run and never",
+    `more than ${maxItems}. New explicit saves may qualify on intrinsic value. Candidates need a higher bar.`,
+    "An older item may be resurfaced ONLY when a supplied non-artifact trigger represents a materially",
+    "new decision, task, project movement, or conversation. Repeated topic mentions are not enough.",
+    "The worth score is advisory. Prefer specific utility and timing. Avoid duplicate takes. When",
+    "quality is close, prefer a useful mix of sources and content types, but never select a weaker",
+    "item merely to fill a diversity slot.",
+    "For each pick, write a concise executive-assistant-style reason to Justin and cite one or more",
+    "TRIGGER ids exactly as supplied. The reason is a recommendation pitch, not a source summary:",
+    "name what changed, what current decision or work it informs, or why the timing matters. Do not",
+    "paraphrase the title or Summary. When citing a meeting/task/project/area/briefing trigger, the",
+    "reason must name a concrete detail from that evidence that is not already in the source Summary.",
+    "Never invent a trigger.",
+    "The batch is atomic: if even one pick violates these rules, none of the picks will be saved.",
+    'Return ONLY JSON: {"picks":[{"id":"...","reason":"...","trigger_ids":["..."]}]}',
+    ...(repair ? [
+      "",
+      "=== REPAIR REQUIRED ===",
+      "The previous complete response failed deterministic validation. Return a complete replacement picks array,",
+      "not only the rejected entries. You may drop a weak pick or choose a different eligible candidate.",
+      `Previous response: ${JSON.stringify({ picks: repair.attempted })}`,
+      `Validation failures: ${repairSummary}`,
+      "Re-check every replacement pick for exact supplied IDs, exact supplied trigger IDs, a non-summary",
+      "why-now reason, concrete changed-context language, and duplicate topics before returning JSON.",
+    ] : []),
+    "",
+    "=== ACTIVE WORK ===",
+    contextText,
+    "",
+    "=== RECENT EVIDENCE ===",
+    evidenceText,
+    "",
+    "=== CANDIDATES ===",
+    itemBlocks,
+  ].join("\n");
+}
+
 const CONTEXT_STOPWORDS = new Set([
   "about", "after", "again", "also", "because", "before", "being", "between", "could", "from",
   "have", "into", "just", "more", "most", "need", "only", "other", "should", "some", "than",

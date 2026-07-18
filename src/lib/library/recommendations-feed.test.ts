@@ -82,6 +82,13 @@ test("recommendation feed cursor pagination preserves episode order and server f
   assert.equal(first.cursor, null);
   assert.ok(first.next_cursor);
   assert.deepEqual(first.batch, { id: batch.id, generated_at: at, size: 3, kind: "fixture" });
+  assert.equal(first.items[0].worth, first.items[0].eval_attrs?.worth, "cards show the current hybrid score");
+  assert.equal(first.items[0].eval_attrs?.scoring_method, "explicit_context_hybrid");
+  assert.equal(first.items[0].eval_attrs?.scoring_config_version, "s3");
+  assert.deepEqual(first.items[0].recommendation?.selection_scores, SCORES, "the historical selection score remains an immutable audit snapshot");
+  assert.notEqual(first.items[0].worth, first.items[0].recommendation?.selection_scores?.worth);
+  assert.match(first.items[0].why, /relevance|substance/i);
+  assert.equal(first.items[0].recommendation?.why_now, "Reason 1");
 
   const second = getRecommendationFeed(vault, { limit: 2, cursor: first.next_cursor });
   assert.deepEqual(second.items.map((item) => item.id), ["artifact-c"]);

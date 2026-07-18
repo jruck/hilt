@@ -28,6 +28,12 @@ const DEFAULT_TIMEOUT_MS = (() => {
 const MAX_SOURCE_EXCERPT_CHARS = 5_000;
 // The reweave digest reads the source more deeply than the judge, so it gets a larger excerpt.
 const MAX_REWEAVE_EXCERPT_CHARS = 8_000;
+/** All readable Connections and reweave passes use the same retired-provider-safe model. */
+export const LIBRARY_CONNECTIONS_MODEL = "claude-sonnet-4-6";
+
+export function withPinnedConnectionsModel(args: string[]): string[] {
+  return [...args, "--model", LIBRARY_CONNECTIONS_MODEL];
+}
 
 export function resolveClaudeBin(): string {
   const configured = process.env.CLAUDE_PATH || process.env.CLAUDE_BIN;
@@ -247,14 +253,13 @@ export async function judgeConnections(
   if (!vaultPath) return { ...ABSTAIN };
 
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const model = opts.model || process.env.LIBRARY_CONNECTIONS_MODEL;
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "hilt-library-connections-"));
   const promptPath = path.join(dir, "prompt.txt");
 
   try {
     await fs.promises.writeFile(promptPath, CONNECTION_PROMPT, "utf-8");
 
-    const args = [
+    const args = withPinnedConnectionsModel([
       "-p",
       buildExploreTask(kbIndex, artifact),
       "--append-system-prompt-file",
@@ -269,8 +274,7 @@ export async function judgeConnections(
       vaultPath,
       "--output-format",
       "json",
-    ];
-    if (model) args.push("--model", model);
+    ]);
 
     const stdout = await runClaude(resolveClaudeBin(), args, timeoutMs, vaultPath);
     const modelText = extractModelText(stdout);
@@ -335,14 +339,13 @@ export async function reweaveArtifact(
   if (!vaultPath) return null;
 
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const model = opts.model || process.env.LIBRARY_CONNECTIONS_MODEL;
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "hilt-library-reweave-"));
   const promptPath = path.join(dir, "prompt.txt");
 
   try {
     await fs.promises.writeFile(promptPath, REWEAVE_PROMPT, "utf-8");
 
-    const args = [
+    const args = withPinnedConnectionsModel([
       "-p",
       buildReweaveTask(kbIndex, artifact),
       "--append-system-prompt-file",
@@ -359,8 +362,7 @@ export async function reweaveArtifact(
       "json",
       "--json-schema",
       JSON.stringify(REWEAVE_JSON_SCHEMA),
-    ];
-    if (model) args.push("--model", model);
+    ]);
 
     const stdout = await runClaude(resolveClaudeBin(), args, timeoutMs, vaultPath);
     // Exit 0 can still carry a usage-limit message in the JSON envelope (is_error + result text) —

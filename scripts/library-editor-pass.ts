@@ -5,7 +5,6 @@ import { buildForYouPool, nearDuplicateRecommendationTitles } from "../src/lib/l
 import { buildKbIndex } from "../src/lib/library/kb-index";
 import { buildRecommendationContext, recommendationContextPrompt } from "../src/lib/library/recommendation-context";
 import {
-  latestRecommendationEpisode,
   latestActiveRecommendationDismissal,
   projectedRecommendationEpisodes,
   readRecommendationRuntime,
@@ -14,6 +13,7 @@ import {
   writeRecommendationRuntime,
 } from "../src/lib/library/recommendation-store";
 import {
+  buildRecommendationEditorPrompt,
   buildEditorialCandidatePool,
   recommendationCooldownEligible,
   validateRecommendationPicksDetailed,
@@ -21,11 +21,13 @@ import {
   type RawRecommendationPick,
   type RecommendationExposure,
   type RecommendationPickRejection,
+  type RecommendationEditorRepairContext,
 } from "../src/lib/library/recommendation-editor";
 import { listLibraryArtifactDetails } from "../src/lib/library/library";
 import { readLibraryEvents, appendLibraryEvents } from "../src/lib/library/events";
 import { detectRateLimitInEnvelope, extractModelText, resolveClaudeBin, runClaude } from "../src/lib/library/connections";
 import type { RecommendationBatchKind, RecommendationEpisode, RecommendedArtifact } from "../src/lib/library/types";
+import { LIBRARY_SCORING_METHOD } from "../src/lib/library/hybrid-relevance";
 
 loadEnvConfig(process.cwd());
 
@@ -37,6 +39,8 @@ const kind: RecommendationBatchKind = rawKind === "refresh" || rawKind === "fixt
 const timeoutMs = Number(process.env.LIBRARY_EDITOR_TIMEOUT_MS || 600_000);
 const fixturePath = argValue("--fixture") || process.env.LIBRARY_RECOMMENDATION_FIXTURE || null;
 const now = process.env.LIBRARY_RECOMMENDATION_NOW ? new Date(process.env.LIBRARY_RECOMMENDATION_NOW) : new Date();
+const EDITOR_MODEL = "claude-sonnet-4-6";
+const EDITOR_PROMPT_VERSION = "library-recommendations-v1";
 if (!Number.isFinite(timeoutMs) || Number.isNaN(now.getTime())) { console.error("Invalid recommendation runtime configuration."); process.exit(64); }
 
 function latestExposureByArtifact(): Map<string, RecommendationExposure> {
@@ -110,11 +114,6 @@ function releaseLock(fd: number): void {
   try { fs.unlinkSync(lock); } catch { /* ignore */ }
 }
 
-interface RecommendationRepairContext {
-  attempted: RawRecommendationPick[];
-  rejections: RecommendationPickRejection[];
-}
-
 function rejectionSummary(rejections: RecommendationPickRejection[]): string {
   return rejections
     .slice(0, 6)
@@ -127,63 +126,18 @@ async function modelPicks(
   contextText: string,
   evidenceText: string,
   maxItems: number,
-  repair: RecommendationRepairContext | null = null,
+  previousByArtifact: Map<string, RecommendationEpisode>,
+  repair: RecommendationEditorRepairContext | null = null,
 ): Promise<RawRecommendationPick[]> {
-  const itemBlocks = candidates.map((item) => {
-    const previous = latestRecommendationEpisode(vaultPath, item.id);
-    return [
-      `ID: ${item.id}`,
-      `Title: ${item.title}`,
-      `State: ${item.lifecycle_status}`,
-      `Created: ${item.created_at}`,
-      `Worth: ${item.worth} (${item.why})`,
-      `Source: ${item.source_name || item.source_id}`,
-      item.summary ? `Summary: ${item.summary.slice(0, 450)}` : "",
-      previous ? `Last recommended: ${previous.recommended_at}` : "Never recommended",
-      previous ? `Previous pitch: ${previous.why_now}` : "",
-      previous ? `Previous triggers: ${previous.triggers.map((trigger) => trigger.id).join(", ")}` : "",
-    ].filter(Boolean).join("\n");
-  }).join("\n\n");
-  const task = [
-    "You are the editor of Justin's personal Library attention feed. Select every item he should",
-    "put his eyes on now, not a fixed quota. Usually select 3-7; return zero on a thin run and never",
-    `more than ${maxItems}. New explicit saves may qualify on intrinsic value. Candidates need a higher bar.`,
-    "An older item may be resurfaced ONLY when a supplied non-artifact trigger represents a materially",
-    "new decision, task, project movement, or conversation. Repeated topic mentions are not enough.",
-    "The worth score is advisory. Prefer specific utility and timing. Avoid duplicate takes. When",
-    "quality is close, prefer a useful mix of sources and content types, but never select a weaker",
-    "item merely to fill a diversity slot.",
-    "For each pick, write a concise executive-assistant-style reason to Justin and cite one or more",
-    "TRIGGER ids exactly as supplied. The reason is a recommendation pitch, not a source summary:",
-    "name what changed, what current decision or work it informs, or why the timing matters. Do not",
-    "paraphrase the title or Summary. When citing a meeting/task/project/area/briefing trigger, the",
-    "reason must name a concrete detail from that evidence that is not already in the source Summary.",
-    "Never invent a trigger.",
-    "The batch is atomic: if even one pick violates these rules, none of the picks will be saved.",
-    "Return ONLY JSON: {\"picks\":[{\"id\":\"...\",\"reason\":\"...\",\"trigger_ids\":[\"...\"]}]}",
-    ...(repair ? [
-      "",
-      "=== REPAIR REQUIRED ===",
-      "The previous complete response failed deterministic validation. Return a complete replacement picks array,",
-      "not only the rejected entries. You may drop a weak pick or choose a different eligible candidate.",
-      `Previous response: ${JSON.stringify({ picks: repair.attempted })}`,
-      `Validation failures: ${rejectionSummary(repair.rejections)}`,
-      "Re-check every replacement pick for exact supplied IDs, exact supplied trigger IDs, a non-summary",
-      "why-now reason, concrete changed-context language, and duplicate topics before returning JSON.",
-    ] : []),
-    "",
-    "=== ACTIVE WORK ===",
+  const task = buildRecommendationEditorPrompt({
+    candidates,
     contextText,
-    "",
-    "=== RECENT EVIDENCE ===",
     evidenceText,
-    "",
-    "=== CANDIDATES ===",
-    itemBlocks,
-  ].join("\n");
-  const cliArgs = ["-p", task, "--output-format", "json"];
-  const model = process.env.LIBRARY_CONNECTIONS_MODEL;
-  if (model) cliArgs.push("--model", model);
+    maxItems,
+    previousByArtifact,
+    repair,
+  });
+  const cliArgs = ["-p", task, "--output-format", "json", "--model", EDITOR_MODEL];
   const stdout = await runClaude(resolveClaudeBin(), cliArgs, timeoutMs);
   if (detectRateLimitInEnvelope(stdout).limited) throw new Error("rate_limited");
   try {
@@ -225,6 +179,7 @@ async function main(): Promise<void> {
       contextText,
       evidenceText,
       config.for_you.batch_max,
+      previousByArtifact,
     ) : []);
     const validationInput = {
       candidates,
@@ -245,6 +200,7 @@ async function main(): Promise<void> {
           contextText,
           evidenceText,
           config.for_you.batch_max,
+          previousByArtifact,
           { attempted: failed.raw, rejections: failed.rejections },
         );
       });
@@ -261,6 +217,10 @@ async function main(): Promise<void> {
         end: generatedAt,
       },
       pool_size: candidates.length,
+      scoring_method: LIBRARY_SCORING_METHOD,
+      scoring_config_version: config.version,
+      editor_model: EDITOR_MODEL,
+      editor_prompt_version: EDITOR_PROMPT_VERSION,
       picks,
     });
     appendLibraryEvents(vaultPath, batch.episodes.map((episode) => ({
@@ -269,7 +229,16 @@ async function main(): Promise<void> {
       surface: "api" as const,
       rank: episode.rank,
       scores: episode.scores,
-      meta: { episode_id: episode.id, batch_id: batch.id, kind: batch.kind, trigger_ids: episode.triggers.map((trigger) => trigger.id) },
+      meta: {
+        episode_id: episode.id,
+        batch_id: batch.id,
+        kind: batch.kind,
+        trigger_ids: episode.triggers.map((trigger) => trigger.id),
+        scoring_method: batch.scoring_method,
+        scoring_config_version: batch.scoring_config_version,
+        editor_model: batch.editor_model,
+        editor_prompt_version: batch.editor_prompt_version,
+      },
     })));
     console.log(JSON.stringify({ batch: batch.id, kind: batch.kind, picks: batch.episodes.length, pool: candidates.length }, null, 2));
   } catch (error) {

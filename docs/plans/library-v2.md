@@ -1,5 +1,11 @@
 # Reference Library v2 — From Pipeline to Editor
 
+> **2026-07-18 current-state note:** The editor/episode architecture remains current, but the former
+> semantic/vector assumptions in the June design were retired. Production candidate scoring is the
+> deterministic `s3` explicit-context hybrid described in
+> [`reference-library-roadmap.md`](reference-library-roadmap.md); the old implementation is preserved
+> through the [semantic graph v1 tombstone](../retired/semantic-graph-v1.md).
+
 ## What this is
 
 The build plan for the Library's second act. v1 built the **pipeline**: ingest → digest → reweave →
@@ -30,15 +36,15 @@ What the audit established, so future sessions don't re-derive it:
   feedback comments. The 7:25 recommendations job computes a daily ranking and writes it to a log nothing
   reads. `/process-library-feedback` is fully manual and effective when run — but never runs on its own.
   The `docs/eval-labels.md` calibration ledger specified by that skill has never been created.
-- **For You: hand-tuned heuristics.** `worth = relevance × substance × freshness`;
+- **For You (historical June audit): hand-tuned heuristics.** `worth = relevance × substance × freshness`;
   relevance = `0.32·√fp + 0.08·other + contextFit(≤0.3)`. Constants are folklore (unvalidated). Saved
-  refs get semantic-cosine contextFit; candidates fall back to token-overlap that is measurably
-  saturated (97% ≥ cap → no differentiation). No diversity, dedup, or exploration. Top-8 by score.
+  refs and candidates once used unequal context paths. This was later replaced by one full-corpus
+  deterministic hybrid for both lifecycles. No diversity, dedup, or exploration. Top-8 by score.
 - **Performance: fine at ~1k items, breaks ~5k.** Every list request re-walks and re-parses ~1,090
   markdown files: 450–700ms warm; recommendations 1.25s. BrowseView fires 3 sidebar-count fetches at
   `limit=10,000`. Search is an O(n) full-content scan. No read index.
-- **Insight synthesis: absent.** Per-item vault connections exist (reweave); cross-item through-lines
-  exist latently (semantic layer); nothing synthesizes across the week's intake. Briefing integration is
+- **Insight synthesis: absent.** Per-item vault connections exist (reweave); shared themes exist across
+  the week's intake but nothing synthesizes them. Briefing integration is
   one unused enum value (`briefing_selected`).
 
 ## Design principles
@@ -71,7 +77,7 @@ free eval re-scoring + version registry on the other).
   formed, what was changed (with before/after worth deltas), what awaits approval, rescue-rate trend.
   Surfaces in the Briefing tab and/or pinned to the Library top. Each item carries the three verbs.
 - **Scoring config becomes versioned data, not code constants.** Extract eval/ranking constants
-  (`TO_ARCHIVE_WORTH`, signal weights, semantic floor/scale/cap, relevance coefficients) into a
+  (`TO_ARCHIVE_WORTH`, signal weights, hybrid field/threshold/normalization constants, relevance coefficients) into a
   `meta/library-scoring.json` (vault) with a version stamp and a registry entry per change — same
   decimal/integer protocol as pipeline versions. This is what makes *rollback* one action and lets
   proposals be applied/reverted without code deploys.
@@ -94,7 +100,7 @@ improvements.
 The publishing-house deliverable. A weekly (initially) agent pass over the period's intake:
 
 - **Inputs:** the week's new study items with their digests + woven connections; active projects/areas
-  (the same context signals the eval reads); semantic-cluster through-lines across the new items.
+  (the same context signals the eval reads); recurring themes across the new items.
 - **Output:** one markdown note in the vault (`references/process/memos/` or similar — it should itself
   be a first-class library item): 2–4 through-lines, each tying ≥2 items to a specific active project
   with a concrete "consider this" — plus a "worth your time this week" shortlist with one-line reasons.
@@ -112,23 +118,22 @@ Restructure ranking from score-and-sort into the standard funnel, sized for a on
 *architecture* and the *feedback-label discipline* transfer; trained engagement models do not, at this
 scale):
 
-1. **Candidate generation (cheap, existing):** current worth scoring trims ~900 study items to top ~30.
-   Fix the metric asymmetry first: either embed candidates too, or explicitly accept token-fallback and
-   compensate (candidates compete on a stated-junior basis).
+1. **Candidate generation (cheap, existing):** current worth scoring trims the complete eligible study
+   corpus. Saved references and candidates use the same hybrid score map and normalization.
 2. **Heavy ranker = the LLM (new):** a scheduled editor pass (can share the Workstream 3 run; daily-lite/
    weekly-full) reads the ~30 and makes the final picks **with stated reasons** — the reason strings
    surface in the UI and double as audit data.
-3. **Re-rank rules (new, deterministic):** source/author diversity cap, same-story dedup (semantic
-   near-duplicate check), date spread, and **one exploration slot** reserved for an uncertainty-sampled
+3. **Re-rank rules (new, deterministic):** source/author diversity cap, same-story dedup (stable
+   source identity and bounded text similarity), date spread, and **one exploration slot** reserved for an uncertainty-sampled
    item (how miscalibration gets discovered).
 4. **Negative feedback is weighted heavily** (the strongest recsys lesson): a skip/rescue/"not this"
-   suppresses similar items immediately via semantic neighborhood, pending the next steering-loop review.
+   suppresses that item through deterministic event windows and cooldowns, pending the next steering-loop review.
 - Engagement data (Workstream 2) feeds offline analysis in the steering loop — adjust stage-1 constants
   from evidence, by proposal. No online learning; no silent weight changes (Principle 2).
 
 ## Workstream 5 — Read index (scale + speed)
 
-A derived SQLite read index following the `graph.sqlite`/`semantic.sqlite` precedent: one table of
+A future derived SQLite read index can store one table of
 artifact frontmatter + eval inputs, mtime-incremental sync from the vault (watcher + periodic reconcile),
 FTS5 for search. List requests go ~600ms → ~10ms; search becomes indexed; BrowseView's triple
 `limit=10,000` fetches become trivial; corpus headroom moves from ~5k to ~100k. Markdown remains the
@@ -140,7 +145,7 @@ it is also what makes per-keystroke search and future retrieval (research-assist
 - **Extraction-failed low-trust flag** (~30 refs + ~36 candidates with no cached source, 27 with
   degraded digests): flag at ingest, exclude from archive judgment and substance grading, one bounded
   re-extraction attempt via the steering loop; closes the standing McKinsey feedback comment.
-- **Candidate embedding decision** (Workstream 4 stage 1).
+- **Shared candidate scoring** (Workstream 4 stage 1) — resolved by the `s3` full-corpus hybrid.
 - **Two unprocessed feedback comments** in the live store — first fodder for Workstream 1's initial run
   (one, the clip complaint, was already solved systemically by enforced clip suppression; record it in
   the ledger as such).

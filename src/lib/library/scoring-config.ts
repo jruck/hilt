@@ -20,14 +20,29 @@ export interface LibraryScoringConfig {
     /** Cap on the contextFit contribution inside the relevance term. */
     context_fit_cap: number;
   };
-  /** Active-context signal weights (token + semantic paths). */
+  /** Active-context signal weights used by the deterministic hybrid scorer. */
   signal_weights: {
     project: number;
     task: number;
     area: number;
     person: number;
-    recent_save: number;
-    recent_save_manual: number;
+  };
+  /** Versioned explicit-context hybrid constants. */
+  hybrid: {
+    title_weight: number;
+    summary_tags_weight: number;
+    body_weight: number;
+    k1: number;
+    b: number;
+    max_document_frequency: number;
+    task_project_min_terms: number;
+    other_min_terms: number;
+    second_match_weight: number;
+    normalization_percentile: number;
+    active_connection_boost: number;
+    attention_high_adjustment: number;
+    attention_medium_adjustment: number;
+    attention_low_adjustment: number;
   };
   for_you: {
     /** Maximum episodes an editorial batch may contain. */
@@ -47,10 +62,26 @@ export interface LibraryScoringConfig {
 }
 
 export const DEFAULT_SCORING_CONFIG: LibraryScoringConfig = {
-  version: "s2",
+  version: "s3",
   to_archive_worth: 0.1,
   relevance: { first_party_coeff: 0.32, other_coeff: 0.08, context_fit_cap: 0.3 },
-  signal_weights: { project: 1.25, task: 1.35, area: 1.0, person: 0.35, recent_save: 0.45, recent_save_manual: 0.65 },
+  signal_weights: { project: 1.25, task: 1.35, area: 1.0, person: 0.35 },
+  hybrid: {
+    title_weight: 3,
+    summary_tags_weight: 2,
+    body_weight: 1,
+    k1: 1.2,
+    b: 0.75,
+    max_document_frequency: 0.15,
+    task_project_min_terms: 2,
+    other_min_terms: 3,
+    second_match_weight: 0.35,
+    normalization_percentile: 0.95,
+    active_connection_boost: 0.1,
+    attention_high_adjustment: 0.05,
+    attention_medium_adjustment: 0.02,
+    attention_low_adjustment: -0.05,
+  },
   for_you: {
     batch_max: 12,
     pool: 80,

@@ -19,6 +19,7 @@ import { loginWallVerdict, looksLikeBinaryGarbage, sourceMetadataCaptureHasEnoug
 import { extractPdfText, isPdfUrl, looksLikePdf } from "./pdf";
 import { seriesFromRaw } from "./series";
 import { recoverEmbeddedVideoTranscript, shouldAttemptEmbeddedVideoFallback } from "./embedded-video";
+import { assertLibrarySummarizeInvocation, withPinnedLibrarySummarizeModel } from "./summarize-policy";
 
 const execFileAsync = promisify(execFile);
 
@@ -28,9 +29,19 @@ const execFileAsync = promisify(execFile);
 // install guidance when it is missing instead of failing opaquely.
 let warnedMissingSummarize = false;
 let warnedUnknownOption = false;
+let warnedSummarizePolicy = false;
 
 async function runSummarize(args: string[], options: { timeout: number; maxBuffer: number }): Promise<string | null> {
   const bin = process.env.SUMMARIZE_BIN || "summarize";
+  try {
+    assertLibrarySummarizeInvocation(args);
+  } catch (error) {
+    if (!warnedSummarizePolicy) {
+      warnedSummarizePolicy = true;
+      console.error(`[library] summarize call blocked by Hilt's Claude-only policy: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return null;
+  }
   try {
     const { stdout } = await execFileAsync(bin, args, options);
     return stdout.trim() || null;
@@ -375,7 +386,7 @@ function durationToMs(value: string | undefined, fallbackMs: number): number {
 async function summarizeUrl(url: string): Promise<string | null> {
   if (process.env.LIBRARY_SUMMARIZE_DISABLED === "1") return null;
   const timeoutValue = process.env.LIBRARY_SUMMARIZE_TIMEOUT || "3m";
-  const args = [
+  const args = withPinnedLibrarySummarizeModel([
     url,
     "--plain",
     "--no-color",
@@ -385,10 +396,7 @@ async function summarizeUrl(url: string): Promise<string | null> {
     timeoutValue,
     "--prompt",
     DIGEST_PROMPT,
-  ];
-  if (process.env.LIBRARY_SUMMARIZE_MODEL) {
-    args.push("--model", process.env.LIBRARY_SUMMARIZE_MODEL);
-  }
+  ]);
   return runSummarize(args, { timeout: durationToMs(timeoutValue, 210000) + 5000, maxBuffer: 1024 * 1024 * 4 });
 }
 
@@ -399,7 +407,7 @@ async function summarizeText(title: string, content: string, options: { length?:
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "hilt-library-summarize-"));
   const filePath = path.join(dir, "source.md");
   const timeoutValue = process.env.LIBRARY_SUMMARIZE_TIMEOUT || "3m";
-  const args = [
+  const args = withPinnedLibrarySummarizeModel([
     filePath,
     "--plain",
     "--no-color",
@@ -409,10 +417,7 @@ async function summarizeText(title: string, content: string, options: { length?:
     timeoutValue,
     "--prompt",
     DIGEST_PROMPT,
-  ];
-  if (process.env.LIBRARY_SUMMARIZE_MODEL) {
-    args.push("--model", process.env.LIBRARY_SUMMARIZE_MODEL);
-  }
+  ]);
   try {
     await fs.promises.writeFile(filePath, `# ${title}\n\n${trimmed}`, "utf-8");
     return await runSummarize(args, { timeout: durationToMs(timeoutValue, 210000) + 5000, maxBuffer: 1024 * 1024 * 4 });

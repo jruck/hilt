@@ -53,8 +53,6 @@
     ".next-gateway/standalone",
     ".next-devtest/standalone",
     ".next-prod-test/standalone",
-    ".next-graph-dev",
-    ".next-graph-live",
     "release",
     "vitest.config.ts"
   ]

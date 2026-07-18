@@ -206,6 +206,7 @@ Reference Library workspace backed by markdown reference files and hidden candid
 - Feed/List scrolling never marks unread items read. A Library item becomes read only after it has been opened and the reader moves away from it by selecting another item, closing the reader, or backing out of detail. Auto-selection does not count as reading.
 - Desktop filter/content columns use slim persisted resize handles; defaults keep the filter rail narrow, the list/feed pane scannable, and the detail reader as the largest pane. On narrower widths the filter rail floats as a popover with its own shadow and no page-dimming backdrop.
 - `LibraryArtifactDetailPane` is shared across densities so rendered Markdown, media embeds, cache/source tabs, Save/Dismiss, and archive behavior stay consistent.
+- The score disclosure keeps Worth compact and labels the compatible `relevance` field as **Current fit**. Its expanded panel states `Worth = Current fit × Substance × Freshness`, names matched current work and terms, shows explicit active-connection and attention adjustments, and keeps pipeline versions plus selection-time score snapshots under a collapsed Technical details section.
 - The detail pane separates both copy roles: an unframed `Recommended for you` callout carries the pitch and recommendation date, followed by the normal source digest. Links from For You and Briefing carry `rec=<episode-id>` and passively hydrate that exact historical pitch; ordinary Library opens use the current active episode. Neither standard-feed indicators nor detail hydration report recommendation impressions.
 - `LibraryArtifactDetailPane` strips legacy manual-capture body chrome before rendering summaries, so old `← References` links and bold source/author/date clusters do not leak into the reader. The underlying repair CLI removes the same cruft from markdown files.
 - YouTube media is rendered through `YouTubeEmbed`, which uses the YouTube IFrame API plus direct embed commands to prefer 2x playback, keep the same iframe alive as a floating mini-player only while playback is active after the inline embed scrolls away, and accept seek requests from transcript rows. The floating player has hover controls to move, resize, or return it inline, and the reader adds bottom clearance while it is visible.
@@ -291,39 +292,9 @@ Shared 44px toolbar chrome for secondary navigation rows.
 
 ---
 
-## Graph Components
+## Retired Knowledge Graph
 
-All graph components live under `src/components/graph/` and are flag-gated: `GraphView` is loaded only via the `dynamic({ ssr: false })` branch in `SystemView` guarded by `isGraphEnabled()`, so nothing renders or imports when `HILT_GRAPH_ENABLED` is unset.
-
-### GraphView.tsx
-
-**File**: `src/components/graph/GraphView.tsx`
-
-The System → Graph sub-mode shell. Hosts the `SecondaryToolbar` with the System mode switcher (`left`) and the `GraphToolbar` (`right`), runs the first-run state machine off `/api/system/graph/meta` (disabled state with no WebGL context when the flag is off, a "Building graph index…" progress panel while `builtAt === null`, ready → mount canvas + freeze), owns the renderer instance across data refetches, maps click-throughs and hover off the parallel `meta[]` array (index-vs-id), focuses a deep-linked node two-phase once data arrives, and exposes `window.__hiltGraphStats` for e2e.
-
-### CosmosRenderer.ts / renderer.ts
-
-**Files**: `src/components/graph/CosmosRenderer.ts`, `src/components/graph/renderer.ts`
-
-`renderer.ts` defines the renderer-agnostic `GraphRenderer` interface so a WebGPU engine can swap in over the same binary buffers. `CosmosRenderer.ts` is the **only** file importing `@cosmos.gl/graph` (pinned 2.6.4): it owns one `Graph` on a container div, uploads precomputed coordinates into GPU buffers, freezes at rest via `render()` then `pause()` (`enableSimulation: false`), and wires hover/click. Note: cosmos.gl 2.6.4 mounts to a container `<div>` (it owns the `<canvas>`), so `mount` takes the container, not a bare canvas.
-
-### GraphToolbar.tsx
-
-**File**: `src/components/graph/GraphToolbar.tsx`
-
-Global/Local segmented control (Lucide `Globe`/`Locate`), a local-scope hop stepper, a flag-gated Show-tags toggle (`isGraphTagsEnabled()`), a legend popover, the read-only refresh button, and the "updated <relative> · updating" staleness chip.
-
-### decode.ts / device-budget.ts / graph-style.ts
-
-**Files**: `src/components/graph/{decode,device-budget,graph-style}.ts`
-
-`decode.ts` is the client-side `decodeGraphBinary` mirroring the wire contract (throws `GraphFormatError` on magic/version mismatch). `device-budget.ts` is a pure device-class → `GraphBudget` map (desktop GLOBAL default, mobile/tablet LOCAL, DPR clamped per class). `graph-style.ts` resolves the interned color-key table to RGBA per theme, derives `sqrt(degree)` sizes with a North-Star floor, and builds hover adjacency.
-
-### useGraphMeta.ts / useGraphData.ts / graph-deeplink.ts
-
-**Files**: `src/components/graph/{useGraphMeta,useGraphData,graph-deeplink}.ts`
-
-`useGraphMeta` drives the meta poll + WS `graph` channel subscription (10s `/meta` fallback when the socket is down). `useGraphData` fetches + decodes the binary payload (scope-aware). `graph-deeplink.ts` is the single source of the scope grammar (`buildGraphScope`/`parseGraphScope`, path-segment only) shared by `GraphView` and the three "Show in graph" surfaces.
+The former System Graph component tree and its cross-app “Show in graph” actions were removed on 2026-07-18. The unrelated System Sessions graph and Map work graph remain current. See the [semantic graph v1 tombstone](retired/semantic-graph-v1.md) for the preserved source and private-data capsule.
 
 ---
 

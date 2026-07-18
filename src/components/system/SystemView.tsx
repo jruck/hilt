@@ -2,12 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { Activity, Bot, FileText, Layers, Loader2, Map as MapIcon, Network, RefreshCw, Server } from "lucide-react";
+import { Activity, Bot, FileText, Layers, Loader2, Map as MapIcon, RefreshCw, Server } from "lucide-react";
 import { MapView } from "@/components/map/MapView";
 import { LocalAppsView } from "@/components/local-apps";
 import { PerformanceView } from "@/components/performance";
-import { isGraphEnabled } from "@/lib/graph/config";
-import { useIsMobile } from "@/hooks/useIsMobile";
 import { SystemSyncView } from "./SystemSyncView";
 import { StackFileTree, type StackFilterType } from "@/components/stack/StackFileTree";
 import { StackSummary } from "@/components/stack/StackSummary";
@@ -22,8 +20,6 @@ import type { SystemMode } from "@/lib/system/navigation";
 import { withBasePath } from "@/lib/base-path";
 
 const StackView = dynamic(() => import("@/components/stack").then((m) => ({ default: m.StackView })), { ssr: false });
-// cosmos.gl/luma.gl touch window/document at import time; the WebGL2 Graph must be client-only.
-const GraphView = dynamic(() => import("@/components/graph/GraphView").then((m) => ({ default: m.GraphView })), { ssr: false });
 
 export type { SystemMode } from "@/lib/system/navigation";
 
@@ -32,7 +28,6 @@ interface SystemViewProps {
   onModeChange: (mode: SystemMode) => void;
   searchQuery?: string;
   workingFolder: string;
-  scopePath?: string;
 }
 
 const BASE_MODES: Array<{ id: SystemMode; label: string; icon: typeof MapIcon; title: string }> = [
@@ -43,29 +38,15 @@ const BASE_MODES: Array<{ id: SystemMode; label: string; icon: typeof MapIcon; t
   { id: "performance", label: "Performance", icon: Activity, title: "Mercury closet & compute telemetry" },
 ];
 
-// Graph sub-mode is flag-gated: the tab is absent unless HILT_GRAPH_ENABLED is set.
-// Slotted right after Sessions (before Apps), not appended.
-const GRAPH_MODE = { id: "graph" as const, label: "Graph", icon: Network, title: "Knowledge graph of the vault" };
-const MODES = isGraphEnabled()
-  ? [BASE_MODES[0], GRAPH_MODE, ...BASE_MODES.slice(1)]
-  : BASE_MODES;
+const MODES = BASE_MODES;
 
 let cachedSystemStackState: {
   snapshots: SystemStackSnapshot[];
   selectedMachineId: string;
 } | null = null;
 
-export function SystemView({ mode, onModeChange, searchQuery = "", workingFolder, scopePath = "" }: SystemViewProps) {
-  // The knowledge graph is desktop/Electron-only (WebGL2 at scale + mobile Safari jetsam
-  // limits make it unsuitable on phones — Obsidian scopes its full graph the same way).
-  // Hide the tab and never load the cosmos chunk on mobile.
-  const isMobile = useIsMobile();
-  const graphAvailable = isGraphEnabled() && !isMobile;
-  const visibleModes = useMemo(
-    () => (graphAvailable ? MODES : MODES.filter((m) => m.id !== "graph")),
-    [graphAvailable],
-  );
-  const modeSwitcher = <SystemModeSwitcher mode={mode} onModeChange={onModeChange} modes={visibleModes} />;
+export function SystemView({ mode, onModeChange, searchQuery = "", workingFolder }: SystemViewProps) {
+  const modeSwitcher = <SystemModeSwitcher mode={mode} onModeChange={onModeChange} modes={MODES} />;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--bg-primary)] text-[var(--text-primary)]">
@@ -76,17 +57,6 @@ export function SystemView({ mode, onModeChange, searchQuery = "", workingFolder
           <LocalAppsView searchQuery={searchQuery} modeSwitcher={modeSwitcher} />
         ) : mode === "stack" ? (
           <SystemStackView workingFolder={workingFolder} searchQuery={searchQuery} modeSwitcher={modeSwitcher} />
-        ) : mode === "graph" && graphAvailable ? (
-          <GraphView searchQuery={searchQuery} modeSwitcher={modeSwitcher} scopePath={scopePath} />
-        ) : mode === "graph" && isGraphEnabled() && isMobile ? (
-          <div className="flex h-full min-h-0 flex-col" data-testid="graph-desktop-only">
-            <SecondaryToolbar left={modeSwitcher} right={null} />
-            <div className="hilt-mobile-fixed-clearance hilt-mobile-fixed-extra-3 flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
-              <Network className="h-6 w-6 text-[var(--text-tertiary)]" />
-              <div className="text-sm font-medium text-[var(--text-primary)]">Graph is desktop-only</div>
-              <div className="max-w-xs text-xs text-[var(--text-tertiary)]">Open the knowledge graph on the desktop app for the full WebGL view.</div>
-            </div>
-          </div>
         ) : mode === "performance" ? (
           <PerformanceView modeSwitcher={modeSwitcher} />
         ) : (

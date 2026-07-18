@@ -8,7 +8,7 @@ import { DEFAULT_SCORING_CONFIG, type LibraryScoringConfig } from "./scoring-con
  *     worth = relevance × substance × freshness_decay
  *
  * - **relevance** — does this bear on the practice? Vault-grounded connections (first-party ties dominate)
- *   + a light topical-fit signal, re-weighted on read against the *current* active context.
+ *   + deterministic explicit-context fit, re-weighted on read against the *current* active context.
  * - **substance** — how much worthwhile material the source carries. Model-judged at reweave when
  *   available; otherwise a structural proxy from format/length/duration. NOT the digest's verbosity.
  * - **freshness** — a gentle decay multiplier (floors at 0.6), never a standalone score.
@@ -60,10 +60,10 @@ export function structuralSubstance(s: SubstanceSignals): number {
   return Math.max(0.05, Math.min(1, Number(v.toFixed(3))));
 }
 
-function freshnessDecay(createdAt: string): number {
+function freshnessDecay(createdAt: string, now: Date): number {
   const t = new Date(createdAt).getTime();
   if (!Number.isFinite(t)) return 0.8;
-  const days = (Date.now() - t) / 86_400_000;
+  const days = (now.getTime() - t) / 86_400_000;
   if (days <= 7) return 1.0;
   if (days <= 30) return 0.95;
   if (days <= 90) return 0.85;
@@ -79,8 +79,7 @@ export const TO_ARCHIVE_WORTH = DEFAULT_SCORING_CONFIG.to_archive_worth;
 export interface EvalInputs {
   /** Woven ties (LLM-judged). */
   connections: ConnectionSuggestion[];
-  /** Topical fit to active projects/areas (0..~0.45): MAX of token-overlap and, for embedded
-   *  saved refs, embedding cosine (semantic-relevance.ts). Capped at 0.3 in the relevance term. */
+  /** Deterministic fit to active tasks/projects/areas/people (0..0.3), including explicit context. */
   contextFit: number;
   /** Top matched context label, for the "why". */
   contextLabel?: string | null;
@@ -105,15 +104,28 @@ export interface WorthResult {
   why: string;
 }
 
-export function evaluateArtifact(input: EvalInputs, config: LibraryScoringConfig = DEFAULT_SCORING_CONFIG): WorthResult {
+/** Readable Connections contribution to relevance, before the separate current-context fit. */
+export function connectionContribution(
+  connections: ConnectionSuggestion[],
+  config: LibraryScoringConfig = DEFAULT_SCORING_CONFIG,
+): number {
+  const firstPartyCount = connections.filter((connection) => isFirstParty(connection.target)).length;
+  const otherCount = connections.length - firstPartyCount;
+  return config.relevance.first_party_coeff * Math.sqrt(firstPartyCount)
+    + config.relevance.other_coeff * otherCount;
+}
+
+export function evaluateArtifact(
+  input: EvalInputs,
+  config: LibraryScoringConfig = DEFAULT_SCORING_CONFIG,
+  now: Date = new Date(),
+): WorthResult {
   const firstParty = input.connections.filter((c) => isFirstParty(c.target));
-  const fp = firstParty.length;
-  const other = input.connections.length - fp;
   const r = config.relevance;
   // Diminishing returns on ties so heavily-connected items don't all pin at the ceiling.
-  const relevance = Number(Math.min(1, r.first_party_coeff * Math.sqrt(fp) + r.other_coeff * other + Math.min(r.context_fit_cap, Math.max(0, input.contextFit))).toFixed(3));
+  const relevance = Number(Math.min(1, connectionContribution(input.connections, config) + Math.min(r.context_fit_cap, Math.max(0, input.contextFit))).toFixed(3));
   const substance = Math.max(0, Math.min(1, input.substance));
-  const freshness = freshnessDecay(input.createdAt);
+  const freshness = freshnessDecay(input.createdAt, now);
   const worth = Number((relevance * substance * freshness).toFixed(3));
 
   // Never flag an item we haven't actually analyzed — absence of ties there means "unknown", not "low".
@@ -133,8 +145,9 @@ export function evaluateArtifact(input: EvalInputs, config: LibraryScoringConfig
 function buildWhy(firstParty: ConnectionSuggestion[], relevance: number, substance: number, freshness: number, input: EvalInputs): string {
   const parts: string[] = [];
   const top = firstParty.slice(0, 2).map((c) => c.label).filter(Boolean).join(", ");
+  // Keep the internal compatibility label; user-facing surfaces render this field as "Current fit".
   if (top) parts.push(`relevance ${relevance} (${top}${firstParty.length > 2 ? ` +${firstParty.length - 2}` : ""})`);
-  else if (input.contextLabel) parts.push(`relevance ${relevance} (topical: ${input.contextLabel})`);
+  else if (input.contextLabel) parts.push(`relevance ${relevance} (current work: ${input.contextLabel})`);
   else parts.push(`relevance ${relevance}`);
   parts.push(`substance ${substance}`);
   if (freshness < 0.85) parts.push("aging");

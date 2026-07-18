@@ -2,11 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { Save, Loader2, AlertCircle, Copy, FolderOpen, Check, ExternalLink, MoreVertical, PanelLeftOpen, PanelLeftClose, Network, Info } from "lucide-react";
+import { Save, Loader2, AlertCircle, Copy, FolderOpen, Check, ExternalLink, MoreVertical, PanelLeftOpen, PanelLeftClose, Info } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { useScope } from "@/contexts/ScopeContext";
-import { isGraphEnabled } from "@/lib/graph/config";
-import { buildGraphScope } from "@/components/graph/graph-deeplink";
 import { buildReference } from "@/lib/references/build";
 import { copyToClipboard } from "@/lib/references/clipboard";
 import { MobileChromeContent, MobileChromeTopBar, useMobileChromeVisibilityLock } from "@/contexts/MobileChromeContext";
@@ -106,8 +103,6 @@ export function DocsContentPane({
   sidebarOpen,
 }: DocsContentPaneProps) {
   const isMobile = useIsMobile();
-  const { navigateTo } = useScope();
-  const graphEnabled = isGraphEnabled();
   const [saveError, setSaveError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showFrontmatter, setShowFrontmatter] = useState(false);
@@ -171,12 +166,6 @@ export function DocsContentPane({
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }, [filePath]);
-
-  // Show this file in the knowledge graph (focus the node by absolute path).
-  const handleShowInGraph = useCallback(() => {
-    if (!filePath) return;
-    navigateTo("system", buildGraphScope({ focus: filePath }));
-  }, [navigateTo, filePath]);
 
   // Reveal file in Finder
   const handleRevealInFinder = useCallback(async () => {
@@ -250,15 +239,6 @@ export function DocsContentPane({
                 <FolderOpen className="w-4 h-4 text-[var(--text-tertiary)]" />
                 Reveal in Finder
               </button>
-              {graphEnabled && (
-                <button
-                  onClick={() => { handleShowInGraph(); setShowOverflow(false); }}
-                  className="flex items-center gap-3 w-full px-4 py-3 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
-                >
-                  <Network className="w-4 h-4 text-[var(--text-tertiary)]" />
-                  Show in graph
-                </button>
-              )}
               {showNewTab && (
                 <button
                   onClick={() => { handleOpenInNewTab(); setShowOverflow(false); }}
@@ -291,15 +271,6 @@ export function DocsContentPane({
         >
           <FolderOpen className="w-4 h-4" />
         </button>
-        {graphEnabled && (
-          <button
-            onClick={handleShowInGraph}
-            className="p-1.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
-            title="Show in graph"
-          >
-            <Network className="w-4 h-4" />
-          </button>
-        )}
         {showNewTab && (
           <button
             onClick={handleOpenInNewTab}
@@ -311,7 +282,7 @@ export function DocsContentPane({
         )}
       </>
     );
-  }, [copied, graphEnabled, handleCopyPath, handleRevealInFinder, handleOpenInNewTab, handleShowInGraph, isMobile, showOverflow]);
+  }, [copied, handleCopyPath, handleRevealInFinder, handleOpenInNewTab, isMobile, showOverflow]);
 
   // Sidebar toggle button for content header
   const SidebarToggle = onToggleSidebar ? (

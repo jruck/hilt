@@ -6,6 +6,7 @@ import {
   type RecommendationDismissal,
   type RecommendationEpisode,
   type RecommendationEpisodeScores,
+  type LibraryScoringMethod,
   type RecommendationTrigger,
 } from "./types";
 import { atomicWriteFile, ensureDir, hashId, isoNow } from "./utils";
@@ -249,6 +250,10 @@ export function writeRecommendationBatch(
     context_window: { start: string; end: string };
     pool_size: number;
     picks: RecommendationPickInput[];
+    scoring_method?: LibraryScoringMethod;
+    scoring_config_version?: string;
+    editor_model?: string;
+    editor_prompt_version?: string;
   },
 ): RecommendationBatch {
   const generatedAt = input.generated_at || isoNow();
@@ -266,7 +271,13 @@ export function writeRecommendationBatch(
     why_now: pick.why_now.trim(),
     trigger_fingerprints: pick.triggers.map((trigger) => trigger.fingerprint),
   }));
-  const batchId = `batch-${idTimestamp(generatedAt)}-${hashId(`${generatedAt}:${input.kind}:${JSON.stringify(batchIdentity)}`, 8)}`;
+  const provenance = {
+    scoring_method: input.scoring_method,
+    scoring_config_version: input.scoring_config_version,
+    editor_model: input.editor_model,
+    editor_prompt_version: input.editor_prompt_version,
+  };
+  const batchId = `batch-${idTimestamp(generatedAt)}-${hashId(`${generatedAt}:${input.kind}:${JSON.stringify({ batchIdentity, provenance })}`, 8)}`;
   const episodes: RecommendationEpisode[] = validPicks.map((pick, index) => {
     const previous = previousByArtifact.get(pick.artifact_id) || null;
     return {
@@ -281,6 +292,7 @@ export function writeRecommendationBatch(
       is_resurface: Boolean(previous),
       previous_episode_id: previous?.id || null,
       previous_recommended_at: previous?.recommended_at || null,
+      ...provenance,
     };
   });
   const batch: RecommendationBatch = {
@@ -291,6 +303,7 @@ export function writeRecommendationBatch(
     context_window: input.context_window,
     pool_size: input.pool_size,
     episodes,
+    ...provenance,
   };
   const target = path.join(batchesDir(vaultPath), `${batch.id}.json`);
   ensureDir(path.dirname(target));

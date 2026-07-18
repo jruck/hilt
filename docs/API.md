@@ -433,76 +433,17 @@ Proxies Mercury `/api/series`. Returns `{ columns: string[], rows: MercurySample
 
 Proxies Mercury `/api/latest`. Returns `{ sample: MercurySample \| null, ageSeconds }`. A `MercurySample` carries `ts` plus nullable closet temp/humidity/motion, room/outdoor temp, cpu/gpu die temp + power, mem, load, cpu/gpu %, fan, thermal pressure (`src/hooks/useMercury.ts`).
 
-### Knowledge Graph (System → Graph)
+### Retired semantic/knowledge-graph routes
 
-Opt-in: every route below returns `404 { error: "Graph disabled" }` unless `HILT_GRAPH_ENABLED=true` (the `isGraphEnabled()` predicate). The graph index is a derived SQLite cache (`graph.sqlite` under `DATA_DIR`); markdown remains source of truth. `runtime = "nodejs"`, `dynamic = "force-dynamic"`.
+The former `/api/system/graph*` and `/api/system/semantic/*` implementations were
+removed on 2026-07-18. Minimal family-level tombstones return an empty HTTP `404`
+so Hilt's app-wide HTML catch-all cannot misreport a retired API as `200`; they expose
+no compatibility response, data, or hidden runner. The source and private data
+snapshots are indexed by [the retirement record](./retired/semantic-graph-v1.md).
 
-#### GET /api/system/graph
-
-Binary graph payload (`application/octet-stream`). The canonical wire format is a 32-byte header (magic `0x48474C31`, `TRANSPORT_FORMAT_VERSION`, node/edge counts, flag bits) followed by interleaved `Float32` positions, a `Uint8` color-key enum, `Float32` edge index-pairs (for cosmos.gl `setLinks`), and a JSON sidecar (`ids`, `labels`, interned `types` ordinals, `colorKeyTable`). `refPaths` is intentionally dropped from the sidecar and resolved lazily via `/node/:id` at click time. Response headers: `X-Graph-Format-Version`, `X-Graph-Layout-Version`, `X-Graph-Node-Count`, `X-Graph-Edge-Count`, `X-Graph-Truncated`.
-
-| Param | Type | Default | Notes |
-|-------|------|---------|-------|
-| `scope` | `global \| local` | `global` (desktop) | `local` BFS around an anchor (mobile default). |
-| `node` | encoded node id | — | Anchor for `scope=local`. Unresolvable → degrades to the highest-degree node, never 400. |
-| `hops` | int `1..3` | `2` | BFS depth, clamped. |
-| `limit` | int | device ceiling | Server enforces `HILT_GRAPH_MAX_NODES_MOBILE`/`_DESKTOP` regardless of request. |
-| `includeTags` | `0 \| 1` | `0` | Requires `HILT_GRAPH_TAGS=true`; default payload always filters tags by `type`. |
-| `includeIsolated` | `0 \| 1` | `0` | Degree-0 leaves are hidden by default (global only). |
-| `semanticEdges` | `0 \| 1` | `0` | Requires `HILT_GRAPH_SEMANTIC=true`. In **global** scope, includes the dense fuzzy semantic web (`similar`/`co_occurrence`) which is off by default (sparse `topic`/`entity` hubs + `item_topic`/`topic_parent` are always included when the overlay flag is on). **Local** scope always includes them (ring/fan-out caps bound them). With the overlay flag off, all overlay rows are excluded everywhere. |
-| `fmt` | `bin \| json` | `bin` | `json` returns the decoded selection (nodes/edges/byteLength) for debugging. |
-
-Local selection always keeps all 1-hop neighbors, fills 2-hop by ascending target degree until the cap, and caps per-node hub fan-out (`HILT_GRAPH_HUB_FANOUT_CAP`) so a person super-hub cannot swamp the set; `truncatedRings` reports which ring was clipped.
-
-#### GET /api/system/graph/meta
-
-JSON `GraphMeta`: counts, `builtAt`, `layoutVersion`/`layoutState`, first-run progress (`layoutPhase`/`nodesPlaced`/`totalNodes`), `dirty`/`stale`/`lastError`, reported `tagNodeCount` (never shipped in the default payload), the semantic-overlay counts `topicNodeCount`/`entityNodeCount` and `semanticBuilt` (gate the legend/filters on these), and device `budgets`. The client polls this first to drive its first-run state machine and scope/limit choice.
-
-#### GET /api/system/graph/node/[id]
-
-JSON single node + its immediate edges (inspector/hover). Includes `refPath` (the lazy-resolved navigation target dropped from the bulk sidecar). `404` for an unknown id → the client treats it as a stale-focus case (graceful fallback).
-
-#### POST /api/system/graph/rebuild
-
-Operational, monitor-first: full rebuild + relayout. Body `{ fullLayout?, bumpLayoutVersion? }`; response `{ ok, blocked, nodeCount, edgeCount, layoutVersion, durationMs }`. `409 { blocked: true }` if a layout/rebuild pass is already running (single-flight). Never deletes vault content. When `HILT_GRAPH_SEMANTIC=true`, the build tail also repaints the semantic overlay (topic/entity nodes + semantic edges) from `semantic.sqlite`.
-
----
-
-## Semantic Layer Routes
-
-Thin read wrappers over `src/lib/semantic/query.ts` (the same surface the `semantic` CLI binds to). All four `404` when `HILT_SEMANTIC_ENABLED` is unset — the whole subsystem is inert without the flag. JSON matches the CLI `--json` shape.
-
-#### GET /api/system/semantic/topics
-
-Topic exploration (the locked "first query"). Returns `TopicSummary[]`. `?recent=1` orders by recency/trend; `?parent=<id>` returns a parent topic's children (broad→specific drill-down).
-
-#### GET /api/system/semantic/topic/[id]
-
-A `TopicDetail` — the topic plus its child topics, top member items, and lineage history. `404` for an unknown topic id (mirrors the CLI's "no topic" exit).
-
-#### GET /api/system/semantic/related
-
-`?item=<itemId>&k=N` → items semantically related to an item via embedding KNN (chunk-grain, rolled up to items by max cosine). Returns `RelatedHit[]`. `400` when `item` is missing.
-
-#### GET /api/system/semantic/entity/[name]
-
-Resolve an entity by canonical name or alias → an `EntityResult` (entity + its top items). `404` when no entity matches.
-
-### Semantic CLI + scheduler (P2.4)
-
-The layer's heavy/periodic work runs as CLI entrypoints (the launchd jobs and the runner share the same code path), never on the request path. All gate on `HILT_SEMANTIC_ENABLED` (`--force` overrides for a manual dev run), so a stray installed plist is a no-op when the feature is off.
-
-- `npm run semantic:backfill` — cold-start backfill (default mode): scan → chunk → embed → extract → cluster. Idempotent/resumable. Blesses `active_version` on a true cold-start. `-- --limit N` for a cheap slice.
-- `npm run semantic:backfill:cold` — alias for the `cold-start` mode (the launchd cold-start job).
-- `npm run semantic:backfill -- sample --review-batch <label>` — a coexistence/decimal pass: writes new-version rows **without** blessing the live baseline and registers the sample items + the `docs/semantic-review-notes/<version>.md` note into the **sibling** semantic review queue.
-- `npm run semantic:gc` — drop rows whose `semantic_version != active_version` (run after a bless flip; analog of `library:candidates:cleanup`).
-- `npm run semantic:refit` — the signal-gated BALANCED weekly global re-fit (`--force` to override the drift gate).
-- `npm run semantic:scheduler:plan` — print the `com.hilt.semantic.*` launchd jobs (cold-start / refit / gc) without installing.
-- `npm run semantic:scheduler:install` / `npm run semantic:scheduler:uninstall` — write/load or unload/remove the launchd plists (dry-run by default; reuses the shared `scripts/launchd-scheduler.ts` helper that the Library scheduler also uses).
-
-The incremental path is the **SemanticRunner** (`src/lib/semantic/runner.ts`), not a CLI — it is instantiated by `ws-server.ts` only when `HILT_SEMANTIC_ENABLED=true` and embeds/extracts a changed item (one embed call) then slots it into the nearest existing topic with no re-cluster.
-
----
+This does not affect `/api/system/sessions/graph` or
+`/api/map/local/work-graph`; those are active session/work-map APIs with no
+dependency on the retired knowledge graph.
 
 ## Local Apps Routes
 

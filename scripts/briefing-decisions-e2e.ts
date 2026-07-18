@@ -73,8 +73,6 @@ async function main(): Promise<void> {
       HILT_LIBRARY_INTAKE_DAEMON: "0",
       HILT_GRANOLA_SYNC_DAEMON: "0",
       HILT_CALENDAR_SYNC_DAEMON: "0",
-      HILT_GRAPH_ENABLED: "false",
-      HILT_SEMANTIC_ENABLED: "false",
       LIBRARY_CONNECTIONS_DISABLED: "1",
       NEXT_TELEMETRY_DISABLED: "1",
     };

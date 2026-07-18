@@ -375,6 +375,31 @@ export interface LibraryComment {
 }
 
 /** L3 eval attributes for one study item — computed on demand, never stamped. */
+export type LibraryScoringMethod = "explicit_context_hybrid";
+
+export interface LibraryContextEvidence {
+  method: LibraryScoringMethod;
+  scoring_config_version: string;
+  /** Existing readable Connections contribution to the overall relevance term. */
+  connection_score: number;
+  /** BM25F contribution before explicit-connection and attention adjustments. */
+  lexical_score: number;
+  matched_signals: Array<{
+    kind: "task" | "project" | "area" | "person";
+    label: string;
+    target: string | null;
+    matched_terms: string[];
+  }>;
+  matched_terms: string[];
+  active_connection_targets: Array<{ target: string; label: string }>;
+  active_connection_boost: number;
+  attention_tier: "high" | "medium" | "low" | null;
+  attention_adjustment: number;
+  attention_reason?: string;
+  context_score: number;
+  context_capped: boolean;
+}
+
 export interface LibraryEvalAttrs {
   worth: number;
   relevance: number;
@@ -382,6 +407,9 @@ export interface LibraryEvalAttrs {
   freshness: number;
   lifecycle: LibraryLifecycle;
   why: string;
+  scoring_method?: LibraryScoringMethod;
+  scoring_config_version?: string;
+  context_evidence?: LibraryContextEvidence;
 }
 
 export interface YouTubeClipReviewAttrs {
@@ -672,6 +700,10 @@ export interface RecommendationEpisode {
   is_resurface: boolean;
   previous_episode_id: string | null;
   previous_recommended_at: string | null;
+  scoring_method?: LibraryScoringMethod;
+  scoring_config_version?: string;
+  editor_model?: string;
+  editor_prompt_version?: string;
 }
 
 export interface RecommendationBatch {
@@ -682,6 +714,10 @@ export interface RecommendationBatch {
   context_window: { start: string; end: string };
   pool_size: number;
   episodes: RecommendationEpisode[];
+  scoring_method?: LibraryScoringMethod;
+  scoring_config_version?: string;
+  editor_model?: string;
+  editor_prompt_version?: string;
 }
 
 export interface RecommendationDismissal {
@@ -701,4 +737,10 @@ export interface RecommendationPresentation {
   triggers: RecommendationTrigger[];
   is_resurface: boolean;
   previous_recommended_at: string | null;
+  /** Scores frozen at editorial selection time; current card scores stay in eval_attrs/top-level fields. */
+  selection_scores?: RecommendationEpisodeScores;
+  scoring_method?: LibraryScoringMethod;
+  scoring_config_version?: string;
+  editor_model?: string;
+  editor_prompt_version?: string;
 }

@@ -4,7 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, CheckCircle2, ChevronDown, Loader2, RefreshCw } from "lucide-react";
 import { useLibraryHealth } from "@/hooks/useLibrary";
 import { LoadingState } from "@/components/ui/LoadingState";
-import type { LibraryOperationalHealth, LibrarySchedulerJobSummary } from "@/lib/library/types";
+import type {
+  LibraryHealthIssue,
+  LibraryHealthIssueScope,
+  LibraryHealthIssueSeverity,
+  LibraryOperationalHealth,
+  LibrarySchedulerJobSummary,
+} from "@/lib/library/types";
 
 function relativeTime(value: string | null): string {
   if (!value) return "never";
@@ -52,19 +58,54 @@ function errorSummary(value: string | null): string | null {
   return value.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || null;
 }
 
-function healthCounts(health: LibraryOperationalHealth | null) {
+export function healthCounts(health: LibraryOperationalHealth | null) {
   if (!health) return { blocked: 0, warnings: 0, notices: 0 };
-  const blockedSources = health.sources.filter((source) => source.status === "blocked").length;
-  const warningSources = health.sources.filter((source) => source.status === "warning").length;
-  const blockedJobs = health.scheduler.jobs.filter((job) => job.status === "blocked").length;
-  const warningJobs = health.scheduler.jobs.filter((job) => job.status === "warning").length;
   const notices = health.scheduler.jobs.filter((job) => job.stderr_current && job.stderr_bytes > 0 && job.status === "ok").length;
-  const recommendationWarnings = health.recommendations.last_error ? 1 : 0;
   return {
-    blocked: blockedSources + blockedJobs + health.intake.blocked,
-    warnings: warningSources + warningJobs + health.dead_letters.unresolved + recommendationWarnings,
+    blocked: health.summary.critical,
+    warnings: health.summary.warning,
     notices,
   };
+}
+
+function issueHealthStatus(issue: LibraryHealthIssue | null): HealthStatus {
+  if (issue?.severity === "critical") return "blocked";
+  if (issue?.severity === "warning") return "warning";
+  if (issue?.severity === "working") return "active";
+  return "ok";
+}
+
+function mostImportantIssue(
+  health: LibraryOperationalHealth | null,
+  scope: LibraryHealthIssueScope,
+): LibraryHealthIssue | null {
+  if (!health) return null;
+  const weight: Record<LibraryHealthIssueSeverity, number> = { critical: 3, warning: 2, working: 1 };
+  return health.issues
+    .filter((issue) => issue.scope === scope)
+    .sort((a, b) => weight[b.severity] - weight[a.severity])[0] || null;
+}
+
+function IssueGroup({ title, issues }: { title: string; issues: LibraryHealthIssue[] }) {
+  if (!issues.length) return null;
+  return (
+    <section className="mb-3 overflow-hidden rounded-md border border-[var(--border-default)]">
+      <div className="border-b border-[var(--border-default)] px-3 py-2 font-medium text-[var(--text-primary)]">{title}</div>
+      <div>
+        {issues.map((issue) => (
+          <div key={issue.id} data-health-issue={issue.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 border-b border-[var(--border-default)] p-2.5 last:border-b-0">
+            <div className="min-w-0">
+              <div className="font-medium text-[var(--text-primary)]">{issue.title}</div>
+              <div className="mt-0.5 text-[var(--text-tertiary)]">{issue.message}</div>
+            </div>
+            <span className={`self-start rounded-full border px-2 py-0.5 ${statusClass(issueHealthStatus(issue))}`}>
+              {issue.severity === "working" ? "working" : issue.severity}
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 function RuntimeHealthRow({
@@ -96,13 +137,14 @@ function RuntimeHealthRow({
   );
 }
 
-function summaryText(health: LibraryOperationalHealth | null): string {
+export function summaryText(health: LibraryOperationalHealth | null): string {
   if (!health) return "Library health loading";
   const counts = healthCounts(health);
   const warningLabel = `${counts.warnings} ${counts.warnings === 1 ? "warning" : "warnings"}`;
-  if (counts.blocked && counts.warnings) return `${counts.blocked} blocked · ${warningLabel}`;
-  if (counts.blocked) return `${counts.blocked} blocked`;
+  if (counts.blocked && counts.warnings) return `${counts.blocked} critical · ${warningLabel}`;
+  if (counts.blocked) return `${counts.blocked} critical`;
   if (counts.warnings) return warningLabel;
+  if (health.summary.working) return `Healthy · ${health.summary.working} working`;
   if (counts.notices) return `${health.scheduler.loaded}/${health.scheduler.expected} jobs loaded, ${counts.notices} log notices`;
   return `${health.scheduler.loaded}/${health.scheduler.expected} jobs loaded`;
 }
@@ -157,6 +199,12 @@ export function LibraryHealthPanel({
   const healthBadgeClass = counts.blocked ? "bg-red-500 text-white" : "bg-amber-500 text-white";
   const refreshInFlight = isManualRefresh || Boolean(isValidating && health);
   const recommendationError = errorSummary(health?.recommendations.last_error || null);
+  const recommendationIssue = mostImportantIssue(health, "recommendations");
+  const deadLetterIssue = mostImportantIssue(health, "dead_letters");
+  const intakeIssue = mostImportantIssue(health, "intake");
+  const enrichmentIssue = mostImportantIssue(health, "reweave");
+  const alertIssues = health?.issues.filter((issue) => issue.severity !== "working") || [];
+  const workingIssues = health?.issues.filter((issue) => issue.severity === "working") || [];
   const recommendationDetail = health ? [
     health.recommendations.last_success_at ? `Last success ${relativeAgo(health.recommendations.last_success_at)}` : "No successful run",
     health.recommendations.last_batch_id ? `${health.recommendations.last_batch_size} selected` : null,
@@ -165,19 +213,15 @@ export function LibraryHealthPanel({
   ].filter(Boolean).join(" · ") : "";
   const intakeStatus: HealthStatus = !health?.intake.enabled
     ? "disabled"
-    : health.intake.blocked > 0
-      ? "blocked"
-      : health.intake.running || health.intake.active > 0
-        ? "active"
-        : "ok";
+    : issueHealthStatus(intakeIssue);
   const intakeStatusLabel = !health?.intake.enabled
     ? "disabled"
-    : health.intake.blocked > 0
-      ? `${health.intake.blocked} blocked`
+    : intakeIssue?.severity === "warning"
+      ? `${intakeIssue.count} need${intakeIssue.count === 1 ? "s" : ""} attention`
       : health.intake.running
         ? "checking"
-        : health.intake.active > 0
-          ? `${health.intake.active} active`
+        : intakeIssue?.severity === "working"
+          ? "working"
           : "ok";
   const intakeDetail = health ? [
     health.intake.foreground ? "Foreground polling" : "Background polling",
@@ -187,10 +231,11 @@ export function LibraryHealthPanel({
     health.intake.oldest_queued_at ? `oldest ${relativeAgo(health.intake.oldest_queued_at)}` : null,
   ].filter(Boolean).join(" · ") : "";
   const reweaveDetail = health ? [
-    `${health.reweave.pending} pending`,
-    `${health.reweave.version_behind} version${health.reweave.version_behind === 1 ? "" : "s"} behind`,
-    `drained ${relativeAgo(health.reweave.last_drained_at)}`,
-    health.reweave.last_throttled_at ? `last throttle ${relativeAgo(health.reweave.last_throttled_at)}` : null,
+    health.reweave.backlog > 0
+      ? `${health.reweave.backlog} scheduled for the overnight context pass`
+      : "nothing waiting",
+    `last pass ${relativeAgo(health.reweave.last_drained_at)}`,
+    health.reweave.last_throttled_at ? `last paused ${relativeAgo(health.reweave.last_throttled_at)}` : null,
   ].filter(Boolean).join(" · ") : "";
   const deadLetterDetail = health ? [
     `${health.dead_letters.total} total`,
@@ -317,6 +362,8 @@ export function LibraryHealthPanel({
           )}
 
           {health && (<>
+            <IssueGroup title="Needs attention" issues={alertIssues} />
+            <IssueGroup title="Working or scheduled" issues={workingIssues} />
             <section className="mb-3 overflow-hidden rounded-md border border-[var(--border-default)]">
               <div className="flex items-center justify-between gap-2 border-b border-[var(--border-default)] px-3 py-2">
                 <span className="font-medium text-[var(--text-primary)]">Runtime</span>
@@ -326,17 +373,17 @@ export function LibraryHealthPanel({
                 <RuntimeHealthRow
                   title="Recommendations"
                   detail={recommendationDetail}
-                  status={recommendationError ? "warning" : "ok"}
-                  statusLabel={recommendationError ? "warning" : "ok"}
-                  error={recommendationError}
+                  status={issueHealthStatus(recommendationIssue)}
+                  statusLabel={recommendationIssue?.severity || "ok"}
+                  error={recommendationIssue?.severity === "warning" ? recommendationIssue.message : recommendationError}
                   testId="library-health-recommendations"
                   className="border-b border-[var(--border-default)] sm:border-r"
                 />
                 <RuntimeHealthRow
                   title="Dead letters"
                   detail={deadLetterDetail}
-                  status={health.dead_letters.unresolved > 0 ? "warning" : "ok"}
-                  statusLabel={health.dead_letters.unresolved > 0 ? `${health.dead_letters.unresolved} warning${health.dead_letters.unresolved === 1 ? "" : "s"}` : "ok"}
+                  status={issueHealthStatus(deadLetterIssue)}
+                  statusLabel={deadLetterIssue?.severity || "ok"}
                   testId="library-health-dead-letters"
                   className="border-b border-[var(--border-default)]"
                 />
@@ -349,10 +396,10 @@ export function LibraryHealthPanel({
                   className="border-b border-[var(--border-default)] sm:border-b-0 sm:border-r"
                 />
                 <RuntimeHealthRow
-                  title="Reweave"
+                  title="Context enrichment"
                   detail={reweaveDetail}
-                  status={health.reweave.backlog > 0 ? "active" : "ok"}
-                  statusLabel={health.reweave.backlog > 0 ? `${health.reweave.backlog} queued` : "ok"}
+                  status={issueHealthStatus(enrichmentIssue)}
+                  statusLabel={enrichmentIssue?.severity === "working" ? `${enrichmentIssue.count} scheduled` : enrichmentIssue?.severity || "ok"}
                   testId="library-health-reweave"
                 />
               </div>

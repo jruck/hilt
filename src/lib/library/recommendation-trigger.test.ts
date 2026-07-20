@@ -3,8 +3,17 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { writeRecommendationRuntime } from "./recommendation-store";
-import { LibraryRecommendationRunner, recommendationRunTimeoutMs } from "./recommendation-trigger";
+import {
+  readRecommendationRuntime,
+  recommendationLocalDayKey,
+  writeRecommendationRuntime,
+} from "./recommendation-store";
+import {
+  isRecommendationContextPath,
+  LibraryRecommendationRunner,
+  recommendationRunTimeoutMs,
+  reconcileRecommendationPendingReasons,
+} from "./recommendation-trigger";
 
 function setup(t: test.TestContext) {
   const previousData = process.env.DATA_DIR;
@@ -150,6 +159,59 @@ test("context refresh runs only after the strong-match preflight", async (t) => 
     assert.equal(runs, 1);
   } finally {
     accepted.stop();
+  }
+});
+
+test("transcripts and other paths excluded from the editor context cannot trigger refresh", async (t) => {
+  const { vault } = setup(t);
+  assert.equal(isRecommendationContextPath(vault, "meetings/2026-07-20/notes.md"), true);
+  assert.equal(isRecommendationContextPath(vault, "meetings/transcripts/private.md"), false);
+  assert.equal(isRecommendationContextPath(vault, "references/item.md"), false);
+
+  let runs = 0;
+  const runner = new LibraryRecommendationRunner(vault, () => {}, async () => { runs += 1; }, () => true);
+  try {
+    runner.noteContext("meetings/transcripts/private.md");
+    await settle();
+    assert.equal(runs, 0);
+    assert.deepEqual(readRecommendationRuntime(vault).pending_reasons, []);
+  } finally {
+    runner.stop();
+  }
+});
+
+test("resume removes persisted transcript triggers that cannot enter the editor context", async (t) => {
+  const { vault } = setup(t);
+  writeRecommendationRuntime(vault, {
+    pending: true,
+    pending_since: "2026-07-20T10:00:00.000Z",
+    pending_reasons: ["context-match:meetings/transcripts/private.md"],
+  });
+  const reconciled = reconcileRecommendationPendingReasons(vault);
+  assert.equal(reconciled.pending, false);
+  assert.equal(reconciled.pending_since, null);
+  assert.deepEqual(reconciled.pending_reasons, []);
+});
+
+test("one successful refresh exhausts only the refresh slot for the local day", async (t) => {
+  const { vault } = setup(t);
+  const day = recommendationLocalDayKey(new Date());
+  writeRecommendationRuntime(vault, {
+    pending: true,
+    pending_since: new Date(Date.now() - 1_000).toISOString(),
+    pending_reasons: ["artifact:references/new-save.md"],
+    automatic_runs_by_day: { [day]: 2 },
+    automatic_runs_by_kind_by_day: { [day]: { morning: 1, refresh: 1 } },
+  });
+  let runs = 0;
+  const runner = new LibraryRecommendationRunner(vault, () => {}, async () => { runs += 1; }, () => true);
+  try {
+    await runner.kick();
+    await settle();
+    assert.equal(runs, 0);
+    assert.equal(readRecommendationRuntime(vault).pending, true, "work remains queued for the next local day");
+  } finally {
+    runner.stop();
   }
 });
 

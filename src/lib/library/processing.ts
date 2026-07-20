@@ -4,7 +4,6 @@ import type {
   DigestionProgressEvent,
   LibraryArtifact,
   LibraryIntakeArtifactResult,
-  LibraryProcessingStage,
   LibraryProcessingState,
   LibrarySourceConfig,
   RawArtifact,
@@ -435,20 +434,123 @@ export function retryProcessingArtifact(vaultPath: string, artifactUid: string):
   return updated;
 }
 
+export interface LibraryProcessingQueueStaleRecord {
+  artifact_uid: string;
+  path: string;
+  queue_path: string;
+  queue_status: LibraryProcessingQueueRecord["status"];
+  reason: "artifact_ready";
+}
+
+export interface LibraryProcessingQueueReconciliation {
+  dry_run: boolean;
+  scanned: number;
+  stale: number;
+  removed: number;
+  records: LibraryProcessingQueueStaleRecord[];
+}
+
+function readyArtifactForQueueRecord(vaultPath: string, record: LibraryProcessingQueueRecord): boolean {
+  const vaultRoot = path.resolve(vaultPath);
+  if (path.resolve(record.vault_path) !== vaultRoot) return false;
+  const target = path.resolve(vaultRoot, record.target_path);
+  if (target !== vaultRoot && !target.startsWith(`${vaultRoot}${path.sep}`)) return false;
+  if (!fs.existsSync(target)) return false;
+  try {
+    const parsed = parseMarkdownFile(target);
+    if (parsed.data.artifact_uid !== record.artifact_uid) return false;
+    const processing = parsed.data.processing as LibraryProcessingState | undefined;
+    return processing?.state === "ready";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Finds queue records whose matching markdown artifact already reached the durable ready state.
+ * These records are redundant operational residue, commonly left by an out-of-band repair path.
+ * Read paths use the same classifier but never delete; callers must opt into `write` explicitly.
+ */
+export function reconcileProcessingQueue(
+  vaultPath: string,
+  options: {
+    write?: boolean;
+    /** Test/maintenance seam used to prove a record changed after the initial scan is preserved. */
+    beforeRemove?: (record: LibraryProcessingQueueStaleRecord) => void;
+  } = {},
+): LibraryProcessingQueueReconciliation {
+  const records = listProcessingQueue(vaultPath, { includeBlocked: true });
+  const staleEntries = records
+    .filter((record) => readyArtifactForQueueRecord(vaultPath, record))
+    .map((record) => ({
+      original: record,
+      result: {
+        artifact_uid: record.artifact_uid,
+        path: record.target_path,
+        queue_path: libraryProcessingQueuePath(vaultPath, record.artifact_uid),
+        queue_status: record.status,
+        reason: "artifact_ready" as const,
+      },
+    }));
+  const stale = staleEntries.map((entry) => entry.result);
+
+  let removed = 0;
+  if (options.write) {
+    for (const { original, result } of staleEntries) {
+      options.beforeRemove?.(result);
+      // The worker may have retried or rewritten this UID after our initial scan. Re-read the exact
+      // path immediately before unlinking and require the queue identity, state, timestamp, and
+      // matching ready Markdown to remain unchanged. A changed record is live work, not residue.
+      const current = readProcessingQueueRecord(result.queue_path);
+      if (!current) {
+        removed += 1;
+        continue;
+      }
+      if (current.artifact_uid !== original.artifact_uid
+        || current.vault_path !== original.vault_path
+        || current.target_path !== original.target_path
+        || current.status !== original.status
+        || current.updated_at !== original.updated_at
+        || !readyArtifactForQueueRecord(vaultPath, current)) continue;
+      try {
+        fs.unlinkSync(result.queue_path);
+        removed += 1;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          removed += 1;
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
+
+  return {
+    dry_run: !options.write,
+    scanned: records.length,
+    stale: stale.length,
+    removed,
+    records: stale,
+  };
+}
+
 export function processingQueueSummary(vaultPath: string): {
   queue_depth: number;
   active: number;
   blocked: number;
+  stale_records: number;
   oldest_queued_at: string | null;
   active_item: { artifact_uid: string; title: string; path: string } | null;
 } {
   const records = listProcessingQueue(vaultPath, { includeBlocked: true });
-  const queued = records.filter((record) => record.status !== "blocked");
-  const active = records.find((record) => record.status === "active") || null;
+  const current = records.filter((record) => !readyArtifactForQueueRecord(vaultPath, record));
+  const queued = current.filter((record) => record.status !== "blocked");
+  const active = current.find((record) => record.status === "active") || null;
   return {
     queue_depth: queued.length,
-    active: records.filter((record) => record.status === "active").length,
-    blocked: records.filter((record) => record.status === "blocked").length,
+    active: current.filter((record) => record.status === "active").length,
+    blocked: current.filter((record) => record.status === "blocked").length,
+    stale_records: records.length - current.length,
     oldest_queued_at: queued[0]?.queued_at || null,
     active_item: active ? {
       artifact_uid: active.artifact_uid,

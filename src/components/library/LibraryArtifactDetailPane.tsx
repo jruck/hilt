@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Archive, ArrowLeft, Check, ChevronDown, Clock, Copy, FileText, Layers, Link2, Loader2, Play, RotateCcw, Sparkles, Target, ThumbsDown, X, Zap, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Archive, ArrowLeft, Ban, Check, ChevronDown, Clock, Copy, FileText, Layers, Link2, Loader2, Play, RotateCcw, Sparkles, Target, ThumbsDown, X, Zap, type LucideIcon } from "lucide-react";
 import type { ReviewQueueStatus } from "@/lib/library/review-queue";
 import type { LibraryEvalAttrs, RecommendationPresentation } from "@/lib/library/types";
 import { useScope } from "@/contexts/ScopeContext";
-import { retryLibraryProcessing, useLibraryArtifact, useRecommendationEpisodes } from "@/hooks/useLibrary";
+import { resolveLibrarySource, retryLibraryProcessing, useLibraryArtifact, useRecommendationEpisodes } from "@/hooks/useLibrary";
 import { attentionJudgmentFromFrontmatter, connectionPassEvidence, connectionPassState, connectionSuggestionsFromFrontmatter } from "@/lib/library/connection-state";
 import { stripLegacyReferenceBodyCruft } from "@/lib/library/legacy-cleanup";
 import { getYouTubeVideoId } from "@/lib/library/media";
@@ -389,7 +389,9 @@ export function LibraryArtifactDetailPane({
   const [seekRequest, setSeekRequest] = useState<YouTubeSeekRequest | null>(null);
   const [copied, setCopied] = useState<"link" | "path" | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [markingUnavailable, setMarkingUnavailable] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  const [retryNotice, setRetryNotice] = useState<string | null>(null);
   // Sticky across item switches: persisted so the metadata panel stays open/closed as you move between
   // items until you toggle it. (The pane remounts per item, so the state lives in localStorage.)
   const [metaOpen, setMetaOpen] = useState<boolean>(() => {
@@ -411,7 +413,9 @@ export function LibraryArtifactDetailPane({
     setSeekRequest(null);
     setCopied(null);
     setRetrying(false);
+    setMarkingUnavailable(false);
     setRetryError(null);
+    setRetryNotice(null);
   }, [id]);
 
   useEffect(() => {
@@ -461,7 +465,11 @@ export function LibraryArtifactDetailPane({
   const transcriptSegments = videoId ? parseTimedTranscript(sourceMarkdown) : [];
   const hasTimedTranscript = transcriptSegments.length >= 2;
   const isCandidate = artifact.lifecycle_status === "candidate";
-  const processingIncomplete = Boolean(artifact.processing && artifact.processing.state !== "ready");
+  const processingIncomplete = Boolean(
+    artifact.processing
+      && artifact.processing.state !== "ready"
+      && !artifact.source_resolution,
+  );
   const processingDeferred = Boolean(
     artifact.processing
       && artifact.processing.state === "ready"
@@ -492,14 +500,32 @@ export function LibraryArtifactDetailPane({
   const retryProcessing = async () => {
     setRetrying(true);
     setRetryError(null);
+    setRetryNotice(null);
     try {
-      await retryLibraryProcessing(artifact.id);
+      const result = await retryLibraryProcessing(artifact.id);
+      setRetryNotice(result?.recovery === "next_scheduled_refetch"
+        ? "Retry reset. Hilt will try this source in the next scheduled recovery pass."
+        : "Retry queued. Hilt is processing this source again.");
       await mutate();
       onChanged?.();
     } catch (error) {
       setRetryError(error instanceof Error ? error.message : "Retry failed");
     } finally {
       setRetrying(false);
+    }
+  };
+  const markSourceResolution = async (status: "unavailable" | "accepted_limited") => {
+    setMarkingUnavailable(true);
+    setRetryError(null);
+    setRetryNotice(null);
+    try {
+      await resolveLibrarySource(artifact.id, status);
+      await mutate();
+      onChanged?.();
+    } catch (error) {
+      setRetryError(error instanceof Error ? error.message : "Could not save source resolution");
+    } finally {
+      setMarkingUnavailable(false);
     }
   };
   const hiltUrl = typeof window === "undefined"
@@ -589,6 +615,11 @@ export function LibraryArtifactDetailPane({
         </div>
         <h1 className="text-xl font-semibold leading-tight text-[var(--text-primary)] sm:text-2xl">{artifact.title}</h1>
         <LibrarySeriesPanel artifact={artifact} />
+        {retryNotice && (
+          <div className="mt-4 rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-2 text-xs leading-5 text-[var(--text-secondary)]">
+            {retryNotice}
+          </div>
+        )}
         {recommendation && (
           <div data-testid="library-recommendation-context" className="mt-4 border-l-2 border-[var(--accent-primary)] bg-[var(--bg-secondary)] px-3 py-2.5">
             <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-[var(--text-tertiary)]">
@@ -614,6 +645,28 @@ export function LibraryArtifactDetailPane({
                   {retrying ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" /> : <RotateCcw className="h-4 w-4" />}
                   Retry
                 </button>
+                {(artifact.processing.stage === "capture" || artifact.processing.stage === "transcribe") && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => { void markSourceResolution("accepted_limited"); }}
+                      disabled={markingUnavailable || retrying}
+                      className="inline-flex min-h-9 items-center gap-2 rounded-md px-2 text-xs font-medium text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-wait disabled:opacity-60"
+                    >
+                      <Check className="h-4 w-4" />
+                      Keep limited capture
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { void markSourceResolution("unavailable"); }}
+                      disabled={markingUnavailable || retrying}
+                      className="inline-flex min-h-9 items-center gap-2 rounded-md px-2 text-xs font-medium text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {markingUnavailable ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" /> : <Ban className="h-4 w-4" />}
+                      Mark source unavailable
+                    </button>
+                  </>
+                )}
                 {retryError && <span className="text-xs text-red-500">{retryError}</span>}
               </div>
             )}
@@ -622,6 +675,66 @@ export function LibraryArtifactDetailPane({
         {artifact.attention && artifact.processing?.state !== "blocked" && (
           <div className="mt-4 rounded-md border border-amber-500/20 bg-amber-500/5 p-3">
             <AttentionStatus attention={artifact.attention} standalone />
+            <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-amber-500/15 pt-3">
+              <button
+                type="button"
+                onClick={() => { void retryProcessing(); }}
+                disabled={retrying || markingUnavailable}
+                className="inline-flex min-h-9 items-center gap-2 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:cursor-wait disabled:opacity-60"
+              >
+                {retrying ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                Retry source
+              </button>
+              <button
+                type="button"
+                onClick={() => { void markSourceResolution("accepted_limited"); }}
+                disabled={markingUnavailable || retrying}
+                className="inline-flex min-h-9 items-center gap-2 rounded-md px-2 text-xs font-medium text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-wait disabled:opacity-60"
+              >
+                <Check className="h-4 w-4" />
+                Keep limited capture
+              </button>
+              <button
+                type="button"
+                onClick={() => { void markSourceResolution("unavailable"); }}
+                disabled={markingUnavailable || retrying}
+                className="inline-flex min-h-9 items-center gap-2 rounded-md px-2 text-xs font-medium text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-wait disabled:opacity-60"
+              >
+                {markingUnavailable ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" /> : <Ban className="h-4 w-4" />}
+                Mark source unavailable
+              </button>
+              {retryError && <span className="text-xs text-red-500">{retryError}</span>}
+            </div>
+          </div>
+        )}
+        {artifact.source_resolution && (
+          <div className="mt-4 rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] p-3">
+            <div className="flex items-start gap-2.5">
+              <Check className="mt-0.5 h-4 w-4 shrink-0 text-[var(--text-tertiary)]" aria-hidden />
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-[var(--text-secondary)]">
+                  {artifact.source_resolution.status === "unavailable" ? "Source marked unavailable" : "Limited source accepted"}
+                </div>
+                <p className="mt-1 text-xs leading-5 text-[var(--text-tertiary)]">
+                  Hilt will keep this item, leave it unscored, and stop automatic source retries.
+                </p>
+                {artifact.source_resolution.reason && (
+                  <p className="mt-1 text-xs leading-5 text-[var(--text-tertiary)]">{artifact.source_resolution.reason}</p>
+                )}
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-[var(--border-default)] pt-3">
+              <button
+                type="button"
+                onClick={() => { void retryProcessing(); }}
+                disabled={retrying}
+                className="inline-flex min-h-9 items-center gap-2 rounded-md border border-[var(--border-default)] bg-[var(--content-surface)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:cursor-wait disabled:opacity-60"
+              >
+                {retrying ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                Try source again
+              </button>
+              {retryError && <span className="text-xs text-red-500">{retryError}</span>}
+            </div>
           </div>
         )}
 
@@ -660,13 +773,13 @@ export function LibraryArtifactDetailPane({
           const fields: Array<[string, string, boolean?]> = [
             ["disposition", artifact.library_mode || "study"],
             ["connections", `${connCount} · ${connState}`, connState === "never"],
-            ["connection review", reweaveState, meta.reweave_pending === true || missingConnectionPass],
+            ["context enrichment", reweaveState, meta.reweave_pending === true || missingConnectionPass],
             ["attention", attentionJudgment ? attentionJudgment.tier : "—"],
             ["digest", typeof meta.digested_with === "string" ? meta.digested_with : "—"],
             ["version", artifact.pipeline_version || "—"],
             ["reconnected", reconnectedAt ? formatTimestamp(reconnectedAt) : attentionJudgment ? "judge only" : "—", Boolean(attentionJudgment && !reconnectedAt)],
             ["substance graded", substanceGraded ? "yes" : "no"],
-            ["reweave pending", meta.reweave_pending === true ? "yes" : "no", meta.reweave_pending === true],
+            ["enrichment queued", meta.reweave_pending === true ? "yes" : "no", meta.reweave_pending === true],
           ];
           return metaOpen ? (
             <div className="mt-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-2.5 text-xs text-[var(--text-secondary)]">
@@ -675,7 +788,7 @@ export function LibraryArtifactDetailPane({
                   <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-3">
                     <EvalMetadataField icon={Zap} label="worth" value={formatEvalScore(ev.worth)} title={evalMetricTitle("worth")} />
                     <EvalMetadataField icon={Target} label="current fit" value={formatEvalScore(ev.relevance)} title={evalMetricTitle("relevance")} />
-                    <EvalMetadataField icon={Layers} label="substance" value={substanceGraded ? formatEvalScore(ev.substance) : `${formatEvalScore(ev.substance)} · est.`} title={substanceGraded ? evalMetricTitle("substance") : "Structural estimate from format + length — not yet model-graded. A reweave assigns the model grade."} />
+                    <EvalMetadataField icon={Layers} label="substance" value={substanceGraded ? formatEvalScore(ev.substance) : `${formatEvalScore(ev.substance)} · est.`} title={substanceGraded ? evalMetricTitle("substance") : "Structural estimate from format + length — not yet model-graded. A Connections pass assigns the model grade."} />
                     <EvalMetadataField icon={Clock} label="freshness" value={formatEvalScore(ev.freshness)} title={evalMetricTitle("freshness")} />
                     <EvalMetadataField icon={evalNeedsRefetch ? AlertTriangle : Archive} label="lifecycle" value={evalLifecycleLabel} warn={evalLifecycleWarn} />
                     <EvalMetadataField icon={Archive} label="archive threshold" value={`< ${formatEvalScore(TO_ARCHIVE_WORTH)}`} title="Worth below this threshold, after analysis, enters archive review." />
@@ -727,7 +840,7 @@ export function LibraryArtifactDetailPane({
                   {recommendation && <RecommendationScoreSnapshot recommendation={recommendation} />}
                   <div className="mt-2 border-t border-[var(--border-default)] pt-2">
                     <div className="mb-1 flex items-center justify-between gap-2">
-                      <span className="text-[var(--text-tertiary)]">connection review</span>
+                      <span className="text-[var(--text-tertiary)]">context enrichment</span>
                       <span className={`tabular-nums ${missingConnectionPass || meta.reweave_pending === true ? "text-amber-500" : "text-[var(--text-primary)]"}`}>{connState}</span>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
@@ -769,7 +882,7 @@ export function LibraryArtifactDetailPane({
                     )}
                     {reweaveCandidates.length > 0 && (
                       <div className="mt-2">
-                        <div className="mb-1 text-[var(--text-tertiary)]">reweave candidates</div>
+                        <div className="mb-1 text-[var(--text-tertiary)]">notes this source could update</div>
                         <ul className="space-y-1">
                           {reweaveCandidates.slice(0, 3).map((candidate, index) => (
                             <li key={`${candidate.target}-${index}`} className="text-[var(--text-secondary)]">
@@ -787,7 +900,7 @@ export function LibraryArtifactDetailPane({
                     )}
                     {attentionJudgment && !reconnectedAt && (
                       <div className="mt-2 text-[var(--text-tertiary)]">
-                        Legacy v2.2 signal: attention judgment proves the review ran, but reconnected_at was not stamped.
+                        Legacy v2.2 signal: the context review ran, but its completion timestamp was not stamped.
                       </div>
                     )}
                   </div>

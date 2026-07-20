@@ -5,12 +5,17 @@ import path from "node:path";
 import test from "node:test";
 import { appendLibraryEvents } from "./events";
 import {
+  beginRecommendationAutomaticAttempt,
   bootstrapLegacyRecommendationCache,
   dismissRecommendation,
   projectedRecommendationEpisodes,
   readRecommendationBatches,
   readRecommendationRuntime,
+  recommendationAutomaticRunAllowed,
+  recommendationAutomaticRunsForDay,
+  recommendationLocalDayKey,
   recommendationRoot,
+  recommendationTimeZone,
   restoreRecommendation,
   writeRecommendationBatch,
   writeRecommendationRuntime,
@@ -46,6 +51,141 @@ function batch(vault: string, at: string, picks: Array<{ id: string; why: string
     picks: picks.map((pick) => ({ artifact_id: pick.id, why_now: pick.why, triggers: [pick.trigger], scores })),
   });
 }
+
+test("recommendation daily cadence follows the configured Eastern local day", () => {
+  assert.equal(recommendationLocalDayKey("2026-07-20T03:59:59.000Z", "America/New_York"), "2026-07-19");
+  assert.equal(recommendationLocalDayKey("2026-07-20T04:00:00.000Z", "America/New_York"), "2026-07-20");
+  assert.equal(recommendationTimeZone({ LIBRARY_RECOMMENDATION_TIME_ZONE: "not/a-zone" }), "America/New_York");
+});
+
+test("automatic cadence allows one morning and one refresh per local day", (t) => {
+  const { vault } = setup(t);
+  const morningAt = "2026-07-20T09:20:00.000Z";
+  writeRecommendationBatch(vault, {
+    kind: "morning",
+    generated_at: morningAt,
+    context_window: { start: morningAt, end: morningAt },
+    pool_size: 1,
+    picks: [{ artifact_id: "a", why_now: "Morning reason", triggers: [trigger("artifact:a", morningAt)], scores }],
+  });
+  let runtime = readRecommendationRuntime(vault);
+  assert.deepEqual(recommendationAutomaticRunsForDay(runtime, morningAt), { morning: 1, refresh: 0 });
+  assert.equal(recommendationAutomaticRunAllowed(runtime, "morning", morningAt), false);
+  assert.equal(recommendationAutomaticRunAllowed(runtime, "refresh", morningAt), true);
+
+  const refreshAt = "2026-07-20T15:20:00.000Z";
+  writeRecommendationBatch(vault, {
+    kind: "refresh",
+    generated_at: refreshAt,
+    context_window: { start: refreshAt, end: refreshAt },
+    pool_size: 1,
+    picks: [{ artifact_id: "b", why_now: "Refresh reason", triggers: [trigger("artifact:b", refreshAt)], scores }],
+  });
+  runtime = readRecommendationRuntime(vault);
+  assert.deepEqual(recommendationAutomaticRunsForDay(runtime, refreshAt), { morning: 1, refresh: 1 });
+  assert.equal(recommendationAutomaticRunAllowed(runtime, "morning", refreshAt), false);
+  assert.equal(recommendationAutomaticRunAllowed(runtime, "refresh", refreshAt), false);
+  assert.equal(runtime.automatic_runs_by_day["2026-07-20"], 2);
+  assert.equal(runtime.last_attempt_status, "success");
+  assert.equal(runtime.last_attempt_kind, "refresh");
+  assert.equal(runtime.last_attempt_at, refreshAt);
+  assert.equal(runtime.last_attempt_error, null);
+});
+
+test("legacy automatic counters still prevent an extra same-day refresh", (t) => {
+  const { vault } = setup(t);
+  const at = "2026-07-20T15:20:00.000Z";
+  writeRecommendationRuntime(vault, { automatic_runs_by_day: { "2026-07-20": 1 } });
+  const runtime = readRecommendationRuntime(vault);
+  assert.deepEqual(recommendationAutomaticRunsForDay(runtime, at), { morning: 0, refresh: 1 });
+  assert.equal(recommendationAutomaticRunAllowed(runtime, "morning", at), true);
+  assert.equal(recommendationAutomaticRunAllowed(runtime, "refresh", at), false);
+});
+
+test("an automatic attempt consumes its daily slot before model work and success does not double-count it", (t) => {
+  const { vault } = setup(t);
+  const startedAt = "2026-07-20T09:20:00.000Z";
+  const started = beginRecommendationAutomaticAttempt(vault, "morning", startedAt, "America/New_York");
+  assert.ok(started);
+  assert.equal(started.last_attempt_status, "running");
+  assert.deepEqual(recommendationAutomaticRunsForDay(started, startedAt), { morning: 1, refresh: 0 });
+  assert.equal(recommendationAutomaticRunAllowed(started, "morning", startedAt), false);
+  assert.equal(beginRecommendationAutomaticAttempt(vault, "morning", startedAt, "America/New_York"), null);
+
+  writeRecommendationRuntime(vault, {
+    last_attempt_at: "2026-07-20T09:21:00.000Z",
+    last_attempt_status: "failed",
+    last_attempt_error: "rate_limited",
+  });
+  const failed = readRecommendationRuntime(vault);
+  assert.deepEqual(recommendationAutomaticRunsForDay(failed, startedAt), { morning: 1, refresh: 0 });
+  assert.equal(recommendationAutomaticRunAllowed(failed, "morning", startedAt), false);
+});
+
+test("a reserved automatic attempt records completion time without incrementing its slot again", (t) => {
+  const { vault } = setup(t);
+  const startedAt = "2026-07-20T09:20:00.000Z";
+  const completedAt = "2026-07-20T09:24:00.000Z";
+  beginRecommendationAutomaticAttempt(vault, "morning", startedAt, "America/New_York");
+  writeRecommendationBatch(vault, {
+    kind: "morning",
+    generated_at: completedAt,
+    attempt_started_at: startedAt,
+    completed_at: completedAt,
+    context_window: { start: startedAt, end: startedAt },
+    pool_size: 1,
+    picks: [{ artifact_id: "a", why_now: "Morning reason", triggers: [trigger("artifact:a", startedAt)], scores }],
+  });
+  const runtime = readRecommendationRuntime(vault);
+  assert.deepEqual(recommendationAutomaticRunsForDay(runtime, completedAt), { morning: 1, refresh: 0 });
+  assert.equal(runtime.automatic_runs_by_day["2026-07-20"], 1);
+  assert.equal(runtime.last_success_at, completedAt);
+  assert.equal(runtime.last_attempt_at, completedAt);
+  assert.equal(runtime.last_attempt_status, "success");
+});
+
+test("a stale running receipt from a prior local day cannot waive today's batch count", (t) => {
+  const { vault } = setup(t);
+  writeRecommendationRuntime(vault, {
+    last_attempt_at: "2026-07-19T09:20:00.000Z",
+    last_attempt_kind: "morning",
+    last_attempt_status: "running",
+  });
+  const completedAt = "2026-07-20T09:24:00.000Z";
+  writeRecommendationBatch(vault, {
+    kind: "morning",
+    generated_at: completedAt,
+    completed_at: completedAt,
+    context_window: { start: completedAt, end: completedAt },
+    pool_size: 1,
+    picks: [{ artifact_id: "a", why_now: "Morning reason", triggers: [trigger("artifact:a", completedAt)], scores }],
+  });
+  assert.deepEqual(recommendationAutomaticRunsForDay(readRecommendationRuntime(vault), completedAt), {
+    morning: 1,
+    refresh: 0,
+  });
+});
+
+test("an automatic attempt crossing local midnight consumes only its reserved start-day slot", (t) => {
+  const { vault } = setup(t);
+  const startedAt = "2026-07-21T03:59:00.000Z";
+  const completedAt = "2026-07-21T04:01:00.000Z";
+  beginRecommendationAutomaticAttempt(vault, "refresh", startedAt, "America/New_York");
+  writeRecommendationBatch(vault, {
+    kind: "refresh",
+    generated_at: completedAt,
+    attempt_started_at: startedAt,
+    completed_at: completedAt,
+    context_window: { start: startedAt, end: completedAt },
+    pool_size: 1,
+    picks: [{ artifact_id: "a", why_now: "Refresh reason", triggers: [trigger("artifact:a", startedAt)], scores }],
+  });
+  const runtime = readRecommendationRuntime(vault);
+  assert.deepEqual(recommendationAutomaticRunsForDay(runtime, startedAt), { morning: 0, refresh: 1 });
+  assert.deepEqual(recommendationAutomaticRunsForDay(runtime, completedAt), { morning: 0, refresh: 0 });
+  assert.equal(runtime.last_attempt_at, completedAt);
+  assert.equal(runtime.last_attempt_status, "success");
+});
 
 test("immutable batches project one latest episode per artifact and heal a stale projection", (t) => {
   const { vault } = setup(t);

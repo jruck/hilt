@@ -1165,11 +1165,28 @@ interface LibraryArtifactAttention {
   detail: string | null;
   attempt_count: number | null;
 }
+
+type LibrarySourceResolutionStatus = "unavailable" | "accepted_limited";
+
+interface LibrarySourceResolution {
+  status: LibrarySourceResolutionStatus;
+  artifact_id: string;
+  path: string;
+  reason: string;
+  resolved_at: string;
+  evidence?: {
+    attention_kind: LibraryArtifactAttentionKind | null;
+    processing_stage: LibraryProcessingStage | null;
+    attempt_count: number | null;
+    error_code: string | null;
+    error_message: string | null;
+  };
+}
 ```
 
 Markdown is the user-visible source of truth for progress. Queue records live under `${DATA_DIR}/library-processing/<vault-hash>/`, survive crashes, and retain the raw provider payload needed to resume. Ready records are removed; terminal blocked records remain addressable for Retry.
 
-`LibraryArtifactAttention` is read-time projection data, not markdown frontmatter. It combines terminal `processing` state with the existing `${DATA_DIR}/library-refetch-attempts/<vault-hash>.json` ledger. `capture_exhausted` requires both the shared capture-failure predicate and the standard two-attempt ceiling, so a healed artifact or an item still eligible for automatic retry does not remain in the attention lens.
+`LibraryArtifactAttention` is read-time projection data, not markdown frontmatter. It combines terminal `processing` state with the existing `${DATA_DIR}/library-refetch-attempts/<vault-hash>.json` ledger. `capture_exhausted` requires both the shared capture-failure predicate and the standard two-attempt ceiling, so a healed artifact or an item still eligible for automatic retry does not remain in the attention lens. `LibrarySourceResolution` is also Hilt-local, under `${DATA_DIR}/library-source-resolutions/<vault-hash>.json`; it acknowledges an honest source limit without changing Markdown capture health, lifecycle, or score eligibility. Terminal queue payloads retained for possible Retry live separately under `${DATA_DIR}/library-source-resolution-queue/<vault-hash>/`. A blocked disposition is valid only after its exact queue record is archived, and the archive is rolled back if the ledger cannot be committed. A live blocked queue therefore remains visible even if an older inconsistent disposition exists. Resolutions are pruned when the current capture becomes healthy, preventing a later regression from silently inheriting an obsolete decision.
 
 ### LibraryArtifact
 
@@ -1295,6 +1312,7 @@ interface LibraryArtifact {
   read_at: string | null;  // ISO timestamp when the current user last marked it read
   processing?: LibraryProcessingState;
   attention?: LibraryArtifactAttention; // Derived terminal-recovery state; never persisted in markdown
+  source_resolution?: LibrarySourceResolution; // Hilt-local acknowledged source limit
   eval_attrs?: LibraryEvalAttrs; // Dynamic worth eval for study items; absent for keep items
   recommendation?: RecommendationPresentation; // Current active episode, joined at read time when available
   connections: string[];
@@ -1513,6 +1531,24 @@ Recommendation state is Hilt-local under `${DATA_DIR}/library-recommendations/<v
 interface LibraryOperationalHealth {
   checked_at: string;
   ok: boolean;
+  status: "healthy" | "critical" | "warning" | "working";
+  summary: {
+    critical: number;
+    warning: number;
+    working: number;
+    alerts: number;
+    total: number;
+  };
+  issues: Array<{
+    id: string;
+    severity: "critical" | "warning" | "working";
+    scope: "scheduler" | "source" | "dead_letters" | "intake" | "reweave" | "recommendations";
+    title: string;
+    message: string;
+    count: number;
+    target_id: string | null;
+    updated_at: string | null;
+  }>;
   scheduler: {
     loaded: number;
     expected: number;
@@ -1549,6 +1585,10 @@ interface LibraryOperationalHealth {
     last_batch_id: string | null;
     last_batch_size: number;
     last_run_kind: RecommendationBatch["kind"] | null;
+    last_attempt_at: string | null;
+    last_attempt_kind: RecommendationBatch["kind"] | null;
+    last_attempt_status: "running" | "success" | "failed" | null;
+    last_attempt_error: string | null;
     pending: boolean;
     pending_reasons: string[];
     next_retry_at: string | null;
@@ -1557,7 +1597,7 @@ interface LibraryOperationalHealth {
 }
 ```
 
-A dead letter is **unresolved** only if its source has no `last_success_at` later than the failure's timestamp; transient failures that a later run recovered are treated as self-healed and don't count as warnings (so the health panel doesn't read "N warnings" while every row is green).
+A dead letter is **unresolved** only if its source has no `last_success_at` later than the failure's timestamp; transient failures that a later run recovered are treated as self-healed and don't count as warnings. `summary.alerts` is the one toolbar count: `critical` means a capability is unavailable, `warning` requires intervention, and `working` is queued/active/scheduled state that leaves `ok: true`. Recommendation errors are sanitized attempt receipts rather than raw CLI/log payloads.
 
 ## Retired Knowledge-Graph Models
 

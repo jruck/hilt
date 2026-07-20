@@ -161,7 +161,8 @@ artifact is the synthesis on top.
 
 **Intake workers** (collect, don't report): live explicit-save intake (immediate/60 sec while Library
 is open, five minutes otherwise, with hourly fallback) · newsletters (7:10 AM)
-**Synthesis workers**: reweave — digests + cross-connections written into the reference files
+**Synthesis workers**: context enrichment (internally the retained reweave pass) — digests + readable
+Connections written into the reference files
 (3:35 AM) · morning report (5:10 AM) · For You editorial batch (5:20 AM) · editor's memo
 (Saturday 5:30 AM, before the weekend edition)
 **Upkeep workers**: cleanup (4:15) · refetch (4:45) · retry (hourly)
@@ -187,6 +188,15 @@ Bookkeeping:
 - `$DATA/library-recommendations/<vault-key>/` — immutable For You batches, the latest-episode feed
   projection, recommendation-only dismissals, and refresh/backoff state. Recommending an old item
   again writes a new episode and moves the same Library card to the top with a new contextual pitch.
+- `$DATA/library-source-resolutions/<vault-key>.json` — sources you explicitly accepted as limited or
+  unavailable. They remain honest, unscored Library items but stop retrying and leave Needs attention.
+- `$DATA/library-source-resolution-queue/<vault-key>/` — recoverable terminal processing payloads
+  moved out of the live queue when acknowledged, so `Try source again` can restore the exact work.
+
+Library Health distinguishes system capability from item cleanup. Red means Hilt cannot perform an
+important capability; amber is an issue requiring action; blue is work already queued, active, or
+scheduled. Its badge and visible issue rows come from the same backend summary. A failed webpage or
+video is handled on that Library item rather than making the whole intake system look broken.
 
 Library priority is deterministic. **Worth = Current fit × Substance × Freshness**. Current fit combines
 important term matches against current tasks/projects/areas/people, readable Connections to active work,

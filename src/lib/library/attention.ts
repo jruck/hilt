@@ -2,7 +2,9 @@ import fs from "fs";
 import path from "path";
 import { captureFailed } from "./capture-health";
 import type { LibraryArtifactAttention, LibraryArtifactDetail } from "./types";
-import { hashId } from "./utils";
+import { pruneHealedLibrarySourceResolutions, sourceResolutionForArtifact } from "./source-resolution";
+import { libraryProcessingQueuePath } from "./processing";
+import { atomicWriteFile, ensureDir, hashId } from "./utils";
 
 export const LIBRARY_REFETCH_MAX_ATTEMPTS = 2;
 
@@ -24,6 +26,31 @@ export function readLibraryRefetchAttempts(vaultPath: string): LibraryRefetchAtt
   } catch {
     return {};
   }
+}
+
+export function writeLibraryRefetchAttempts(vaultPath: string, attempts: LibraryRefetchAttempts): void {
+  const filePath = libraryRefetchAttemptsPath(vaultPath);
+  ensureDir(path.dirname(filePath));
+  atomicWriteFile(filePath, `${JSON.stringify(attempts, null, 2)}\n`);
+}
+
+export function resetLibraryRefetchAttempt(vaultPath: string, artifactPath: string): boolean {
+  const attempts = readLibraryRefetchAttempts(vaultPath);
+  if (!attempts[artifactPath]) return false;
+  delete attempts[artifactPath];
+  writeLibraryRefetchAttempts(vaultPath, attempts);
+  return true;
+}
+
+export function pruneLibraryRefetchAttempts(
+  attempts: LibraryRefetchAttempts,
+  activeFailurePaths: Iterable<string>,
+): { attempts: LibraryRefetchAttempts; pruned: string[] } {
+  const active = new Set(activeFailurePaths);
+  const next = { ...attempts };
+  const pruned = Object.keys(next).filter((artifactPath) => !active.has(artifactPath));
+  for (const artifactPath of pruned) delete next[artifactPath];
+  return { attempts: next, pruned };
 }
 
 function processingAttention(artifact: LibraryArtifactDetail): LibraryArtifactAttention | null {
@@ -60,8 +87,19 @@ export function libraryAttentionForArtifact(
 
 export function attachLibraryAttention(vaultPath: string, artifacts: LibraryArtifactDetail[]): LibraryArtifactDetail[] {
   const attempts = readLibraryRefetchAttempts(vaultPath);
+  const resolutions = pruneHealedLibrarySourceResolutions(vaultPath, artifacts);
   return artifacts.map((artifact) => {
+    const sourceResolution = sourceResolutionForArtifact(resolutions, artifact);
+    const blockedQueueStillLive = artifact.processing?.state === "blocked"
+      && fs.existsSync(libraryProcessingQueuePath(vaultPath, artifact.id));
+    if (sourceResolution && (
+      artifact.processing?.state === "blocked"
+      || captureFailed({ body: artifact.content, frontmatter: artifact.raw_frontmatter })
+    ) && !blockedQueueStillLive) {
+      return { ...artifact, source_resolution: sourceResolution, attention: undefined };
+    }
     const attention = libraryAttentionForArtifact(artifact, attempts);
-    return attention ? { ...artifact, attention } : artifact;
+    if (attention) return { ...artifact, source_resolution: undefined, attention };
+    return artifact.source_resolution ? { ...artifact, source_resolution: undefined } : artifact;
   });
 }

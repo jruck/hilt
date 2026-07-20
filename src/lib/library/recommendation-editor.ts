@@ -30,6 +30,7 @@ export type RecommendationPickRejectionCode =
   | "repeated_context"
   | "unchanged_pitch"
   | "missing_new_item_trigger"
+  | "near_duplicate_recent"
   | "near_duplicate";
 
 export interface RecommendationPickRejection {
@@ -52,6 +53,12 @@ export interface RecommendationPickValidationRun extends RecommendationPickValid
 export interface RecommendationEditorRepairContext {
   attempted: RawRecommendationPick[];
   rejections: RecommendationPickRejection[];
+}
+
+export interface RecentRecommendationTitle {
+  artifact_id: string;
+  title: string;
+  recommended_at: string;
 }
 
 export interface RecommendationEditorPromptInput {
@@ -285,6 +292,7 @@ export function validateRecommendationPicksDetailed({
   previousByArtifact,
   maxItems,
   nearDuplicate,
+  recentRecommendations = [],
 }: {
   raw: RawRecommendationPick[];
   candidates: RecommendedArtifact[];
@@ -292,6 +300,7 @@ export function validateRecommendationPicksDetailed({
   previousByArtifact: Map<string, RecommendationEpisode>;
   maxItems: number;
   nearDuplicate: (a: string, b: string) => boolean;
+  recentRecommendations?: RecentRecommendationTitle[];
 }): RecommendationPickValidation {
   const byId = new Map(candidates.map((item) => [item.id, item]));
   const triggerById = new Map(triggers.map((trigger) => [trigger.id, trigger]));
@@ -370,6 +379,18 @@ export function validateRecommendationPicksDetailed({
       }
     } else if (!pickedTriggers.some((trigger) => trigger.id === `artifact:${item.id}` || trigger.kind !== "artifact")) {
       reject(index, entry, "missing_new_item_trigger", `pick ${index + 1} does not cite its own artifact or a non-artifact context trigger`);
+      continue;
+    }
+    const recentDuplicate = recentRecommendations.find((recent) => (
+      recent.artifact_id !== item.id && nearDuplicate(recent.title, item.title)
+    ));
+    if (recentDuplicate) {
+      reject(
+        index,
+        entry,
+        "near_duplicate_recent",
+        `pick ${index + 1} duplicates recently recommended artifact ${recentDuplicate.artifact_id}`,
+      );
       continue;
     }
     if (selected.some(({ item: prior }) => nearDuplicate(prior.title, item.title))) {

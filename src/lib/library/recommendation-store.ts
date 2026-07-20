@@ -35,8 +35,28 @@ export interface RecommendationRuntimeState {
   pending_since: string | null;
   next_retry_at: string | null;
   last_error: string | null;
+  /** Sanitized structured receipt for the latest editor attempt. Append-only logs are diagnostic
+   * history; this receipt is the authoritative current outcome for health. */
+  last_attempt_at: string | null;
+  last_attempt_kind: RecommendationBatchKind | null;
+  last_attempt_status: "running" | "success" | "failed" | null;
+  last_attempt_error: string | null;
+  /** Legacy aggregate. New writers keep it in sync with the per-kind local-day counters below. */
   automatic_runs_by_day: Record<string, number>;
+  automatic_runs_by_kind_by_day: Record<string, RecommendationAutomaticRunCounts>;
 }
+
+export interface RecommendationAutomaticRunCounts {
+  morning: number;
+  refresh: number;
+}
+export type RecommendationAutomaticRunKind = keyof RecommendationAutomaticRunCounts;
+
+export const RECOMMENDATION_DEFAULT_TIME_ZONE = "America/New_York";
+export const RECOMMENDATION_AUTOMATIC_RUN_LIMITS: Readonly<RecommendationAutomaticRunCounts> = {
+  morning: 1,
+  refresh: 1,
+};
 
 export interface RecommendationPickInput {
   artifact_id: string;
@@ -56,8 +76,100 @@ const EMPTY_RUNTIME: RecommendationRuntimeState = {
   pending_since: null,
   next_retry_at: null,
   last_error: null,
+  last_attempt_at: null,
+  last_attempt_kind: null,
+  last_attempt_status: null,
+  last_attempt_error: null,
   automatic_runs_by_day: {},
+  automatic_runs_by_kind_by_day: {},
 };
+
+export function recommendationTimeZone(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  const configured = env.LIBRARY_RECOMMENDATION_TIME_ZONE?.trim()
+    || env.HILT_TIME_ZONE?.trim()
+    || RECOMMENDATION_DEFAULT_TIME_ZONE;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: configured }).format(0);
+    return configured;
+  } catch {
+    return RECOMMENDATION_DEFAULT_TIME_ZONE;
+  }
+}
+
+export function recommendationLocalDayKey(
+  at: Date | string | number,
+  timeZone = recommendationTimeZone(),
+): string {
+  const date = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(date.getTime())) throw new Error("Invalid recommendation run time");
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
+export function recommendationAutomaticRunsForDay(
+  state: RecommendationRuntimeState,
+  at: Date | string | number,
+  timeZone = recommendationTimeZone(),
+): RecommendationAutomaticRunCounts {
+  const day = recommendationLocalDayKey(at, timeZone);
+  const current = state.automatic_runs_by_kind_by_day[day];
+  if (current) return { morning: current.morning || 0, refresh: current.refresh || 0 };
+  // Before per-kind counters, automatic_runs_by_day counted refresh successes only. Interpret old
+  // values that way so an upgrade cannot accidentally grant a second refresh on the same day.
+  return { morning: 0, refresh: state.automatic_runs_by_day[day] || 0 };
+}
+
+export function recommendationAutomaticRunAllowed(
+  state: RecommendationRuntimeState,
+  kind: RecommendationBatchKind,
+  at: Date | string | number,
+  timeZone = recommendationTimeZone(),
+): boolean {
+  if (kind !== "morning" && kind !== "refresh") return true;
+  const counts = recommendationAutomaticRunsForDay(state, at, timeZone);
+  return counts[kind] < RECOMMENDATION_AUTOMATIC_RUN_LIMITS[kind];
+}
+
+/**
+ * Reserve an automatic editor slot and publish its running receipt in one runtime write. Callers
+ * hold the editor lock while invoking this function, so the allow-check and attempt counter cannot
+ * be separated by another editor process. Failed, rate-limited, and invalid-output calls keep the
+ * reserved slot: the bounded policy is one morning attempt and one refresh attempt per local day.
+ */
+export function beginRecommendationAutomaticAttempt(
+  vaultPath: string,
+  kind: RecommendationAutomaticRunKind,
+  startedAt = isoNow(),
+  timeZone = recommendationTimeZone(),
+): RecommendationRuntimeState | null {
+  const runtime = readRecommendationRuntime(vaultPath);
+  if (!recommendationAutomaticRunAllowed(runtime, kind, startedAt, timeZone)) return null;
+  const day = recommendationLocalDayKey(startedAt, timeZone);
+  const counts = recommendationAutomaticRunsForDay(runtime, startedAt, timeZone);
+  const nextCounts = { ...counts, [kind]: counts[kind] + 1 };
+  return writeRecommendationRuntime(vaultPath, {
+    last_attempt_at: startedAt,
+    last_attempt_kind: kind,
+    last_attempt_status: "running",
+    last_attempt_error: null,
+    automatic_runs_by_day: {
+      ...runtime.automatic_runs_by_day,
+      [day]: nextCounts.morning + nextCounts.refresh,
+    },
+    automatic_runs_by_kind_by_day: {
+      ...runtime.automatic_runs_by_kind_by_day,
+      [day]: nextCounts,
+    },
+  });
+}
 
 function dataRoot(): string {
   return process.env.DATA_DIR || path.join(process.cwd(), "data");
@@ -178,7 +290,12 @@ function writeRecommendationVerdicts(vaultPath: string, verdicts: Recommendation
 
 export function readRecommendationRuntime(vaultPath: string): RecommendationRuntimeState {
   const parsed = safeReadJson<RecommendationRuntimeState>(runtimePath(vaultPath));
-  return parsed?.version === 1 ? { ...EMPTY_RUNTIME, ...parsed } : { ...EMPTY_RUNTIME };
+  return parsed?.version === 1 ? {
+    ...EMPTY_RUNTIME,
+    ...parsed,
+    automatic_runs_by_day: parsed.automatic_runs_by_day || {},
+    automatic_runs_by_kind_by_day: parsed.automatic_runs_by_kind_by_day || {},
+  } : { ...EMPTY_RUNTIME };
 }
 
 export function writeRecommendationRuntime(vaultPath: string, update: Partial<RecommendationRuntimeState>): RecommendationRuntimeState {
@@ -247,6 +364,12 @@ export function writeRecommendationBatch(
   input: {
     kind: RecommendationBatchKind;
     generated_at?: string;
+    /** Exact start receipt reserved before model work. When present and still running, success
+     * completes that reservation even if the editor crossed a local-day boundary. */
+    attempt_started_at?: string;
+    /** Actual successful completion time for the runtime receipt. Defaults to generated_at for
+     * historical and direct callers. */
+    completed_at?: string;
     context_window: { start: string; end: string };
     pool_size: number;
     picks: RecommendationPickInput[];
@@ -257,6 +380,7 @@ export function writeRecommendationBatch(
   },
 ): RecommendationBatch {
   const generatedAt = input.generated_at || isoNow();
+  const completedAt = input.completed_at || generatedAt;
   const previousByArtifact = new Map(readProjection(vaultPath).entries.map((entry) => [entry.artifact_id, entry]));
   const seen = new Set<string>();
   for (const pick of input.picks) {
@@ -309,10 +433,28 @@ export function writeRecommendationBatch(
   ensureDir(path.dirname(target));
   if (!fs.existsSync(target)) atomicWriteFile(target, `${JSON.stringify(batch, null, 2)}\n`);
   writeProjection(vaultPath);
-  const today = generatedAt.slice(0, 10);
   const runtime = readRecommendationRuntime(vaultPath);
+  const automaticKind: RecommendationAutomaticRunKind | null = input.kind === "morning" || input.kind === "refresh"
+    ? input.kind
+    : null;
+  const today = recommendationLocalDayKey(generatedAt);
+  // The production editor reserves its daily attempt before any model work. Direct/legacy callers
+  // that write a batch without a running receipt still receive the old count-on-success behavior.
+  const attemptAlreadyCounted = Boolean(
+    automaticKind
+    && input.attempt_started_at
+    && runtime.last_attempt_at === input.attempt_started_at
+    && runtime.last_attempt_kind === automaticKind
+    && runtime.last_attempt_status === "running",
+  );
+  const automaticCounts = automaticKind && !attemptAlreadyCounted
+    ? recommendationAutomaticRunsForDay(runtime, generatedAt)
+    : null;
+  const nextAutomaticCounts = automaticKind && automaticCounts
+    ? { ...automaticCounts, [automaticKind]: automaticCounts[automaticKind] + 1 }
+    : null;
   writeRecommendationRuntime(vaultPath, {
-    last_success_at: generatedAt,
+    last_success_at: completedAt,
     last_batch_id: batch.id,
     last_batch_size: episodes.length,
     last_run_kind: input.kind,
@@ -321,9 +463,18 @@ export function writeRecommendationBatch(
     pending_since: null,
     next_retry_at: null,
     last_error: null,
-    automatic_runs_by_day: input.kind === "refresh"
-      ? { ...runtime.automatic_runs_by_day, [today]: (runtime.automatic_runs_by_day[today] || 0) + 1 }
+    ...(automaticKind ? {
+      last_attempt_at: completedAt,
+      last_attempt_kind: automaticKind,
+      last_attempt_status: "success" as const,
+      last_attempt_error: null,
+    } : {}),
+    automatic_runs_by_day: nextAutomaticCounts
+      ? { ...runtime.automatic_runs_by_day, [today]: nextAutomaticCounts.morning + nextAutomaticCounts.refresh }
       : runtime.automatic_runs_by_day,
+    automatic_runs_by_kind_by_day: nextAutomaticCounts
+      ? { ...runtime.automatic_runs_by_kind_by_day, [today]: nextAutomaticCounts }
+      : runtime.automatic_runs_by_kind_by_day,
   });
   return batch;
 }

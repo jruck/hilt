@@ -5,9 +5,10 @@ import { promisify } from "util";
 import { loadEnvConfig } from "@next/env";
 import { parseMarkdownFile, relativeVaultPath, stringifyMarkdown } from "../src/lib/library/markdown";
 import { CANDIDATE_CACHE_DIR } from "../src/lib/library/candidate-cache";
-import { isoNow, walkMarkdown } from "../src/lib/library/utils";
+import { hashId, isoNow, walkMarkdown } from "../src/lib/library/utils";
 import { captureFailed, NO_SOURCE_MARKER } from "../src/lib/library/capture-health";
-import { LIBRARY_REFETCH_MAX_ATTEMPTS, libraryRefetchAttemptsPath } from "../src/lib/library/attention";
+import { LIBRARY_REFETCH_MAX_ATTEMPTS, libraryRefetchAttemptsPath, pruneLibraryRefetchAttempts, writeLibraryRefetchAttempts } from "../src/lib/library/attention";
+import { readLibrarySourceResolutions, sourceResolutionForArtifact } from "../src/lib/library/source-resolution";
 import { assertLibrarySummarizeInvocation } from "../src/lib/library/summarize-policy";
 
 loadEnvConfig(process.cwd());
@@ -54,7 +55,7 @@ function readAttempts(): Record<string, AttemptRecord> {
   try { return JSON.parse(fs.readFileSync(attemptsPath(), "utf-8")); } catch { return {}; }
 }
 
-interface RefetchTarget { relative_path: string; title: string }
+interface RefetchTarget { id: string; relative_path: string; title: string }
 
 /** Study items (saved + candidates) positively marked as having no captured source. */
 function findBucket(): RefetchTarget[] {
@@ -70,7 +71,11 @@ function findBucket(): RefetchTarget[] {
       if (data.type === "reference-candidate" && String(data.status || "candidate") !== "candidate") continue;
       if (!captureFailed({ body, frontmatter: data })) continue;
       if (!data.url || !/^https?:\/\//.test(String(data.url))) continue;
-      targets.push({ relative_path: relativeVaultPath(vaultPath, filePath), title: String(data.title || path.basename(filePath, ".md")) });
+      const relativePath = relativeVaultPath(vaultPath, filePath);
+      const id = typeof data.artifact_uid === "string" && data.artifact_uid.trim()
+        ? data.artifact_uid.trim()
+        : hashId(relativePath);
+      targets.push({ id, relative_path: relativePath, title: String(data.title || path.basename(filePath, ".md")) });
     }
   }
   return targets.sort((a, b) => a.relative_path.localeCompare(b.relative_path));
@@ -178,8 +183,13 @@ async function refetchOne(relativePath: string): Promise<"recovered" | "still_fa
 }
 
 async function main(): Promise<void> {
-  const bucket = findBucket();
-  const attempts = readAttempts();
+  const allFailed = findBucket();
+  const resolutions = readLibrarySourceResolutions(vaultPath);
+  const dispositioned = allFailed.filter((target) => sourceResolutionForArtifact(resolutions, { id: target.id, path: target.relative_path }));
+  const bucket = allFailed.filter((target) => !sourceResolutionForArtifact(resolutions, { id: target.id, path: target.relative_path }));
+  const storedAttempts = readAttempts();
+  const activePaths = new Set(bucket.map((target) => target.relative_path));
+  const { attempts, pruned: staleAttemptPaths } = pruneLibraryRefetchAttempts(storedAttempts, activePaths);
   // Fresh items first (same rule as the reweave drain): a repeat-failer never hogs a bounded run.
   const eligible = bucket
     .filter((t) => (attempts[t.relative_path]?.count || 0) < maxAttempts)
@@ -188,9 +198,19 @@ async function main(): Promise<void> {
   const worklist = eligible.slice(0, maxItems);
 
   if (dryRun) {
-    console.log(JSON.stringify({ dry_run: true, bucket: bucket.length, eligible: eligible.length, exhausted, worklist }, null, 2));
+    console.log(JSON.stringify({
+      dry_run: true,
+      bucket: bucket.length,
+      dispositioned: dispositioned.length,
+      eligible: eligible.length,
+      exhausted,
+      stale_attempts_to_prune: staleAttemptPaths,
+      worklist,
+    }, null, 2));
     return;
   }
+
+  if (staleAttemptPaths.length) writeLibraryRefetchAttempts(vaultPath, attempts);
 
   let recovered = 0;
   let stillFailed = 0;
@@ -206,11 +226,13 @@ async function main(): Promise<void> {
       attempts[target.relative_path] = { count: (attempts[target.relative_path]?.count || 0) + 1, last_at: isoNow() };
     }
     console.error(`[refetch] ${outcome.toUpperCase().padEnd(12)} ${target.title.slice(0, 60)}`);
-    fs.writeFileSync(attemptsPath(), `${JSON.stringify(attempts, null, 2)}\n`, "utf-8");
+    writeLibraryRefetchAttempts(vaultPath, attempts);
   }
 
   console.log(JSON.stringify({
     bucket: bucket.length,
+    dispositioned_skipped: dispositioned.length,
+    stale_attempts_pruned: staleAttemptPaths.length,
     attempted: worklist.length,
     recovered,
     still_failed: stillFailed,

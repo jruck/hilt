@@ -139,33 +139,74 @@ export function forcedTokenEnv(): NodeJS.ProcessEnv | undefined {
   return env as NodeJS.ProcessEnv;
 }
 
+/** A deliberately context-free failure from the Claude subprocess.
+ *
+ * Node's native execFile error includes the complete command in `message`. Historically that
+ * command also contained Hilt's `-p` task, so logging the error could copy the current-work packet
+ * and source excerpt into an append-only scheduler log. Captured streams remain available to the
+ * rate-limit detector through non-enumerable getters, but console/error serialization sees only the
+ * safe status message.
+ */
+export class ClaudeCliError extends Error {
+  readonly exitCode: string | number | null;
+  readonly signal: NodeJS.Signals | null;
+  #stdout: string;
+  #stderr: string;
+
+  constructor(
+    error: Error & { code?: string | number | null; signal?: NodeJS.Signals | null; killed?: boolean },
+    stdout: string,
+    stderr: string,
+  ) {
+    const status = error.killed
+      ? "terminated"
+      : error.code !== undefined && error.code !== null
+        ? `exit ${error.code}`
+        : error.signal
+          ? `signal ${error.signal}`
+          : "unknown failure";
+    super(`Claude CLI failed (${status})`);
+    this.name = "ClaudeCliError";
+    this.exitCode = error.code ?? null;
+    this.signal = error.signal ?? null;
+    this.#stdout = stdout;
+    this.#stderr = stderr;
+  }
+
+  get stdout(): string { return this.#stdout; }
+  get stderr(): string { return this.#stderr; }
+}
+
+function promptViaStdin(args: string[]): { args: string[]; prompt: string } {
+  const safeArgs = [...args];
+  const printIndex = safeArgs.indexOf("-p");
+  if (printIndex < 0 || printIndex + 1 >= safeArgs.length) return { args: safeArgs, prompt: "" };
+  if (safeArgs[printIndex + 1].startsWith("-")) return { args: safeArgs, prompt: "" };
+  const [prompt] = safeArgs.splice(printIndex + 1, 1);
+  return { args: safeArgs, prompt };
+}
+
 /**
- * Run the Claude CLI headlessly and capture stdout. Mirrors the execFile/timeout/maxBuffer
- * plumbing used elsewhere in the library. We close stdin immediately (the whole task is passed
- * via -p) so the CLI does not wait on stdin. `cwd` points the run at the vault so the judge's
- * read tools resolve against Justin's notes.
+ * Run the Claude CLI headlessly and capture stdout. The task formerly supplied as the value after
+ * `-p` is removed from the process arguments and written to stdin instead; Claude's print mode reads
+ * the same input, while `ps`, launchd diagnostics, and execFile failures can no longer expose it.
+ * `cwd` points the run at the vault so the judge's read tools resolve against Justin's notes.
  */
 export function runClaude(bin: string, args: string[], timeoutMs: number, cwd?: string): Promise<string> {
   return new Promise((resolve, reject) => {
+    const prepared = promptViaStdin(args);
     const child = execFile(
       bin,
-      args,
+      prepared.args,
       { timeout: timeoutMs, maxBuffer: 1024 * 1024 * 8, cwd: cwd || undefined, env: forcedTokenEnv() },
       (error, stdout, stderr) => {
         if (error) {
-          // Attach the captured streams: callback-style execFile errors don't carry them, and the
-          // catch-path limit detection needs REAL error surfaces. error.message must never be
-          // sniffed — execFile builds it from the full command line, which embeds the -p task
-          // (KB index + source excerpt), i.e. content that can legitimately discuss rate limits.
-          const carrier = error as Error & { stdout?: string; stderr?: string };
-          carrier.stdout = stdout;
-          carrier.stderr = stderr;
-          reject(carrier);
+          reject(new ClaudeCliError(error, stdout, stderr));
         } else resolve(stdout);
       },
     );
     child.stdin?.on("error", () => {});
-    child.stdin?.end("");
+    child.stdin?.end(prepared.prompt);
   });
 }
 

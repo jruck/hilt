@@ -121,6 +121,7 @@
     "library:candidates:cleanup": "tsx scripts/library-ingest.ts cleanup",
     "library:retry": "tsx scripts/library-ingest.ts retry",
     "library:recommendations": "DATA_DIR=${DATA_DIR:-$HOME/.hilt/data} tsx scripts/library-editor-pass.ts",
+    "library:health:reconcile": "DATA_DIR=${DATA_DIR:-$HOME/.hilt/data} tsx scripts/library-health-reconcile.ts",
     "library:scheduler:plan": "tsx scripts/library-scheduler.ts",
     "library:scheduler:install": "tsx scripts/library-scheduler.ts --install",
     "library:scheduler:uninstall": "tsx scripts/library-scheduler.ts --uninstall",

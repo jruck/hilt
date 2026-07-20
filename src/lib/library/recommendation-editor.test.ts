@@ -183,3 +183,42 @@ test("contextual recommendation pitches must carry a novel trigger detail", () =
   assert.equal(recommendationPitchHasContextDelta("This is relevant to the agent native delivery workflow", item, [launch]), false);
   assert.equal(recommendationPitchHasContextDelta("The launch task now needs the delivery checks in this reference", item, [launch]), true);
 });
+
+test("recent cross-batch title duplicates are rejected without blocking a same-artifact resurface", () => {
+  const duplicate = artifact("duplicate", "Agent native delivery field guide", "A different source on delivery", "2026-07-20T10:00:00.000Z");
+  const ownTrigger = trigger(`artifact:${duplicate.id}`, "duplicate-artifact", "artifact");
+  const recentRecommendations = [{
+    artifact_id: "original",
+    title: duplicate.title,
+    recommended_at: "2026-07-19T10:00:00.000Z",
+  }];
+  const rejected = validateRecommendationPicksDetailed({
+    candidates: [duplicate],
+    triggers: [ownTrigger],
+    previousByArtifact: new Map(),
+    maxItems: 2,
+    nearDuplicate: (a, b) => a === b,
+    recentRecommendations,
+    raw: [{ id: duplicate.id, reason: "Review this before the next implementation decision", trigger_ids: [ownTrigger.id] }],
+  });
+  assert.deepEqual(rejected.rejections.map((rejection) => rejection.code), ["near_duplicate_recent"]);
+
+  const resurfaced = artifact("original", duplicate.title, "A workflow for agent native delivery", "2026-04-01T10:00:00.000Z");
+  const old = previous(resurfaced.id, "Use this for the earlier delivery workflow", "old-context");
+  const launch = trigger("task:launch", "new-context", "task");
+  const accepted = validateRecommendationPicksDetailed({
+    candidates: [resurfaced],
+    triggers: [launch],
+    previousByArtifact: new Map([[resurfaced.id, old]]),
+    maxItems: 2,
+    nearDuplicate: (a, b) => a === b,
+    recentRecommendations,
+    raw: [{
+      id: resurfaced.id,
+      reason: "The launch task now needs the deployment checks from this field guide",
+      trigger_ids: [launch.id],
+    }],
+  });
+  assert.equal(accepted.rejections.length, 0);
+  assert.equal(accepted.picks.length, 1);
+});

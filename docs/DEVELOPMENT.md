@@ -69,6 +69,7 @@ All servers are started together with `npm run dev:all`:
 | `PORT` | 3000 | Next.js server port |
 | `WS_PORT` | 3001 | WebSocket server port |
 | `DATA_DIR` | `./data` | Directory for persistence files |
+| `LIBRARY_RECOMMENDATION_TIME_ZONE` | `America/New_York` | IANA timezone used to bound one morning attempt plus one refresh attempt per Library day |
 
 ## Directory Structure
 

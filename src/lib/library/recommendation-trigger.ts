@@ -5,9 +5,41 @@ import { listLibraryArtifactDetails } from "./library";
 import { contextTextHasStrongLibraryMatch } from "./recommendation-editor";
 import {
   markRecommendationRefreshPending,
+  recommendationAutomaticRunAllowed,
   readRecommendationRuntime,
+  type RecommendationRuntimeState,
   writeRecommendationRuntime,
 } from "./recommendation-store";
+
+const RECOMMENDATION_CONTEXT_ROOTS = new Set(["meetings", "tasks", "projects", "areas"]);
+
+export function isRecommendationContextPath(vaultPath: string, changedPath: string): boolean {
+  const absolutePath = path.isAbsolute(changedPath) ? changedPath : path.join(vaultPath, changedPath);
+  const relative = path.relative(vaultPath, absolutePath).split(path.sep).join("/");
+  if (!relative || relative.startsWith("../") || path.isAbsolute(relative) || !relative.endsWith(".md")) return false;
+  const segments = relative.split("/");
+  if (!RECOMMENDATION_CONTEXT_ROOTS.has(segments[0])) return false;
+  return !(segments[0] === "meetings" && segments[1] === "transcripts");
+}
+
+/** Drop old watcher reasons that the context builder could never supply to the editor. This makes
+ * the filtering rule self-healing across deploys instead of leaving a persisted transcript trigger
+ * queued forever. */
+export function reconcileRecommendationPendingReasons(vaultPath: string): RecommendationRuntimeState {
+  const state = readRecommendationRuntime(vaultPath);
+  const reasons = state.pending_reasons.filter((reason) => {
+    if (!reason.startsWith("context-match:")) return true;
+    return isRecommendationContextPath(vaultPath, reason.slice("context-match:".length));
+  });
+  if (reasons.length === state.pending_reasons.length) return state;
+  const pending = reasons.length > 0;
+  return writeRecommendationRuntime(vaultPath, {
+    pending,
+    pending_reasons: reasons,
+    pending_since: pending ? state.pending_since : null,
+    next_retry_at: pending ? state.next_retry_at : null,
+  });
+}
 
 export class LibraryRecommendationRunner {
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -27,12 +59,14 @@ export class LibraryRecommendationRunner {
   }
 
   noteContext(path: string): void {
+    if (!isRecommendationContextPath(this.vaultPath, path)) return;
     if (!this.contextMatcher(this.vaultPath, path)) return;
     markRecommendationRefreshPending(this.vaultPath, `context-match:${path}`);
     this.schedule();
   }
 
   resume(): void {
+    reconcileRecommendationPendingReasons(this.vaultPath);
     if (this.hasMeaningfulPendingSignal()) this.schedule();
   }
 
@@ -47,10 +81,9 @@ export class LibraryRecommendationRunner {
 
   private schedule(): void {
     if (this.timer || this.running) return;
-    const state = readRecommendationRuntime(this.vaultPath);
+    const state = reconcileRecommendationPendingReasons(this.vaultPath);
     const now = Date.now();
-    const today = new Date(now).toISOString().slice(0, 10);
-    if ((state.automatic_runs_by_day[today] || 0) >= 3) return;
+    if (!recommendationAutomaticRunAllowed(state, "refresh", now)) return;
     const debounceMs = Number(process.env.LIBRARY_RECOMMENDATION_DEBOUNCE_MS || 20 * 60_000);
     const cooldownMs = Number(process.env.LIBRARY_RECOMMENDATION_COOLDOWN_MS || 2 * 60 * 60_000);
     const pendingAge = state.pending_since ? now - Date.parse(state.pending_since) : 0;
@@ -66,10 +99,9 @@ export class LibraryRecommendationRunner {
 
   async kick(): Promise<void> {
     if (this.running) return this.running;
-    const state = readRecommendationRuntime(this.vaultPath);
+    const state = reconcileRecommendationPendingReasons(this.vaultPath);
     if (!state.pending) return;
-    const today = new Date().toISOString().slice(0, 10);
-    if ((state.automatic_runs_by_day[today] || 0) >= 3) return;
+    if (!recommendationAutomaticRunAllowed(state, "refresh", new Date())) return;
     this.running = (async () => {
       try {
         await this.runChild();
@@ -78,11 +110,22 @@ export class LibraryRecommendationRunner {
           this.onChanged();
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const runtime = readRecommendationRuntime(this.vaultPath);
+        const workerMessage = error instanceof Error && error.message.startsWith("Recommendation worker ")
+          ? error.message.slice(0, 500)
+          : "Recommendation worker failed";
+        const message = runtime.last_attempt_status === "failed" && runtime.last_attempt_error
+          ? runtime.last_attempt_error
+          : workerMessage;
+        const failedAt = new Date().toISOString();
         writeRecommendationRuntime(this.vaultPath, {
           pending: true,
-          last_error: message.slice(0, 500),
+          last_error: message,
           next_retry_at: new Date(Date.now() + 60 * 60_000).toISOString(),
+          last_attempt_at: runtime.last_attempt_status === "failed" ? runtime.last_attempt_at : failedAt,
+          last_attempt_kind: runtime.last_attempt_status === "failed" ? runtime.last_attempt_kind : "refresh",
+          last_attempt_status: "failed",
+          last_attempt_error: message,
         });
       } finally {
         this.running = null;
@@ -103,6 +146,7 @@ export class LibraryRecommendationRunner {
 }
 
 export function contextChangeHasStrongMatch(vaultPath: string, changedPath: string): boolean {
+  if (!isRecommendationContextPath(vaultPath, changedPath)) return false;
   let text = "";
   try {
     const absolutePath = path.isAbsolute(changedPath) ? changedPath : path.join(vaultPath, changedPath);
@@ -143,11 +187,11 @@ async function runRecommendationChild(vaultPath: string): Promise<void> {
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
     });
-    let tail = "";
     let settled = false;
-    const capture = (chunk: Buffer) => { tail = `${tail}${chunk.toString("utf-8")}`.slice(-8_000); };
-    child.stdout?.on("data", capture);
-    child.stderr?.on("data", capture);
+    // Drain output without retaining it. The editor writes a sanitized structured receipt; raw
+    // subprocess output is not copied into runtime state or a parent-process error message.
+    child.stdout?.resume();
+    child.stderr?.resume();
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
@@ -160,6 +204,6 @@ async function runRecommendationChild(vaultPath: string): Promise<void> {
       finish(new Error(`Recommendation worker timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     child.on("error", (error) => finish(error));
-    child.on("exit", (code) => code === 0 ? finish() : finish(new Error(`Recommendation worker exited ${code}: ${tail.slice(-2_000)}`)));
+    child.on("exit", (code) => code === 0 ? finish() : finish(new Error(`Recommendation worker exited ${code}`)));
   });
 }

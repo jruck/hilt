@@ -891,4 +891,14 @@ This section records the original design reasoning for the archived experiment; 
 - Keep people detail quiet until requested. Show an attendee count in the event metadata, then disclose a bounded roster with names, addresses, and response states in place.
 - Treat a missing or unreadable local integration as reduced detail, not a failed calendar sync.
 
+### 2026-07-20: Health Severity Describes User Impact, Not Raw Queue State
+
+**Principle**: A health badge should answer whether Hilt can do its job, not count every imperfect source or scheduled piece of work. One source Hilt cannot fetch is an item-level decision; it is not a system outage.
+
+**Pattern**:
+- Red means an important capability is unavailable; amber means a real intervention is needed; blue means Hilt is already processing, retrying, or waiting for its scheduled pass.
+- Let one backend issue contract own the badge, summary, and visible rows so they cannot disagree.
+- Give terminal content failures local, reversible actions: Retry, keep the limited capture, mark the source unavailable, or archive the item. An acknowledgement may stop alerts and retries, but must not fabricate source quality or a score.
+- Use user-language such as `Context enrichment` for retained Connections work. Keep pipeline names and raw counters inside Technical details.
+
 *This document should grow as design work continues. After UI changes are committed, consider what preferences or principles the changes reveal and add them here.*

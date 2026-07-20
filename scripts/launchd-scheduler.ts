@@ -142,9 +142,24 @@ function filterJobs(jobs: ResolvedJob[], args: string[]): ResolvedJob[] {
   return jobs.filter((job) => (only.size === 0 || only.has(job.id)) && !skip.has(job.id));
 }
 
+export function secureSchedulerLogPaths(
+  jobs: Array<Pick<ResolvedJob, "stdout" | "stderr">>,
+  logDir: string,
+): void {
+  fs.mkdirSync(logDir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(logDir, 0o700);
+  for (const logPath of new Set(jobs.flatMap((job) => [job.stdout, job.stderr]))) {
+    fs.closeSync(fs.openSync(logPath, "a", 0o600));
+    fs.chmodSync(logPath, 0o600);
+  }
+}
+
 function installJobs(jobs: ResolvedJob[], logDir: string): void {
   fs.mkdirSync(launchAgentsDir, { recursive: true });
-  fs.mkdirSync(logDir, { recursive: true });
+  // launchd opens StandardOutPath/StandardErrorPath itself. Pre-create and re-lock both files so
+  // operational logs never inherit a permissive umask; some CLI failures can contain private
+  // Library context even though Hilt also sanitizes the error surfaced by the worker.
+  secureSchedulerLogPaths(jobs, logDir);
   for (const job of jobs) {
     const filePath = plistPath(job);
     fs.writeFileSync(filePath, plist(job), "utf-8");

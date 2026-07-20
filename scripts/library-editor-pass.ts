@@ -5,6 +5,7 @@ import { buildForYouPool, nearDuplicateRecommendationTitles } from "../src/lib/l
 import { buildKbIndex } from "../src/lib/library/kb-index";
 import { buildRecommendationContext, recommendationContextPrompt } from "../src/lib/library/recommendation-context";
 import {
+  beginRecommendationAutomaticAttempt,
   latestActiveRecommendationDismissal,
   projectedRecommendationEpisodes,
   readRecommendationRuntime,
@@ -22,10 +23,18 @@ import {
   type RecommendationExposure,
   type RecommendationPickRejection,
   type RecommendationEditorRepairContext,
+  type RecentRecommendationTitle,
 } from "../src/lib/library/recommendation-editor";
 import { listLibraryArtifactDetails } from "../src/lib/library/library";
 import { readLibraryEvents, appendLibraryEvents } from "../src/lib/library/events";
-import { detectRateLimitInEnvelope, extractModelText, resolveClaudeBin, runClaude } from "../src/lib/library/connections";
+import {
+  ClaudeCliError,
+  detectRateLimit,
+  detectRateLimitInEnvelope,
+  extractModelText,
+  resolveClaudeBin,
+  runClaude,
+} from "../src/lib/library/connections";
 import type { RecommendationBatchKind, RecommendationEpisode, RecommendedArtifact } from "../src/lib/library/types";
 import { LIBRARY_SCORING_METHOD } from "../src/lib/library/hybrid-relevance";
 
@@ -35,7 +44,7 @@ const args = process.argv.slice(2);
 const argValue = (name: string): string | null => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] || null : null; };
 const vaultPath = argValue("--vault") || process.env.BRIDGE_VAULT_PATH || process.env.HILT_WORKING_FOLDER || process.cwd();
 const rawKind = argValue("--kind") || "morning";
-const kind: RecommendationBatchKind = rawKind === "refresh" || rawKind === "fixture" ? rawKind : "morning";
+const kind: Exclude<RecommendationBatchKind, "legacy"> = rawKind === "refresh" || rawKind === "fixture" ? rawKind : "morning";
 const timeoutMs = Number(process.env.LIBRARY_EDITOR_TIMEOUT_MS || 600_000);
 const fixturePath = argValue("--fixture") || process.env.LIBRARY_RECOMMENDATION_FIXTURE || null;
 const now = process.env.LIBRARY_RECOMMENDATION_NOW ? new Date(process.env.LIBRARY_RECOMMENDATION_NOW) : new Date();
@@ -121,6 +130,34 @@ function rejectionSummary(rejections: RecommendationPickRejection[]): string {
     .join("; ");
 }
 
+function sanitizedEditorError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  if (/rate.?limit|usage limit|api_error_429/i.test(raw)) return "rate_limited";
+  const api = raw.match(/\bapi_error_(\d+)\b/i);
+  if (api) return `api_error_${api[1]}`;
+  if (raw.startsWith("invalid_model_output:")) return raw.replace(/\s+/g, " ").slice(0, 500);
+  if (error instanceof ClaudeCliError) return error.message;
+  if (error instanceof SyntaxError) return "invalid_model_output: response was not valid JSON";
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return code ? `recommendation_editor_failed:${code}` : "recommendation_editor_failed";
+}
+
+function recentRecommendationTitles(
+  episodes: RecommendationEpisode[],
+  artifacts: Array<{ id: string; title: string }>,
+  cutoff: Date,
+): RecentRecommendationTitle[] {
+  const titleById = new Map(artifacts.map((artifact) => [artifact.id, artifact.title]));
+  return episodes
+    .filter((episode) => Date.parse(episode.recommended_at) >= cutoff.getTime())
+    .map((episode) => ({
+      artifact_id: episode.artifact_id,
+      title: titleById.get(episode.artifact_id) || "",
+      recommended_at: episode.recommended_at,
+    }))
+    .filter((entry) => Boolean(entry.title));
+}
+
 async function modelPicks(
   candidates: RecommendedArtifact[],
   contextText: string,
@@ -152,7 +189,16 @@ async function modelPicks(
 async function main(): Promise<void> {
   const lock = acquireLock();
   if (lock === null) { console.log(JSON.stringify({ skipped: "already_running" })); return; }
+  let attemptStartedAt: string | null = null;
   try {
+    if (kind !== "fixture") {
+      attemptStartedAt = new Date().toISOString();
+      const started = beginRecommendationAutomaticAttempt(vaultPath, kind, attemptStartedAt);
+      if (!started) {
+        console.log(JSON.stringify({ skipped: `${kind}_daily_cap` }));
+        return;
+      }
+    }
     const { pool, config } = buildForYouPool(vaultPath);
     const details = listLibraryArtifactDetails(vaultPath, { includeCandidates: true, limit: 100_000 }).artifacts;
     const evidence = buildRecommendationContext(vaultPath, details, {
@@ -162,6 +208,11 @@ async function main(): Promise<void> {
     });
     const previousByArtifact = new Map(
       projectedRecommendationEpisodes(vaultPath, { includeDismissed: true }).map((episode) => [episode.artifact_id, episode]),
+    );
+    const recentRecommendations = recentRecommendationTitles(
+      [...previousByArtifact.values()],
+      details,
+      new Date(now.getTime() - config.for_you.exposure_cooldown_days * 86_400_000),
     );
     const cooledPool = eligiblePool(pool, previousByArtifact, config.for_you);
     const candidates = buildEditorialCandidatePool({
@@ -187,6 +238,7 @@ async function main(): Promise<void> {
       previousByArtifact,
       maxItems: config.for_you.batch_max,
       nearDuplicate: nearDuplicateRecommendationTitles,
+      recentRecommendations,
     };
     const validation = fixture
       ? { ...validateRecommendationPicksDetailed({ ...validationInput, raw }), raw, repair_attempted: false }
@@ -208,10 +260,14 @@ async function main(): Promise<void> {
       throw new Error(`invalid_model_output: ${rejectionSummary(validation.rejections)}`);
     }
     const picks = validation.picks;
-    const generatedAt = now.toISOString();
+    // Scoring uses the invocation snapshot above, while the durable recommendation and success
+    // receipt are timestamped when the complete, validated result actually exists.
+    const generatedAt = kind === "fixture" ? now.toISOString() : new Date().toISOString();
     const batch = writeRecommendationBatch(vaultPath, {
       kind,
       generated_at: generatedAt,
+      attempt_started_at: attemptStartedAt || undefined,
+      completed_at: generatedAt,
       context_window: {
         start: new Date(now.getTime() - config.for_you.context_window_hours * 3_600_000).toISOString(),
         end: generatedAt,
@@ -242,17 +298,27 @@ async function main(): Promise<void> {
     })));
     console.log(JSON.stringify({ batch: batch.id, kind: batch.kind, picks: batch.episodes.length, pool: candidates.length }, null, 2));
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const limited = /rate.?limit|usage limit|api_error_429/i.test(message)
-      || detectRateLimitInEnvelope((error as { stdout?: string })?.stdout || "").limited;
-    const retryAt = new Date(now.getTime() + 60 * 60_000).toISOString();
+    const streams = error as { stdout?: string; stderr?: string };
+    const message = sanitizedEditorError(error);
+    const limited = message === "rate_limited"
+      || detectRateLimit(streams?.stderr).limited
+      || detectRateLimitInEnvelope(streams?.stdout || "").limited;
+    const safeMessage = limited ? "rate_limited" : message.slice(0, 500);
+    const failedAt = new Date();
+    const retryAt = new Date(failedAt.getTime() + 60 * 60_000).toISOString();
     const runtime = readRecommendationRuntime(vaultPath);
     writeRecommendationRuntime(vaultPath, {
       pending: true,
       pending_since: runtime.pending_since || now.toISOString(),
       pending_reasons: [...new Set([...runtime.pending_reasons, `editor-retry:${kind}`])],
       next_retry_at: retryAt,
-      last_error: limited ? "rate_limited" : message.slice(0, 500),
+      last_error: safeMessage,
+      ...(kind !== "fixture" ? {
+        last_attempt_at: failedAt.toISOString(),
+        last_attempt_kind: kind,
+        last_attempt_status: "failed" as const,
+        last_attempt_error: safeMessage,
+      } : {}),
     });
     if (limited || /api_error_\d+/.test(message)) {
       console.log(JSON.stringify({ skipped: limited ? "rate_limited" : "api_error", next_retry_at: retryAt }));
@@ -264,4 +330,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+main().catch((error) => {
+  console.error(JSON.stringify({ event: "recommendation_editor_failed", error: sanitizedEditorError(error) }));
+  process.exit(1);
+});

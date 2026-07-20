@@ -1957,10 +1957,22 @@ The toolbar and Library pull-to-refresh first revalidate local SWR state, then c
 
 ### POST /api/library/:id/processing/retry
 
-Requeues a retained blocked processing record, resets its automatic attempt count, clears the visible error, and returns `404` when no queue record exists. Queue watchers start the on-demand child worker.
+Retries either generation of source failure. A retained or disposition-archived processing payload is restored and queued immediately; a legacy capture whose refetch budget was exhausted clears only that item's attempt cap and waits for the next scheduled refetch. Returns `409` when the artifact has no retryable source failure.
 
 ```typescript
-{ ok: true; artifact_uid: string; status: "queued" }
+{ ok: true; artifact_uid: string; status: "queued"; recovery: "processing" }
+// or
+{ ok: true; artifact_uid: string; status: "retry_reset"; recovery: "next_scheduled_refetch" }
+```
+
+### POST /api/library/:id/source-resolution
+
+Acknowledges a source that cannot be recovered honestly. The disposition is Hilt-local, stops automated retry and Needs attention, and does not make the capture healthy or scoreable. A matching terminal processing payload is archived outside the runnable queue before the decision is committed so a later Retry can restore it. A missing or changed blocked record returns `409`; an archive or ledger failure returns `500`, leaves Needs attention visible, and does not commit the disposition. A healed capture automatically clears its old disposition.
+
+```typescript
+{ status: "unavailable" | "accepted_limited"; reason?: string } // reason max 500 chars
+
+{ ok: true; resolution: LibrarySourceResolution; processing_record_archived: boolean }
 ```
 
 ### GET /api/sources/status
@@ -1975,6 +1987,18 @@ Returns the operational Reference Library dashboard contract: launchd scheduler 
 {
   checked_at: string;
   ok: boolean;
+  status: "healthy" | "critical" | "warning" | "working";
+  summary: { critical: number; warning: number; working: number; alerts: number; total: number };
+  issues: Array<{
+    id: string; // stable, domain-qualified
+    severity: "critical" | "warning" | "working";
+    scope: "scheduler" | "source" | "dead_letters" | "intake" | "reweave" | "recommendations";
+    title: string;
+    message: string; // sanitized, one line, bounded
+    count: number;
+    target_id: string | null;
+    updated_at: string | null;
+  }>;
   scheduler: {
     loaded: number;
     expected: number;
@@ -2015,6 +2039,7 @@ Returns the operational Reference Library dashboard contract: launchd scheduler 
     queue_depth: number;
     active: number;
     blocked: number;
+    stale_records: number; // excluded from queue/blocked counts until maintenance removes them
     oldest_queued_at: string | null;
     active_item: { artifact_uid: string; title: string; path: string } | null;
   };
@@ -2023,6 +2048,10 @@ Returns the operational Reference Library dashboard contract: launchd scheduler 
     last_batch_id: string | null;
     last_batch_size: number;
     last_run_kind: "morning" | "refresh" | "legacy" | "fixture" | null;
+    last_attempt_at: string | null;
+    last_attempt_kind: "morning" | "refresh" | "legacy" | "fixture" | null;
+    last_attempt_status: "running" | "success" | "failed" | null;
+    last_attempt_error: string | null; // sanitized; never a prompt or raw command
     pending: boolean;
     pending_reasons: string[];
     next_retry_at: string | null;
@@ -2031,7 +2060,7 @@ Returns the operational Reference Library dashboard contract: launchd scheduler 
 }
 ```
 
-Scheduler log files are append-only. Health uses the successful stdout completion and log modification times to scope stderr to the latest run; older retained stderr remains on disk for inspection but does not produce a current warning, notice count, or excerpt.
+`summary.alerts` is the badge count, and every counted issue is one visible issue row. `working` is informational and keeps `ok: true`. Recommendation health prefers the structured attempt receipt; a later success supersedes older stderr, and raw recommendation stderr is never included in the response.
 
 ### CLI Source Utilities
 
@@ -2055,6 +2084,7 @@ Scheduler log files are append-only. Health uses the successful stdout completio
 - `npm run library:scheduler:plan` prints the launchd schedule without installing anything.
 - `npm run library:scheduler:install` writes and loads user-level launchd jobs for hourly ingestion, daily newsletter ingestion, retry replay, candidate cleanup, and recommendation refresh.
 - `npm run library:scheduler:uninstall` unloads and removes those launchd jobs.
+- `npm run library:health:reconcile` reports stale processing sidecars whose exact artifact is already ready. Add `-- --write` only after reviewing the dry run.
 
 X/Twitter bookmarks can use `xurl` instead of raw env tokens. Configure the source with `metadata.auth_provider: xurl`, install or build the scoped Bridge xurl binary, register an X API app with `/Users/jruck/go/bin/xurl-bridge-scoped auth apps add bridge-library --client-id ... --client-secret ... --redirect-uri http://localhost:8080/callback`, set it as the default app, and complete `/Users/jruck/go/bin/xurl-bridge-scoped auth oauth2 --app bridge-library`; then the adapter shells out to the configured xurl binary. The callback URL in the X Developer Portal must exactly match `http://localhost:8080/callback`. The Bridge source currently points at `/Users/jruck/go/bin/xurl-bridge-scoped`, which requests only `tweet.read`, `users.read`, `bookmark.read`, and `offline.access`. When the X response includes media expansions, Hilt stores the first image as `thumbnail:` and keeps the source media list for the `## Media` renderer.
 

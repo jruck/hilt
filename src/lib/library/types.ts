@@ -38,6 +38,26 @@ export interface LibraryArtifactAttention {
   attempt_count: number | null;
 }
 
+export type LibrarySourceResolutionStatus = "unavailable" | "accepted_limited";
+
+export interface LibrarySourceResolutionEvidence {
+  attention_kind: LibraryArtifactAttentionKind | null;
+  processing_stage: LibraryProcessingStage | null;
+  attempt_count: number | null;
+  error_code: string | null;
+  error_message: string | null;
+}
+
+/** Hilt-local user disposition for a source that cannot be recovered honestly. */
+export interface LibrarySourceResolution {
+  status: LibrarySourceResolutionStatus;
+  artifact_id: string;
+  path: string;
+  reason: string;
+  resolved_at: string;
+  evidence?: LibrarySourceResolutionEvidence;
+}
+
 export interface LibrarySeriesMetadata {
   id: string;
   title: string;
@@ -356,6 +376,8 @@ export interface LibraryArtifact {
   processing?: LibraryProcessingState;
   /** Derived from current processing state + the refetch-attempt ledger; never written to markdown. */
   attention?: LibraryArtifactAttention;
+  /** Hilt-local acknowledgement of an irrecoverable/accepted-limited source; never written to markdown. */
+  source_resolution?: LibrarySourceResolution;
   /** Dynamic L3 eval attributes for study items. Computed on read, never stamped into this shape. */
   eval_attrs?: LibraryEvalAttrs;
   /** Dynamic YouTube clip review attributes. Computed on read, never stamped by the filter UI. */
@@ -511,6 +533,9 @@ export interface LibraryDeadLetterSummary {
 export interface LibraryOperationalHealth {
   checked_at: string;
   ok: boolean;
+  status: "healthy" | LibraryHealthIssueSeverity;
+  summary: LibraryHealthIssueSummary;
+  issues: LibraryHealthIssue[];
   scheduler: {
     loaded: number;
     expected: number;
@@ -528,6 +553,11 @@ export interface LibraryRecommendationHealthSummary {
   last_batch_id: string | null;
   last_batch_size: number;
   last_run_kind: RecommendationBatchKind | null;
+  last_attempt_at: string | null;
+  last_attempt_kind: RecommendationBatchKind | null;
+  last_attempt_status: "running" | "success" | "failed" | null;
+  /** Sanitized, single-line operational error only; never a model prompt or raw command. */
+  last_attempt_error: string | null;
   pending: boolean;
   pending_reasons: string[];
   next_retry_at: string | null;
@@ -543,8 +573,42 @@ export interface LibraryIntakeHealthSummary {
   queue_depth: number;
   active: number;
   blocked: number;
+  /** Ready markdown artifacts whose now-redundant queue records await maintenance cleanup. */
+  stale_records: number;
   oldest_queued_at: string | null;
   active_item: { artifact_uid: string; title: string; path: string } | null;
+}
+
+export type LibraryHealthIssueSeverity = "critical" | "warning" | "working";
+
+export type LibraryHealthIssueScope =
+  | "scheduler"
+  | "source"
+  | "dead_letters"
+  | "intake"
+  | "reweave"
+  | "recommendations";
+
+export interface LibraryHealthIssue {
+  /** Stable, domain-qualified identifier used by the badge and matching diagnostic row. */
+  id: string;
+  severity: LibraryHealthIssueSeverity;
+  scope: LibraryHealthIssueScope;
+  title: string;
+  message: string;
+  /** Number of affected records behind this one issue; never multiplied into the alert badge. */
+  count: number;
+  target_id: string | null;
+  updated_at: string | null;
+}
+
+export interface LibraryHealthIssueSummary {
+  critical: number;
+  warning: number;
+  working: number;
+  /** Current blockers plus warnings. Working activity is deliberately excluded. */
+  alerts: number;
+  total: number;
 }
 
 export interface LibraryReweaveBacklogSummary {

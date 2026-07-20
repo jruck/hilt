@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
-import type { IngestionReport, LibraryArtifact, LibraryArtifactDetail, LibraryIntakeReport, LibraryOperationalHealth, LibrarySourceConfig, LibrarySourceSummary, PromotionReason, RecommendedArtifact } from "@/lib/library/types";
+import type { IngestionReport, LibraryArtifact, LibraryArtifactDetail, LibraryIntakeReport, LibraryOperationalHealth, LibrarySourceConfig, LibrarySourceResolutionStatus, LibrarySourceSummary, PromotionReason, RecommendedArtifact } from "@/lib/library/types";
 import type { ActiveBatchNote, ReviewQueueEntry, ReviewQueueStatus } from "@/lib/library/review-queue";
 import { withBasePath } from "@/lib/base-path";
 import { useEventSocketContext } from "@/contexts/EventSocketContext";
@@ -432,8 +432,23 @@ export async function intakeLibrarySources(options: { sourceIds?: string[]; limi
 
 export async function retryLibraryProcessing(id: string) {
   const res = await fetch(withBasePath(`/api/library/${id}/processing/retry`), { method: "POST" });
-  const body = await res.json().catch(() => null) as { error?: string } | null;
+  const body = await res.json().catch(() => null) as {
+    error?: string;
+    status?: "queued" | "retry_reset";
+    recovery?: "processing" | "next_scheduled_refetch";
+  } | null;
   if (!res.ok) throw new Error(body?.error || `Failed to retry processing: ${res.status}`);
+  return body;
+}
+
+export async function resolveLibrarySource(id: string, status: LibrarySourceResolutionStatus, reason?: string) {
+  const res = await fetch(withBasePath(`/api/library/${id}/source-resolution`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status, reason }),
+  });
+  const body = await res.json().catch(() => null) as { error?: string } | null;
+  if (!res.ok) throw new Error(body?.error || `Failed to resolve source: ${res.status}`);
   return body;
 }
 

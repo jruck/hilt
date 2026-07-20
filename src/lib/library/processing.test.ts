@@ -12,6 +12,7 @@ import {
   listProcessingQueue,
   processingQueueSummary,
   readProcessingQueueRecord,
+  reconcileProcessingQueue,
   retryProcessingArtifact,
   writeProcessingQueueRecord,
 } from "./processing";
@@ -20,6 +21,7 @@ import { promoteCandidateImmediately } from "./promotion";
 import { markLibraryArtifactsRead } from "./read-state";
 import { scoreArtifacts } from "./recommendations";
 import { listSavedReferences, parseReferenceFile } from "./references";
+import { parseMarkdownFile, stringifyMarkdown } from "./markdown";
 import type { LibrarySourceConfig, RawArtifact } from "./types";
 
 process.env.LIBRARY_SUMMARIZE_DISABLED = "1";
@@ -108,6 +110,120 @@ test("queue health identifies the active artifact", () => {
     title: "Introducing GPT-4.1",
     path: intake.path,
   });
+});
+
+test("queue health excludes a stale blocked record after its artifact is repaired", () => {
+  const vault = tempVault();
+  const intake = enqueueLibraryArtifact(vault, raw(), source(), { useSummarize: false });
+  const queuePath = libraryProcessingQueuePath(vault, intake.artifact_uid);
+  const record = readProcessingQueueRecord(queuePath);
+  assert.ok(record);
+  writeProcessingQueueRecord({ ...record, status: "blocked" });
+
+  const artifactPath = path.join(vault, intake.path);
+  const parsed = parseMarkdownFile(artifactPath);
+  fs.writeFileSync(artifactPath, stringifyMarkdown({
+    ...parsed.data,
+    processing: {
+      ...(parsed.data.processing as object),
+      state: "ready",
+      completed_at: "2026-07-20T12:00:00.000Z",
+      last_error: null,
+    },
+  }, parsed.body), "utf-8");
+
+  assert.deepEqual(processingQueueSummary(vault), {
+    queue_depth: 0,
+    active: 0,
+    blocked: 0,
+    stale_records: 1,
+    oldest_queued_at: null,
+    active_item: null,
+  });
+
+  const dryRun = reconcileProcessingQueue(vault);
+  assert.equal(dryRun.dry_run, true);
+  assert.equal(dryRun.stale, 1);
+  assert.equal(dryRun.removed, 0);
+  assert.equal(fs.existsSync(queuePath), true);
+
+  const write = reconcileProcessingQueue(vault, { write: true });
+  assert.equal(write.dry_run, false);
+  assert.equal(write.removed, 1);
+  assert.equal(fs.existsSync(queuePath), false);
+});
+
+test("queue reconciliation fails closed when ready markdown has a different artifact identity", () => {
+  const vault = tempVault();
+  const intake = enqueueLibraryArtifact(vault, raw(), source(), { useSummarize: false });
+  const queuePath = libraryProcessingQueuePath(vault, intake.artifact_uid);
+  const record = readProcessingQueueRecord(queuePath);
+  assert.ok(record);
+  writeProcessingQueueRecord({ ...record, status: "blocked" });
+
+  const artifactPath = path.join(vault, intake.path);
+  const parsed = parseMarkdownFile(artifactPath);
+  fs.writeFileSync(artifactPath, stringifyMarkdown({
+    ...parsed.data,
+    artifact_uid: "different-artifact",
+    processing: { ...(parsed.data.processing as object), state: "ready" },
+  }, parsed.body), "utf-8");
+
+  assert.equal(processingQueueSummary(vault).blocked, 1);
+  assert.equal(reconcileProcessingQueue(vault, { write: true }).removed, 0);
+  assert.equal(fs.existsSync(queuePath), true);
+});
+
+test("queue reconciliation never follows a malformed record into another vault", () => {
+  const vault = tempVault();
+  const otherVault = tempVault();
+  const intake = enqueueLibraryArtifact(vault, raw(), source(), { useSummarize: false });
+  const queuePath = libraryProcessingQueuePath(vault, intake.artifact_uid);
+  const record = readProcessingQueueRecord(queuePath);
+  assert.ok(record);
+
+  const parsed = parseMarkdownFile(path.join(vault, intake.path));
+  fs.writeFileSync(path.join(vault, intake.path), stringifyMarkdown({
+    ...parsed.data,
+    processing: { ...(parsed.data.processing as object), state: "ready" },
+  }, parsed.body), "utf-8");
+  fs.writeFileSync(queuePath, `${JSON.stringify({ ...record, vault_path: otherVault, status: "blocked" }, null, 2)}\n`, "utf-8");
+
+  assert.equal(reconcileProcessingQueue(vault, { write: true }).removed, 0);
+  assert.equal(fs.existsSync(queuePath), true);
+});
+
+test("queue reconciliation preserves work rewritten after its initial stale scan", () => {
+  const vault = tempVault();
+  const intake = enqueueLibraryArtifact(vault, raw(), source(), { useSummarize: false });
+  const queuePath = libraryProcessingQueuePath(vault, intake.artifact_uid);
+  const record = readProcessingQueueRecord(queuePath);
+  assert.ok(record);
+  writeProcessingQueueRecord({ ...record, status: "blocked" });
+
+  const artifactPath = path.join(vault, intake.path);
+  const parsed = parseMarkdownFile(artifactPath);
+  fs.writeFileSync(artifactPath, stringifyMarkdown({
+    ...parsed.data,
+    processing: { ...(parsed.data.processing as object), state: "ready" },
+  }, parsed.body), "utf-8");
+
+  const result = reconcileProcessingQueue(vault, {
+    write: true,
+    beforeRemove: () => {
+      const current = readProcessingQueueRecord(queuePath);
+      assert.ok(current);
+      writeProcessingQueueRecord({
+        ...current,
+        status: "queued",
+        updated_at: "2026-07-20T13:00:00.000Z",
+      });
+    },
+  });
+
+  assert.equal(result.stale, 1);
+  assert.equal(result.removed, 0);
+  assert.equal(readProcessingQueueRecord(queuePath)?.status, "queued");
 });
 
 test("an explicit save promotes an active candidate and its queue follows the UID", async () => {

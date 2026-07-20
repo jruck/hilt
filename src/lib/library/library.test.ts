@@ -28,7 +28,7 @@ import { parseMarkdownFile, stringifyMarkdown } from "./markdown";
 import { markLibraryArtifactsRead } from "./read-state";
 import { PIPELINE_VERSION } from "./pipeline";
 import { buildForYouPool, getRecommendations, scoreArtifacts } from "./recommendations";
-import { writeRecommendationBatch } from "./recommendation-store";
+import { beginRecommendationAutomaticAttempt, writeRecommendationBatch, writeRecommendationRuntime } from "./recommendation-store";
 import { findReweavePendingTargets } from "./reweave-pending";
 import { evaluateArtifact, structuralSubstance } from "./library-eval";
 import { artifactTaxonomy } from "./taxonomy";
@@ -3430,8 +3430,10 @@ fixtures: []
     "health-source": { last_checked_at: "2026-05-28T10:00:00.000Z", last_success_at: "2026-05-28T10:00:00.000Z" },
   }, null, 2), "utf-8");
 
-  const health = getLibraryOperationalHealth(vault, { launchctl: () => "last exit code = 0" });
-  assert.equal(health.scheduler.loaded, librarySchedulerJobs().length);
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-library-logs-"));
+  const jobs = librarySchedulerJobs(logDir);
+  const health = getLibraryOperationalHealth(vault, { launchctl: () => "last exit code = 0", schedulerJobs: jobs });
+  assert.equal(health.scheduler.loaded, jobs.length);
   assert.equal(health.sources[0].status, "ok");
   assert.equal(health.dead_letters.total, 0);
   assert.equal(health.dead_letters.unresolved, 0);
@@ -3665,6 +3667,125 @@ fixtures: []
   });
   assert.equal(health.scheduler.jobs[0].status, "warning");
   assert.match(health.scheduler.jobs[0].message || "", /Error: source auth expired/);
+});
+
+test("library health exposes one authoritative issue contract", () => {
+  const vault = tempVault();
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-library-logs-"));
+  const health = getLibraryOperationalHealth(vault, {
+    launchctl: () => { throw new Error("not loaded"); },
+    schedulerJobs: [{
+      id: "fixture-job",
+      label: "com.hilt.library.fixture",
+      script: "library:fixture",
+      schedule: { intervalSeconds: 3600 },
+      stdout: path.join(logDir, "job.out.log"),
+      stderr: path.join(logDir, "job.err.log"),
+    }],
+  });
+
+  assert.equal(health.ok, false);
+  assert.equal(health.status, "critical");
+  assert.deepEqual(health.summary, { critical: 1, warning: 0, working: 0, alerts: 1, total: 1 });
+  assert.deepEqual(health.issues.map(({ id, severity, scope, count }) => ({ id, severity, scope, count })), [{
+    id: "scheduler:fixture-job",
+    severity: "critical",
+    scope: "scheduler",
+    count: 1,
+  }]);
+});
+
+test("a recommendation completed after repair stderr supersedes that retained stderr", () => {
+  const vault = tempVault();
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-library-logs-"));
+  const stderr = path.join(logDir, "recommendations.err.log");
+  const stdout = path.join(logDir, "recommendations.out.log");
+  fs.writeFileSync(stderr, "Error: invalid recommendation output\n", "utf-8");
+  fs.writeFileSync(stdout, "failed\n", "utf-8");
+  const startedAt = "2026-07-20T10:00:00.000Z";
+  const failedAt = new Date("2026-07-20T10:01:00.000Z");
+  const completedAt = "2026-07-20T10:02:00.000Z";
+  fs.utimesSync(stderr, failedAt, failedAt);
+  fs.utimesSync(stdout, failedAt, failedAt);
+  beginRecommendationAutomaticAttempt(vault, "morning", startedAt, "America/New_York");
+  writeRecommendationBatch(vault, {
+    kind: "morning",
+    generated_at: completedAt,
+    completed_at: completedAt,
+    context_window: { start: startedAt, end: startedAt },
+    pool_size: 1,
+    picks: [{
+      artifact_id: "completed-after-repair",
+      why_now: "Validated after one repair",
+      triggers: [{ id: "artifact:completed-after-repair", kind: "artifact", label: "Saved item", occurred_at: startedAt, fingerprint: "completed-after-repair" }],
+      scores: { worth: 0.8, relevance: 0.8, substance: 1, freshness: 1 },
+    }],
+  });
+
+  const health = getLibraryOperationalHealth(vault, {
+    launchctl: () => "last exit code = 0",
+    schedulerJobs: [{
+      id: "recommendations",
+      label: "com.hilt.library.recommendations",
+      script: "library:recommendations",
+      schedule: { hour: 5, minute: 20 },
+      stdout,
+      stderr,
+    }],
+  });
+
+  assert.equal(health.scheduler.jobs[0].status, "ok");
+  assert.equal(health.scheduler.jobs[0].stderr_current, false);
+  assert.match(health.scheduler.jobs[0].message || "", /later recommendation run completed successfully/);
+  assert.equal(health.summary.alerts, 0);
+  assert.equal(health.ok, true);
+});
+
+test("recommendation runtime and scheduler failure produce one warning issue", () => {
+  const vault = tempVault();
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "hilt-library-logs-"));
+  const stderr = path.join(logDir, "recommendations.err.log");
+  const stdout = path.join(logDir, "recommendations.out.log");
+  fs.writeFileSync(stderr, "Error: invalid recommendation output\n", "utf-8");
+  fs.writeFileSync(stdout, "failed\n", "utf-8");
+  writeRecommendationRuntime(vault, {
+    last_error: "The editor returned invalid recommendation IDs.",
+    pending: true,
+  });
+
+  const health = getLibraryOperationalHealth(vault, {
+    launchctl: () => "last exit code = 0",
+    schedulerJobs: [{
+      id: "recommendations",
+      label: "com.hilt.library.recommendations",
+      script: "library:recommendations",
+      schedule: { hour: 5, minute: 20 },
+      stdout,
+      stderr,
+    }],
+  });
+
+  assert.equal(health.summary.warning, 1);
+  assert.equal(health.summary.alerts, 1);
+  assert.equal(health.scheduler.jobs[0].stderr_excerpt, null);
+  assert.deepEqual(health.issues.filter((issue) => issue.scope === "recommendations").map((issue) => issue.id), ["recommendations:runtime"]);
+  assert.equal(health.issues.find((issue) => issue.scope === "recommendations")?.message, "Recommendation editor failed; a retry is required.");
+});
+
+test("queued recommendation work is healthy working state, not an alert", () => {
+  const vault = tempVault();
+  writeRecommendationRuntime(vault, {
+    pending: true,
+    pending_reasons: ["/Users/example/private/meetings/transcripts/current-work.md"],
+    last_error: null,
+  });
+  const health = getLibraryOperationalHealth(vault, { schedulerJobs: [], launchctl: () => "last exit code = 0" });
+  assert.equal(health.status, "working");
+  assert.equal(health.ok, true);
+  assert.deepEqual(health.summary, { critical: 0, warning: 0, working: 1, alerts: 0, total: 1 });
+  assert.equal(health.issues[0].id, "recommendations:pending");
+  assert.equal(health.issues[0].message, "Refresh queued after 1 relevant change.");
+  assert.doesNotMatch(health.issues[0].message, /Users|transcripts/);
 });
 
 test("auth verifier reports missing source credentials without exposing values", async () => {

@@ -1,7 +1,5 @@
 "use client";
 
-/* eslint-disable react-hooks/refs -- Tiptap extension callbacks read stable refs from editor event handlers. */
-
 import { useEffect, useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { useScope } from "@/contexts/ScopeContext";
@@ -331,6 +329,7 @@ export function BridgeTaskEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3, 4] },
+        link: false,
         trailingNode: trailingNode ? undefined : false,
       }),
       Link.configure({
